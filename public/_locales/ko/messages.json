@@ -2271,6 +2271,10 @@
     "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
   },
+  "meetGuardianYourGuardian": {
+    "message": "내 Guardian",
+    "englishSource": "Your Guardian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

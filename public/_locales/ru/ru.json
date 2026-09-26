@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "Требует внимания",
   "guardianCheckingLabel": "Проверка",
   "whatIsAGuardian": "Что такое «Guardian»?",
+  "meetGuardianYourGuardian": "Ваш Guardian",
   "guardianInfoDescription": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
   "guardianInfoWhatItDoesTitle": "Для чего это нужно",
   "guardianInfoWhatItDoesDescription": "Совершает совместную подпись каждой транзакции — ни ваше устройство, ни «Guardian» не могут перемещать средства самостоятельно. Помогает восстановить доступ к учетной записи в случае потери устройства.",

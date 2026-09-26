@@ -7,7 +7,6 @@ import { useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvide
 import { Button } from 'components/Button';
 import { NetworkNoticeRows } from 'components/NetworkNoticeRows';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useLocation } from 'lib/woozie';
 
@@ -43,17 +42,6 @@ export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange
       onOpenChangeRef.current(false);
     }
   }, [pathname, hash, pageActive]);
-
-  // Mobile back closes it before anything underneath handles the press.
-  useMobileBackHandler(
-    () => {
-      if (!open) return false;
-      onOpenChangeRef.current(false);
-      return true;
-    },
-    [open],
-    { overlay: true }
-  );
 
   // A foregrounded dApp's native window sits above the host WebView and would cover the sheet; the
   // provider hides it while this holds.

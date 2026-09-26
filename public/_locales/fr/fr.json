@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "Nécessite votre attention",
   "guardianCheckingLabel": "En vérification",
   "whatIsAGuardian": "Qu’est-ce qu’un «Guardian» ?",
+  "meetGuardianYourGuardian": "Votre Guardian",
   "guardianInfoDescription": "Un « Guardian » est un service indépendant qui <b>cosigne chaque transaction</b> depuis votre portefeuille, ajoutant ainsi un filet de sécurité sans que vous ayez à renoncer à la gestion autonome de vos actifs.",
   "guardianInfoWhatItDoesTitle": "Fonctionnalités",
   "guardianInfoWhatItDoesDescription": "Il cosigne chaque transaction : ni votre appareil ni le Guardian ne peuvent transférer des fonds seuls. Il vous aide à récupérer votre compte si vous perdez votre appareil.",

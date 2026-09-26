@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
+import { hapticLight } from 'lib/mobile/haptics';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { MeetGuardianScreen } from './MeetGuardian';
@@ -27,6 +28,10 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
+
+jest.mock('./GuardianInfoDrawer', () => ({
+  GuardianInfoDrawer: ({ open }: { open: boolean }) => <div data-testid="info-drawer" data-open={String(open)} />
+}));
 
 const OZ = {
   id: 'open-zeppelin',
@@ -79,14 +84,16 @@ beforeEach(() => {
 });
 
 describe('MeetGuardianScreen', () => {
-  it('opens on the title, the explainer and three unchecked facts in one group, with Continue closed', () => {
+  it('opens on the title, the explainer and three unchecked facts as plain rows, with Continue closed', () => {
     renderScreen();
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('setUpYourAccount');
-    expect(heading).toHaveClass('text-hero-value');
-    expect(heading.parentElement).toHaveClass('items-center', 'text-center');
-    expect(heading.closest('[data-slot="body"]')).toHaveClass('px-6', 'overflow-y-auto');
+    // The same left-aligned step heading as the testnet notice before it.
+    expect(heading).toHaveClass('text-title-tab');
+    expect(heading.parentElement).toHaveClass('items-start');
+    expect(heading.closest('[data-slot="body"]')).toHaveClass('overflow-y-auto');
+    expect(heading.closest('[data-slot="body"]')).not.toHaveClass('px-6');
     expect(screen.getByText('setUpYourAccountDescription')).toHaveClass('text-muted');
     const boxes = screen.getAllByRole('checkbox');
     expect(boxes).toHaveLength(3);
@@ -94,18 +101,67 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByRole('checkbox', { name: 'meetGuardianSeedPhraseTitle' })).toHaveAccessibleDescription(
       'meetGuardianSeedPhraseBody'
     );
-    expect(boxes[0]!.parentElement).toHaveClass('rounded-2xl', 'bg-fill');
+    // Plain rows on the page, no group fill.
+    expect(boxes[0]!.parentElement).not.toHaveClass('bg-fill');
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
     expect(screen.queryByTestId('meet-guardian-card')).toBeNull();
   });
 
-  it('shows the checking card once all facts are ticked and no operator has answered yet', () => {
-    renderScreen();
+  it('leads with the Guardian section above the facts, before anything is ticked', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    // Shown from the start, not unfolded by the last tick.
+    const section = screen.getByTestId('meet-guardian-section');
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
+    expect(section).toHaveTextContent('meetGuardianYourGuardian');
+    const firstFact = screen.getByTestId(CHECKS[0]!);
+    expect(section.compareDocumentPosition(firstFact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Continue still waits for the three ticks.
+    expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
     tickAll();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
+  });
+
+  it('opens the "What is a Guardian?" sheet from the section header', () => {
+    renderScreen();
+
+    expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
+    fireEvent.click(screen.getByTestId('meet-guardian-info'));
+    expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'true');
+    // TextAction owns the tap haptic: one tap, one buzz.
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the checking card while no operator has answered, and keeps Continue closed after every tick', () => {
+    renderScreen();
 
     expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianChecking')).toBeInTheDocument();
+    tickAll();
+    expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+  });
+
+  it("offers the chosen operator's change action as TextAction's row, with its one haptic and focus ring", () => {
+    const onChooseDifferent = jest.fn();
+    const view = renderScreen({ onChooseDifferent });
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    // The action closes the section, after the card rather than inside it.
+    const action = screen.getByTestId('meet-guardian-choose-different');
+    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(action);
+    expect(screen.getByTestId('meet-guardian-card')).not.toContainElement(action);
+    expect(action).toHaveClass('focus-visible:ring-accent-primary', 'w-full', 'justify-between');
+    fireEvent.click(action);
+    expect(onChooseDifferent).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
   it('picks the fastest online operator once every operator has answered, and submits it', () => {
@@ -134,7 +190,8 @@ describe('MeetGuardianScreen', () => {
     // Every guarantee is drawn with the same check, none with a cross.
     const card = screen.getByTestId('meet-guardian-card');
     expect(card.querySelectorAll('li')).toHaveLength(3);
-    expect(card.querySelectorAll('li .text-positive-ink')).toHaveLength(3);
+    expect(card.querySelectorAll('li .bg-positive-tint')).toHaveLength(3);
+    expect(screen.getByTestId('meet-guardian-fastest')).toHaveTextContent('meetGuardianFastestOf:2');
 
     const button = screen.getByTestId('meet-guardian-continue');
     expect(button).toBeEnabled();
@@ -308,5 +365,95 @@ describe('MeetGuardianScreen', () => {
     tickAll();
     view.setVerdicts({ [OZ.endpoint]: { status: 'online', latencyMs: 30 } });
     expect(screen.getByText('meetGuardianOnlyOperator')).toBeInTheDocument();
+  });
+});
+
+describe('MeetGuardianScreen: shared pieces', () => {
+  it('draws the header, the guarantees and the checklist from the shared components', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    // The header is SectionHeader, flush, with the info action as its action.
+    const header = screen.getByTestId('meet-guardian-header');
+    expect(header).toHaveClass('px-0', 'pb-0');
+    expect(within(header).getByRole('heading', { level: 2 })).toHaveTextContent('meetGuardianYourGuardian');
+    expect(within(header).getByTestId('meet-guardian-info')).toBeInTheDocument();
+
+    // The guarantees are FactRow items with a small tinted IconCircle, in an outlined list.
+    const list = screen.getByTestId('meet-guardian-guarantees');
+    expect(list.tagName).toBe('UL');
+    expect(list).toHaveClass('rounded-2xl', 'border', 'border-hairline');
+    const items = Array.from(list.children);
+    expect(items).toHaveLength(3);
+    for (const item of items) {
+      expect(item.tagName).toBe('LI');
+      expect(item).toHaveAttribute('data-slot', 'fact-row');
+      expect(item.querySelector('[data-slot="icon"]')).toHaveClass('size-5', 'bg-positive-tint');
+    }
+
+    // The checklist keeps each row's own inset through ListGroup, not a page override, and its full height.
+    const group = screen.getAllByRole('checkbox')[0]!.parentElement!;
+    expect(group).toHaveClass('shrink-0', '[&>*]:before:left-[var(--row-flush-inset,0px)]');
+    expect(group.className).not.toContain('before:left-9');
+
+    // A long operator name clips inside its column.
+    expect(screen.getByTestId('meet-guardian-name')).toHaveClass('truncate', 'max-w-full');
+  });
+
+  it('offers the one change action, the row, while checking and when no operator answers', () => {
+    const view = renderScreen();
+    const row = () => screen.getByTestId('meet-guardian-choose-different');
+    expect(screen.getByTestId('meet-guardian-checking')).not.toContainElement(row());
+    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(row());
+    expect(row()).toHaveClass('w-full', 'justify-between');
+
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'offline' },
+      [GATEWAY.endpoint]: { status: 'offline' }
+    });
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+    expect(row()).toHaveClass('w-full', 'justify-between');
+  });
+
+  it('keeps the change action the same element, focus and all, when the round settles', () => {
+    const view = renderScreen();
+    const action = screen.getByTestId('meet-guardian-choose-different');
+    act(() => action.focus());
+
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    expect(screen.getByTestId('meet-guardian-card')).toBeInTheDocument();
+    expect(screen.getByTestId('meet-guardian-choose-different')).toBe(action);
+    expect(action.isConnected).toBe(true);
+    expect(document.activeElement).toBe(action);
+  });
+
+  it("holds the card's shape while checking: a three-row placeholder where the guarantees will be", () => {
+    renderScreen();
+
+    const placeholder = within(screen.getByTestId('meet-guardian-checking')).getByTestId(
+      'meet-guardian-guarantees-placeholder'
+    );
+    expect(placeholder.tagName).toBe('UL');
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder.children).toHaveLength(3);
+  });
+
+  it('tags the fastest operator with a neutral pill, not a status colour', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    const tag = screen.getByTestId('meet-guardian-fastest');
+    expect(tag).toHaveClass('bg-fill', 'text-ink');
+    expect(tag).not.toHaveClass('bg-positive-tint');
   });
 });

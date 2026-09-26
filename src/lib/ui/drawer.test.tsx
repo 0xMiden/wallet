@@ -13,8 +13,21 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isExtension: jest.fn(() => false)
+  isExtension: jest.fn(() => false),
+  isMobile: jest.fn(() => true)
 }));
+
+// The real useMobileBackHandler over a recorded registry: every registration with its options and
+// its own unregister spy, so a test sees which handler is live.
+const mockRegistrations: { handler: () => boolean | void; options: unknown; unregister: jest.Mock }[] = [];
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
+    const unregister = jest.fn();
+    mockRegistrations.push({ handler, options, unregister });
+    return unregister;
+  }
+}));
+const liveBackHandlers = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
 
 describe('Drawer', () => {
   it('renders the open drawer through the local API and closes from the header button', () => {
@@ -290,5 +303,46 @@ describe('Drawer', () => {
       expect(wrapper.style.transform).toContain('scale(');
       expect(document.body.style.cssText).not.toContain('black');
     });
+  });
+});
+
+describe('Drawer mobile back', () => {
+  const sheet = (props: Partial<React.ComponentProps<typeof Drawer>> = {}) => (
+    <Drawer open={false} onOpenChange={jest.fn()} {...props}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>Sheet</DrawerTitle>
+        </DrawerHeader>
+      </DrawerContent>
+    </Drawer>
+  );
+
+  beforeEach(() => {
+    mockRegistrations.length = 0;
+  });
+
+  it('registers nothing while closed, and closes the open sheet ahead of any page handler', () => {
+    const onOpenChange = jest.fn();
+    const view = render(sheet({ onOpenChange }));
+    expect(liveBackHandlers()).toHaveLength(0);
+
+    // The production shape: open and onOpenChange, no dismissible prop.
+    view.rerender(sheet({ open: true, onOpenChange }));
+    expect(liveBackHandlers()).toHaveLength(1);
+    expect(liveBackHandlers()[0]!.options).toEqual({ overlay: true });
+    expect(liveBackHandlers()[0]!.handler()).toBe(true);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    view.rerender(sheet({ onOpenChange }));
+    expect(liveBackHandlers()).toHaveLength(0);
+  });
+
+  it('leaves back to the host for a sheet its host closes, and to the caller for a non-dismissible one', () => {
+    render(sheet({ open: true, closeOnBack: false }));
+    expect(liveBackHandlers()).toHaveLength(0);
+    cleanup();
+
+    render(sheet({ open: true, dismissible: false }));
+    expect(liveBackHandlers()).toHaveLength(0);
   });
 });

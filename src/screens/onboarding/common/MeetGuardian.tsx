@@ -1,24 +1,25 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
-import { Card } from 'components/ui/Card';
 import { CheckboxRow } from 'components/ui/Checkbox';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
-import { usePreset } from 'lib/animation';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
+import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface MeetGuardianPoint {
@@ -63,14 +64,14 @@ export interface MeetGuardianScreenProps {
 }
 
 /**
- * The create flow's guardian step. The user ticks the three facts about a private account; once
- * all three are ticked the card of the fastest
- * reachable operator appears and Continue opens. The operator is chosen once, when every
+ * The create flow's guardian step. The fastest reachable operator leads the page, under a "Your
+ * Guardian" header whose "What is a Guardian?" opens the explainer sheet; the three facts about a
+ * private account follow, and Continue opens once all three are ticked. The operator is chosen once, when every
  * operator has answered its first ping, so the card does not change under the user while later
  * rounds refresh the number on it. An operator that later goes offline closes Continue and says
- * so on the card. Once the facts are ticked, "Choose a different Guardian" is offered while the
- * first round is out, beside the chosen operator and when none answers; a network with no
- * operator at all says so and offers nothing to pick.
+ * so on the card. "Choose a different Guardian" is offered while the first round is out, beside the
+ * chosen operator and when none answers; a network with no operator at all says so and offers
+ * nothing to pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   progress,
@@ -80,7 +81,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
-  const reveal = usePreset('reveal');
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { checked, chosenId } = progress;
   const allChecked = MEET_GUARDIAN_POINTS.every(point => checked[point.id]);
 
@@ -128,8 +129,10 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
 
+  // One action in every state, rendered once after the state's block: the full-width row that closes the
+  // section. Settling the round swaps the block above it, never the action, so a press or focus survives.
   const chooseDifferent = noOperators ? null : (
-    <TextAction className="-mx-1 self-start" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+    <TextAction layout="row" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
       {t('chooseDifferentGuardian')}
     </TextAction>
   );
@@ -137,8 +140,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   return (
     <OnboardingStepLayout
       data-testid="onboarding-meet-guardian"
-      heading="hero"
-      inset="px-6"
       title={t('setUpYourAccount')}
       description={t('setUpYourAccountDescription')}
       footer={
@@ -158,8 +159,109 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         </>
       }
     >
-      {/* Both blocks keep their full height so the body scrolls rather than squashing them. */}
-      <ListGroup className="shrink-0">
+      {/* The Guardian leads the page, there from the start, and the facts that explain it follow.
+          Both blocks keep their full height so the body scrolls rather than squashing them. */}
+      <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
+        <SectionHeader
+          className="px-0 pb-0"
+          data-testid="meet-guardian-header"
+          action={
+            <TextAction className="-mx-1 gap-1.5" data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
+              <Icon name={IconName.Information} size="sm" fill="currentColor" />
+              {t('whatIsAGuardian')}
+            </TextAction>
+          }
+        >
+          {t('meetGuardianYourGuardian')}
+        </SectionHeader>
+
+        {chosen ? (
+          <div data-testid="meet-guardian-card" className="flex flex-col" aria-busy={chosenVerdict === undefined}>
+            <div className="flex items-center gap-3">
+              <GuardianLogoTile guardianId={chosen.id} />
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                {/* max-w-full: in an items-start column a truncating span is otherwise as wide as its text. */}
+                <span className="max-w-full truncate text-title-page text-ink" data-testid="meet-guardian-name">
+                  {chosen.name}
+                </span>
+                {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
+                {!(progress.pickedByUser && options.length > 1) && (
+                  <Pill size="sm" data-testid="meet-guardian-fastest">
+                    {options.length > 1
+                      ? t('meetGuardianFastestOf', { operators: String(options.length) })
+                      : t('meetGuardianOnlyOperator')}
+                  </Pill>
+                )}
+              </div>
+              {/* Nothing once it answers. A card kept from before the picker has no verdict yet, so it says
+                  it is checking (Continue waits for the answer); a later round that loses the operator shows
+                  offline, which is why Continue closed. */}
+              {chosenVerdict === undefined ? (
+                <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
+              ) : chosenVerdict.status === 'offline' ? (
+                <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
+              ) : null}
+            </div>
+
+            <p className="mt-2.5 text-caption-heading text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
+
+            {/* What every operator guarantees, in an outlined list with a positive disc per line. */}
+            <ListGroup as="ul" surface="outline" className="mt-3.5 px-3 py-1" data-testid="meet-guardian-guarantees">
+              {GUARDIAN_GUARANTEE_KEYS.map(key => (
+                <FactRow
+                  key={key}
+                  as="li"
+                  variant="item"
+                  leading={
+                    <IconCircle size="sm" className="bg-positive-tint text-positive-tint-ink">
+                      <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
+                    </IconCircle>
+                  }
+                  title={t(key)}
+                />
+              ))}
+            </ListGroup>
+          </div>
+        ) : noneReachable ? (
+          <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
+            {t('meetGuardianNoneReachable')}
+          </Notice>
+        ) : (
+          // The card's shape while the first round is out, so the checklist below barely moves when the
+          // card replaces it: the logo row, a line where the bio goes, and the guarantees' three rows.
+          <div data-testid="meet-guardian-checking" className="flex flex-col" aria-busy>
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-12 rounded-xl" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3.5 w-40" />
+              </div>
+            </div>
+            <span className="mt-2.5 text-caption text-muted">{t('meetGuardianChecking')}</span>
+            <ListGroup
+              as="ul"
+              surface="outline"
+              className="mt-3.5 px-3 py-1"
+              aria-hidden
+              data-testid="meet-guardian-guarantees-placeholder"
+            >
+              {GUARDIAN_GUARANTEE_KEYS.map(key => (
+                <FactRow
+                  key={key}
+                  as="li"
+                  variant="item"
+                  leading={<Skeleton className="size-5 rounded-full" />}
+                  title={<Skeleton className="h-4 w-40" />}
+                />
+              ))}
+            </ListGroup>
+          </div>
+        )}
+        {chooseDifferent}
+      </section>
+
+      {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}
+      <ListGroup surface="plain" insetHairlines className="shrink-0">
         {MEET_GUARDIAN_POINTS.map(point => (
           <CheckboxRow
             key={point.id}
@@ -174,82 +276,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         ))}
       </ListGroup>
 
-      {/* The card unfolds under the list once the last fact is ticked, and folds away if one is unticked. */}
-      <AnimatePresence initial={false}>
-        {allChecked && (
-          <motion.div key="guardian" className="shrink-0 overflow-hidden" {...reveal}>
-            {chosen ? (
-              <Card
-                data-testid="meet-guardian-card"
-                className="flex flex-col gap-3"
-                aria-busy={chosenVerdict === undefined}
-              >
-                <div className="flex items-center gap-3">
-                  <GuardianLogoTile guardianId={chosen.id} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
-                    {!(progress.pickedByUser && options.length > 1) && (
-                      <span className="text-caption text-muted">
-                        {options.length > 1
-                          ? t('meetGuardianFastestOf', { operators: String(options.length) })
-                          : t('meetGuardianOnlyOperator')}
-                      </span>
-                    )}
-                    <span className="truncate text-row-title text-ink" data-testid="meet-guardian-name">
-                      {chosen.name}
-                    </span>
-                  </div>
-                  {/* Nothing once it answers. A card kept from before the picker has no verdict yet, so it says
-                      it is checking (Continue waits for the answer); a later round that loses the operator shows
-                      offline, which is why Continue closed. */}
-                  {chosenVerdict === undefined ? (
-                    <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
-                  ) : chosenVerdict.status === 'offline' ? (
-                    <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-                  ) : null}
-                </div>
-
-                <ul className="flex flex-col gap-2">
-                  {GUARDIAN_GUARANTEE_KEYS.map(key => (
-                    <li key={key} className="flex items-start gap-2">
-                      <span
-                        aria-hidden="true"
-                        className="flex size-4.5 shrink-0 items-center justify-center text-positive-ink"
-                      >
-                        <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-                      </span>
-                      <span className="text-caption text-ink">{t(key)}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <p className="text-caption text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
-
-                {chooseDifferent}
-              </Card>
-            ) : noneReachable ? (
-              <div className="flex flex-col gap-3">
-                <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-                  {t('meetGuardianNoneReachable')}
-                </Notice>
-                {chooseDifferent}
-              </div>
-            ) : (
-              <Card data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy>
-                <div className="flex items-center gap-3">
-                  <Skeleton className="size-12 rounded-xl bg-fill-pressed" />
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <Skeleton className="h-3.5 w-32 bg-fill-pressed" />
-                    <Skeleton className="h-4 w-40 bg-fill-pressed" />
-                  </div>
-                </div>
-                <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
-                {chooseDifferent}
-              </Card>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </OnboardingStepLayout>
   );
 };

@@ -2271,6 +2271,10 @@
     "message": "Що таке «Guardian»?",
     "englishSource": "What is a Guardian?"
   },
+  "meetGuardianYourGuardian": {
+    "message": "Ваш Guardian",
+    "englishSource": "Your Guardian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

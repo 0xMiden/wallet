@@ -2271,6 +2271,10 @@
     "message": "Guardian nedir?",
     "englishSource": "What is a Guardian?"
   },
+  "meetGuardianYourGuardian": {
+    "message": "Guardian'ınız",
+    "englishSource": "Your Guardian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

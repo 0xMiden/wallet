@@ -1,7 +1,6 @@
 import React from 'react';
 
 import { SubPageLayout, SubPageLayoutProps } from 'components/ui/SubPageLayout';
-import { cn } from 'lib/ui/util';
 
 export interface OnboardingStepLayoutProps {
   /** Above the title: a tag such as the network's chip. */
@@ -18,10 +17,6 @@ export interface OnboardingStepLayoutProps {
   footer?: React.ReactNode;
   /** `stack` (default) puts the footer's buttons one above the other; `row` splits the row. */
   footerLayout?: SubPageLayoutProps['footerLayout'];
-  /** `hero`: the heading block centred, with the larger `text-hero-value` title (Meet your Guardian). */
-  heading?: 'default' | 'hero';
-  /** Extra inset for the heading and the body, on top of the 16px page margin: `px-6` for 24px sides. */
-  inset?: string;
   'data-testid'?: string;
 }
 
@@ -39,30 +34,14 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   children,
   footer,
   footerLayout = 'stack',
-  heading = 'default',
-  inset,
   'data-testid': dataTestId
 }) => (
   // No tab bar is ever drawn over onboarding, so the pinned CTA keeps the flat 16px margin.
-  <SubPageLayout
-    data-testid={dataTestId}
-    footer={footer}
-    footerLayout={footerLayout}
-    footerNavbarCushion={false}
-    bodyClassName={inset}
-  >
+  <SubPageLayout data-testid={dataTestId} footer={footer} footerLayout={footerLayout} footerNavbarCushion={false}>
     {(eyebrow || title || description || aside) && (
-      <div
-        data-slot="step-heading"
-        className={cn(
-          'flex shrink-0 flex-col gap-2 pt-4',
-          heading === 'hero' ? 'items-center text-center' : 'items-start'
-        )}
-      >
+      <div data-slot="step-heading" className="flex shrink-0 flex-col items-start gap-2 pt-4">
         {eyebrow && <div className="pb-1">{eyebrow}</div>}
-        {title && (
-          <h1 className={cn(heading === 'hero' ? 'text-hero-value' : 'text-title-tab', 'text-ink')}>{title}</h1>
-        )}
+        {title && <h1 className="text-title-tab text-ink">{title}</h1>}
         {description && <div className="text-explainer text-muted">{description}</div>}
         {aside}
       </div>

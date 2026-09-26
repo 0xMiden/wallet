@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -19,21 +19,9 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey
 }));
 
-// useMobileBackHandler re-registers when its deps change; capture the handler from the latest
-// render, and its deps, which decide whether the real hook re-registers (a stale closure passes
-// otherwise).
-const mockBack: { handler: (() => boolean | void) | null; deps: unknown; options: unknown } = {
-  handler: null,
-  deps: undefined,
-  options: undefined
-};
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (handler: () => boolean | void, ...rest: unknown[]) => {
-    mockBack.handler = handler;
-    mockBack.deps = rest[0];
-    mockBack.options = rest[1];
-  }
-}));
+// The sheet's closeOnBack as the shared Drawer receives it: left unset, the Drawer closes the sheet on
+// mobile back (drawer.test pins how).
+let mockDrawerCloseOnBack: boolean | undefined = true;
 
 const mockLocation = { pathname: '/', hash: '' };
 jest.mock('lib/woozie', () => ({
@@ -58,19 +46,23 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange?: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
-  }) =>
-    open ? (
+  }) => {
+    mockDrawerCloseOnBack = closeOnBack;
+    return open ? (
       <div>
         {/* Stands in for the header X, swipe-down and overlay tap: all close through onOpenChange. */}
         <button type="button" aria-label="close" onClick={() => onOpenChange?.(false)} />
         {children}
       </div>
-    ) : null,
+    ) : null;
+  },
   DrawerContent: ({ children, className }: { children: React.ReactNode; className?: string }) => (
     <div data-testid="drawer-content" className={className}>
       {children}
@@ -103,9 +95,6 @@ describe('NetworkModeSheet', () => {
     mockLocation.pathname = '/';
     mockLocation.hash = '';
     mockPageActive.value = true;
-    mockBack.handler = null;
-    mockBack.deps = undefined;
-    mockBack.options = undefined;
     jest.mocked(hapticLight).mockClear();
     mockHideForegroundDapp.mockClear();
   });
@@ -157,32 +146,13 @@ describe('NetworkModeSheet', () => {
     expect(screen.getByTestId('drawer-content')).not.toHaveClass('overflow-hidden');
   });
 
-  it('closes on mobile back while open, and passes back on when closed', () => {
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
     render(<Harness />);
+    expect(mockDrawerCloseOnBack).toBeUndefined();
 
-    let consumed: boolean | void = undefined;
-    act(() => {
-      consumed = mockBack.handler!();
-    });
-    expect(consumed).toBe(true);
+    // The Drawer's back close calls onOpenChange(false), the same path as the header X.
+    fireEvent.click(screen.getByRole('button', { name: 'close' }));
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
-
-    expect(mockBack.handler!()).toBe(false);
-  });
-
-  it('registers its back handler in the overlay tier, ahead of any page', () => {
-    render(<Harness />);
-
-    expect(mockBack.options).toEqual({ overlay: true });
-  });
-
-  it('re-registers its back handler whenever the sheet opens or closes', () => {
-    render(<Harness initialOpen={false} />);
-    expect(mockBack.deps).toEqual([false]);
-
-    fireEvent.click(screen.getByTestId('opener'));
-
-    expect(mockBack.deps).toEqual([true]);
   });
 
   it.each([

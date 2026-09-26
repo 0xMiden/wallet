@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "İlgi gerekiyor",
   "guardianCheckingLabel": "Kontrol ediliyor",
   "whatIsAGuardian": "Guardian nedir?",
+  "meetGuardianYourGuardian": "Guardian'ınız",
   "guardianInfoDescription": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
   "guardianInfoWhatItDoesTitle": "Ne işe yarar?",
   "guardianInfoWhatItDoesDescription": "Her işlemi birlikte imzalar — ne cihazınız ne de Guardian tek başına fon transferi yapamaz. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",

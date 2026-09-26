@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "조치 필요",
   "guardianCheckingLabel": "확인 중",
   "whatIsAGuardian": "Guardian란 무엇인가요?",
+  "meetGuardianYourGuardian": "내 Guardian",
   "guardianInfoDescription": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
   "guardianInfoWhatItDoesTitle": "기능",
   "guardianInfoWhatItDoesDescription": "모든 거래에 공동 서명을 합니다 — 사용자의 기기나 Guardian 어느 쪽도 단독으로 자금을 이동할 수 없습니다. 기기를 분실했을 때 계정을 복구하는 데 도움을 줍니다.",

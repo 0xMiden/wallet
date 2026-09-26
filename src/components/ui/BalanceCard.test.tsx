@@ -28,6 +28,31 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// The card's own motion.div exposes the scale it is told to animate to, so the press test can check
+// the dip itself rather than the pointer state that drives it. Everything else in framer-motion is real.
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual('framer-motion');
+  const { createElement, forwardRef } = jest.requireActual('react');
+  const MotionDiv = forwardRef(
+    (
+      { animate, transition, ...rest }: { animate?: { scale?: number }; transition?: { duration?: number } },
+      ref: unknown
+    ) =>
+      createElement('div', {
+        ref,
+        'data-animate-scale': animate?.scale,
+        'data-animate-duration': transition?.duration,
+        ...rest
+      })
+  );
+  return {
+    ...actual,
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(actual.motion, { get: (target, key) => (key === 'div' ? MotionDiv : target[key]) })
+  };
+});
+
 // The canonical CopyButton is used for real (not stubbed) here — it wraps `children` in its own
 // `<span aria-live>`, which is exactly the structure the account row's layout has to survive (see
 // "keeps the label and icon laid out..." below), so a stub that just re-parents `children`
@@ -204,7 +229,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(pill.querySelector('[data-name^="Arrow"]')).toBeNull();
   });
 
-  it('keeps the plain brand card color with a card-ink hairline footer, no scrim or darker strip', () => {
+  it('keeps the plain brand card color with the footer on a darker well of it, no scrim or retired tone', () => {
     const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const card = container.firstElementChild;
@@ -212,15 +237,88 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(container.querySelector('[class*="scrim"]')).toBeNull();
     expect(container.querySelector('[class*="-deep"]')).toBeNull();
     expect(container.querySelector('.border-dashed')).toBeNull();
-    expect(screen.getByTestId('balance-card-footer')).toHaveClass('border-t', 'border-surface-balance-rule');
+    const footer = screen.getByTestId('balance-card-footer');
+    expect(footer).toHaveClass('bg-surface-balance-footer');
+    expect(footer).not.toHaveClass('border-t');
   });
 
-  it('draws the label as a 13px bold sentence-case label in the full-strength card ink', () => {
+  it('dips the card while its options button is held, and not for a press on the copy control', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+    fireEvent.pointerDown(options);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    expect(card).toHaveAttribute('data-animate-scale', '0.98');
+    fireEvent.pointerUp(options);
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    fireEvent.pointerDown(options);
+    fireEvent.pointerLeave(options);
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    fireEvent.pointerDown(screen.getByTestId('balance-card-copy-address'));
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+  });
+
+  it('dips only for a primary press: not a right click, not a second finger', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    // jsdom has no PointerEvent, so a MouseEvent carries the fields React reads.
+    const press = (init: MouseEventInit, isPrimary?: boolean) => {
+      const event = new MouseEvent('pointerdown', { bubbles: true, ...init });
+      if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
+      act(() => {
+        options.dispatchEvent(event);
+      });
+    };
+
+    press({ button: 2 });
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    press({ button: 0 }, false);
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    // A second finger lifting does not end the first finger's press.
+    press({ button: 0 }, true);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    const up = new MouseEvent('pointerup', { bubbles: true, button: 0 });
+    Object.defineProperty(up, 'isPrimary', { value: false });
+    act(() => {
+      options.dispatchEvent(up);
+    });
+    expect(card).toHaveAttribute('data-pressed', 'true');
+  });
+
+  // Reduced motion keeps the press preset's feedback and makes it instant, as every press does.
+  it('dips on the press spring, and instantly under reduced motion', () => {
+    const first = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+    expect(first.container.firstElementChild).not.toHaveAttribute('data-animate-duration');
+    first.unmount();
+
+    mockReduceMotion = true;
+    try {
+      const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" onMore={jest.fn()} />);
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
+      expect(container.firstElementChild).toHaveAttribute('data-animate-scale', '0.98');
+      expect(container.firstElementChild).toHaveAttribute('data-animate-duration', '0.001');
+    } finally {
+      mockReduceMotion = false;
+    }
+  });
+
+  it('draws the label in Nunito (15px bold) in the full-strength card ink', () => {
     render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const label = screen.getByTestId('balance-card-label');
     expect(label).toHaveTextContent('balanceCardTotalBalance');
-    expect(label).toHaveClass('text-label');
+    expect(label).toHaveClass('text-value');
     expect(label.className).not.toMatch(/muted|opacity/);
   });
 

@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "Erfordert Aufmerksamkeit",
   "guardianCheckingLabel": "Wird geprüft",
   "whatIsAGuardian": "Was ist ein „Guardian“?",
+  "meetGuardianYourGuardian": "Ihr Guardian",
   "guardianInfoDescription": "Ein „Guardian“ ist ein unabhängiger Dienst, der <b>jede Transaktion</b> aus Ihrer Wallet mitunterzeichnet und so ein Sicherheitsnetz bietet, ohne dass Sie die Selbstverwahrung aufgeben müssen.",
   "guardianInfoWhatItDoesTitle": "Was es bewirkt",
   "guardianInfoWhatItDoesDescription": "Unterschreibt jede Transaktion mit – weder Ihr Gerät noch der Guardian können Gelder allein bewegen. Hilft Ihnen, Ihr Konto wiederherzustellen, falls Sie Ihr Gerät verlieren.",
