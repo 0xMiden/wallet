@@ -160,6 +160,8 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-amount')).toHaveTextContent('7.00 BTC');
     expect(screen.queryByTestId('row-price')).toBeNull();
     expect(screen.queryByTestId('row-delta')).toBeNull();
+    // No move is known either, so real points are drawn neutral, not in a stand-in 0%'s green.
+    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
   });
 
   it('falls back to a flat grey sparkline when there are no real points (length <= 1)', () => {

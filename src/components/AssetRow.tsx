@@ -39,8 +39,12 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
   // no dollar figure and no 24h move to show, rather than the token count at $1 a unit.
   const priceSymbol = priceSymbolFor(asset.tokenId, metadata.symbol);
   const quote = quotedPrice(tokenPrices, priceSymbol);
-  const isPositive = (quote?.percentageChange24h ?? 0) >= 0;
-  const direction: 'positive' | 'negative' = isPositive ? 'positive' : 'negative';
+  // Only a quote has a 24h move; without one there is no direction to colour anything by.
+  const direction: 'positive' | 'negative' | null = quote
+    ? quote.percentageChange24h >= 0
+      ? 'positive'
+      : 'negative'
+    : null;
   // Each figure's precision is pinned to the value it is heading for, so a quantity does not
   // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
   const fiatValue = quote ? balance * quote.price : 0;
@@ -50,11 +54,12 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
   const points = useTokenSparkline(priceSymbol, '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
-  const sparkColor = hasRealPoints
-    ? isPositive
-      ? 'var(--status-positive)'
-      : 'var(--status-negative)'
-    : 'var(--text-tertiary)';
+  const sparkColor =
+    hasRealPoints && direction !== null
+      ? direction === 'positive'
+        ? 'var(--status-positive)'
+        : 'var(--status-negative)'
+      : 'var(--text-tertiary)';
 
   return (
     <AssetListItem
@@ -74,7 +79,7 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
         ) : undefined
       }
       delta={
-        quote
+        quote && direction
           ? { value: <AnimatedNumber value={quote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
       }
