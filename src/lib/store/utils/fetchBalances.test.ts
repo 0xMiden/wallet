@@ -339,6 +339,28 @@ describe('fetchBalances', () => {
     expect(result[1]!.balance).toBe(0);
   });
 
+  it('does not wait forever on a metadata lookup that never answers', async () => {
+    // The read holds the address's in-flight entry until it returns, so a node that accepts the
+    // metadata request and never answers would otherwise block every balance read (#1123).
+    jest.useFakeTimers();
+    try {
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'hung-faucet', amount: () => ({ toString: () => '1000000' }) }]
+        })
+      });
+      mockFetchTokenMetadata.mockReturnValueOnce(new Promise(() => {}));
+
+      const read = fetchBalances('my-address', {});
+      await jest.advanceTimersByTimeAsync(15_001);
+      const result = (await read)!;
+
+      expect(result.map(row => row.tokenSlug)).toEqual(['Unknown', 'MIDEN']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('shows unknown tokens with default metadata when fetch fails', async () => {
     const mockAssets = [
       {

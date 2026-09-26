@@ -27,6 +27,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -282,7 +283,12 @@ export async function fetchBalances(
         // `localMetadatas`, which keeps the token on screen, and never to
         // `fetchedMetadatas`, which is what gets persisted and published.
         try {
-          const tokenMetadata = await fetchTokenMetadata(assetId);
+          // Bounded to one attempt: this read holds the address's in-flight entry, and a node that
+          // accepts the lookup and never answers would otherwise hold it for the session. A slow
+          // answer still lands in the metadata cache for the next read.
+          const tokenMetadata = await withRpcTimeout(() => fetchTokenMetadata(assetId), 'balance-token-metadata', {
+            retries: 0
+          });
           if (hasKnownScale(tokenMetadata.base)) {
             fetchedMetadatas[assetId] = tokenMetadata.base;
             unresolvedFaucets.delete(assetId);
