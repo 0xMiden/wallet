@@ -7,16 +7,20 @@ import { AddContactDrawer } from './AddContactDrawer';
 const addContactMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({ open, onOpenChange, children }: any) =>
-    open ? (
+  Drawer: ({ open, onOpenChange, closeOnBack, children }: any) => {
+    mockDrawerCloseOnBack = closeOnBack;
+    return open ? (
       <div>
         {/* vaul routes swipe, backdrop and Escape through onOpenChange; expose it so a dismiss
             can be fired in tests. */}
         <button type="button" data-testid="drawer-dismiss" onClick={() => onOpenChange(false)} />
         {children}
       </div>
-    ) : null,
+    ) : null;
+  },
   DrawerContent: ({ children }: any) => <div>{children}</div>,
   DrawerHeader: ({ children }: any) => <div>{children}</div>,
   DrawerTitle: ({ children }: any) => <h2>{children}</h2>
@@ -61,6 +65,11 @@ function renderSheet(address = MIDEN, network?: string) {
   render(<AddContactDrawer open address={address} network={network as any} onOpenChange={onOpenChange} />);
   return onOpenChange;
 }
+
+it("leaves mobile back to SendManager's handler, which holds the sheet while a save is in flight", () => {
+  render(<AddContactDrawer open address={MIDEN} onOpenChange={jest.fn()} />);
+  expect(mockDrawerCloseOnBack).toBe(false);
+});
 
 it('shows the known address in full and asks only for a name', () => {
   renderSheet();

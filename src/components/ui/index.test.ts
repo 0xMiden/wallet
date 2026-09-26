@@ -29,6 +29,7 @@ import { CopyLabel } from './CopyLabel';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
 import { ErrorLine } from './ErrorLine';
+import { FactRow, IconCircle } from './FactRow';
 import { HeaderRule } from './HeaderRule';
 import { Hero } from './Hero';
 import { IconButton } from './IconButton';
@@ -120,6 +121,8 @@ describe('components/ui barrel', () => {
     ListRow,
     Notice,
     SectionHeader,
+    FactRow,
+    IconCircle,
     Card,
     CardButton,
     ChoiceCard,
