@@ -46,7 +46,16 @@ const lockOptionsSeen: unknown[] = [];
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   getCurrentWasmLockHold: () => currentHold,
-  withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
+  withWasmClientLock: async (operation: (hold: object) => Promise<unknown>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    const hold = {};
+    currentHold = hold;
+    try {
+      return await operation(hold);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  },
   tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
     lockOptionsSeen.push(options);
     return mockTryWithWasmClientLock(operation);
@@ -107,6 +116,18 @@ describe('fetchBalances', () => {
     await fetchBalances('my-address', {});
 
     expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+  });
+
+  it('bounds and labels a waiting read exactly like a skipping one (#1123)', async () => {
+    // A read that queues for the lock is still a balance probe: same ceiling, same fuse key.
+    mockGetAccount.mockResolvedValueOnce(null);
+    lockOptionsSeen.length = 0;
+    mockTryWithWasmClientLock.mockClear();
+
+    await fetchBalances('my-address', {}, { waitForLock: true });
+
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+    expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
   });
 
   it('skips the hold entirely once its own fuse is lit, and resumes on a success (#777)', async () => {

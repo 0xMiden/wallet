@@ -15,7 +15,13 @@ import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  getCurrentWasmLockHold,
+  getMidenClient,
+  tryWithWasmClientLock,
+  withWasmClientLock,
+  type WasmLockHold
+} from 'lib/miden/sdk/miden-client';
 import {
   isSyncWatchdogEviction,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -30,6 +36,12 @@ export interface FetchBalancesOptions {
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
+  /**
+   * Queue for the WASM lock instead of skipping when it is busy. For a read whose
+   * caller has nothing to show until it lands (no balances for the address yet): a
+   * skipping read starves while the sync and note reads keep the lock's queue full.
+   */
+  waitForLock?: boolean;
 }
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
@@ -144,16 +156,11 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[] | null> {
-  const cachedMetadatas =
-    (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
-  const { setAssetsMetadata, tokenPrices = {} } = options;
+  const { setAssetsMetadata, tokenPrices = {}, waitForLock = false } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
   const localMetadatas = { ...tokenMetadatas };
-
-  // Get midenFaucetId early so we can use it inside the lock
-  const midenFaucetId = await getFaucetIdSetting();
 
   // Read the account under a NON-BLOCKING attempt on the wallet WASM mutex.
   // `getAccount` borrows the WebClient's single RefCell; while a transaction is
@@ -171,53 +178,58 @@ export async function fetchBalances(
   // busy — `null`, which callers read as "no fresh balances this lap" and leaves the
   // displayed figures alone — so the fused path needs no new contract, only the same one
   // taken earlier and without a 120s hold and a leaked client to pay for it.
+  // The lock is asked for before any storage await, so a caller running ahead of the
+  // React effects (the Ready-time read) is queued ahead of the first sync (#1123).
   if (isSyncFused('balances')) return null;
 
-  const read = await tryWithWasmClientLock(
-    async hold => {
-      const acc = await midenClientProxy.getAccount(address);
+  const readAccount = async (hold: WasmLockHold) => {
+    const acc = await midenClientProxy.getAccount(address);
 
-      // E2E-only: capture a Guardian account's on-chain auth structure while we
-      // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
-      // plain value instead of its own blocking-eval WASM read (which gets starved
-      // on the single-threaded iOS main thread). The structure is immutable, so a
-      // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
-      // production.
-      if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
-        // Guarded on its own, not merely behind it: the capture dynamically imports the
-        // multisig client and then makes its OWN WASM calls on this borrowed account, so
-        // an eviction during the account read above must stop it here. Reachable only
-        // under the flag — but the resilience suite is exactly the one that drives
-        // evictions at a real client, which is where a double borrow would surface.
-        if (getCurrentWasmLockHold() !== hold) {
-          throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the E2E capture'));
-        }
-        await captureGuardianAuthStructureForTest(address, acc);
-      }
-
-      // Checked immediately before the vault read, and after EVERY await above it —
-      // the account read and, under the E2E flag, the guardian-auth capture. An eviction
-      // during either releases the mutex without stopping this callback, and `vault()` is
-      // a WASM call on an object borrowed from the client's RefCell, so continuing is the
-      // double borrow the lock exists to prevent rather than a merely stale read.
+    // E2E-only: capture a Guardian account's on-chain auth structure while we
+    // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
+    // plain value instead of its own blocking-eval WASM read (which gets starved
+    // on the single-threaded iOS main thread). The structure is immutable, so a
+    // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
+    // production.
+    if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+      // Guarded on its own, not merely behind it: the capture dynamically imports the
+      // multisig client and then makes its OWN WASM calls on this borrowed account, so
+      // an eviction during the account read above must stop it here. Reachable only
+      // under the flag — but the resilience suite is exactly the one that drives
+      // evictions at a real client, which is where a double borrow would surface.
       if (getCurrentWasmLockHold() !== hold) {
-        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the vault read'));
+        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the E2E capture'));
       }
+      await captureGuardianAuthStructureForTest(address, acc);
+    }
 
-      // `fungibleAssets()` is on the Account object (not the shared WebClient
-      // RefCell); extract it here so the rest of the fn works off plain values.
-      const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-      return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
-    },
-    { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }
-  ).catch((e: unknown) => {
+    // Checked immediately before the vault read, and after EVERY await above it —
+    // the account read and, under the E2E flag, the guardian-auth capture. An eviction
+    // during either releases the mutex without stopping this callback, and `vault()` is
+    // a WASM call on an object borrowed from the client's RefCell, so continuing is the
+    // double borrow the lock exists to prevent rather than a merely stale read.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the vault read'));
+    }
+
+    // `fungibleAssets()` is on the Account object (not the shared WebClient
+    // RefCell); extract it here so the rest of the fn works off plain values.
+    const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+  };
+  const lockOptions = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' };
+  const reportFailure = (e: unknown): never => {
     // Report before rethrowing, so this probe accumulates its own evidence. Bounding the
     // hold capped one park at 120s; only the fuse stops the wallet re-entering that park
     // — and leaking the client it poisoned — on the very next refresh, indefinitely.
     if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('balances');
     else noteNonEvictionSyncFailure('balances');
     throw e;
-  });
+  };
+
+  const read = waitForLock
+    ? await withWasmClientLock(readAccount, lockOptions).then(value => ({ ran: true as const, value }), reportFailure)
+    : await tryWithWasmClientLock(readAccount, lockOptions).catch(reportFailure);
 
   if (!read.ran) {
     // A `withWasmClientLock` op (a transaction or sync) holds the client — skip
@@ -229,6 +241,10 @@ export async function fetchBalances(
   // The call went through, which is the one observation that puts this probe's fuse out.
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
+
+  const cachedMetadatas =
+    (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  const midenFaucetId = await getFaucetIdSetting();
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
