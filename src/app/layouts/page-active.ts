@@ -23,3 +23,25 @@ export const PageOnScreenContext = createContext(true);
 export function usePageOnScreen(): boolean {
   return useContext(PageOnScreenContext);
 }
+
+/**
+ * True when a router Pop reached the page while its current layer was not mounted (it never had one, after a reload
+ * or a remount beneath history; its layer went; or its layer was retired), so the Pop mounted it fresh. It is read
+ * once, when the content mounts; a close only returns to a mounted layer, so it never sets it. Such a page never
+ * slides in from the right, which would read as a push; it fades in instead, unless its layer reveals it.
+ */
+export const PageMountedByReturnContext = createContext(false);
+
+export function usePageMountedByReturn(): boolean {
+  return useContext(PageMountedByReturnContext);
+}
+
+/**
+ * True when that return mount is a reveal: the page's layer brings it back from under the page that left, so the page
+ * plays no mount entrance of its own at all.
+ */
+export const PageRevealedByLayerContext = createContext(false);
+
+export function usePageRevealedByLayer(): boolean {
+  return useContext(PageRevealedByLayerContext);
+}
