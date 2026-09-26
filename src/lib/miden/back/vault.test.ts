@@ -409,6 +409,13 @@ const keys = {
 // checksum validation.
 const VALID_MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
+// web-sdk 0.16.1's rendering of a 0.16 node's uncoded account-not-found answer (#1127).
+const NODE_016_ACCOUNT_MISS =
+  'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+  'code: \'Client specified an invalid argument\', message: "account 0x0e3b5b2d8a1f4c10000000000000ab not found at block 1234"';
+const NODE_UNAVAILABLE =
+  'client error: RPC error: Miden node is unavailable; check that the node is running and reachable';
+
 /** Seed memoryStore with everything a fresh vault needs, and return the Vault. */
 async function seedVault(
   password: string,
@@ -1701,6 +1708,25 @@ describe('Vault.createHDAccount', () => {
     expect(seedHex(probeCalls[0]![0])).not.toBe(seedHex(probeCalls[1]![0]));
   });
 
+  it('treats the node reporting the account missing as a miss, not an outage (#1127)', async () => {
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    mockMidenClient.importPublicMidenWalletFromSeed
+      .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
+      .mockResolvedValueOnce('acc-legacy-1127');
+    const accounts = await vault.createHDAccount(WalletType.OnChain);
+    expect(accounts[1]!.publicKey).toBe('acc-legacy-1127');
+    expect(accounts[1]!.keyDerivation).toBe('legacy');
+  });
+
+  it('creates a fresh account when both probes get the node not-found answer (#1127)', async () => {
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error(NODE_016_ACCOUNT_MISS));
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('acc-fresh-1127');
+    const accounts = await vault.createHDAccount(WalletType.OnChain);
+    expect(accounts[1]!.publicKey).toBe('acc-fresh-1127');
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+  });
+
   it('stamps v1 when the first import probe finds the account (own mnemonic path)', async () => {
     const vault = await seedVault('pw', { ownMnemonic: true });
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('acc-v1-1');
@@ -1822,12 +1848,31 @@ describe('Vault.spawn', () => {
   it('still creates a fresh wallet when the probes definitively miss (seed is genuinely new)', async () => {
     // The legitimate fall-through must survive: "no account on chain" is a real
     // answer and a first-time seed must still produce a wallet.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('account not found on chain'));
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error(NODE_016_ACCOUNT_MISS));
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('tries the legacy probe when the node reports the v1 account missing (#1127)', async () => {
+    mockMidenClient.importPublicMidenWalletFromSeed
+      .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
+      .mockResolvedValueOnce('legacy-pk-1127');
+    await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
+    expect(await Vault.getCurrentAccountPublicKey()).toBe('legacy-pk-1127');
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('still aborts when the second probe cannot reach the node after the first missed', async () => {
+    mockMidenClient.importPublicMidenWalletFromSeed
+      .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
+      .mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(
+      /Could not reach the Miden network/i
+    );
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
   it('picks the legacy derivation when the v1 probe has no on-chain account', async () => {

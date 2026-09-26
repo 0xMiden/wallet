@@ -85,6 +85,7 @@ import {
   withWasmClientLock
 } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -1109,6 +1110,13 @@ export class Vault {
                   if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
                     throw probeError;
                   }
+                  // The node answered "no such account": a miss. On a 0.16 node that
+                  // answer carries "RPC error", which the network check below would
+                  // read as an outage (#1127).
+                  if (isAccountNotFoundOnChainError(probeError)) {
+                    console.warn(`[Vault.spawn] no ${probe.keyDerivation} ${scheme} account on chain`);
+                    continue;
+                  }
                   // A probe miss and an UNREACHABLE NODE are different answers, and
                   // swallowing both is a fund-loss-shaped bug: if the RPC is down
                   // mid-restore, every scheme "misses", we fall through, and the user
@@ -1813,6 +1821,15 @@ export class Vault {
                 // the network case below (issue #775).
                 if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
                   throw e;
+                }
+                // The node answered "no such account": a miss. On a 0.16 node that
+                // answer carries "RPC error", which the network check below would
+                // read as an outage (#1127).
+                if (isAccountNotFoundOnChainError(e)) {
+                  console.warn(
+                    `[Vault.createHDAccount] no ${probe.keyDerivation} ${probe.authScheme} account on chain`
+                  );
+                  continue;
                 }
                 // A network-unreachable import and a genuine "not on chain" miss are
                 // different answers; swallowing both creates a fresh EMPTY wallet on a
