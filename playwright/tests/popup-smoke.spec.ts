@@ -163,25 +163,7 @@ test.describe('Fullpage UI', () => {
     extensionContext,
     extensionId
   }) => {
-    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
-    const page = await extensionContext.newPage();
-
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-
-    const welcome = page.getByTestId('onboarding-welcome');
-    await welcome.waitFor({ timeout: 30000 });
-    if (page.isClosed()) {
-      throw new Error('Page closed before onboarding');
-    }
-    await page.locator('#import-link').click();
-
-    // Acknowledge the network notice before entering the seed phrase.
-    await acknowledgeNetworkNotice(page, 15000);
-    // Import now asks WHICH credential first: a seed phrase or an encrypted
-    // wallet file. This flow is the seed-phrase one.
-    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
-    await page.getByTestId('import-type-seed-phrase').click();
-    await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
+    const { page } = await openSeedPhraseImport(extensionContext, extensionId);
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
       ' '
