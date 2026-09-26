@@ -101,9 +101,9 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
-// Passthrough Drawer stub — keeps children in the DOM and exposes buttons that
-// fire onOpenChange with both `false` (close) and `true` (no-op) so the
-// `!open && ...` branch is fully exercised.
+// Drawer stub: like vaul's portal, it renders its content only while open. It
+// exposes buttons that fire onOpenChange with both `false` (close) and `true`
+// (no-op) so the `!open && ...` branch is fully exercised.
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
@@ -117,7 +117,7 @@ jest.mock('lib/ui/drawer', () => ({
     <div data-testid="drawer" data-open={String(open)}>
       <button data-testid="drawer-close" onClick={() => onOpenChange(false)} />
       <button data-testid="drawer-open" onClick={() => onOpenChange(true)} />
-      {children}
+      {open && children}
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
@@ -332,10 +332,10 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'close')).toBeTruthy();
     expect(buttonWithText(container, 'view')).toBeTruthy();
 
-    // No auth prompt, no password drawer, and (the auto-close effect must not
-    // mistake "no secret yet" for "secret expired") no navigation.
+    // No auth prompt, the password drawer mounted but closed, and (the auto-close
+    // effect must not mistake "no secret yet" for "secret expired") no navigation.
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="drawer"]')).toBeNull();
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('false');
     expect(mockGoBack).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -812,7 +812,7 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockHapticLight).toHaveBeenCalled();
     expect(mockSetSecret).toHaveBeenCalledWith(null);
-    // Hide clears the secret, which also trips the auto-close effect: one pop, not two.
+    // Hide leaves through leave(): one pop.
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
@@ -845,10 +845,12 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed failure path -> auth-error view.
   // -------------------------------------------------------------------------
-  // Warning -> words is the boundary that needs the key. The password path reaches the
-  // words through the `!secret && isSubmitting` null return, which already unmounts and
-  // remounts the header on its own, so a test written there would pass with the key
-  // deleted. The hardware path never returns null, so only the key remounts it.
+  // Warning -> words is the boundary that needs the key. Before #1122 the password path
+  // crossed it through the `!secret && isSubmitting` null return, which already unmounted
+  // and remounted the header on its own, so a test written there would have passed with
+  // the key deleted. The reveal now stays on the auth branch while submitting (no empty
+  // render), so both paths depend on the key for this remount - hardware is used here
+  // because it reaches the transition without a drawer interaction.
   it('mounts a fresh header at the words step so its title is announced', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
@@ -939,8 +941,8 @@ describe('RevealSeedPhrase', () => {
     // The words branch renders ahead of the error branch, so a stale authError is
     // INVISIBLE while a secret exists - asserting here alone would pass either way.
     // It only bites once the 20s auto-hide clears the secret: the auto-close effect
-    // is now gated on authError, so an uncleared one makes it refuse to leave and
-    // the user lands back on a stale "biometric failed" screen with no way out.
+    // is gated on authError, so an uncleared one makes it refuse to leave and the
+    // user lands back on a stale "biometric failed" screen until Close or Back.
     mockSecret = null;
     await act(async () => {
       testRoot!.render(<RevealSeedPhrase />);
@@ -997,6 +999,168 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
   });
 
+  // A pending reveal used to blank the page entirely (`!secret && isSubmitting`
+  // returned null), removing the drawer and the loading button it was waiting on (#1122).
+  it('keeps the password step and a loading Continue on screen while the reveal is pending', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockReturnValue(new Promise<string>(() => undefined));
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
+    expect(container.querySelector('input[name="password"]')).toBeTruthy();
+    expect(buttonWithText(container, 'continue')).toHaveAttribute('aria-busy', 'true');
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+  });
+
+  // The generation guard on the SUCCESS branch (unchanged by this fix) must still discard a
+  // reveal that resolves after the user has already left mid-submit. Asserting page text alone
+  // would pass even with that guard deleted - leave() has already cleared `secret`, and nothing
+  // re-renders the words from a value nobody set - so this asserts the call directly (#1122).
+  it('discards a password reveal that resolves after the drawer is closed mid-submit', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    let resolveReveal: (value: string) => void = () => undefined;
+    mockRevealMnemonic.mockReturnValue(
+      new Promise<string>(res => {
+        resolveReveal = res;
+      })
+    );
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      resolveReveal('alpha beta gamma delta');
+    });
+    await flush();
+
+    expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
+  });
+
+  // A REJECTED submit needs the same generation guard as the success branch just above -
+  // otherwise a late error from a superseded submit writes a form error into an instance
+  // the user has already left. `error-caption` is invisible on the warning branch either
+  // way, so the only way to observe a leftover error is to reopen and check it isn't
+  // already there before the user has done anything in the new attempt (#1122).
+  it('discards a rejected password reveal that settles after the drawer is closed mid-submit', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    let rejectReveal: (err: Error) => void = () => undefined;
+    mockRevealMnemonic.mockReturnValueOnce(
+      new Promise<string>((_res, rej) => {
+        rejectReveal = rej;
+      })
+    );
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      rejectReveal(new Error('wrong password'));
+    });
+    await flushErrorDelay();
+
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="error-caption"]')).toBeNull();
+  });
+
+  // The rejection lands while the drawer is still open, so the catch is already inside
+  // its 300ms delay when the user closes it; the guard has to hold across that await.
+  it('discards a rejected password reveal when the drawer is closed during its error delay', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockRejectedValueOnce(new Error('wrong password'));
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+    });
+    await flushErrorDelay();
+
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(container.querySelector('[data-testid="error-caption"]')).toBeNull();
+  });
+
+  // Hide must land back on the warning, not on the auth branch's closed drawer with
+  // nothing to interact with (#1122).
+  it('returns to the warning when the phrase is hidden', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (buttonWithText(container, 'hideRecoveryPhrase') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(buttonWithText(container, 'view')).toBeTruthy();
+    expect(container.textContent).not.toContain('alpha');
+  });
+
+  // The step reset in leave() (#1122) must not unmount the Drawer along with the 'auth'
+  // branch it used to live inside - it has to stay in the tree, closed, so vaul's own CSS
+  // close transition gets to run instead of the sheet vanishing with its parent.
+  it('keeps the drawer mounted (closed) after its own close, instead of unmounting with the step reset', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    const container = await renderAndView();
+
+    const before = container.querySelector('[data-testid="drawer"]');
+    expect(before!.getAttribute('data-open')).toBe('true');
+
+    await act(async () => {
+      (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(buttonWithText(container, 'view')).toBeTruthy();
+    // The same element, not merely a closed one: a remount loses vaul's close transition.
+    expect(container.querySelector('[data-testid="drawer"]')).toBe(before);
+    expect(before!.getAttribute('data-open')).toBe('false');
+  });
+
   it('surfaces a submit error caption after a failed desktop password unlock', async () => {
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -1013,6 +1177,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('bad-password');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="error-caption"]')!.textContent).toBe('wrong password');
+    // The drawer must stay open on the same auth branch - a submit error is not an exit.
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
   });
 
   it('closes the desktop drawer (goBack) via onOpenChange(false); onOpenChange(true) is a no-op', async () => {
@@ -1026,8 +1194,7 @@ describe('RevealSeedPhrase', () => {
     });
     expect(mockGoBack).not.toHaveBeenCalled();
 
-    // onOpenChange(false) -> handlePasswordDrawerClose -> goBack, exactly once even
-    // though closing the drawer also trips the auto-close effect.
+    // onOpenChange(false) -> leave() -> goBack, exactly once.
     await act(async () => {
       (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
     });
@@ -1068,6 +1235,23 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith('123456');
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
+  });
+
+  // The mobile counterpart of the desktop pending test above: a pending reveal must keep the
+  // numpad's own submitting indicator on screen instead of blanking the page (#1122).
+  it('marks the passcode entry as submitting while a mobile reveal is pending', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockReturnValue(new Promise<string>(() => undefined));
+    const container = await renderAndView();
+
+    await act(async () => {
+      (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="passcode-submitting"]')!.textContent).toBe('true');
   });
 
   it('surfaces a passcode error in the numpad after a failed mobile unlock', async () => {
