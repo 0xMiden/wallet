@@ -42,7 +42,7 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Platform isolation**: wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform` — never apply iOS fixes globally.
 - **Haptics**: tappable components get `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`.
 - **Mobile file downloads**: `<a download>` does nothing in a WebView — use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
-- **Balance loading**: `fetchBalances` reads IndexedDB via `getAccount()` (instant); `AutoSync` calls `syncState()` separately. Never call `syncState()` from the UI path.
+- **Balance loading**: `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; sync runs separately (`useSyncTrigger` on mobile and desktop, the service worker on the extension). Never call `syncState()` from the UI path. The wait rule and the per-address in-flight guard are in CLAUDE.md's Balance loading section.
 - **Transaction states** (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
