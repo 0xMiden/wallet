@@ -11,12 +11,11 @@ import { expect, test } from '../fixtures/extension';
  *
  * Pins #1122: `revealMnemonic()` runs a real PBKDF2 decrypt client-side, taking several
  * seconds, and `RevealSeedPhrase.tsx` used to render nothing at all for that whole window.
- * The Hide -> Reveal-again half instead guards a REGRESSION of #995 (a routed page reused
- * as the same component instance, which could leave it sitting on a stale branch) - #995
- * already keeps that from happening on this base, but the assertion stays as a tripwire.
+ * The Hide -> Reveal-again step is a smoke check that the page opens again on its warning;
+ * it cannot tell a fresh page from a reused one, because leave() resets to the warning.
  *
  * Runs on the mock build (`MIDEN_USE_MOCK_CLIENT`): the vault decrypt this spec times is
- * real crypto, not a network call, so no chain is needed to reproduce either half.
+ * real crypto, not a network call, so no chain is needed.
  *
  * NOT COVERED HERE - the hardware-protector (biometric) branch. Seed-import onboarding
  * always creates a password-only vault, so `hasHardwareProtector` resolves `false` and
@@ -44,8 +43,8 @@ test.describe('reveal recovery phrase', () => {
   // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
   // (dapp-provider.spec.ts does the same): onboarding 420s, goto 30s, Settings tab 30s,
   // Recovery Phrase row+page 20s, Reveal+warning 20s, View+auth page 30s, password+Continue
-  // +pending 25s, word grid 20s, Hide 10s, Reveal again 15s, warning View <=10s, View+auth
-  // page (dark) 30s, password+Continue+pending (dark) 25s = 685s.
+  // +pending 30s, word grid 20s, Hide 10s, Reveal again 15s, warning View <=10s, View+auth
+  // page (dark) 30s, password+Continue+pending (dark) 30s = 695s.
   test('through the real UI, twice, and once in dark mode', async ({ extensionContext, extensionId }, testInfo) => {
     test.setTimeout(750_000);
 
@@ -79,7 +78,7 @@ test.describe('reveal recovery phrase', () => {
     await reviewPage.getByTestId('seed-word-0').waitFor({ state: 'visible', timeout: 20_000 });
     await walletPage.screenshot({ path: testInfo.outputPath('reveal-seed-phrase-light.png') });
 
-    // Hide, then reveal again: guards the #995 regression described above, not this fix.
+    // Hide, then reveal again: the page opens on its warning.
     await reviewPage.getByRole('button', { name: 'Hide Recovery Phrase', exact: true }).click({ timeout: 10_000 });
 
     await walletPage.getByTestId('recovery-phrase-reveal').click({ timeout: 15_000 });
