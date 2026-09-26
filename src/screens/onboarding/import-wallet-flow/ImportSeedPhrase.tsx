@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -7,7 +7,7 @@ import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
 import { TextAction } from 'components/ui/TextAction';
-import { TextField } from 'components/ui/TextField';
+import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -94,6 +94,21 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
     [setSeedPhrase]
   );
 
+  const wordRefs = useRef<(TextFieldElement | null)[]>([]);
+
+  // With an enterKeyHint set, Android Chromium sends the Next and Done keys as a plain Enter
+  // and no longer moves focus itself, so the hints are kept here. Done leaves the grid to
+  // dismiss the keyboard; Continue stays the only submit.
+  const onWordKeyDown = useCallback((event: React.KeyboardEvent<TextFieldElement>, index: number) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (index < PHRASE_LENGTH - 1) {
+      wordRefs.current[index + 1]?.focus();
+    } else {
+      event.currentTarget.blur();
+    }
+  }, []);
+
   return (
     <OnboardingStepLayout
       data-testid="import-seed-phrase"
@@ -121,6 +136,10 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             <TextField
               id={`seed-phrase-input-${index}`}
               key={index}
+              ref={node => {
+                wordRefs.current[index] = node;
+              }}
+              onKeyDown={event => onWordKeyDown(event, index)}
               value={seedPhrase[index]}
               aria-label={t('word', { number: String(index + 1) })}
               aria-invalid={errorsMap[index] || undefined}
