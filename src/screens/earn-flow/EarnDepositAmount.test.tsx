@@ -98,21 +98,21 @@ jest.mock('./useEarnPositions', () => {
   };
 });
 
-// The deposit token comes from the account's USDC balance row. Stub the wallet
-// hooks with a fixed USDC row so the token props are deterministic.
+// The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
+// capture from when balances were read (0 here: read before any quote), which the screen must not
+// trust; its price comes from the live quote in the store.
+const USDC_ROW = { tokenId: '0xusdcfaucet', balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
   useAllTokensBaseMetadata: () => ({}),
-  useAllBalances: () => ({
-    data: [
-      {
-        tokenId: '0xusdcfaucet',
-        balance: 200,
-        fiatPrice: 1,
-        metadata: { symbol: 'USDC', decimals: 6 }
-      }
-    ]
-  })
+  useAllBalances: () => ({ data: mockBalanceRows })
+}));
+
+const USDC_QUOTE = { USDC: { price: 1.0002, change24h: 0, percentageChange24h: 0 } };
+let mockTokenPrices: Record<string, unknown> = USDC_QUOTE;
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
 
 // `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the USDC
@@ -131,6 +131,8 @@ const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount
 
 beforeEach(() => {
   mockNavigate.mockClear();
+  mockBalanceRows = [USDC_ROW];
+  mockTokenPrices = USDC_QUOTE;
 });
 
 describe('EarnDepositAmount', () => {
@@ -155,7 +157,36 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
-    expect(select).toHaveAttribute('data-token-fiat', '1');
+    // The live USDC quote, not the 0 the row captured before prices landed.
+    expect(select).toHaveAttribute('data-token-fiat', '1.0002');
+  });
+
+  it.each([
+    ['a USDC row', [USDC_ROW]],
+    ['no USDC row', []]
+  ])('gives the deposit token no price without a USDC quote, with %s', (_label, rows) => {
+    mockBalanceRows = rows;
+    mockTokenPrices = {};
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '0');
+  });
+
+  it('takes up the quote when prices land after the screen opened', () => {
+    mockTokenPrices = {};
+    const { rerender } = render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '0');
+
+    mockTokenPrices = USDC_QUOTE;
+    rerender(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '1.0002');
+  });
+
+  it('prices the deposit token from the quote when the account holds no USDC yet', () => {
+    mockBalanceRows = [];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '1.0002');
   });
 
   it('forwards the static SelectAmount presentation props', () => {

@@ -5,13 +5,16 @@
 ### Changes
 
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
+- [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
 
 ### Fixes
 
+- [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
 - [FIX][all] Activity's Pending filter now lists your own transactions still in progress (sends, swaps, claims and others) beside the incoming transfers waiting for a claim, instead of showing only the transfers and claiming there was nothing pending while a swap was in flight.
 - [FIX][all] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
+- [FIX][all] **Home and token details value IETH at the ETH price instead of $1 per token** (0.38 IETH read $0.38, not about $1,000), and the token-detail chart draws again (#1128). Every dollar figure now appears only for a token the price feed actually quotes: Home rows and token details show no fiat value for an unquoted token such as MIDEN, the Home total adds up the quoted tokens only (and shows "$-" when none of what you hold is quoted), and the Pending transfers total and the home "transfers waiting" prompt show no total when any transfer's asset has no price, where they used to count it at $1 a unit (#1105).
 
 ## 1.16.2 (2026-09-24)
 

@@ -6,11 +6,12 @@ import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { getTokenPrice } from 'lib/prices';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { useWalletStore } from 'lib/store';
 
 type BalanceProps = {
-  children: (b: BigNumber) => ReactElement;
+  /** The fiat total, or null when the account holds tokens and none can be valued (unquoted or of unknown scale). */
+  children: (b: BigNumber | null) => ReactElement;
 };
 
 const Balance = memo<BalanceProps>(({ children }) => {
@@ -26,12 +27,23 @@ const Balance = memo<BalanceProps>(({ children }) => {
     // partly wrong — it makes it meaningless, and unlike a single row there is no
     // way for the user to see which asset spoiled it. Leaving such an asset out
     // understates the total; including it can invent one.
-    const totalFiat = allTokenBalances.reduce((sum, token) => {
-      if (!hasKnownScale(token.metadata)) return sum;
-      const { price } = getTokenPrice(tokenPrices, token.metadata.symbol);
-      return sum + token.balance * price;
-    }, 0);
-    const childNode = children(new BigNumber(totalFiat));
+    //
+    // A token with no quote is left out too: it has no dollar value to add, so the portfolio total
+    // is the value of what can be priced. When something is held and nothing can be valued there
+    // is no total at all, rather than a $0.00 that reads as an empty wallet.
+    let totalFiat = 0;
+    let holdsAnything = false;
+    let valuedAnything = false;
+    for (const token of allTokenBalances) {
+      if (!(token.balance > 0)) continue;
+      holdsAnything = true;
+      if (!hasKnownScale(token.metadata)) continue;
+      const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
+      if (!quote) continue;
+      valuedAnything = true;
+      totalFiat += token.balance * quote.price;
+    }
+    const childNode = children(holdsAnything && !valuedAnything ? null : new BigNumber(totalFiat));
     const exist = true;
 
     return (

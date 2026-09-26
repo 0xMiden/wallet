@@ -734,8 +734,6 @@ const ConfirmDAppForm: FC = () => {
 
   return (
     <div
-      // `text-ink` sets the card's inherited ink: the banner, origin and permission copy set no colour
-      // of their own, and without it they fell back to the page's black in dark mode.
       className={classNames('relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
       style={{
         width: 380,

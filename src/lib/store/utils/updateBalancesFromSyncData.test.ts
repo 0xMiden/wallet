@@ -1,5 +1,6 @@
 import '../../../../test/jest-mocks';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
@@ -20,10 +21,6 @@ jest.mock('lib/miden/metadata', () => ({
 
 jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn(async () => {})
-}));
-
-jest.mock('lib/prices', () => ({
-  getTokenPrice: jest.fn(() => ({ price: 1, change24h: 0, percentageChange24h: 0 }))
 }));
 
 describe('updateBalancesFromSyncData', () => {
@@ -120,6 +117,36 @@ describe('updateBalancesFromSyncData', () => {
     expect(balances).toBeDefined();
     expect(balances!.length).toBe(1);
     expect(balances![0]!.tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
+  });
+
+  it('stores the quote of the price symbol, and no price for a token the feed does not quote', async () => {
+    useWalletStore.setState({
+      tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } }
+    });
+    const vaultAssets: SerializedVaultAsset[] = [
+      {
+        faucetId: TOKEN_IETH.faucetId,
+        amountBaseUnits: '38000000',
+        metadata: { name: 'IETH', symbol: 'IETH', decimals: 8, thumbnailUri: '' }
+      },
+      {
+        faucetId: 'custom-faucet-456',
+        amountBaseUnits: '2000000',
+        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6, thumbnailUri: '' }
+      }
+    ];
+
+    await updateBalancesFromSyncData('account-1', vaultAssets);
+
+    const balances = useWalletStore.getState().balances['account-1']!;
+    const priceOf = (tokenId: string) => {
+      const { fiatPrice, change24h } = balances.find(b => b.tokenId === tokenId)!;
+      return { fiatPrice, change24h };
+    };
+    expect(priceOf(TOKEN_IETH.faucetId)).toEqual({ fiatPrice: 3000, change24h: 40 });
+    expect(priceOf('custom-faucet-456')).toEqual({ fiatPrice: 0, change24h: 0 });
+    // The fabricated native row has no quote either: MIDEN is not on the feed.
+    expect(priceOf(MOCK_MIDEN_FAUCET_ID)).toEqual({ fiatPrice: 0, change24h: 0 });
   });
 
   it('uses default metadata when sync data has no metadata for a token', async () => {

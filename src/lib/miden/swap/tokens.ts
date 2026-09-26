@@ -3,6 +3,8 @@ import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+// The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
+import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -148,6 +150,18 @@ export function priceSymbolFor(faucetId: string, symbol: string): string {
     token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
   );
   return swapToken?.priceSymbol ?? symbol;
+}
+
+/**
+ * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it.
+ * Without a faucet id the token's own symbol is looked up.
+ */
+export function tokenQuote(
+  prices: TokenPrices,
+  faucetId: string | undefined,
+  symbol: string
+): TokenPriceInfo | undefined {
+  return quotedPrice(prices, faucetId ? priceSymbolFor(faucetId, symbol) : symbol);
 }
 
 /**

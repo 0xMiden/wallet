@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
+import type { TokenPrices } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
+import { balancePrice } from 'lib/store/utils/balancePrice';
 import { fetchBalances } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
@@ -28,7 +30,7 @@ const DEDUPING_INTERVAL = 10_000;
  * loading state drive a skeleton. This avoids flashing a row with the wrong
  * tokenId while discovery is in flight on first install.
  */
-function buildDefaultZeroBalance(): TokenBalanceData[] {
+function buildDefaultZeroBalance(tokenPrices: TokenPrices): TokenBalanceData[] {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return [];
   return [
@@ -36,8 +38,7 @@ function buildDefaultZeroBalance(): TokenBalanceData[] {
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
-      change24h: 0,
+      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
       balance: 0
     }
   ];
@@ -56,6 +57,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   // Get state and actions from Zustand store
   // Use stable selectors to avoid infinite loops
   const balancesMap = useWalletStore(s => s.balances);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const balancesLoadingMap = useWalletStore(s => s.balancesLoading);
   const balancesLastFetchedMap = useWalletStore(s => s.balancesLastFetched);
   const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
@@ -63,7 +65,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   // Derive values with stable defaults
   // Show 0 MIDEN immediately before any async lookup completes — only once
   // the native asset ID has been learned, otherwise show `[]` (skeleton).
-  const balances = balancesMap[address] ?? buildDefaultZeroBalance();
+  const balances = balancesMap[address] ?? buildDefaultZeroBalance(tokenPrices);
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;

@@ -84,6 +84,15 @@ describe('recordRecentDapp', () => {
     expect(recents[0]!.name).toBe('Miden (updated)');
   });
 
+  it('keeps a stored favicon when a refresh carries none, as both writers send it', async () => {
+    const { recordRecentDapp, getRecentDapps } = await import('./recent-dapps');
+    const entry = { url: 'https://miden.xyz', name: 'miden.xyz', origin: 'https://miden.xyz' };
+    await recordRecentDapp({ ...entry, favicon: 'x' });
+    // BrowserScreen and DappActionsSheet pass the key with an undefined value, not an absent key.
+    await recordRecentDapp({ ...entry, favicon: undefined });
+    expect((await getRecentDapps())[0]!.favicon).toBe('x');
+  });
+
   it('caps the list at MAX_RECENTS = 12 entries, dropping the oldest', async () => {
     const { recordRecentDapp, getRecentDapps } = await import('./recent-dapps');
     for (let i = 0; i < 15; i++) {
