@@ -1072,6 +1072,8 @@
   "seedRemovalBusy": "Attendez que les transactions en cours soient terminées avant de supprimer la phrase de récupération.",
   "seedRemovalKeysNotReady": "Terminez la récupération du compte et l’activation de la clé quotidienne avant de supprimer la phrase de récupération.",
   "seedRequiredForAccountCreation": "La création d’un compte nécessite une phrase de récupération enregistrée. Il n’est pas encore possible de la saisir uniquement pour cette action.",
+  "restoreAccountLookupFailed": "Votre compte n’a pas pu être récupéré. Votre phrase de récupération est correcte. Veuillez réessayer la restauration. Détails : $reason$",
+  "createAccountLookupFailed": "Le compte n’a pas pu être créé. Veuillez réessayer. Détails : $reason$",
   "recoverySeedRequired": "Cette action nécessite votre phrase de récupération.",
   "recoverySeedRequiredTitle": "Saisissez votre phrase de récupération",
   "recoverySeedTemporaryDescription": "Utilisez votre sauvegarde papier. Cette expression n’est utilisée que pour cette action et n’est pas enregistrée sur cet appareil.",

@@ -4689,6 +4689,24 @@
     "message": "Для создания учетной записи требуется сохраненная фраза восстановления. Ввод этой фразы только для данного действия пока недоступен.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "Вашу учетную запись не удалось восстановить. Ваша фраза восстановления верна. Пожалуйста, попробуйте восстановить учетную запись ещё раз. Подробности: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "Создать аккаунт не удалось. Пожалуйста, попробуйте ещё раз. Подробности: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "Для этого действия требуется ваша фраза восстановления.",
     "englishSource": "This action requires your recovery phrase."

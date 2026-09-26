@@ -1072,6 +1072,8 @@
   "seedRemovalBusy": "Przed usunięciem frazy odzyskiwania należy poczekać na zakończenie bieżących transakcji.",
   "seedRemovalKeysNotReady": "Przed usunięciem frazy odzyskiwania należy zakończyć proces odzyskiwania konta i aktywację klucza codziennego.",
   "seedRequiredForAccountCreation": "Utworzenie konta wymaga zapisanej frazy odzyskiwania. Wprowadzenie jej wyłącznie na potrzeby tej czynności nie jest jeszcze możliwe.",
+  "restoreAccountLookupFailed": "Nie udało się odzyskać konta. Fraza odzyskiwania jest prawidłowa. Spróbuj ponownie przywrócić konto. Szczegóły: $reason$",
+  "createAccountLookupFailed": "Nie udało się utworzyć konta. Spróbuj ponownie. Szczegóły: $reason$",
   "recoverySeedRequired": "Ta czynność wymaga podania frazy odzyskiwania.",
   "recoverySeedRequiredTitle": "Wprowadź swoją frazę odzyskiwania",
   "recoverySeedTemporaryDescription": "Skorzystaj z papierowej kopii zapasowej. Fraza ta jest używana wyłącznie w tym kontekście i nie jest zapisywana na tym urządzeniu.",

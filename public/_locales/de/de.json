@@ -1072,6 +1072,8 @@
   "seedRemovalBusy": "Warten Sie, bis die laufenden Transaktionen abgeschlossen sind, bevor Sie die Wiederherstellungsphrase entfernen.",
   "seedRemovalKeysNotReady": "Schließen Sie die Kontowiederherstellung und die Aktivierung des täglichen Schlüssels ab, bevor Sie die Wiederherstellungsphrase entfernen.",
   "seedRequiredForAccountCreation": "Für die Kontoerstellung ist eine gespeicherte Wiederherstellungsphrase erforderlich. Die Eingabe nur für diesen Vorgang ist noch nicht möglich.",
+  "restoreAccountLookupFailed": "Ihr Konto konnte nicht wiederhergestellt werden. Ihre Wiederherstellungsphrase ist in Ordnung. Bitte versuchen Sie die Wiederherstellung erneut. Details: $reason$",
+  "createAccountLookupFailed": "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut. Details: $reason$",
   "recoverySeedRequired": "Für diesen Vorgang benötigen Sie Ihre Wiederherstellungsphrase.",
   "recoverySeedRequiredTitle": "Geben Sie Ihre Wiederherstellungsphrase ein",
   "recoverySeedTemporaryDescription": "Verwenden Sie Ihr Papier-Backup. Die Phrase wird ausschließlich für diesen Vorgang verwendet und nicht auf diesem Gerät gespeichert.",
