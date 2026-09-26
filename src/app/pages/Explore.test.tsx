@@ -93,12 +93,21 @@ jest.mock('app/templates/HomePrompts', () => ({
   )
 }));
 
+// Each row instance records its mount, so a test can tell a new row for a token from the same row
+// with a new balance.
+const mockRowMounts: string[] = [];
 jest.mock('components/AssetRow', () => ({
-  AssetRow: ({ asset, onClick }: { asset: any; onClick: () => void }) => (
-    <button data-testid="asset-row" data-token={asset.tokenId} onClick={onClick}>
-      {asset.metadata.symbol}
-    </button>
-  )
+  AssetRow: ({ asset, onClick }: { asset: any; onClick: () => void }) => {
+    React.useEffect(() => {
+      mockRowMounts.push(asset.tokenId);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- records one mount per instance
+    }, []);
+    return (
+      <button data-testid="asset-row" data-token={asset.tokenId} onClick={onClick}>
+        {asset.metadata.symbol}
+      </button>
+    );
+  }
 }));
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
@@ -110,8 +119,9 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
-  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
-    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
+  // The real one: a switch that counts from the old account's figure is what these tests catch, and
+  // without matchMedia it renders its settled value synchronously, as the stub did.
+  AnimatedNumber: jest.requireActual('components/ui/AnimatedNumber').AnimatedNumber,
   BalanceCard: ({
     accountNumber,
     accountId,
@@ -253,6 +263,23 @@ const renderExplore = async () => {
   return result;
 };
 
+/**
+ * jsdom has no `matchMedia`, which is exactly the realm the real AnimatedNumber refuses to
+ * animate in — so the default here is the settled value, synchronously, and a test that wants the
+ * travelling behaviour opts in by installing one.
+ */
+function installMatchMedia() {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+  });
+}
+
+function removeMatchMedia() {
+  Reflect.deleteProperty(window, 'matchMedia');
+}
+
 describe('Explore', () => {
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -272,6 +299,7 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
+    mockRowMounts.length = 0;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
@@ -280,6 +308,7 @@ describe('Explore', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
+    removeMatchMedia();
   });
 
   describe('base rendering', () => {
@@ -776,6 +805,88 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+  });
+
+  describe('an account switch', () => {
+    beforeEach(() => {
+      // The total renders "-" until a price has loaded (pricesLoaded gate) - these tests are
+      // about the AnimatedNumber commit itself, so give it a loaded feed the way the base
+      // rendering tests do.
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    });
+
+    it('shows the new account total at once instead of counting from the old one', async () => {
+      installMatchMedia();
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('100');
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('5');
+      expect(screen.getByTestId('balance-amount')).not.toHaveTextContent('100');
+    });
+
+    it('still counts a change within the same account', async () => {
+      installMatchMedia();
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      // Same account: the figure travels, so the commit still reads the old value.
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('100');
+    });
+
+    it('mounts a new row for a token both accounts hold', async () => {
+      // the token list: one token 't1' held by both accounts, with different balances
+      // (set it the way this file's asset-list tests do)
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
+
+      mockAccount = { publicKey: 'mtst1other' };
+      // same token 't1', a different balance
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(2);
+    });
+
+    it('keeps the same row when only the balance of the same account changes', async () => {
+      // token 't1' for the same account, then a different balance, same account
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
+    });
+
+    it('keeps the Accounts drawer open across an account switch', async () => {
+      const { rerender } = await renderExplore();
+      fireEvent.click(screen.getByTestId('balance-more'));
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
 });
