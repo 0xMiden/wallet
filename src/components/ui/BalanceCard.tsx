@@ -201,7 +201,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 className="text-display leading-none whitespace-nowrap"
               >
                 {/* eslint-disable-next-line i18next/no-literal-string -- balance-mask glyphs / pre-formatted zero value, not translatable copy */}
-                {isHidden ? '••••••' : isZero ? '$0.00' : amount}
+                {isHidden ? '••••••' : isZero ? '0.00' : amount}
               </span>
               {/* The entry pattern's unit: 22px beside the amount, on its baseline. */}
               <span data-testid="balance-card-currency" className="shrink-0 text-entry-unit leading-none">

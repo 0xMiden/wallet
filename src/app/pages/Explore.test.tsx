@@ -296,8 +296,10 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
-      // amount is `$${toLocalFormat(balance)}` and account fields flow through.
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$0');
+      // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
+      // fields flow through.
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
+      expect(screen.getByTestId('balance-amount')).not.toHaveTextContent('$');
       expect(screen.getByTestId('balance-account-id')).toHaveTextContent('mtst1account');
       expect(screen.getByTestId('balance-account-number')).toHaveTextContent('mtst1acc');
       expect(screen.getByTestId('home-prompts')).toHaveTextContent('mtst1account');
@@ -349,13 +351,13 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
     });
 
-    it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
+    it('shows the portfolio total as "—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
       mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
       mockTokenPrices = {}; // price feed unavailable / not yet loaded
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
     });
 
     it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
@@ -364,7 +366,7 @@ describe('Explore', () => {
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$\u2014');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
     });
 
     // The same rule as the "$-" total above, one row down: a change figure the app does not have is
