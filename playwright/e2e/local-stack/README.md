@@ -11,9 +11,9 @@ those files currently say; when they disagree, the files win.
 
 | Component | Pin | Source |
 |---|---|---|
-| `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **rust-sdk `v0.17.0-rc.3`** (`253b6d0f`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
+| `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **rust-sdk `v0.17.0-rc.4`** (`c3e20580`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
 | `miden-note-transport` | built with the node at `NODE_SRC_REF` | installed by `start-test-node.sh` |
-| `miden-client-cli` | `0.17.0-rc.3` (rev `253b6d0f`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
+| `miden-client-cli` | `0.17.0-rc.4` (rev `c3e20580`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
 | `guardian` (Tier-2) | `v0.18.0-rc.1` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
 
 > **No node image tag.** The published `ghcr.io/0xmiden/*` node images lag the node the SDK is
@@ -23,8 +23,8 @@ those files currently say; when they disagree, the files win.
 > **Keep `GUARDIAN_IMAGE_TAG` in lockstep with the client.** The guardian server image and
 > `@openzeppelin/miden-multisig-client` in `package.json` have to agree on the MASM procedure
 > roots, and the guardian's version line is independent of Miden's. `v0.18.0-rc.1` is the first
-> release on the Miden 0.17 line, built against the same `@miden-sdk/miden-sdk` 0.17.0-rc.3 the
-> wallet ships. Bumping one without
+> release on the Miden 0.17 line, built against `@miden-sdk/miden-sdk` 0.17.0-rc.3 (the wallet runs
+> it on its own 0.17.0-rc.4 through `resolutions`). Bumping one without
 > the other still installs and starts cleanly; it fails at runtime on procedure-root mismatch.
 
 ## Prerequisites

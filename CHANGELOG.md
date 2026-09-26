@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] `@miden-sdk/miden-sdk` moves to 0.17.0-rc.4, which executes a multisig proposal at the tip with its bound block declared (web-sdk#434); the local node and CLI pin rust-sdk `v0.17.0-rc.4`, and the native iOS/Android provers are rebuilt against `miden-client` 0.17.0-rc.4. Guardian proposals still execute at their anchor; moving them to the tip is a follow-up.
 - [CHANGE][all] The `next` line moves to `@miden-sdk/miden-sdk` 0.17.0-rc.3 (protocol 0.17.0-rc.7, VM 0.33) and OpenZeppelin guardian 0.18.0-rc.1, its first release on the Miden 0.17 line (client packages and the E2E server image). A 0.17 client needs the chain's fee faucet at create time, so Developer Settings, `MIDEN_FEE_FAUCET_ID`, and the E2E injector supply it; the local node and CLI pin rust-sdk `v0.17.0-rc.3`, and the native iOS/Android provers are rebuilt against `miden-client` 0.17.0-rc.3. Guarded requests now name their account, and a direct guardian switch pins the block its signed summary binds.
 - [FIX][ci] The devnet E2E suites wait out a public faucet `429` for as long as it asks, instead of failing the test on the first grant.
 - [FIX][extension] Localnet note-transport is `http://127.0.0.1:57292`, which is not `localhost`, so the offscreen private-note relay was CORS-blocked. `host_permissions` now includes `http://127.0.0.1/*`.
