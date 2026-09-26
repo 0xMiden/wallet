@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, AnimatedNumber, BalanceCard } from 'components/ui';
+import { AccountsDrawer, AnimatedNumber, AssetListItemSkeleton, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -382,15 +382,20 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <div className="flex flex-col divide-y divide-rule-default">
-        {sortedTokens.map(asset => (
-          <AssetRow
-            key={asset.tokenId}
-            asset={asset}
-            tokenPrices={tokenPrices}
-            onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
-          />
-        ))}
+      <div className="flex flex-col divide-y divide-rule-default" data-testid="asset-list" aria-busy={balancesLoading}>
+        {/* The hook's zero placeholder is not a balance: under the loading card it read as an empty wallet (#1123). */}
+        {balancesLoading ? (
+          <AssetListItemSkeleton data-testid="asset-row-skeleton" />
+        ) : (
+          sortedTokens.map(asset => (
+            <AssetRow
+              key={asset.tokenId}
+              asset={asset}
+              tokenPrices={tokenPrices}
+              onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+            />
+          ))
+        )}
       </div>
     </>
   );
