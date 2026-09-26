@@ -43,6 +43,18 @@ describe('telemetry and crash-reporting key defines', () => {
     expect(KEYS).toEqual(expect.arrayContaining(['APTABASE_APP_KEY', 'APTABASE_HOST', 'SENTRY_DSN']));
   });
 
+  it('finds the build configs that bundle telemetry', () => {
+    // A config renamed out of the pattern would otherwise drop out of the cases below unpinned.
+    expect(CONFIGS).toEqual(
+      expect.arrayContaining([
+        'vite.background.config.ts',
+        'vite.desktop.config.ts',
+        'vite.extension.config.ts',
+        'vite.mobile.config.ts'
+      ])
+    );
+  });
+
   it.each(CONFIGS.flatMap(config => KEYS.map(key => [config, key])))('%s defines %s', (config, key) => {
     const content = read(config);
     expect(content).toContain(`'process.env.${key}': JSON.stringify(process.env.${key} ?? '')`);
