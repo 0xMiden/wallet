@@ -553,6 +553,34 @@ describe('the first read for an address (#1123)', () => {
     );
   });
 
+  it('stores a first read that lands after its component unmounted', async () => {
+    // Every other reader skipped the address in favour of this read, so dropping it would leave
+    // Home with no read at all until the next poll tick.
+    const row = {
+      tokenId: 't',
+      tokenSlug: 'T',
+      metadata: { name: 'T', symbol: 'T', decimals: 8 },
+      balance: 7,
+      fiatPrice: 1,
+      change24h: 0
+    };
+    let land!: (rows: (typeof row)[]) => void;
+    fetchBalancesMock().mockImplementation(() => new Promise(resolve => (land = resolve)));
+
+    await mount('unmounted-address');
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    await act(async () => {
+      land([row]);
+      await Promise.resolve();
+    });
+
+    expect(useWalletStore.getState().balances['unmounted-address']).toEqual([row]);
+    expect(useWalletStore.getState().balancesLoading['unmounted-address']).toBe(false);
+  });
+
   it('does not queue a second read behind a Ready-time read that is still in flight', async () => {
     // The import path: the store's Ready-time read is queued, then Home mounts before it lands.
     fetchBalancesMock().mockImplementation(() => new Promise(() => {}));

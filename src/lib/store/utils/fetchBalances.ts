@@ -38,18 +38,20 @@ export interface FetchBalancesOptions {
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
-   * Queue for the WASM lock instead of skipping when it is busy. Every reader passes
-   * `balances[address] === undefined`: with nothing on screen yet, a skipping read
-   * starves while the sync and note reads keep the lock's queue full (#1123), while a
-   * refresh must never wait, or it reopens the SelectToken stall described below.
+   * Queue for the WASM lock instead of skipping when it is busy. The store's fetchBalances
+   * action, the one caller, passes `balances[address] === undefined`: with nothing on
+   * screen yet, a skipping read starves while the sync and note reads keep the lock's
+   * queue full (#1123), while a refresh must never wait, or it reopens the SelectToken
+   * stall described below.
    */
   waitForLock?: boolean;
 }
 
 /**
- * One balance read in flight per address across this realm's readers: the Ready-time
- * read, the `useAllBalances` poll and the store action each skip an address held here,
- * so none queues a second hold behind another's read. The holder releases it in `finally`.
+ * One balance read in flight per address. The store's fetchBalances action, which the
+ * Ready-time read and the `useAllBalances` poll both go through, holds an address here
+ * while its read runs and skips one already held, so no reader queues a second hold
+ * behind another's read. It releases the address in `finally`.
  */
 export const fetchingAddresses = new Set<string>();
 
@@ -147,7 +149,7 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
  * Fetch all token balances for an account
  *
  * This is the single source of truth for balance fetching logic.
- * Used by both the useAllBalances hook and the Zustand store action.
+ * Called only by the store's fetchBalances action, which every reader goes through.
  *
  * By default the `getAccount` WASM read runs under a NON-BLOCKING attempt on
  * the wallet WASM mutex (`tryWithWasmClientLock`): it must not stall behind long

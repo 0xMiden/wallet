@@ -77,6 +77,8 @@ describe('the balance read when the wallet becomes Ready', () => {
       expect.anything(),
       expect.objectContaining({ waitForLock: true })
     );
+    // Metadata fetched for imported tokens reaches the store, as it does from every other reader.
+    expect(mockFetchBalances.mock.calls[0][2].setAssetsMetadata).toBe(useWalletStore.getState().setAssetsMetadata);
   });
 
   it('stores what it read and marks the address loaded', async () => {

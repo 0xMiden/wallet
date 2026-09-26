@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { fetchBalances, fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -54,7 +54,6 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const balancesMap = useWalletStore(s => s.balances);
   const balancesLoadingMap = useWalletStore(s => s.balancesLoading);
   const balancesLastFetchedMap = useWalletStore(s => s.balancesLastFetched);
-  const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
 
   // Derive values with stable defaults
   // Show 0 MIDEN immediately before any async lookup completes — only once
@@ -74,21 +73,14 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     tokenMetadatasRef.current = tokenMetadatas;
   }, [tokenMetadatas]);
 
-  // Fetch balances function that respects deduping
-  // Uses global lock to prevent concurrent WASM client calls
+  // Fetch balances function that respects deduping. The read itself is the store's
+  // fetchBalances action, which every reader goes through and which holds the in-flight entry
   // On extension, balances arrive via SyncCompleted broadcast — skip WASM polling
   const fetchBalancesWithDeduping = useCallback(async () => {
     if (isExtension()) return;
 
-    // One read per address across every reader, the store's included (`fetchingAddresses`)
+    // Another reader already has this address in flight; the action would skip it anyway
     if (fetchingAddresses.has(address)) return;
-
-    // Until this address has balances, the read queues for the WASM lock instead of
-    // skipping. After an import, the sync, note reads and recovery keep the lock's queue
-    // full, and a skipping read starved behind them for as long as they ran (#1123).
-    // Once a figure is on screen, a refresh skips instead of queueing, so it never
-    // stalls behind a write.
-    const waitForLock = useWalletStore.getState().balances[address] === undefined;
 
     // Read current value from store (not ref) to catch updates from prefetch
     const now = Date.now();
@@ -97,39 +89,16 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
       return;
     }
 
-    // Acquire global lock
-    fetchingAddresses.add(address);
     try {
-      // Fetch balances using the consolidated utility
-      // Metadata is fetched inline, so all tokens appear together
-      const tokenPrices = useWalletStore.getState().tokenPrices;
-      const fetchedBalances = await fetchBalances(address, tokenMetadatasRef.current, {
-        setAssetsMetadata,
-        tokenPrices,
-        waitForLock
-      });
-
-      // `null` means the refresh was skipped: either the lock was busy (a tx/sync held
-      // it) or the balances fuse is lit. Keep the prior balances and let the next tick retry.
-      if (fetchedBalances === null) return;
-
-      // Update store if still mounted
-      if (mountedRef.current) {
-        useWalletStore.setState(state => ({
-          balances: { ...state.balances, [address]: fetchedBalances },
-          balancesLoading: { ...state.balancesLoading, [address]: false },
-          balancesLastFetched: { ...state.balancesLastFetched, [address]: Date.now() }
-        }));
-      }
+      // The action stores what lands whether or not this component is still mounted: every
+      // other reader skipped the address in favour of this read (#1123).
+      await useWalletStore.getState().fetchBalances(address, tokenMetadatasRef.current);
     } catch (error) {
       // Loading is left as it was: with nothing read yet, clearing it would show the zero
       // placeholder as a real "$0.00". The next tick retries.
       console.error('Failed to fetch balances:', error);
-    } finally {
-      // Release global lock
-      fetchingAddresses.delete(address);
     }
-  }, [address, setAssetsMetadata]);
+  }, [address]);
 
   // Manual mutate function for compatibility
   const mutate = useCallback(() => {

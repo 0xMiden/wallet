@@ -122,33 +122,19 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       // Immediately fetch balances when wallet becomes Ready (before any React effects).
-      // With nothing on screen it queues for the WASM lock rather than skipping: called
-      // here, it holds the lock before the first sync tick can, so an import's balance
-      // lands in one local read instead of after the sync (#1123).
+      // Through the store action: with nothing on screen it queues for the WASM lock rather
+      // than skipping, and called here it holds the lock before the first sync tick can, so an
+      // import's balance lands in one local read instead of after the sync (#1123).
       // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
-      const address = state.currentAccount?.publicKey;
-      if (justBecameReady && address && !isExtension() && !fetchingAddresses.has(address)) {
-        fetchingAddresses.add(address);
-        fetchBalances(address, get().assetsMetadata, {
-          tokenPrices: get().tokenPrices,
-          waitForLock: get().balances[address] === undefined
-        })
-          .then(balances => {
-            // `null` = a refresh found the lock busy or the balance probe is fused; leave
-            // any prior balances in place and let a later poll refresh.
-            if (balances === null) return;
-            set(s => ({
-              balances: { ...s.balances, [address]: balances },
-              balancesLoading: { ...s.balancesLoading, [address]: false },
-              balancesLastFetched: { ...s.balancesLastFetched, [address]: Date.now() }
-            }));
-          })
+      if (justBecameReady && state.currentAccount && !isExtension()) {
+        const address = state.currentAccount.publicKey;
+        get()
+          .fetchBalances(address, get().assetsMetadata)
           .catch(err => {
             // Loading is left as it was: with nothing read yet, clearing it would show the
             // zero placeholder as a real "$0.00". The balance poll retries.
             console.warn('[syncFromBackend] Initial balance fetch failed:', err);
-          })
-          .finally(() => fetchingAddresses.delete(address));
+          });
       }
     },
 
@@ -675,8 +661,9 @@ export const useWalletStore = create<WalletStore>()(
 
     // Balance actions
     fetchBalances: async (accountAddress, tokenMetadatas) => {
-      // The in-flight guard, not `balancesLoading`: Home shows its skeleton while loading, so a
-      // refresh that set it would swap the figures on screen for the skeleton (#1123).
+      // The one implementation of a balance read: the Ready-time read and the useAllBalances poll
+      // both come through here. The in-flight guard, not `balancesLoading`: Home shows its skeleton
+      // while loading, so a refresh that set it would swap the figures on screen for it (#1123).
       if (fetchingAddresses.has(accountAddress)) return;
       fetchingAddresses.add(accountAddress);
 
