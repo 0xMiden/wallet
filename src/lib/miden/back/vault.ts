@@ -1114,7 +1114,7 @@ export class Vault {
                   // answer carries "RPC error", which the network check below would
                   // read as an outage (#1127).
                   if (isAccountNotFoundOnChainError(probeError)) {
-                    console.warn(`[Vault.spawn] no ${probe.keyDerivation} ${scheme} account on chain`);
+                    console.warn(`[Vault.spawn] no ${probe.keyDerivation} ${scheme} account on chain`, probeError);
                     continue;
                   }
                   // A probe miss and an UNREACHABLE NODE are different answers, and
@@ -1831,7 +1831,8 @@ export class Vault {
                 // read as an outage (#1127).
                 if (isAccountNotFoundOnChainError(e)) {
                   console.warn(
-                    `[Vault.createHDAccount] no ${probe.keyDerivation} ${probe.authScheme} account on chain`
+                    `[Vault.createHDAccount] no ${probe.keyDerivation} ${probe.authScheme} account on chain`,
+                    e
                   );
                   continue;
                 }

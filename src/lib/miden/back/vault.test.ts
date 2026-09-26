@@ -1717,9 +1717,16 @@ describe('Vault.createHDAccount', () => {
     mockMidenClient.importPublicMidenWalletFromSeed
       .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
       .mockResolvedValueOnce('acc-legacy-1127');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const accounts = await vault.createHDAccount(WalletType.OnChain);
     expect(accounts[1]!.publicKey).toBe('acc-legacy-1127');
     expect(accounts[1]!.keyDerivation).toBe('legacy');
+    // The miss is logged with the node text that decided it.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('account on chain'),
+      expect.objectContaining({ message: NODE_016_ACCOUNT_MISS })
+    );
+    warn.mockRestore();
   });
 
   it('creates a fresh account when both probes get the node not-found answer (#1127)', async () => {
@@ -1902,9 +1909,16 @@ describe('Vault.spawn', () => {
     mockMidenClient.importPublicMidenWalletFromSeed
       .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
       .mockResolvedValueOnce('legacy-pk-1127');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('legacy-pk-1127');
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    // The miss is logged with the node text that decided it.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('account on chain'),
+      expect.objectContaining({ message: NODE_016_ACCOUNT_MISS })
+    );
+    warn.mockRestore();
   });
 
   it('still aborts when the second probe cannot reach the node after the first missed', async () => {
