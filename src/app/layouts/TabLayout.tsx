@@ -24,7 +24,7 @@ import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { isAndroid, isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -118,6 +118,10 @@ export interface DockedNavBarHandle {
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
 
+// Android's tabs stay above the system navigation bar, so its bar reaches further into the page. The one
+// place that is decided: the bar's `clearInset` and the body mark main.css sizes flow cushions from.
+const barClearsInset = (): boolean => isAndroid();
+
 interface DockedNavBarProps {
   items: BottomNavItem[];
   activeId: string;
@@ -172,6 +176,7 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
+        clearInset={barClearsInset()}
         corner={<NetworkModeRibbon docked={isMobile()} />}
       />
     </div>
@@ -286,14 +291,19 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     return () => document.body.removeAttribute('data-home-band');
   }, [showActionBar, onScreen]);
 
-  // Flow footers reserve the bar's room only while one is mounted (main.css). A layout effect, so a
-  // footer's first painted frame already has the right cushion.
+  // Flow footers reserve the bar's room only while one is mounted, and more of it while the bar clears
+  // the inset (main.css). A layout effect, so a footer's first painted frame already has the right
+  // cushion.
   useLayoutEffect(() => {
     mountedTabBars += 1;
     document.body.setAttribute('data-navbar-mounted', '');
+    document.body.toggleAttribute('data-navbar-clears-inset', barClearsInset());
     return () => {
       mountedTabBars -= 1;
-      if (mountedTabBars === 0) document.body.removeAttribute('data-navbar-mounted');
+      if (mountedTabBars === 0) {
+        document.body.removeAttribute('data-navbar-mounted');
+        document.body.removeAttribute('data-navbar-clears-inset');
+      }
     };
   }, []);
 
