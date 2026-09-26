@@ -64,6 +64,13 @@ function merge(a: ActivityReadState, b: ActivityReadState): ActivityReadState {
   return compact({ seenBefore: Math.max(a.seenBefore, b.seenBefore), ids });
 }
 
+/** Value equality, so a merge that changed nothing keeps the cached identity and wakes nobody. */
+function sameState(a: ActivityReadState, b: ActivityReadState): boolean {
+  if (a.seenBefore !== b.seenBefore) return false;
+  const keys = Object.keys(a.ids);
+  return keys.length === Object.keys(b.ids).length && keys.every(id => b.ids[id] === a.ids[id]);
+}
+
 // Every extension window (popup, side panel, full-page tab) keeps its own cache over one shared
 // localStorage value, so each merges the others' writes as they land. A removal or a clear (a
 // wallet reset) drops the cache instead, and the next read takes the device's value again.
@@ -71,7 +78,9 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
     if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
     const incoming = event.key === null ? undefined : parse(event.newValue);
-    cached = incoming && cached ? merge(cached, incoming) : undefined;
+    const next = incoming && cached ? merge(cached, incoming) : undefined;
+    if (next && cached && sameState(next, cached)) return;
+    cached = next;
     notify();
   });
 }
@@ -141,10 +150,9 @@ export function markActivityRead(id: string, timestamp: number): void {
   // window's copy alone.
   const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
   if (isActivityRead(current, id, timestamp)) {
-    if (current !== cached) {
-      cached = current;
-      notify();
-    }
+    if (cached && sameState(current, cached)) return;
+    cached = current;
+    notify();
     return;
   }
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp

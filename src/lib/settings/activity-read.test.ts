@@ -183,4 +183,45 @@ describe('several windows (#1106)', () => {
 
     expect(getActivityReadState()).toEqual({ seenBefore: NOW_S + 100, ids: {} });
   });
+
+  it('re-renders nobody when an already-read activity is marked again', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      return useActivityReadState();
+    });
+    const before = renders;
+
+    act(() => markActivityRead('tx:a', NOW_S + 10));
+
+    expect(renders).toBe(before);
+  });
+
+  it("adopts another window's reads even when this mark changes nothing itself", () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    const { result } = renderHook(() => useActivityReadState());
+    writeFromOtherWindow({ seenBefore: NOW_S, ids: { 'tx:a': NOW_S + 10, 'tx:b': NOW_S + 20 } });
+
+    act(() => markActivityRead('tx:a', NOW_S + 10));
+
+    expect(isActivityRead(result.current, 'tx:b', NOW_S + 20)).toBe(true);
+  });
+
+  it('re-renders nobody when another window writes what this one already holds', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      return useActivityReadState();
+    });
+    const before = renders;
+
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, localStorage.getItem(ACTIVITY_READ_STORAGE_KEY));
+
+    expect(renders).toBe(before);
+  });
 });
