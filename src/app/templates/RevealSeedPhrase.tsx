@@ -76,6 +76,10 @@ const RevealSeedPhrase: FC = () => {
   }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
+  // Sticky once true, so `passwordDrawer` below stays in the tree once the user has
+  // opened it (see its own comment for why that has to survive a step reset).
+  const [passwordDrawerMounted, setPasswordDrawerMounted] = useState(false);
+  if (showPasswordDrawer && !passwordDrawerMounted) setPasswordDrawerMounted(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   // Set only when BOTH protector reads fail, which means storage itself is
@@ -296,6 +300,67 @@ const RevealSeedPhrase: FC = () => {
     leave();
   }, [leave]);
 
+  // Passcode / password drawer (for non-hardware wallets). Mobile vaults are protected
+  // by the 6-digit onboarding passcode, so they get the numpad; extension/desktop use a
+  // typed password.
+  const usePasscodeEntry = isMobile();
+
+  // A sibling of the 'warning' and 'auth' branches below, not a child of either: closing
+  // the drawer (X, scrim, Escape, drag-release) runs handlePasswordDrawerClose, which
+  // resets step to 'warning' in the same batch (leave(), #1122). Nested inside the 'auth'
+  // branch, that reset unmounted the whole keyed branch - Drawer included - before vaul's
+  // own close animation got a chance to run. `passwordDrawerMounted` keeps it in the tree
+  // once opened, so the step change plays through it instead of taking it out from under
+  // itself.
+  const passwordDrawer = passwordDrawerMounted && (
+    <Drawer
+      open={showPasswordDrawer}
+      onOpenChange={open => !open && handlePasswordDrawerClose()}
+      screenKey="reveal-seed"
+    >
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
+        </DrawerHeader>
+        {usePasscodeEntry ? (
+          <div className="px-4 pb-6">
+            <PasscodeEntry
+              onSubmit={code => onPasswordSubmit({ password: code })}
+              onChange={() => clearErrors()}
+              error={errors.password?.message ?? null}
+              isSubmitting={isSubmitting}
+            />
+          </div>
+        ) : (
+          <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
+            <TextField
+              {...register('password', { required: t('required') })}
+              label={t('password')}
+              id="reveal-seed-password"
+              type="password"
+              placeholder="********"
+              error={errors.password?.message}
+              errorTestId="error-caption"
+              containerClassName="mb-4"
+              onChange={e => {
+                register('password').onChange(e);
+                clearErrors();
+              }}
+            />
+            <Button
+              className="w-full justify-center"
+              variant={ButtonVariant.Primary}
+              title={t('continue')}
+              disabled={isSubmitting || !passwordValue}
+              isLoading={isSubmitting}
+              onClick={handleSubmit(onPasswordSubmit)}
+            />
+          </form>
+        )}
+      </DrawerContent>
+    </Drawer>
+  );
+
   if (seedStatus && seedStatus !== 'stored')
     return (
       // The same page the verify flow draws for this state, on the same frame.
@@ -317,57 +382,63 @@ const RevealSeedPhrase: FC = () => {
   // reconciling one instance in place - PageHeader focuses the title from a mount
   // effect, so without a remount the announcement never fires and the h1 keeps no
   // tabIndex. Keyed per BRANCH, not on `step`: three of the four run with
-  // step === 'reveal'. The drawer branch is deliberately not focused - its sheet is a
-  // portal that owns focus, and that branch remounts on every failed submit.
+  // step === 'reveal'. The auth branch passes no `focusTitleOnMount` of its own, but gets
+  // it anyway - Settings (Settings.tsx:516,527) provides `true` for this route via
+  // SubPageHeaderProvider, and SubPageLayout falls back to that context value when a page
+  // doesn't set the prop itself. It no longer remounts on submit either way (pending,
+  // success or failure all stay on this branch, #1122) - only a step change does that now.
   if (step === 'warning') {
     return (
-      <SubPageLayout
-        key="warning"
-        title={t('recoveryPhrase')}
-        onBack={leave}
-        focusTitleOnMount
-        data-testid="reveal-seed-warning"
-        footer={
-          <>
-            <Button
-              className="flex-1 max-w-none"
-              variant={ButtonVariant.Secondary}
-              title={t('close')}
-              onClick={leave}
-            />
-            <Button
-              className="flex-1 max-w-none"
-              variant={ButtonVariant.Primary}
-              title={t('view')}
-              onClick={handleView}
-              disabled={hasHardwareProtector === null || isSubmitting}
-              isLoading={isSubmitting}
-            />
-          </>
-        }
-      >
-        <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
-          <SeedPhrasePlaceholder />
-        </SubPageSection>
+      <>
+        <SubPageLayout
+          key="warning"
+          title={t('recoveryPhrase')}
+          onBack={leave}
+          focusTitleOnMount
+          data-testid="reveal-seed-warning"
+          footer={
+            <>
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Secondary}
+                title={t('close')}
+                onClick={leave}
+              />
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Primary}
+                title={t('view')}
+                onClick={handleView}
+                disabled={hasHardwareProtector === null || isSubmitting}
+                isLoading={isSubmitting}
+              />
+            </>
+          }
+        >
+          <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
+            <SeedPhrasePlaceholder />
+          </SubPageSection>
 
-        {probeError && (
-          <div>
-            <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
-              {t(probeError)}
-            </Notice>
-            <Button
-              className="mt-3"
-              variant={ButtonVariant.Secondary}
-              title={t('retry')}
-              onClick={runProbe}
-              disabled={probing}
-              isLoading={probing}
-            />
-          </div>
-        )}
+          {probeError && (
+            <div>
+              <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
+                {t(probeError)}
+              </Notice>
+              <Button
+                className="mt-3"
+                variant={ButtonVariant.Secondary}
+                title={t('retry')}
+                onClick={runProbe}
+                disabled={probing}
+                isLoading={probing}
+              />
+            </div>
+          )}
 
-        <SeedPhrasePrivacyHero className="mt-auto pt-4" />
-      </SubPageLayout>
+          <SeedPhrasePrivacyHero className="mt-auto pt-4" />
+        </SubPageLayout>
+        {passwordDrawer}
+      </>
     );
   }
 
@@ -461,60 +532,11 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Passcode / password drawer (for non-hardware wallets, shown on mount).
-  // Mobile vaults are protected by the 6-digit onboarding passcode, so they
-  // get the numpad; extension/desktop use a typed password.
-  const usePasscodeEntry = isMobile();
-
   return (
-    <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth">
-      <Drawer
-        open={showPasswordDrawer}
-        onOpenChange={open => !open && handlePasswordDrawerClose()}
-        screenKey="reveal-seed"
-      >
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
-          </DrawerHeader>
-          {usePasscodeEntry ? (
-            <div className="px-4 pb-6">
-              <PasscodeEntry
-                onSubmit={code => onPasswordSubmit({ password: code })}
-                onChange={() => clearErrors()}
-                error={errors.password?.message ?? null}
-                isSubmitting={isSubmitting}
-              />
-            </div>
-          ) : (
-            <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-              <TextField
-                {...register('password', { required: t('required') })}
-                label={t('password')}
-                id="reveal-seed-password"
-                type="password"
-                placeholder="********"
-                error={errors.password?.message}
-                errorTestId="error-caption"
-                containerClassName="mb-4"
-                onChange={e => {
-                  register('password').onChange(e);
-                  clearErrors();
-                }}
-              />
-              <Button
-                className="w-full justify-center"
-                variant={ButtonVariant.Primary}
-                title={t('continue')}
-                disabled={isSubmitting || !passwordValue}
-                isLoading={isSubmitting}
-                onClick={handleSubmit(onPasswordSubmit)}
-              />
-            </form>
-          )}
-        </DrawerContent>
-      </Drawer>
-    </SubPageLayout>
+    <>
+      <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth" />
+      {passwordDrawer}
+    </>
   );
 };
 
