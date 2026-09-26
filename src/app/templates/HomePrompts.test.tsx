@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import type { TokenPrices } from 'lib/prices';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import {
@@ -513,16 +514,16 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument(), { timeout: 3500 });
   });
 
-  it('says what arrived in dollars when every minted note is priced, and falls back to the generic line when one is not', async () => {
+  it('says what the mint brought in dollars, leaving out every note it did not mint', async () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-    const renderWith = (notes: PendingNoteValue[]) => (
+    const renderWith = (notes: PendingNoteValue[], prices: TokenPrices = tokenPrices) => (
       <HomePrompts
         account={account}
         balances={zeroBalance}
         balancesLoading={false}
         claimableNotes={notes}
         fundingNotes={notes}
-        tokenPrices={tokenPrices}
+        tokenPrices={prices}
       />
     );
 
@@ -532,12 +533,40 @@ describe('HomePrompts', () => {
     fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
 
-    // 1.25 MIDEN at $2 plus 2 USDC at $1.
+    // The native note is the mint: 1.25 MIDEN at $2. The claimable USDC note did not come from
+    // the faucet, so it is not what was deposited.
     rerender(renderWith(pendingNotes));
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$4.50');
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
 
-    rerender(renderWith([...pendingNotes, unquotedNote]));
+    // A mint with no quote has no dollar figure, never one at $1 a unit.
+    rerender(renderWith(pendingNotes, { USDC: tokenPrices.USDC }));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
+  });
+
+  it('uses the generic line when funds arrive as a balance, whatever else is claimable', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (balances: TokenBalanceData[], notes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={balances}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    const { rerender } = render(renderWith(zeroBalance, []));
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // No new native note: the balance is what arrived, so there is no mint to put a figure on,
+    // and the quoted USDC note that happens to be claimable is not it.
+    rerender(renderWith(fundedBalance, nonNativeNotes));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
     expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
   });
 
