@@ -22,15 +22,19 @@ const REPO_ROOT = path.join(__dirname, '../../..');
 /** Modules bundled into all five targets — extension pages, SW, content scripts, mobile, desktop. */
 const BRIDGE_MODULES = ['src/lib/miden/back/dapp.ts', 'src/lib/dapp-browser/message-handler.ts'];
 
-const CONFIGS = [
-  'vite.extension.config.ts',
-  'vite.background.config.ts',
-  'vite.contentScripts.config.ts',
-  'vite.mobile.config.ts',
-  'vite.desktop.config.ts'
-];
+// Every Vite config, discovered, since the bridge modules are bundled into all of them.
+const CONFIGS = fs
+  .readdirSync(REPO_ROOT)
+  .filter(file => /^vite\..+\.config\.ts$/.test(file))
+  .sort();
 
-const read = (relative: string) => fs.readFileSync(path.join(REPO_ROOT, relative), 'utf8');
+// Every read drops whole-line // comments, so a define commented out with // counts as absent.
+const read = (relative: string) =>
+  fs
+    .readFileSync(path.join(REPO_ROOT, relative), 'utf8')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
 
 /** Flag names read as `process.env.X` / `process.env?.X` by the given source. */
 function envReads(source: string): string[] {
@@ -42,6 +46,19 @@ const flags = [...new Set(BRIDGE_MODULES.flatMap(module => envReads(read(module)
 describe('dApp-bridge build-time flags', () => {
   it('reads at least one build-time flag (otherwise this suite guards nothing)', () => {
     expect(flags).toContain('DEBUG_DAPP_BRIDGE');
+  });
+
+  it('finds every build config', () => {
+    // A config renamed out of the pattern would otherwise drop out of the cases below unpinned.
+    expect(CONFIGS).toEqual(
+      expect.arrayContaining([
+        'vite.background.config.ts',
+        'vite.contentScripts.config.ts',
+        'vite.desktop.config.ts',
+        'vite.extension.config.ts',
+        'vite.mobile.config.ts'
+      ])
+    );
   });
 
   describe.each(CONFIGS)('%s', config => {
