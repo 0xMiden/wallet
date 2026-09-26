@@ -13,6 +13,7 @@ import { Pill } from 'components/ui/Pill';
 import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
+import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
@@ -28,7 +29,8 @@ import { GuardianProbeState, WalletType } from '../types';
 const PROBE_ESCAPE_HATCH_MS = 10_000;
 
 export interface ImportRecoveryMethodScreenProps {
-  isError?: boolean;
+  /** The last lookup failure's reason: `undefined`/`null` none, `GUARDIAN_ACCOUNT_NOT_FOUND` not-found, else its text. */
+  error?: string | null;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
   /**
@@ -41,7 +43,7 @@ export interface ImportRecoveryMethodScreenProps {
 }
 
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
-  isError,
+  error,
   probe,
   guardianOnly = false,
   onRetryProbe,
@@ -82,7 +84,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     return () => clearTimeout(timer);
   }, [isProbing]);
 
-  const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
+  const showError = Boolean(error) && !dirty && selected === WalletType.Guardian;
 
   const sanitizedEndpoint = sanitizeGuardianUrl(endpointInput);
   const canContinue =
@@ -318,7 +320,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           {renderGuardianBody()}
           {showError && (
             <Notice tone="negative" role="alert">
-              {t('guardianAccountNotFound')}
+              {error === GUARDIAN_ACCOUNT_NOT_FOUND ? t('guardianAccountNotFound') : error}
             </Notice>
           )}
         </div>

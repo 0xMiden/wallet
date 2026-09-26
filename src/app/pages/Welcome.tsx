@@ -11,6 +11,7 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -23,7 +24,7 @@ import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
-import { errorToMessage } from 'screens/onboarding/error-message';
+import { errorToMessage, isGuardianNotFound } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import {
   ImportType,
@@ -204,7 +205,10 @@ const Welcome: FC = () => {
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
-  const [guardianLookupError, setGuardianLookupError] = useState(false);
+  // null: no failure. GUARDIAN_ACCOUNT_NOT_FOUND: the operator's definite "no account here" answer.
+  // Anything else: the failure's own text, for a screen that can't fall back to the confirmation
+  // screen's registrationError (the page change that reaches it clears that state).
+  const [guardianLookupFailure, setGuardianLookupFailure] = useState<string | null>(null);
   /**
    * A registration failure to show on the confirmation screen.
    *
@@ -269,7 +273,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
-    setGuardianLookupError(false);
+    setGuardianLookupFailure(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
     setGuardianEndpoint(undefined);
@@ -678,7 +682,7 @@ const Welcome: FC = () => {
         break;
       case 'import-hot-key-submit':
         // A new key retires a Guardian lookup failure raised for the previous credential.
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
@@ -700,7 +704,7 @@ const Welcome: FC = () => {
         navigate('/#import-from-file');
         break;
       case 'import-wallet-file-submit':
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setOnboardingType(OnboardingType.Import);
         setImportType(ImportType.WalletFile);
         setWalletFilePayload(action.payload);
@@ -719,7 +723,7 @@ const Welcome: FC = () => {
         break;
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setImportType(ImportType.SeedPhrase);
         setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
@@ -769,7 +773,7 @@ const Welcome: FC = () => {
         setGuardianEndpoint(
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         navigate('/#confirmation');
         break;
       case 'confirmation': {
@@ -811,13 +815,15 @@ const Welcome: FC = () => {
           // Surface it for every path; most used to show nothing. The Guardian import
           // branch below hands off to the recovery-method screen, which retires this
           // message on arrival, and the hardware-only branch adds its attempt count.
-          setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
+          const failure = errorToMessage(error) ?? t('smthWentWrong');
+          setRegistrationError(failure);
           if (
             onboardingType === OnboardingType.Import &&
             importType !== ImportType.WalletFile &&
             walletType === WalletType.Guardian
           ) {
-            setGuardianLookupError(true);
+            // The page change clears registrationError, so the screen gets its own copy of the reason.
+            setGuardianLookupFailure(isGuardianNotFound(error) ? GUARDIAN_ACCOUNT_NOT_FOUND : failure);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
@@ -1124,7 +1130,7 @@ const Welcome: FC = () => {
           isHardwareSecurityAvailable={isHardwareSecurityAvailable}
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
-          guardianLookupError={guardianLookupError}
+          guardianLookupFailure={guardianLookupFailure}
           recoveryError={registrationError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
