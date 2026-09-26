@@ -29,7 +29,8 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  resetNativeAssetCache: jest.fn(async () => {})
+  resetNativeAssetCache: jest.fn(async () => {}),
+  primeNativeAssetId: jest.fn()
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -63,6 +64,7 @@ jest.mock(
   { virtual: true }
 );
 
+import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
@@ -142,6 +144,20 @@ describe('clearStorage', () => {
     mockFetchFromStorage.mockResolvedValue(null);
     await clearStorage();
     expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
+  it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
+    const order: string[] = [];
+    (resetNativeAssetCache as jest.Mock).mockImplementation(async () => {
+      order.push('reset');
+    });
+    (primeNativeAssetId as jest.Mock).mockImplementation(() => {
+      order.push('prime');
+    });
+
+    await clearStorage();
+
+    expect(order).toEqual(['reset', 'prime']);
   });
 });
 
