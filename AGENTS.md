@@ -18,7 +18,7 @@ Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemb
 
 ## Build, Test, and Development Commands
 
-Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`.
+Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST` and `SENTRY_DSN` only from the shell environment, never from `.env` (see `.env.example`).
 
 - `yarn dev` rebuilds the Chrome extension in watch mode; load `dist/chrome_unpacked/` in Chrome.
 - `yarn build:devnet` — network-specific extension build.
