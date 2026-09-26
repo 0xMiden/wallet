@@ -365,6 +365,37 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByText('viewThisInPrivatePlace')).toBeTruthy();
   });
 
+  it('starts the next auth entry clean after a reveal is abandoned mid-submit', async () => {
+    let resolveStale: (v: string) => void = () => undefined;
+    mockRevealMnemonic.mockImplementationOnce(
+      () =>
+        new Promise<string>(res => {
+          resolveStale = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw1' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      resolveStale(TWELVE);
+      await Promise.resolve();
+    });
+    await flush();
+
+    clickText('continue');
+    const input = screen.getByPlaceholderText('********') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'x' } });
+    await flush();
+    fireEvent.change(input, { target: { value: '' } });
+    await flush();
+
+    expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
+  });
+
   // Backing out abandons the reveal: a reveal that settles afterwards must not move the
   // flow on, or leave its error behind for the next attempt.
   it.each([false, true])(
@@ -400,6 +431,64 @@ describe('VerifySeedPhraseFlow', () => {
     }
   );
 
+  it('remove mode: stays on the warning when the reveal resolves after the auth back arrow', async () => {
+    let resolveReveal: (v: string) => void = () => undefined;
+    mockRevealMnemonic.mockImplementation(
+      () =>
+        new Promise<string>(res => {
+          resolveReveal = res;
+        })
+    );
+    render(<VerifySeedPhraseFlow remove />);
+    await flush();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'my-password' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      resolveReveal(TWELVE);
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(screen.queryByTestId('verify-seed-review')).toBeNull();
+  });
+
+  // The generation bump only drops the reveal it was raised against; a fresh
+  // attempt started after it must still succeed normally.
+  it('reveals with a fresh password after a reveal abandoned by the back arrow resolves late', async () => {
+    let resolveStale: (v: string) => void = () => undefined;
+    mockRevealMnemonic.mockImplementationOnce(
+      () =>
+        new Promise<string>(res => {
+          resolveStale = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw1' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    await act(async () => {
+      resolveStale(TWELVE);
+      await Promise.resolve();
+    });
+    await flush();
+
+    clickText('continue');
+    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'pw2' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+
+    expect(mockRevealMnemonic).toHaveBeenCalledWith('pw2');
+    expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+  });
+
   it('drops a rejected reveal whose error delay outlives the auth back arrow', async () => {
     mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
     await renderFlow();
@@ -422,21 +511,51 @@ describe('VerifySeedPhraseFlow', () => {
     expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('starts the next attempt clean after an error that landed before the auth back arrow', async () => {
-    mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
-    await renderFlow();
-    clickText('continue');
-    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'wrong' } });
-    fireEvent.click(screen.getByText('continue'));
-    await waitFor(() => expect(screen.getByTestId('verify-seed-password-error')).toHaveTextContent('bad password'));
+  // Helpers, not inline branches: eslint's no-conditional-expect flags an `expect` that is
+  // a syntactic descendant of an `if` inside the test body, even when only one arm ever runs.
+  const submitWrongCredential = (mobile: boolean) => {
+    if (mobile) {
+      fireEvent.click(screen.getByTestId('passcode-submit'));
+    } else {
+      fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'wrong' } });
+      fireEvent.click(screen.getByText('continue'));
+    }
+  };
 
-    fireEvent.click(screen.getByTestId('nav-back'));
-    clickText('continue');
+  const expectCredentialErrorShown = (mobile: boolean) =>
+    waitFor(() =>
+      expect(screen.getByTestId(mobile ? 'passcode-error' : 'verify-seed-password-error')).toHaveTextContent(
+        'bad password'
+      )
+    );
 
-    expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
-    expect((screen.getByPlaceholderText('********') as HTMLInputElement).value).toBe('');
-    expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(true);
-  });
+  const expectAuthStartsClean = (mobile: boolean) => {
+    if (mobile) {
+      expect(screen.getByTestId('passcode-error')).toHaveTextContent('');
+    } else {
+      expect(screen.queryByTestId('verify-seed-password-error')).toBeNull();
+      expect((screen.getByPlaceholderText('********') as HTMLInputElement).value).toBe('');
+      expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(true);
+    }
+  };
+
+  // eslint-disable-next-line jest/expect-expect -- assertions live in expectCredentialErrorShown/expectAuthStartsClean
+  it.each([false, true])(
+    'starts the next attempt clean after an error that landed before the auth back arrow (mobile: %s)',
+    async mobile => {
+      mockIsMobile = mobile;
+      mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
+      await renderFlow();
+      clickText('continue');
+      submitWrongCredential(mobile);
+      await expectCredentialErrorShown(mobile);
+
+      fireEvent.click(screen.getByTestId('nav-back'));
+      clickText('continue');
+
+      expectAuthStartsClean(mobile);
+    }
+  );
 
   it('drops a hardware unlock failure that settles after the flow is closed', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);

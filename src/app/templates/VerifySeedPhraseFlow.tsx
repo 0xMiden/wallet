@@ -130,8 +130,11 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       revealPhrase(undefined);
       return;
     }
+    // A submit's react-hook-form completion can land after backToWarning's reset
+    // and reinstate isSubmitted, so reset again on the way back into auth.
+    reset();
     setStep('auth');
-  }, [hasHardwareProtector, revealPhrase]);
+  }, [hasHardwareProtector, revealPhrase, reset]);
 
   const onPasswordSubmit = useCallback((data: FormData) => revealPhrase(data.password), [revealPhrase]);
 
