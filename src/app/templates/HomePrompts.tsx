@@ -145,6 +145,9 @@ const clearOwnFundingMarker = (address: string, requestedAt: number) =>
     const stored = await fetchFaucetFundingMarker(address);
     if (stored?.requestedAt === requestedAt) await setFaucetFundingMarker(address, null);
   }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
+
+const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
+
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -273,12 +276,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const hasPendingNotes = pendingNoteIds.length > 0;
   const showPendingNotesPrompt = isLoaded && hiddenSettled && hasPendingNotes;
   const fundingNoteIds = useMemo(() => fundingNotes?.map(note => note.id) ?? [], [fundingNotes]);
+  // No figure when any note has no price: the funded line falls back to its generic copy and the
+  // pending card shows its count alone.
   const formattedFundingNotesUsdTotal = useMemo(
-    () => formatUsd(getPendingNotesUsdTotal(fundingNotes ?? [], tokenPrices)),
+    () => formatUsdTotal(getPendingNotesUsdTotal(fundingNotes ?? [], tokenPrices)),
     [fundingNotes, tokenPrices]
   );
   const formattedPendingNotesUsdTotal = useMemo(
-    () => formatUsd(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
+    () => formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
     [waitingNotes, tokenPrices]
   );
 
@@ -861,7 +866,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
                     icon: IconName.Checkmark,
                     label: t('faucetPromptFunded'),
                     subLabel:
-                      fundingNoteIds.length > 0
+                      fundingNoteIds.length > 0 && formattedFundingNotesUsdTotal
                         ? t('faucetPromptFundedSub', { amount: formattedFundingNotesUsdTotal })
                         : t('faucetPromptFundedSubGeneric'),
                     tone: 'positive' as const

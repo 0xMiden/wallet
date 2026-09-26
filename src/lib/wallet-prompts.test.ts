@@ -8,6 +8,7 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -157,21 +158,32 @@ describe('wallet prompts', () => {
     expect(normalizeWalletPromptStorage({ version: 1, prompts: {} }).faucetByAccount).toEqual({});
   });
 
-  it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
-    expect(
-      getPendingNotesUsdTotal(
-        [
-          { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } },
-          { id: 'note-2', amount: '200000000', faucetId: '0ximiden', metadata: { decimals: 8, symbol: 'IMIDEN' } },
-          { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
-        ],
-        {
-          MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
-          IMIDEN: { price: 0.5, change24h: 0, percentageChange24h: 0 }
-        }
-      )
-    ).toBe(6.5);
-    expect(getPendingNotesUsdTotal([], {})).toBe(0);
+  describe('getPendingNotesUsdTotal', () => {
+    const prices = {
+      MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+      ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
+    };
+    const miden = { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } };
+    // IETH is quoted under ETH (its swap token's priceSymbol), never under its own symbol.
+    const ieth = {
+      id: 'note-2',
+      amount: '200000000',
+      faucetId: TOKEN_IETH.faucetId,
+      metadata: { decimals: 8, symbol: 'IETH' }
+    };
+
+    it('sums every note at its quoted price, across decimals, reading IETH at the ETH price', () => {
+      expect(getPendingNotesUsdTotal([miden, ieth], prices)).toBe(6002.5);
+    });
+
+    it('gives no total when any note has no quote, never a $1 figure for it', () => {
+      const unquoted = { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'OTHER' } };
+      expect(getPendingNotesUsdTotal([miden, unquoted], prices)).toBeNull();
+    });
+
+    it('totals nothing as zero', () => {
+      expect(getPendingNotesUsdTotal([], {})).toBe(0);
+    });
   });
 
   it('seeds a pending prompt when no prompt state exists', async () => {

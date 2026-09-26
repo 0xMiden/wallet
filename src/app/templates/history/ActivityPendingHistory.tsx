@@ -55,7 +55,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
-  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd), [waitingTotalUsd]);
+  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);
   // One line, one lockup, the same one the home banner uses for this money: the count in the
   // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
   // the SAME sentence as a clause rather than becoming a second line - and it is the clause the
@@ -103,9 +103,9 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 <AnimatedNumber
                   data-testid="pending-row-total"
                   className="shrink-0 text-value text-ink"
-                  // No price for any of these assets is not a total of zero: say nothing rather
-                  // than put a false $0.00 next to the button that accepts them.
-                  value={waitingTotalUsd > 0 ? waitingTotalUsd : null}
+                  // An asset with no price leaves no total (null), and neither is a total of zero:
+                  // say nothing rather than put a false figure next to the button that accepts them.
+                  value={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
                   format={formatWaitingTotal}
                 />
               )}

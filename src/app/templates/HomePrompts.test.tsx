@@ -58,7 +58,7 @@ jest.mock('components/ui', () => ({
     title: string;
     body?: string;
     bodyValue?: string;
-    hero?: { icon: string; label: string; tone: string };
+    hero?: { icon: string; label: string; subLabel?: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
     onAction?: () => void;
@@ -71,6 +71,7 @@ jest.mock('components/ui', () => ({
       data-title={title}
       data-status={status}
       data-hero={hero?.label}
+      data-hero-sub={hero?.subLabel}
       // The real PromptCard renders no action button at all without onClick, but
       // this double always renders one - so tests must read actionability here,
       // or a removed readiness gate still passes behind fundWallet's own guard.
@@ -162,6 +163,13 @@ const pendingNotes: PendingNoteValue[] = [
 const nonNativeNotes: PendingNoteValue[] = [
   { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
 ];
+// A note the feed has no price for: it must leave no dollar figure, never one at $1 a unit.
+const unquotedNote: PendingNoteValue = {
+  id: 'note-other',
+  amount: '3000000',
+  faucetId: '0xother',
+  metadata: { decimals: 6, symbol: 'OTHER' }
+};
 const tokenPrices = {
   MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
@@ -498,6 +506,34 @@ describe('HomePrompts', () => {
     expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
     // Beat over (FAUCET_FUNDED_BEAT_MS) → the pending-notes card takes the stage.
     await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument(), { timeout: 3500 });
+  });
+
+  it('says what arrived in dollars when every minted note is priced, and falls back to the generic line when one is not', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (notes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    const { rerender } = render(renderWith([]));
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // 1.25 MIDEN at $2 plus 2 USDC at $1.
+    rerender(renderWith(pendingNotes));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$4.50');
+
+    rerender(renderWith([...pendingNotes, unquotedNote]));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
   });
 
   it("clears only its own request's marker when its funds arrive", async () => {
@@ -2564,6 +2600,24 @@ describe('HomePrompts', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending');
+  });
+
+  it('shows the pending-notes card without a total when any waiting note has no price', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[...pendingNotes, unquotedNote]}
+        fundingNotes={[]}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
   });
 
   it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {
