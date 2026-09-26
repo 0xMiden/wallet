@@ -37,10 +37,8 @@ jest.mock('date-fns', () => ({
 
 jest.mock('lib/i18n', () => ({ getDateFnsLocale: () => undefined }));
 
-// The scroller only matters when a scroll parent is handed in; the list itself is what is tested. The
-// "next page" button stands in for the user nearing the end, which is when the real scroller calls
-// `loadMore` with the next page, and the scroll parent is exposed so a test can check which element
-// it listens to.
+// The "next page" button stands in for the user nearing the end, when the real scroller reads its
+// scroll parent and asks `loadMore` for the next page.
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
   default: ({
@@ -55,8 +53,13 @@ jest.mock('react-infinite-scroller', () => ({
     getScrollParent?: () => HTMLElement | null;
   }) => (
     <div data-testid="infinite-scroll" data-has-more={String(hasMore)}>
-      <button data-testid="infinite-scroll-next" onClick={() => loadMore?.(2)} />
-      <span data-testid="infinite-scroll-parent" data-parent-id={getScrollParent?.()?.id ?? ''} />
+      <button
+        data-testid="infinite-scroll-next"
+        onClick={e => {
+          e.currentTarget.dataset.parentId = getScrollParent?.()?.id ?? '';
+          loadMore?.(2);
+        }}
+      />
       {children}
     </div>
   )
@@ -380,19 +383,17 @@ describe('ActivityGroupList', () => {
 
   it('pages the list as the user scrolls when it has a scroll parent', () => {
     const loadMore = jest.fn();
-    const parent = document.createElement('div');
+    const parent: HTMLDivElement = document.createElement('div');
     parent.id = 'groups-scroll-parent';
-    renderList([entry({ secondaryAddress: 'mtst1alice' })], {
-      hasMore: true,
-      loadMore,
-      scrollParentRef: { current: parent }
-    });
+    const ref: { current: HTMLDivElement | null } = { current: null };
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], { hasMore: true, loadMore, scrollParentRef: ref });
+    ref.current = parent;
 
     expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
-    // The scroller listens to the caller's element and asks the list's own callback for the next page.
-    expect(screen.getByTestId('infinite-scroll-parent')).toHaveAttribute('data-parent-id', 'groups-scroll-parent');
+    expect(loadMore).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('infinite-scroll-next'));
-    expect(loadMore).toHaveBeenCalledWith(2);
+    expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(screen.getByTestId('infinite-scroll-next')).toHaveAttribute('data-parent-id', 'groups-scroll-parent');
   });
 
   it('skips the scroller entirely without one', () => {
