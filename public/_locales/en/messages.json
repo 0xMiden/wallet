@@ -4689,6 +4689,14 @@
     "message": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "Your account could not be restored. Your recovery phrase is fine. Please try restoring again.",
+    "englishSource": "Your account could not be restored. Your recovery phrase is fine. Please try restoring again."
+  },
+  "createAccountLookupFailed": {
+    "message": "The account could not be created. Please try again.",
+    "englishSource": "The account could not be created. Please try again."
+  },
   "recoverySeedRequired": {
     "message": "This action requires your recovery phrase.",
     "englishSource": "This action requires your recovery phrase."

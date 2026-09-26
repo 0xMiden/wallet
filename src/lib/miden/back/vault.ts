@@ -1131,7 +1131,11 @@ export class Vault {
                         'please check your connection and try restoring again.'
                     );
                   }
-                  // probe miss; try next scheme
+                  // Anything else (a local store failure after the lookup, say) says
+                  // nothing about the chain; counting it as a miss could put a fresh
+                  // wallet in place of the account the other scheme holds.
+                  console.error(`[Vault.spawn] ${probe.keyDerivation} ${scheme} probe failed`, probeError);
+                  throw new PublicError(getMessage('restoreAccountLookupFailed'));
                 }
               }
               console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
@@ -1845,7 +1849,9 @@ export class Vault {
                       'please check your connection and try again.'
                   );
                 }
-                console.warn(`[Vault.createHDAccount] no ${probe.keyDerivation} account on chain at this index`, e);
+                // Anything else says nothing about the chain; see the Vault.spawn probe loop.
+                console.error(`[Vault.createHDAccount] ${probe.keyDerivation} probe failed`, e);
+                throw new PublicError(getMessage('createAccountLookupFailed'));
               }
             }
             console.warn('Seed not found on chain under any derivation; creating a new wallet instead');
