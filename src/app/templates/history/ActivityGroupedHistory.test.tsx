@@ -92,7 +92,9 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (key: unknown[]) => {
+  useRetryableSWR: (key: unknown[] | null) => {
+    // A read that is not running holds a null key: no data, not loading.
+    if (key === null) return { data: undefined, isLoading: false, error: undefined, mutate: jest.fn() };
     const read = mockRead(String(key[0]));
     return {
       data: read.isLoading || read.error ? undefined : key[0] === 'latest-transactions' ? mockLatest : [],

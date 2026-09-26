@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import AllHistory from './AllHistory';
@@ -84,6 +85,8 @@ jest.mock('components/ui/TabHeader', () => ({
 
 // Counts mounts, so a test can tell a remount from a re-render.
 const mockPendingMounts = { count: 0 };
+// Stands in for a warm SWR cache: the list reports its load from its first commit.
+const mockReportOnMount = { value: false };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
   ActivityPendingHistory: (props: {
     programId?: string | null;
@@ -91,7 +94,12 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
     filter: string;
     onInitialLoad?: () => void;
   }) => {
-    const [instance] = jest.requireActual<typeof import('react')>('react').useState(() => ++mockPendingMounts.count);
+    const R = jest.requireActual<typeof import('react')>('react');
+    const [instance] = R.useState(() => ++mockPendingMounts.count);
+    R.useEffect(() => {
+      if (mockReportOnMount.value) props.onInitialLoad?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return (
       <div
         data-testid="history"
@@ -387,9 +395,44 @@ describe('AllHistory', () => {
 
     beforeEach(() => {
       telemetryHandles.length = 0;
+      mockReportOnMount.value = false;
     });
 
     const reportLoaded = () => fireEvent.click(screen.getByTestId('history-loaded'));
+    const onScreen = (active: boolean) => (
+      <PageActiveContext.Provider value={active}>
+        <AllHistory />
+      </PageActiveContext.Provider>
+    );
+
+    it('cancels the flow when its page goes off screen before the list loads', () => {
+      const { rerender } = render(onScreen(true));
+      rerender(onScreen(false));
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+
+      // Back on screen, a late load reports nothing: that visit was left.
+      rerender(onScreen(true));
+      reportLoaded();
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a loaded view completed when its page goes off screen', () => {
+      const { rerender } = render(onScreen(true));
+      reportLoaded();
+      rerender(onScreen(false));
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    });
+
+    it('completes a view whose list reported its load on its first commit', () => {
+      mockReportOnMount.value = true;
+      const { rerender } = render(onScreen(true));
+      rerender(onScreen(false));
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    });
 
     it('begins one activity_view flow on entry', () => {
       render(<AllHistory />);

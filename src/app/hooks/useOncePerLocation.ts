@@ -14,9 +14,9 @@ const liveLocationKey = () => {
  * location and false after that, until live history moves to another location.
  *
  * Reads LIVE history, never `useLocation()`: MobilePageLayers gives each page layer a
- * frozen location snapshot, and a page re-entered while its layer is still sliding out
- * comes back as the same instance, so a latch keyed on the snapshot never re-arms and
- * the page is dead on its second visit. A history event that leaves the location where
+ * frozen location snapshot, and a page a pop reveals comes back as the same instance,
+ * so a latch keyed on the snapshot never re-arms and the page is dead on its second
+ * visit. A history event that leaves the location where
  * it was (a same-URL replace) keeps the latch set.
  */
 export const useOncePerLocation = () => {

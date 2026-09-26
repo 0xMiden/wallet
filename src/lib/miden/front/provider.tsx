@@ -4,9 +4,10 @@ import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
-import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getEffectiveNoteTransportUrl,
@@ -15,20 +16,42 @@ import {
   loadEndpointOverrides
 } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
-import { TokensMetadataProvider } from './assets';
+import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
+import { preloadStorage } from './storage';
 import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
+
+/**
+ * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
+ * bridge call that never answers must not keep the wallet on a blank screen.
+ */
+export const STORAGE_PRELOAD_BUDGET_MS = 1_000;
+
+/**
+ * Keys warmed before the first render: the ready-only providers and the network id pushed pages read sit above any
+ * local Suspense boundary, so an uncached read suspends the whole app behind WalletStoreProvider's null fallback; the
+ * changelog overlay has its own boundary, and is warmed so it does not pop in late. A function, not a module constant:
+ * this module is in an import cycle with lib/fiat-currency, so reading its constants at load time could hit them
+ * before they are initialized.
+ */
+const preloadedStorageKeys = () => [
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  FIAT_CURRENCY_STORAGE_KEY,
+  MidenSharedStorageKey.LastShownChangelogVersion,
+  NETWORK_STORAGE_ID
+];
 
 /**
  * MidenProvider
@@ -57,7 +80,27 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
+      // The preload runs alongside the WASM init, and `ready` waits for it for at most the budget, so the keys are
+      // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still
+      // uncached after the budget suspends as it did before the preload existed.
+      const keys = preloadedStorageKeys();
+      const pending = new Set(keys);
+      const preloaded = Promise.race([
+        preloadStorage(keys, { onSettled: key => pending.delete(key) }).catch(err =>
+          console.warn('[MidenProvider] storage preload failed:', err)
+        ),
+        new Promise<void>(resolve => {
+          // Cleared when the race settles and on unmount, so it only ever fires for a mounted, still-waiting provider.
+          budgetTimer = setTimeout(() => {
+            console.warn(
+              `[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms: ${[...pending].join(', ')}`
+            );
+            resolve();
+          }, STORAGE_PRELOAD_BUDGET_MS);
+        })
+      ]).finally(() => clearTimeout(budgetTimer));
       await loadEndpointOverrides();
       // Prime native-asset-id discovery on every page mount. On extension this
       // also happens on the SW side, but the SW can be killed before the popup
@@ -73,10 +116,12 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // network's native faucet id, so balances showed a mismatched token.
       if (!cancelled) primeNativeAssetId();
       await ensureSdkWasmReady();
+      await preloaded;
       if (!cancelled) setReady(true);
     })();
     return () => {
       cancelled = true;
+      clearTimeout(budgetTimer);
     };
   }, []);
 
@@ -144,6 +189,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     <WalletStoreProvider>
       <MidenContextProvider>
         <SdkMidenProvider config={sdkConfig}>
+          {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
+              landed after Home's first frame, so the balance card showed "$—" and then the total. */}
+          <PriceProvider />
           <ConditionalProviders>{children}</ConditionalProviders>
         </SdkMidenProvider>
       </MidenContextProvider>
@@ -171,7 +219,6 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
-            <PriceProvider />
             {children}
             <SwapSettlementManager />
             <SwapOrderTrackingManager />

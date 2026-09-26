@@ -5,6 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { presets, reducedMotionTransition } from 'lib/animation';
 
 import FullScreenPage from './FullScreenPage';
+import { PageMountedByReturnContext, PageRevealedByLayerContext } from './page-active';
 
 const mockMotion: { reduce: boolean; props: Record<string, any> | null } = { reduce: false, props: null };
 
@@ -102,4 +103,27 @@ it('runs a slide page that cannot slide (back from a webview) on the fade preset
   expect(mockMotion.props?.animate).toEqual(presets.fade.animate);
   expect(mockMotion.props?.transition).toBe(presets.fade.transition);
   expect(container.firstElementChild).not.toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('fades in instead of sliding in when a return mounted its layer, and hides the navbar at once', () => {
+  const { container } = render(
+    <PageMountedByReturnContext.Provider value={true}>
+      <FullScreenPage entrance="slide">Settings</FullScreenPage>
+    </PageMountedByReturnContext.Provider>
+  );
+  expect(container.firstElementChild).not.toHaveStyle({ transform: 'translateX(100%)' });
+  expect(mockMotion.props?.initial).toEqual(presets.fade.initial);
+  expect(document.body).toHaveAttribute('data-hide-navbar');
+});
+
+it('plays no entrance of its own when its layer reveals it', () => {
+  render(
+    <PageMountedByReturnContext.Provider value={true}>
+      <PageRevealedByLayerContext.Provider value={true}>
+        <FullScreenPage entrance="slide">Settings</FullScreenPage>
+      </PageRevealedByLayerContext.Provider>
+    </PageMountedByReturnContext.Provider>
+  );
+  expect(mockMotion.props?.initial).toBe(false);
+  expect(document.body).toHaveAttribute('data-hide-navbar');
 });
