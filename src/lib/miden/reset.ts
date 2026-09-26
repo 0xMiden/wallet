@@ -1,7 +1,7 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
-import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
+import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 // Keys that are configuration, NOT wallet data, and must survive a storage
@@ -66,6 +66,9 @@ export async function clearStorage(clearDb: boolean = true) {
   }
   await clearPlatformKeyValueStorage();
   await resetNativeAssetCache();
+  // Rediscover now rather than on first use: the wallet being created or imported reads its
+  // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
+  primeNativeAssetId();
 }
 
 /**
