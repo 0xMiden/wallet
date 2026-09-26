@@ -8,7 +8,7 @@
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
-- [CHANGE][ci] The Activity Groups list's paging test now fails if the list stops handing its page loader or its scroll parent to the scroller (#1103).
+- [CHANGE][ci] The Activity lists' paging tests now fail if a list stops handing the scroller its page loader, its scroll parent, whether more pages remain, or the setting that makes it listen on that parent (#1103).
 
 ### Fixes
 

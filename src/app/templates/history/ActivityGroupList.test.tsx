@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
@@ -37,33 +37,30 @@ jest.mock('date-fns', () => ({
 
 jest.mock('lib/i18n', () => ({ getDateFnsLocale: () => undefined }));
 
-// The "next page" button stands in for the user nearing the end, when the real scroller reads its
-// scroll parent and asks `loadMore` for the next page.
+// The props the list last handed the scroller, so a test can read the scroll parent and ask for a page
+// when the real scroller would: after render, not during it.
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+  useWindow?: boolean;
+  getScrollParent?: () => HTMLElement | null;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({
-    children,
-    hasMore,
-    loadMore,
-    getScrollParent
-  }: {
-    children: React.ReactNode;
-    hasMore: boolean;
-    loadMore?: (page: number) => void;
-    getScrollParent?: () => HTMLElement | null;
-  }) => (
-    <div data-testid="infinite-scroll" data-has-more={String(hasMore)}>
-      <button
-        data-testid="infinite-scroll-next"
-        onClick={e => {
-          e.currentTarget.dataset.parentId = getScrollParent?.()?.id ?? '';
-          loadMore?.(2);
-        }}
-      />
-      {children}
-    </div>
-  )
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
+    return (
+      <div data-testid="infinite-scroll" data-has-more={String(props.hasMore)}>
+        {props.children}
+      </div>
+    );
+  }
 }));
+beforeEach(() => {
+  mockScroller.props = undefined;
+});
 
 // Undefined leaves the real labels in place; a test sets sentinels to prove whose map the rows read.
 const mockLabels: { value?: Record<string, string> } = {};
@@ -383,17 +380,34 @@ describe('ActivityGroupList', () => {
 
   it('pages the list as the user scrolls when it has a scroll parent', () => {
     const loadMore = jest.fn();
-    const parent: HTMLDivElement = document.createElement('div');
-    parent.id = 'groups-scroll-parent';
+    const parent = document.createElement('div');
     const ref: { current: HTMLDivElement | null } = { current: null };
     renderList([entry({ secondaryAddress: 'mtst1alice' })], { hasMore: true, loadMore, scrollParentRef: ref });
+    // Attached after render, as the page's ref is, so a scroll parent read during render comes back null.
     ref.current = parent;
 
     expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
+    const scroller = mockScroller.props;
+    expect(Object.keys(scroller ?? {}).sort()).toEqual([
+      'children',
+      'getScrollParent',
+      'hasMore',
+      'loadMore',
+      'useWindow'
+    ]);
+    expect(scroller?.useWindow).toBe(false);
+    expect(scroller?.getScrollParent?.()).toBe(parent);
     expect(loadMore).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId('infinite-scroll-next'));
+    scroller?.loadMore(2);
     expect(loadMore.mock.calls).toEqual([[2]]);
-    expect(screen.getByTestId('infinite-scroll-next')).toHaveAttribute('data-parent-id', 'groups-scroll-parent');
+  });
+
+  it('tells the scroller when the history is exhausted', () => {
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], {
+      hasMore: false,
+      scrollParentRef: { current: document.createElement('div') }
+    });
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('skips the scroller entirely without one', () => {
