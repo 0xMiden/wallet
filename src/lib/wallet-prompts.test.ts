@@ -163,13 +163,18 @@ describe('wallet prompts', () => {
       MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
       ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
     };
-    const miden = { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } };
+    const miden = {
+      id: 'note-1',
+      amount: '1250000',
+      faucetId: '0xmiden',
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
     // IETH is quoted under ETH (its swap token's priceSymbol), never under its own symbol.
     const ieth = {
       id: 'note-2',
       amount: '200000000',
       faucetId: TOKEN_IETH.faucetId,
-      metadata: { decimals: 8, symbol: 'IETH' }
+      metadata: { decimals: 8, symbol: 'IETH', name: 'IETH' }
     };
 
     it('sums every note at its quoted price, across decimals, reading IETH at the ETH price', () => {
@@ -181,9 +186,21 @@ describe('wallet prompts', () => {
         id: 'note-3',
         amount: '3000000',
         faucetId: '0xother',
-        metadata: { decimals: 6, symbol: 'OTHER' }
+        metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
       };
       expect(getPendingNotesUsdTotal([miden, unquoted], prices)).toBeNull();
+    });
+
+    // A registry faucet is priced by its id, so a note still carrying the placeholder's guessed 6
+    // decimals would be the real ETH quote times a quantity 100x too large (38 IETH, not 0.38).
+    it('gives no total for a note whose scale is unknown, even when its faucet is quoted', () => {
+      const unsized = {
+        id: 'note-4',
+        amount: '38000000',
+        faucetId: TOKEN_IETH.faucetId,
+        metadata: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
+      };
+      expect(getPendingNotesUsdTotal([miden, unsized], prices)).toBeNull();
     });
 
     it('totals nothing as zero', () => {

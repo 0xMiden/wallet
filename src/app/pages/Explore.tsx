@@ -22,6 +22,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
@@ -177,9 +178,12 @@ const Explore: FC = () => {
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
 
-      // A token with no price ranks as worth nothing, never as its token count at $1 a unit.
+      // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+      // nothing, never as its token count at $1 a unit.
       const fiatValue = (token: TokenBalanceData) =>
-        token.balance * (quotedPrice(tokenPrices, priceSymbolFor(token.tokenId, token.metadata.symbol))?.price ?? 0);
+        hasKnownScale(token.metadata)
+          ? token.balance * (quotedPrice(tokenPrices, priceSymbolFor(token.tokenId, token.metadata.symbol))?.price ?? 0)
+          : 0;
       return fiatValue(b) - fiatValue(a);
     });
     return sorted;

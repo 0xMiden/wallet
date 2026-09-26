@@ -14,6 +14,7 @@ import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
@@ -77,7 +78,7 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
 };
 
 export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'> & {
-  metadata: Pick<AssetMetadata, 'decimals' | 'symbol'>;
+  metadata: Pick<AssetMetadata, 'decimals' | 'symbol' | 'name' | 'scaleIsUnknown'>;
 };
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
@@ -87,8 +88,10 @@ const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type 
 export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number | null {
   let total = 0;
   for (const note of notes) {
+    // A registry faucet is priced by its id even when its note still carries the placeholder's
+    // guessed decimals, so an unknown scale leaves no total, as a missing quote does.
     const quote = quotedPrice(tokenPrices, priceSymbolFor(note.faucetId, note.metadata.symbol));
-    if (!quote) return null;
+    if (!quote || !hasKnownScale(note.metadata)) return null;
     // `amount` is a base-units bigint string; BigNumber keeps full integer
     // precision where Number(amount) would silently round above 2^53.
     total += new BigNumber(note.amount).shiftedBy(-note.metadata.decimals).toNumber() * quote.price;

@@ -411,6 +411,22 @@ describe('Explore', () => {
       expect(tokens).toEqual(['faucet-native', 't-eth', TOKEN_IETH.faucetId, 't-other']);
     });
 
+    it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
+        // would outrank everything by a factor of a million.
+        { tokenId: 't-unsized', balance: 1_000_000, metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true } }
+      ];
+      mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      expect(tokens).toEqual(['faucet-native', 't-eth', 't-unsized']);
+    });
+
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
       mockAllBalances = undefined;
 

@@ -157,18 +157,23 @@ const fundedBalance = [{ tokenId: 'token', balance: 1 }] as TokenBalanceData[];
 // minted by the native faucet.
 const NATIVE_FAUCET_ID = '0xnative';
 const pendingNotes: PendingNoteValue[] = [
-  { id: 'note-1', amount: '1250000', faucetId: NATIVE_FAUCET_ID, metadata: { decimals: 6, symbol: 'MIDEN' } },
-  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
+  {
+    id: 'note-1',
+    amount: '1250000',
+    faucetId: NATIVE_FAUCET_ID,
+    metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+  },
+  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
 ];
 const nonNativeNotes: PendingNoteValue[] = [
-  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
+  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
 ];
 // A note the feed has no price for: it must leave no dollar figure, never one at $1 a unit.
 const unquotedNote: PendingNoteValue = {
   id: 'note-other',
   amount: '3000000',
   faucetId: '0xother',
-  metadata: { decimals: 6, symbol: 'OTHER' }
+  metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
 };
 const tokenPrices = {
   MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
