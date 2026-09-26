@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 
 import { act, render, screen } from '@testing-library/react';
+import { mutate } from 'swr';
 
 import { preloadStorage, useStorage } from './storage';
 
@@ -187,5 +188,24 @@ describe('preloadStorage', () => {
 
     expect(screen.queryByTestId('suspended')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('newer');
+  });
+
+  it('never replaces a value written to the cache while its read was in flight', async () => {
+    const releaseRead = deferredRead('written-key', 'stale');
+    const preload = preloadStorage(['written-key']);
+
+    mockStored['written-key'] = 'written';
+    await act(async () => {
+      await mutate('written-key', 'written', { revalidate: false });
+    });
+
+    await act(async () => {
+      releaseRead();
+      await preload;
+    });
+    renderReader('written-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('written');
   });
 });

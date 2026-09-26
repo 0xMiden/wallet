@@ -128,7 +128,7 @@ export async function preloadStorage(
       try {
         const value = await read;
         if (preloadReads.get(key) !== read) return;
-        // A preload that lands after a storage-change event must not replace that newer value.
+        // Only a later read drops the entry, so a value cached by now came from an earlier read or a direct cache write: keep it.
         await mutate(key, (current: unknown) => (current === undefined ? value : current), { revalidate: false });
       } finally {
         if (preloadReads.get(key) === read) preloadReads.delete(key);
