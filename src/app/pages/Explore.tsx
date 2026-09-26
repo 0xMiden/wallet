@@ -22,9 +22,10 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
-import { getTokenPrice } from 'lib/prices';
+import { quotedPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -176,9 +177,10 @@ const Explore: FC = () => {
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
 
-      const aFiatValue = a.balance * getTokenPrice(tokenPrices, a.metadata.symbol).price;
-      const bFiatValue = b.balance * getTokenPrice(tokenPrices, b.metadata.symbol).price;
-      return bFiatValue - aFiatValue;
+      // A token with no price ranks as worth nothing, never as its token count at $1 a unit.
+      const fiatValue = (token: TokenBalanceData) =>
+        token.balance * (quotedPrice(tokenPrices, priceSymbolFor(token.tokenId, token.metadata.symbol))?.price ?? 0);
+      return fiatValue(b) - fiatValue(a);
     });
     return sorted;
   }, [allTokenBalances, midenFaucetId, tokenPrices]);
@@ -349,7 +351,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={
-              Object.keys(tokenPrices).length === 0 ? (
+              Object.keys(tokenPrices).length === 0 || balance === null ? (
                 '$—'
               ) : (
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
