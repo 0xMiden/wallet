@@ -43,12 +43,12 @@ export async function runDappBrowserJourney({ driver, server, steps }: DappJourn
   await steps.step('launcher_renders_curated_grid', async () => {
     await driver.gotoBrowserTab();
     // The curated grid is real product content (featured-dapps.ts). We assert it
-    // renders tiles without opening one — opening a live third-party dApp would
+    // renders rows without opening one - opening a live third-party dApp would
     // put a third party's uptime on this suite's critical path.
     // The curated grid is the catalogue EXPLORE_CATALOG serves through
     // `getExploreCatalog` (the two faucet dApps), not the
-    // whole FEATURED_DAPPS list, and it is a different component from the
-    // recents row (only the latter renders `DappTile`). Assert the count the
+    // whole FEATURED_DAPPS list; its rows share `AppRow` with Recents but carry
+    // their own test id (`dapp-grid-card`). Assert the count the
     // product actually ships plus a real URL per card: a grid that fails to
     // render gives 0, and a card wired up wrong gives an empty href, so this
     // stays falsifiable without breaking when a third card is added.

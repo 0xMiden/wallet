@@ -115,6 +115,18 @@ describe('DappLauncher', () => {
     expect(screen.queryByTestId('dapp-hero-search')).not.toBeInTheDocument();
   });
 
+  it('draws a Recents row like the catalog rows: the name alone, and the chevron', async () => {
+    await renderLauncher();
+
+    const recent = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    expect(within(recent).getByText('Recent')).toBeInTheDocument();
+    // The recorded name is usually the host itself, so a host line would repeat it.
+    expect(within(recent).queryByText('recent.example')).not.toBeInTheDocument();
+    expect(recent.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    const catalogRow = within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card');
+    expect(catalogRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
+  });
+
   it('hides recents when there are none', async () => {
     mockRecents = [];
     await renderLauncher();
@@ -133,7 +145,7 @@ describe('DappLauncher', () => {
     expect(within(card).getByText('exploreOpen')).toBeInTheDocument();
   });
 
-  it('opens an app from the featured card, a row and a tile, with one tap haptic each', async () => {
+  it('opens an app from the featured card, a catalog row and a Recents row, with one tap haptic each', async () => {
     const { onOpen } = await renderLauncher();
 
     fireEvent.click(screen.getByTestId('explore-featured-card'));

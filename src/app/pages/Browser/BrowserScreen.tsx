@@ -8,7 +8,7 @@
  *    `'launcher'`, OR mode is `'parked'` so the bubble shows over the
  *    launcher)
  *  - Renders `<DappActive>` when a dApp is foregrounded (mode `'active'`) and the page is on screen
- *  - Tells the provider to open a new session when the user taps a tile
+ *  - Tells the provider to open a new session when the user taps an app
  *    or submits a URL
  *
  * The provider lives in `<TabLayout>` and survives tab navigation.

@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
 
 ### Fixes
@@ -111,7 +112,6 @@
 - [CHORE][all] Store listing copy, screenshots and upload assets for the App Store, Google Play and the Chrome Web Store are generated from checked-in manifests by `yarn store-listing:*`, with a validator that enforces the documented per-store counts, dimensions and copy limits (#497).
 - [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.
 - [CHANGE][all] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
-- [CHANGE][all] Explore's recents are a vertical list like its other app lists: each row is the dApp's logo tile, its name over its host, and an outward arrow, in place of the row of tiles. The header search glyph is drawn with a heavier stroke, on Activity too.
 - [CHANGE][all] The Overview segmented bar's pill and segment widths animate together on the pill spring instead of a width snap under a tween.
 - [CHANGE][all] Passcode screens: Nunito throughout (subtitle, keypad, links), ExtraBold keypad digits with a press-in scale, and the unlock screen no longer selectable on long press. The home Assets heading steps down from Black to ExtraBold, and the Accounts drawer gets an ExtraBold title with Nunito Bold 16px rows.
 - [CHANGE][all] The token search box under the home Assets heading is removed: the asset list follows the heading directly.
