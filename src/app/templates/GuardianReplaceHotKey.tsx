@@ -15,8 +15,9 @@ import { navigate } from 'lib/woozie';
 /**
  * Proactive hot-key rotation. Cold-signed (recovery key); the on-chain proposal
  * swaps the hot signer commitment in-place via update_signers. The recovery
- * phrase is needed only when the wallet no longer stores it (removed, or a
- * hot-key-only Guardian import): the vault then asks for it before signing.
+ * phrase is needed whenever its status is not 'stored' (removed, being
+ * removed, or a hot-key-only Guardian import): the vault then asks for it
+ * before signing.
  *
  * A section of the Keys page rather than its footer: Keys is a list of places to
  * go, and this is one maintenance action among them (Guardian accounts only), so
