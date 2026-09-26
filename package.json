@@ -5,10 +5,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.17.0-rc.3",
+  "midenClientCliVersion": "0.17.0-rc.4",
   "midenClientCliGit": {
     "url": "https://github.com/0xMiden/rust-sdk",
-    "rev": "253b6d0f7cca98f6f9cd42dce2cf9025f82af3d9"
+    "rev": "c3e205805cebfbe9168665d1cd1e1b3ef6f13457"
   },
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn build:hd-key",
@@ -155,10 +155,10 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.39",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.17.0-rc.3",
-    "@miden-sdk/miden-wallet-adapter-base": "0.17.0-rc.3",
-    "@miden-sdk/miden-wallet-adapter-miden": "0.17.0-rc.3",
-    "@miden-sdk/react": "0.17.0-rc.3",
+    "@miden-sdk/miden-sdk": "0.17.0-rc.4",
+    "@miden-sdk/miden-wallet-adapter-base": "0.17.0-rc.4",
+    "@miden-sdk/miden-wallet-adapter-miden": "0.17.0-rc.4",
+    "@miden-sdk/react": "0.17.0-rc.4",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/hd-key": "link:./packages/hd-key",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -355,8 +355,8 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.17.0-rc.3",
-    "@miden-sdk/react": "0.17.0-rc.3",
+    "@miden-sdk/miden-sdk": "0.17.0-rc.4",
+    "@miden-sdk/react": "0.17.0-rc.4",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -381,7 +381,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.17.0-rc.3"
+    "**/@miden-sdk/miden-sdk": "0.17.0-rc.4"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
