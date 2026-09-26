@@ -1073,6 +1073,8 @@
   "seedRemovalBusy": "请等待当前交易完成后再移除恢复短语。",
   "seedRemovalKeysNotReady": "在删除恢复短语之前，请先完成账户恢复和日常密钥的激活。",
   "seedRequiredForAccountCreation": "创建账户需要已保存的恢复短语。目前尚不支持仅为执行此操作而输入恢复短语。",
+  "restoreAccountLookupFailed": "您的账户无法恢复。您的恢复短语没有问题。请尝试再次恢复。详情请见：$reason$",
+  "createAccountLookupFailed": "无法创建该账户。请重试。详情：$reason$",
   "recoverySeedRequired": "此操作需要您的恢复短语。",
   "recoverySeedRequiredTitle": "输入您的恢复短语",
   "recoverySeedTemporaryDescription": "请使用您的纸质备份。该助记词仅用于此操作，不会保存在本设备上。",
