@@ -31,6 +31,19 @@ const renderReader = (storageKey: string) =>
     </Suspense>
   );
 
+const deferredRead = (key: string, value: string) => {
+  let release!: () => void;
+  mockGet.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = () => resolve({ [key]: value });
+      })
+  );
+  return () => release();
+};
+
+const readsOf = (key: string) => mockGet.mock.calls.filter(([keys]) => keys[0] === key).length;
+
 describe('preloadStorage', () => {
   it('lets a storage hook render its value on its first render instead of suspending', async () => {
     await preloadStorage(['stored-key']);
@@ -103,5 +116,74 @@ describe('preloadStorage', () => {
 
     expect(screen.getByTestId('suspended')).toBeDefined();
     expect((await screen.findByTestId('value')).textContent).toBe('fallback-value');
+  });
+
+  it("keeps a reader's own read over a preload read that lands while the reader's is in flight", async () => {
+    const releasePreload = deferredRead('late-key', 'old');
+    const onSettled = jest.fn();
+    const preload = preloadStorage(['late-key'], { onSettled });
+    const releaseReader = deferredRead('late-key', 'new');
+    renderReader('late-key');
+    expect(screen.getByTestId('suspended')).toBeDefined();
+
+    await act(async () => {
+      releasePreload();
+      await preload;
+    });
+    expect(onSettled).toHaveBeenCalledWith('late-key');
+
+    await act(async () => {
+      releaseReader();
+    });
+    expect((await screen.findByTestId('value')).textContent).toBe('new');
+  });
+
+  it('gives a reader its own read while a preload read of the key hangs', async () => {
+    mockGet.mockImplementationOnce(() => new Promise(() => {}));
+    void preloadStorage(['hung-key']);
+    mockGet.mockImplementationOnce(async () => ({ 'hung-key': 'read-by-hook' }));
+
+    renderReader('hung-key');
+
+    expect((await screen.findByTestId('value')).textContent).toBe('read-by-hook');
+    expect(readsOf('hung-key')).toBe(2);
+  });
+
+  it("still caches a key no reader asked for when a reader supersedes another key's preload", async () => {
+    const releaseRead = deferredRead('read-key', 'preloaded');
+    const releaseUnread = deferredRead('unread-key', 'preloaded-unread');
+    const preload = preloadStorage(['read-key', 'unread-key']);
+    mockGet.mockImplementationOnce(async () => ({ 'read-key': 'from-hook' }));
+    const first = renderReader('read-key');
+    expect((await screen.findByTestId('value')).textContent).toBe('from-hook');
+    first.unmount();
+
+    await act(async () => {
+      releaseRead();
+      releaseUnread();
+      await preload;
+    });
+    renderReader('unread-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('preloaded-unread');
+  });
+
+  it('keeps the newer of two overlapping preload reads of one key', async () => {
+    const releaseOlder = deferredRead('twice-key', 'older');
+    const older = preloadStorage(['twice-key']);
+    const releaseNewer = deferredRead('twice-key', 'newer');
+    const newer = preloadStorage(['twice-key']);
+
+    await act(async () => {
+      releaseOlder();
+      await older;
+      releaseNewer();
+      await newer;
+    });
+    renderReader('twice-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('newer');
   });
 });
