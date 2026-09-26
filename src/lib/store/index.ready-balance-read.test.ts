@@ -202,6 +202,9 @@ describe('the store fetchBalances action', () => {
 
     expect(useWalletStore.getState().balancesLoading.pk1).toBeUndefined();
     expect(useWalletStore.getState().balances.pk1).toBeUndefined();
+    // A skipped read happens on every refresh tick a sync holds the lock through; if it kept the
+    // address, no later read of it would ever start.
+    expect(fetchingAddresses.has('pk1')).toBe(false);
   });
 
   it('skips while another reader has the address in flight', async () => {
