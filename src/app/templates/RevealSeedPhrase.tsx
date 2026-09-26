@@ -273,13 +273,17 @@ const RevealSeedPhrase: FC = () => {
       setIsSubmitting(true);
       clearErrors();
       setAuthError(null);
+      const generation = secretGeneration.current;
       try {
-        const generation = secretGeneration.current;
         const mnemonic = await revealMnemonic(data.password);
         if (generation !== secretGeneration.current) return;
         setSecret(mnemonic);
         setShowPasswordDrawer(false);
       } catch (err: any) {
+        // Same generation guard as the hardware catch in `handleView`: a rejection from a
+        // submit the user has already left (leave() bumps the generation) must not write
+        // a form error onto an instance nobody is looking at any more.
+        if (generation !== secretGeneration.current) return;
         await new Promise(res => setTimeout(res, 300));
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
@@ -440,14 +444,6 @@ const RevealSeedPhrase: FC = () => {
         {passwordDrawer}
       </>
     );
-  }
-
-  // The probe is the only wait with nothing to show: no branch below has rendered yet.
-  // A pending password reveal keeps its own drawer and Continue spinner instead (#1122),
-  // and the error view stays exempt - blanking it would take the Notice and the Retry
-  // button off screen for the whole prompt.
-  if (!authError && hasHardwareProtector === null) {
-    return null;
   }
 
   // Revealed view
