@@ -112,7 +112,8 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           setAuthError(message);
         } else {
           await new Promise(res => setTimeout(res, 300));
-          // After the delay: the user can back out while it runs.
+          // Defensive: the reset on entering auth already keeps a late error off screen;
+          // this also keeps it out of form state once the attempt is abandoned.
           if (generation !== secretGeneration.current) return;
           setError('password', { type: 'submit-error', message });
         }

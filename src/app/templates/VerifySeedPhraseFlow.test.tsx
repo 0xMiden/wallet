@@ -489,7 +489,9 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
   });
 
-  it('drops a rejected reveal whose error delay outlives the auth back arrow', async () => {
+  // Pins the unguarded finally: a rejected reveal abandoned by the back arrow still releases
+  // isSubmitting, so the warning's Continue re-opens a clean auth step.
+  it('releases the flow after a rejected reveal abandoned by the back arrow', async () => {
     mockRevealMnemonic.mockRejectedValueOnce(new Error('bad password'));
     await renderFlow();
     clickText('continue');
