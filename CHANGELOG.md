@@ -11,6 +11,7 @@
 
 ### Fixes
 
+- [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
 - [FIX][all] Activity's Pending filter now lists your own transactions still in progress (sends, swaps, claims and others) beside the incoming transfers waiting for a claim, instead of showing only the transfers and claiming there was nothing pending while a swap was in flight.
