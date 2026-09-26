@@ -57,6 +57,25 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
  */
 let cached: ActivityReadState | undefined;
 
+/** Both copies' reads: the later mark, and every id at the later of its two read times. */
+function merge(a: ActivityReadState, b: ActivityReadState): ActivityReadState {
+  const ids: Record<string, number> = { ...a.ids };
+  for (const [id, at] of Object.entries(b.ids)) ids[id] = Math.max(ids[id] ?? at, at);
+  return compact({ seenBefore: Math.max(a.seenBefore, b.seenBefore), ids });
+}
+
+// Every extension window (popup, side panel, full-page tab) keeps its own cache over one shared
+// localStorage value, so each merges the others' writes as they land. A removal or a clear (a
+// wallet reset) drops the cache instead, and the next read takes the device's value again.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', event => {
+    if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
+    const incoming = event.key === null ? undefined : parse(event.newValue);
+    cached = incoming && cached ? merge(cached, incoming) : undefined;
+    notify();
+  });
+}
+
 function parse(raw: string | null): ActivityReadState | undefined {
   if (!raw) return undefined;
   try {
@@ -114,8 +133,20 @@ export function isActivityRead(state: ActivityReadState, id: string, timestamp: 
 
 /** Marks one activity read. `timestamp` is its own, not the current time. */
 export function markActivityRead(id: string, timestamp: number): void {
-  const current = getActivityReadState();
-  if (isActivityRead(current, id, timestamp)) return;
+  let stored: ActivityReadState | undefined;
+  try {
+    stored = parse(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY));
+  } catch {}
+  // Another window may have written since this one last read: write the union, never this
+  // window's copy alone.
+  const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
+  if (isActivityRead(current, id, timestamp)) {
+    if (current !== cached) {
+      cached = current;
+      notify();
+    }
+    return;
+  }
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp
   // (an incoming transfer that never carried a `receivedAt`) is recorded just past it rather than
   // at a `now` the mark may already have reached — otherwise the read would be dropped on write.

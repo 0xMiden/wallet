@@ -1,4 +1,12 @@
-import { getActivityReadState, isActivityRead, markActivityRead, resetActivityReadState } from './activity-read';
+import { act, renderHook } from '@testing-library/react';
+
+import {
+  getActivityReadState,
+  isActivityRead,
+  markActivityRead,
+  resetActivityReadState,
+  useActivityReadState
+} from './activity-read';
 import { ACTIVITY_READ_MAX_IDS, ACTIVITY_READ_STORAGE_KEY } from './constants';
 
 const NOW_MS = 1_700_000_000_000;
@@ -84,5 +92,95 @@ describe('bounding', () => {
     }
     // And the newest is still individually recorded, not merely under the mark.
     expect(state.ids[`tx:${ACTIVITY_READ_MAX_IDS + 20}`]).toBe(NOW_S + ACTIVITY_READ_MAX_IDS + 20);
+  });
+});
+
+const writeFromOtherWindow = (state: { seenBefore: number; ids: Record<string, number> }) =>
+  localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, JSON.stringify(state));
+
+const storageEvent = (key: string | null, newValue: string | null) =>
+  act(() => {
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+  });
+
+describe('several windows (#1106)', () => {
+  it('keeps a read another window stored when this window marks something, even without its event', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    // The side panel read tx:b; this window never saw the event.
+    writeFromOtherWindow({ seenBefore: NOW_S, ids: { 'tx:a': NOW_S + 10, 'tx:b': NOW_S + 20 } });
+
+    markActivityRead('tx:c', NOW_S + 30);
+
+    expect(stored().ids).toEqual({ 'tx:a': NOW_S + 10, 'tx:b': NOW_S + 20, 'tx:c': NOW_S + 30 });
+    expect(isActivityRead(getActivityReadState(), 'tx:b', NOW_S + 20)).toBe(true);
+  });
+
+  it('takes the later mark and the later read time when both windows hold one', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    writeFromOtherWindow({ seenBefore: NOW_S + 15, ids: { 'tx:b': NOW_S + 40 } });
+
+    markActivityRead('tx:c', NOW_S + 50);
+
+    // tx:a sits under the other window's later mark now, so compaction drops its own row.
+    expect(stored()).toEqual({ seenBefore: NOW_S + 15, ids: { 'tx:b': NOW_S + 40, 'tx:c': NOW_S + 50 } });
+  });
+
+  it('keeps the later read time of a row both windows marked, so the later mark cannot drop it', () => {
+    getActivityReadState();
+    // A row with no usable timestamp is recorded at the time it was read, so two windows can
+    // hold it at different times; this one read it at NOW_S + 9.
+    jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 9_000);
+    markActivityRead('note:x', Number.NaN);
+    writeFromOtherWindow({ seenBefore: NOW_S + 7, ids: { 'note:x': NOW_S + 5 } });
+
+    markActivityRead('tx:c', NOW_S + 50);
+
+    expect(stored()).toEqual({ seenBefore: NOW_S + 7, ids: { 'note:x': NOW_S + 9, 'tx:c': NOW_S + 50 } });
+  });
+
+  it("picks up another window's read the moment its write lands", () => {
+    getActivityReadState();
+    const { result } = renderHook(() => useActivityReadState());
+    expect(isActivityRead(result.current, 'tx:b', NOW_S + 20)).toBe(false);
+
+    const next = JSON.stringify({ seenBefore: NOW_S, ids: { 'tx:b': NOW_S + 20 } });
+    localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, next);
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, next);
+
+    expect(isActivityRead(result.current, 'tx:b', NOW_S + 20)).toBe(true);
+  });
+
+  it('keeps its own reads when another window writes an older copy', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, JSON.stringify({ seenBefore: NOW_S, ids: { 'tx:b': NOW_S + 20 } }));
+
+    const state = getActivityReadState();
+    expect(isActivityRead(state, 'tx:a', NOW_S + 10)).toBe(true);
+    expect(isActivityRead(state, 'tx:b', NOW_S + 20)).toBe(true);
+  });
+
+  it('ignores a write to another key', () => {
+    getActivityReadState();
+    const { result } = renderHook(() => useActivityReadState());
+    const before = result.current;
+
+    storageEvent('some_other_setting', '{}');
+
+    expect(result.current).toBe(before);
+  });
+
+  it('forgets its copy when another window clears storage, and reads the device again', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    localStorage.clear();
+    writeFromOtherWindow({ seenBefore: NOW_S + 100, ids: {} });
+
+    storageEvent(null, null);
+
+    expect(getActivityReadState()).toEqual({ seenBefore: NOW_S + 100, ids: {} });
   });
 });
