@@ -167,7 +167,10 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
   only by way of `platform`, which is on every event.
 - **`activity_view` completes on the history list's first settled load.**
   Reading a list emits nothing later; inventing a completion event (a row tap,
-  say) would report every ordinary visit as abandoned.
+  say) would report every ordinary visit as abandoned. It is cancelled when the
+  user leaves first, by unmount or by the page going off screen. The Activity tab
+  stays mounted once visited, so coming back starts no new flow: one flow per
+  mount, and a visit left before its first load stays cancelled.
 - **`receive_share` completes once the address renders**, and deliberately does
   not wait for a copy or a share — holding a QR code up to be scanned is an
   ordinary successful receive that fires neither.
@@ -513,6 +516,10 @@ session in which the user performed exactly one swap: a `send_started` with no
 end, and a complete `receive_share` pair. Neither corresponded to anything the
 user did. The swap itself, which had no instrumentation yet, reported nothing.
 Every event was an artifact of the carousel.
+
+The same holds beyond the carousel for any page kept mounted: a visited tab, or a
+page a slide page covers. A view flow begun on mount there must also end when
+`usePageActive()` turns false, as `AllHistory` does for `activity_view`.
 
 So screens in the home group gate on `pathname` — the carousel's own source of
 truth for which page is showing — rather than on mount, and then on that route

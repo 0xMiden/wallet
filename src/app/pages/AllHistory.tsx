@@ -1,8 +1,9 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
@@ -42,19 +43,29 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   /**
    * `activity_view` is a view flow, so its terminal state is the user actually
    * seeing their activity: it completes when the list's first load settles and
-   * is cancelled when they leave before that. There is no later moment worth
-   * calling "completed" — reading a list emits no such event, and inventing one
-   * (a tap on a row, say) would report every ordinary visit as abandoned.
-   * Held in a ref rather than state because settling must never re-render.
+   * is cancelled when they leave before that: unmount, or the page going off
+   * screen (a tab switch, a page pushed over it), since a visited tab stays
+   * mounted. Coming back to the still-mounted tab begins no new flow, so it is
+   * one flow per mount. There is no later moment worth calling "completed":
+   * reading a list emits no such event, and inventing one (a tap on a row, say)
+   * would report every ordinary visit as abandoned. Held in a ref rather than
+   * state because settling must never re-render. Begun in a layout effect so it
+   * exists before the list's first report, which a warm cache sends on commit.
    */
   const flowRef = useRef<FlowHandle | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     flowRef.current = beginFlow('activity_view');
     return () => {
       flowRef.current?.cancel();
       flowRef.current = null;
     };
   }, []);
+  const pageActive = usePageActive();
+  useEffect(() => {
+    if (pageActive) return;
+    flowRef.current?.cancel();
+    flowRef.current = null;
+  }, [pageActive]);
 
   // Clearing the ref keeps this to one terminal call per visit, and keeps the
   // unmount above from re-reporting a view that already completed.
