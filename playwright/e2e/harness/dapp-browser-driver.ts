@@ -208,22 +208,22 @@ export class DappBrowserDriver {
     await this.waitForForeground(dappId);
   }
 
-  /** Open a dApp by tapping its tile (curated grid or recents row). */
-  async openViaTile(dappId: string): Promise<void> {
+  /** Open a dApp by tapping its row in Recents. */
+  async openViaRecents(dappId: string): Promise<void> {
     const url = this.server.urlFor(dappId);
-    const selector = `[data-testid="dapp-tile"][data-dapp-url="${url}"]`;
+    const selector = `[data-testid="recent-dapp-row"][data-dapp-url="${url}"]`;
     await this.target.waitFor(selector, { timeoutMs: DEFAULT_TIMEOUT_MS });
     await this.target.click(selector);
     await this.waitForForeground(dappId);
   }
 
   /**
-   * How many cards the curated grid is rendering.
+   * The data-dapp-url of every row the curated lists render (empty for a row without one).
    *
-   * The curated list rows (`AppRow`, `dapp-grid-card`) and the recents row
-   * (`RecentsRow`) are DIFFERENT components — only the latter renders `DappTile`. Counting
-   * `dapp-tile` here would report 0 on a fresh wallet (no recents yet) and
-   * silently look like "the grid is broken".
+   * The curated list rows and the Recents rows are the same `AppRow` under
+   * different test ids (`dapp-grid-card`, `recent-dapp-row`), so counting one
+   * never counts the other. Counting `recent-dapp-row` here would report 0 on a
+   * fresh wallet (no recents yet) and silently look like "the grid is broken".
    */
   async gridCardUrls(): Promise<string[]> {
     return this.target.evalJs<string[]>(
@@ -231,11 +231,6 @@ export class DappBrowserDriver {
         `  return el.getAttribute('data-dapp-url') || '';` +
         `});`
     );
-  }
-
-  /** How many recents tiles are rendered. */
-  async recentTileCount(): Promise<number> {
-    return this.target.evalJs<number>(`return document.querySelectorAll('[data-testid="dapp-tile"]').length;`);
   }
 
   /**

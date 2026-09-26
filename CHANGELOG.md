@@ -4,10 +4,12 @@
 
 ### Changes
 
+- [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
 
 ### Fixes
 
+- [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
 - [FIX][all] Activity's Pending filter now lists your own transactions still in progress (sends, swaps, claims and others) beside the incoming transfers waiting for a claim, instead of showing only the transfers and claiming there was nothing pending while a swap was in flight.
 - [FIX][all] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
