@@ -31,10 +31,10 @@ export interface BottomNavProps {
    *  reaches the body's safe-area floor into the device's bottom inset, with an 8px
    *  floor of its own, so the bar's background runs under the home indicator. */
   docked?: boolean;
-  /** Docked only: keep the tabs and the corner entirely above the device's bottom inset, 8px clear
-   *  of it, instead of reaching 16px into it. Android's inset is the system navigation bar (three
-   *  buttons, or the gesture handle), which a tab must not sit on; iOS's is the home indicator,
-   *  which the tabs may overlap. */
+  /** Docked only: end the tabs 8px above the device's bottom inset and the corner at it, instead of
+   *  letting both reach into it. Android's inset is the system navigation bar (three buttons, or the
+   *  gesture handle), which a tab must not sit on; iOS's is the home indicator, which the tabs may
+   *  overlap. */
   clearInset?: boolean;
   /** Drawn over the bar's lower-right corner, taking no layout space (the test-network ribbon). It
    *  sits in a box clipped to the bar's own shape that lets taps through; whatever it renders
