@@ -171,6 +171,7 @@ describe('resolveSpendsUsd', () => {
     await expect(resolveSpendsUsd([{ faucetId: TOKEN_IETH.faucetId, amount: 1n }], 10)).rejects.toBeInstanceOf(
       SpendingLimitPriceUnavailableError
     );
+    expect(mockedPrice).toHaveBeenCalledWith('ETH', 10);
   });
 
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
