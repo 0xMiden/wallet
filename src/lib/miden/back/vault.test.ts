@@ -1727,6 +1727,16 @@ describe('Vault.createHDAccount', () => {
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
   });
 
+  it('still aborts when the second probe cannot reach the node after the first missed (own mnemonic path)', async () => {
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    mockMidenClient.importPublicMidenWalletFromSeed
+      .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
+      .mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toThrow(/Could not reach the Miden network/i);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
   it('stamps v1 when the first import probe finds the account (own mnemonic path)', async () => {
     const vault = await seedVault('pw', { ownMnemonic: true });
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('acc-v1-1');
@@ -1872,6 +1882,7 @@ describe('Vault.spawn', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(
       /Could not reach the Miden network/i
     );
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
@@ -3462,7 +3473,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     // restore — the fund-loss shape the per-iteration check exists to stop.
     mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
       revokeWasmHold();
-      throw new Error('account not found on chain');
+      throw new Error(NODE_016_ACCOUNT_MISS);
     });
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
