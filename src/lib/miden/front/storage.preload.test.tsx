@@ -65,7 +65,7 @@ describe('preloadStorage', () => {
     expect(screen.getByTestId('value').textContent).toBe('fallback-value');
   });
 
-  it('never overwrites a value already in the cache', async () => {
+  it("keeps a reader's read that lands before the preload's", async () => {
     let release!: () => void;
     mockGet.mockImplementationOnce(
       () =>
