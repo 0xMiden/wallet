@@ -7,6 +7,7 @@ import {
   completeSeedImportOnboarding,
   loadMidenSdk,
   openFixtureDapp,
+  readLowContrastText,
   readQueuedTransactions,
   readWalletAddress,
   waitForConfirmForm,
@@ -253,6 +254,17 @@ test.describe('dApp provider', () => {
     // rendered the wallet's own chrome-extension:// origin, or the dApp-supplied
     // display name, a phishing page would be indistinguishable from a real one.
     await expect(connectPopup.getByTestId('connect-origin')).toHaveText(FIXTURE_DAPP_ORIGIN);
+
+    // Legible in both themes. `applyTheme` only toggles `.dark` on <html>, so
+    // toggling it here is the same switch the user's setting flips.
+    expect(await readLowContrastText(connectPopup)).toEqual([]);
+    // Buttons transition their colours, so read only once every transition the toggle started has settled.
+    await connectPopup.evaluate(async () => {
+      document.documentElement.classList.add('dark');
+      await Promise.all(document.getAnimations().map(animation => animation.finished));
+    });
+    expect(await readLowContrastText(connectPopup)).toEqual([]);
+    await connectPopup.evaluate(() => document.documentElement.classList.remove('dark'));
 
     await clickConfirmAction(connectPopup, CONFIRM_TESTID.connectApprove, 15_000);
     const connected = await connectCall;
