@@ -89,7 +89,7 @@ describe('useReportNoteClaim', () => {
     expect(result.current).toBe(first);
   });
 
-  it('cancels an attempt still in flight when the surface unmounts', async () => {
+  it('reports the success of an attempt still in flight after its view unmounts', async () => {
     const { result, unmount } = renderHook(() => useReportNoteClaim());
 
     let release = () => {};
@@ -101,26 +101,39 @@ describe('useReportNoteClaim', () => {
       attempt = result.current(() => pending);
     });
 
+    // Switching Activity between List and Groups unmounts the view; the queue call carries on.
     unmount();
-    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
-
     await act(async () => {
       release();
       await attempt;
     });
-    expect(handleAt(0).complete).not.toHaveBeenCalled();
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
   });
 
-  it('does not cancel attempts that already settled', async () => {
+  it('reports the failure of an attempt still in flight after its view unmounts', async () => {
     const { result, unmount } = renderHook(() => useReportNoteClaim());
 
-    await act(async () => {
-      await result.current(() => Promise.resolve('tx'));
+    let reject = (_error: Error) => {};
+    const pending = new Promise<string>((_resolve, rejectPending) => {
+      reject = rejectPending;
     });
-    unmount();
+    let attempt: Promise<string> | null = null;
+    await act(async () => {
+      attempt = result.current(() => pending);
+    });
 
+    unmount();
+    const failure = new Error('rpc down');
+    await act(async () => {
+      reject(failure);
+      await expect(attempt).rejects.toThrow('rpc down');
+    });
+
+    expect(classifyErrorMock).toHaveBeenCalledWith(failure);
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
-    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
   });
 
   it('never passes the claim payload to telemetry', async () => {
