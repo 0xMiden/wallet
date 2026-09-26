@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, AnimatedNumber, BalanceCard } from 'components/ui';
+import { AccountsDrawer, AnimatedNumber, AssetListItemSkeleton, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -365,11 +365,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
               )
             }
-            // Until the first balance read succeeds the store has no entry for
-            // this address and `useAllBalances` substitutes a zero placeholder
-            // row. Right after a recovery that read can lose the WASM lock to the
-            // first sync tick for several seconds, so the card must show the
-            // skeleton and not a "0.00" that reads as lost funds (#844).
+            // Until the first balance read lands the store has no entry for this
+            // address and `useAllBalances` hands back a zero placeholder, so the
+            // card shows its skeleton, not a "0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             onMore={() => setAccountsOpen(true)}
@@ -392,15 +390,20 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <div className="flex flex-col divide-y divide-rule-default">
-        {sortedTokens.map(asset => (
-          <AssetRow
-            key={asset.tokenId}
-            asset={asset}
-            tokenPrices={tokenPrices}
-            onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
-          />
-        ))}
+      <div className="flex flex-col divide-y divide-rule-default" data-testid="asset-list" aria-busy={balancesLoading}>
+        {/* The hook's zero placeholder is not a balance: under the loading card it read as an empty wallet (#1123). */}
+        {balancesLoading ? (
+          <AssetListItemSkeleton data-testid="asset-row-skeleton" />
+        ) : (
+          sortedTokens.map(asset => (
+            <AssetRow
+              key={asset.tokenId}
+              asset={asset}
+              tokenPrices={tokenPrices}
+              onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+            />
+          ))
+        )}
       </div>
     </>
   );

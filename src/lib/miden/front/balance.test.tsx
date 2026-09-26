@@ -5,7 +5,9 @@ import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
 import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
 
@@ -41,16 +43,14 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
     await new Promise(resolve => setTimeout(resolve, 50));
     concurrentCalls--;
     return [];
-  })
+  }),
+  fetchingAddresses: new Set<string>()
 }));
 
-// `balance.ts` skips its poll while the WASM client lock is held. Preserve the
-// real module (the store imports its lock helpers) and only stub the lock-state
-// probe so a test can drive the guard. Defaults to `false` (idle) so the other
-// tests keep polling normally.
-jest.mock('../sdk/miden-client', () => {
-  const actual = jest.requireActual('../sdk/miden-client');
-  return { ...actual, isWasmClientBusy: jest.fn(() => false) };
+// The in-flight guard is module state shared by every suite here; a read a test leaves pending would
+// otherwise hold its address into the next test.
+beforeEach(() => {
+  fetchingAddresses.clear();
 });
 
 describe('useAllBalances infinite loop protection', () => {
@@ -255,40 +255,6 @@ describe('useAllBalances infinite loop protection', () => {
     // Should never have more than 1 concurrent call for the same address
     // This prevents "recursive use of an object" errors in WASM client
     expect(maxConcurrentCalls).toBeLessThanOrEqual(1);
-  });
-
-  it('skips the balance poll while the WASM client lock is held', async () => {
-    // While a transaction (or sync) holds `withWasmClientLock`, this poll must
-    // not touch the WASM client — during the SDK's `_withInnerWebClient` window
-    // an un-locked read runs inline and double-borrows the RefCell (crash).
-    const busy = jest.requireMock('../sdk/miden-client').isWasmClientBusy as jest.Mock;
-    const fetchBalancesMock = jest.requireMock('lib/store/utils/fetchBalances').fetchBalances as jest.Mock;
-    busy.mockReturnValue(true);
-    fetchBalancesMock.mockClear();
-
-    testContainer = document.createElement('div');
-    testRoot = createRoot(testContainer);
-
-    const BalanceConsumer = () => {
-      useAllBalances('locked-address', {});
-      return <div />;
-    };
-
-    try {
-      await act(async () => {
-        testRoot!.render(<BalanceConsumer />);
-      });
-      // Allow the initial fetch attempt + a poll tick to elapse.
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 60));
-      });
-
-      expect(fetchBalancesMock).not.toHaveBeenCalled();
-    } finally {
-      // Restore idle state so later tests poll normally (clearAllMocks does not
-      // reset a mockReturnValue).
-      busy.mockReturnValue(false);
-    }
   });
 
   it('keeps prior balances when fetchBalances returns null (WASM-busy skip)', async () => {
@@ -555,5 +521,172 @@ describe('getAllBalanceSWRKey', () => {
     expect(getAllBalanceSWRKey('0xabc123')).toBe('allBalance_0xabc123');
     expect(getAllBalanceSWRKey('')).toBe('allBalance_');
     expect(getAllBalanceSWRKey('very-long-address-string-here')).toBe('allBalance_very-long-address-string-here');
+  });
+});
+
+describe('the first read for an address (#1123)', () => {
+  let consoleErrorSpy: jest.SpyInstance;
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+  const fetchBalancesMock = () => jest.requireMock('lib/store/utils/fetchBalances').fetchBalances as jest.Mock;
+
+  beforeAll(() => {
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  beforeEach(() => {
+    useWalletStore.setState({ balances: {}, balancesLoading: {}, balancesLastFetched: {}, assetsMetadata: {} });
+    fetchBalancesMock().mockReset();
+    fetchBalancesMock().mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    if (testRoot) {
+      testRoot.unmount();
+      testRoot = null;
+    }
+    if (testContainer) {
+      testContainer.remove();
+      testContainer = null;
+    }
+  });
+
+  const mount = async (address: string, onRender?: (isLoading: boolean) => void) => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const Consumer = () => {
+      const { isLoading } = useAllBalances(address, {});
+      onRender?.(isLoading);
+      return <div />;
+    };
+    await act(async () => {
+      testRoot!.render(<Consumer />);
+    });
+  };
+
+  it('queues for the WASM lock while the address has no balances', async () => {
+    await mount('fresh-address');
+
+    expect(fetchBalancesMock()).toHaveBeenCalledWith(
+      'fresh-address',
+      expect.anything(),
+      expect.objectContaining({ waitForLock: true })
+    );
+  });
+
+  it('stores a first read that lands after its component unmounted', async () => {
+    // Every other reader skipped the address in favour of this read, so dropping it would leave
+    // Home with no read at all until the next poll tick.
+    const row = {
+      tokenId: 't',
+      tokenSlug: 'T',
+      metadata: { name: 'T', symbol: 'T', decimals: 8 },
+      balance: 7,
+      fiatPrice: 1,
+      change24h: 0
+    };
+    let land!: (rows: (typeof row)[]) => void;
+    fetchBalancesMock().mockImplementation(() => new Promise(resolve => (land = resolve)));
+
+    await mount('unmounted-address');
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    await act(async () => {
+      land([row]);
+      await Promise.resolve();
+    });
+
+    expect(useWalletStore.getState().balances['unmounted-address']).toEqual([row]);
+    expect(useWalletStore.getState().balancesLoading['unmounted-address']).toBe(false);
+  });
+
+  it('does not queue a second read behind a Ready-time read that is still in flight', async () => {
+    // The import path: the store's Ready-time read is queued, then Home mounts before it lands.
+    fetchBalancesMock().mockImplementation(() => new Promise(() => {}));
+    const account = { publicKey: 'import-address', name: 'Account 1', isPublic: true, hdIndex: 0 };
+    useWalletStore.setState({ status: WalletStatus.Locked });
+    useWalletStore.getState().syncFromBackend({
+      status: WalletStatus.Ready,
+      accounts: [account],
+      currentAccount: account,
+      networks: [],
+      settings: { contacts: [] },
+      ownMnemonic: true
+    } as any);
+
+    await mount('import-address');
+
+    expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask a refresh to wait once the address has balances', async () => {
+    useWalletStore.setState({
+      balances: {
+        'known-address': [
+          {
+            tokenId: 't',
+            tokenSlug: 'T',
+            metadata: { name: 'T', symbol: 'T', decimals: 8 },
+            balance: 7,
+            fiatPrice: 1,
+            change24h: 0
+          }
+        ]
+      }
+    });
+
+    await mount('known-address');
+
+    expect(fetchBalancesMock()).toHaveBeenCalledWith(
+      'known-address',
+      expect.anything(),
+      expect.objectContaining({ waitForLock: false })
+    );
+  });
+
+  it('stays loading after a first read fails, and a later tick reads again', async () => {
+    jest.useFakeTimers();
+    try {
+      let lastIsLoading: boolean | undefined;
+      fetchBalancesMock().mockRejectedValueOnce(new Error('evicted'));
+
+      await mount('failing-address', isLoading => (lastIsLoading = isLoading));
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+      expect(lastIsLoading).toBe(true);
+      expect(useWalletStore.getState().balancesLoading['failing-address']).toBeUndefined();
+
+      // The poll interval is 5s; the failed read took no dedupe slot, so the next tick reads.
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+        await Promise.resolve();
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stays loading when the read is skipped by the fuse', async () => {
+    let lastIsLoading: boolean | undefined;
+    fetchBalancesMock().mockResolvedValue(null);
+
+    await mount('fused-address', isLoading => (lastIsLoading = isLoading));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(fetchBalancesMock()).toHaveBeenCalled();
+    expect(lastIsLoading).toBe(true);
+    expect(useWalletStore.getState().balances['fused-address']).toBeUndefined();
   });
 });
