@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import type { TokenPrices } from 'lib/prices';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import {
@@ -58,7 +59,7 @@ jest.mock('components/ui', () => ({
     title: string;
     body?: string;
     bodyValue?: string;
-    hero?: { icon: string; label: string; tone: string };
+    hero?: { icon: string; label: string; subLabel?: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
     onAction?: () => void;
@@ -71,6 +72,7 @@ jest.mock('components/ui', () => ({
       data-title={title}
       data-status={status}
       data-hero={hero?.label}
+      data-hero-sub={hero?.subLabel}
       // The real PromptCard renders no action button at all without onClick, but
       // this double always renders one - so tests must read actionability here,
       // or a removed readiness gate still passes behind fundWallet's own guard.
@@ -156,12 +158,24 @@ const fundedBalance = [{ tokenId: 'token', balance: 1 }] as TokenBalanceData[];
 // minted by the native faucet.
 const NATIVE_FAUCET_ID = '0xnative';
 const pendingNotes: PendingNoteValue[] = [
-  { id: 'note-1', amount: '1250000', faucetId: NATIVE_FAUCET_ID, metadata: { decimals: 6, symbol: 'MIDEN' } },
-  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
+  {
+    id: 'note-1',
+    amount: '1250000',
+    faucetId: NATIVE_FAUCET_ID,
+    metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+  },
+  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
 ];
 const nonNativeNotes: PendingNoteValue[] = [
-  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC' } }
+  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
 ];
+// A note the feed has no price for: it must leave no dollar figure, never one at $1 a unit.
+const unquotedNote: PendingNoteValue = {
+  id: 'note-other',
+  amount: '3000000',
+  faucetId: '0xother',
+  metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
+};
 const tokenPrices = {
   MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
@@ -498,6 +512,62 @@ describe('HomePrompts', () => {
     expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
     // Beat over (FAUCET_FUNDED_BEAT_MS) → the pending-notes card takes the stage.
     await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument(), { timeout: 3500 });
+  });
+
+  it('says what the mint brought in dollars, leaving out every note it did not mint', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (notes: PendingNoteValue[], prices: TokenPrices = tokenPrices) => (
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={prices}
+      />
+    );
+
+    const { rerender } = render(renderWith([]));
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // The native note is the mint: 1.25 MIDEN at $2. The claimable USDC note did not come from
+    // the faucet, so it is not what was deposited.
+    rerender(renderWith(pendingNotes));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
+
+    // A mint with no quote has no dollar figure, never one at $1 a unit.
+    rerender(renderWith(pendingNotes, { USDC: tokenPrices.USDC }));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
+  });
+
+  it('uses the generic line when funds arrive as a balance, whatever else is claimable', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (balances: TokenBalanceData[], notes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={balances}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    const { rerender } = render(renderWith(zeroBalance, []));
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+    // No new native note: the balance is what arrived, so there is no mint to put a figure on,
+    // and the quoted USDC note that happens to be claimable is not it.
+    rerender(renderWith(fundedBalance, nonNativeNotes));
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
   });
 
   it("clears only its own request's marker when its funds arrive", async () => {
@@ -2564,6 +2634,24 @@ describe('HomePrompts', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending');
+  });
+
+  it('shows the pending-notes card without a total when any waiting note has no price', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[...pendingNotes, unquotedNote]}
+        fundingNotes={[]}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
   });
 
   it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {

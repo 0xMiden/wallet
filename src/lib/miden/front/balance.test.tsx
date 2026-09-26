@@ -9,7 +9,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
-import { useAllBalances, getAllBalanceSWRKey } from './balance';
+import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
 
 // webextension-polyfill auto-mock causes isExtension() to return true in tests.
 // Override to return false so balance hooks use the WASM polling path.
@@ -22,6 +22,8 @@ jest.mock('lib/platform', () => ({
 // discovery steady state. Without this, buildDefaultZeroBalance() returns [].
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => 'miden-faucet-id'),
+  // Read by the swap-token registry the placeholder row is priced through.
+  getNativeAssetMetadataSync: jest.fn(() => null),
   getNativeAssetId: jest.fn(async () => 'miden-faucet-id'),
   primeNativeAssetId: jest.fn(),
   onNativeAssetChanged: jest.fn(() => () => {}),
@@ -384,6 +386,29 @@ describe('instant balance loading', () => {
     expect(firstRenderData.data[0].balance).toBe(0);
     // isLoading should be true since we haven't fetched yet
     expect(firstRenderData.isLoading).toBe(true);
+  });
+
+  it('prices the placeholder row like every other row: 0 without a quote, the quote with one', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
+    let rows: TokenBalanceData[] = [];
+    const BalanceConsumer = () => {
+      rows = useAllBalances('placeholder-price-address', {}).data;
+      return null;
+    };
+
+    useWalletStore.setState({ tokenPrices: {} });
+    await act(async () => {
+      testRoot!.render(<BalanceConsumer />);
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
+
+    await act(async () => {
+      useWalletStore.setState({ tokenPrices: { MIDEN: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+    });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 2, change24h: 0.5 });
   });
 
   it('transitions from default 0 to actual balance after fetch completes', async () => {

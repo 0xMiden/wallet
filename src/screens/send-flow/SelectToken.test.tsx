@@ -82,10 +82,8 @@ jest.mock('components/TokenLogo', () => ({
   )
 }));
 
-// `lib/prices` reaches for the live price feed; the fiat column only needs a
-// deterministic price per symbol here.
+// `lib/prices` reaches for the live price feed; the fiat column uses the real pure lookups.
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
   listedFiatValue: jest.requireActual('lib/prices/binance').listedFiatValue,
   listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));

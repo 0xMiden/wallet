@@ -9,6 +9,7 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
@@ -263,7 +264,8 @@ describe('fetchBalances', () => {
       tokenId: 'miden-faucet-id',
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
+      // MIDEN is not on the price feed: no price, never a $1 guess.
+      fiatPrice: 0,
       balance: 0,
       change24h: 0
     });
@@ -359,6 +361,40 @@ describe('fetchBalances', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('prices each row by its price symbol, and leaves a token the feed does not quote unpriced', async () => {
+    const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+    getBech32AddressFromAccountId.mockImplementation((id: string) =>
+      id === 'raw-ieth' ? TOKEN_IETH.faucetId : `bech32-${id}`
+    );
+    mockGetAccount.mockResolvedValueOnce({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'raw-ieth', amount: () => ({ toString: () => '38000000' }) },
+          { faucetId: () => 'other-faucet', amount: () => ({ toString: () => '1000000' }) }
+        ]
+      })
+    });
+
+    const result = (await fetchBalances(
+      'my-address',
+      {
+        [TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
+        'bech32-other-faucet': { name: 'Other Token', symbol: 'OTH', decimals: 6 }
+      },
+      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } } }
+    ))!;
+
+    const priceOf = (slug: string) => {
+      const { fiatPrice, change24h } = result.find(row => row.tokenSlug === slug)!;
+      return { fiatPrice, change24h };
+    };
+    expect(priceOf('IETH')).toEqual({ fiatPrice: 3000, change24h: 40 });
+    expect(priceOf('OTH')).toEqual({ fiatPrice: 0, change24h: 0 });
+    expect(priceOf('MIDEN')).toEqual({ fiatPrice: 0, change24h: 0 });
+
+    getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
   });
 
   it('shows unknown tokens with default metadata when fetch fails', async () => {

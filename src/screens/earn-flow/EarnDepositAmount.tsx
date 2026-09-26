@@ -8,6 +8,8 @@ import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'l
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
@@ -49,6 +51,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
@@ -63,12 +66,16 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       name: depositBalance?.metadata.symbol ?? 'USDC',
       decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
       balance: depositBalance?.balance ?? 0,
-      fiatPrice: depositBalance?.fiatPrice ?? 1,
+      // The live quote, held row or not: the row's stored price is a capture from when balances
+      // were read. No quote is no price (0), never a stated $1.
+      fiatPrice:
+        tokenQuote(tokenPrices, depositBalance?.tokenId ?? MIDEN_USDC_FAUCET, depositBalance?.metadata.symbol ?? 'USDC')
+          ?.price ?? 0,
       // Either the faucet answered, or we fall back to the USDC constant — which
       // is a stated decimals for a known token, not a guess about an unknown one.
       scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : true
     }),
-    [depositBalance]
+    [depositBalance, tokenPrices]
   );
 
   const amountValue = parseAmount(amount);
