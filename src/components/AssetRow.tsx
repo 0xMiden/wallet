@@ -5,7 +5,8 @@ import { AnimatedNumber, AssetListItem, Sparkline } from 'components/ui';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { getTokenPrice, useTokenSparkline } from 'lib/prices';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
 export interface AssetRowProps {
@@ -34,16 +35,19 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
   // the token and show no quantity, and drop the fiat line with it: a dollar
   // figure derived from that balance is the same fiction, one step further on.
   const scaleIsKnown = hasKnownScale(metadata);
-  const priceInfo = getTokenPrice(tokenPrices, metadata.symbol);
-  const isPositive = priceInfo.percentageChange24h >= 0;
+  // The quote of the symbol the feed prices this token under (IETH at ETH). Without one there is
+  // no dollar figure and no 24h move to show, rather than the token count at $1 a unit.
+  const priceSymbol = priceSymbolFor(asset.tokenId, metadata.symbol);
+  const quote = quotedPrice(tokenPrices, priceSymbol);
+  const isPositive = (quote?.percentageChange24h ?? 0) >= 0;
   const direction: 'positive' | 'negative' = isPositive ? 'positive' : 'negative';
   // Each figure's precision is pinned to the value it is heading for, so a quantity does not
   // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
-  const fiatValue = balance * priceInfo.price;
+  const fiatValue = quote ? balance * quote.price : 0;
   const formatQuantity = adaptiveFormatterFor(balance);
   const formatFiat = adaptiveFormatterFor(fiatValue);
 
-  const points = useTokenSparkline(metadata.symbol, '1D');
+  const points = useTokenSparkline(priceSymbol, '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
   const sparkColor = hasRealPoints
@@ -64,8 +68,16 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
         )
       }
       chart={<Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />}
-      price={scaleIsKnown ? <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} /> : undefined}
-      delta={{ value: <AnimatedNumber value={priceInfo.percentageChange24h} format={formatPercent} />, direction }}
+      price={
+        scaleIsKnown && quote ? (
+          <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
+        ) : undefined
+      }
+      delta={
+        quote
+          ? { value: <AnimatedNumber value={quote.percentageChange24h} format={formatPercent} />, direction }
+          : undefined
+      }
       onClick={onClick}
       data-testid={dataTestId}
     />
