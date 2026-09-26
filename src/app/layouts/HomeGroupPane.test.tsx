@@ -21,6 +21,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 
 import { HomeGroupPane, HomeGroupPaneBody, HomeGroupPaneRoot } from './HomeGroupPane';
 
@@ -107,7 +108,7 @@ describe('HomeGroupPaneBody', () => {
         <p>content</p>
       </HomeGroupPaneBody>
     );
-    const cushion = 'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]';
+    const cushion = stepFooterCushionClass();
     expect(body(withoutFooter.container)).toHaveClass(cushion);
     withoutFooter.unmount();
 
