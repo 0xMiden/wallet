@@ -51,12 +51,11 @@ const RevealSeedPhrase: FC = () => {
   const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
   const [secret, setSecret] = useSecretState();
   const [step, setStep] = useState<Step>('warning');
-  // Every exit from this page goes through `leave`, never `goBack()` directly.
-  // Several paths want out at once — a failed biometric reveal's catch, then the
-  // auto-close effect once `finally` clears isSubmitting; Hide and the drawer's
-  // close, which also trip that effect — and `history.go(-1)` settles on a later
-  // task, so each call popped another page (Settings too). The hook fires once
-  // per location, and routes to the Settings root when opened cold.
+  // Every exit from this page goes through `leave`, never `goBack()` directly: it
+  // bumps the generation, resets the step and the drawer, then pops through this
+  // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
+  // each pop a page (Settings too); the hook fires once per location as a safety
+  // net, and routes to the Settings root when the page was opened cold.
   const popPage = useBackWithFallback('/settings');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
@@ -68,6 +67,10 @@ const RevealSeedPhrase: FC = () => {
   const leave = useCallback(() => {
     secretGeneration.current += 1;
     setSecret(null);
+    // An exited instance must never rest on the empty auth branch (a reused layer
+    // showed it until Back, #1122).
+    setStep('warning');
+    setShowPasswordDrawer(false);
     popPage();
   }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
@@ -265,14 +268,17 @@ const RevealSeedPhrase: FC = () => {
       setIsSubmitting(true);
       clearErrors();
       setAuthError(null);
+      const generation = secretGeneration.current;
       try {
-        const generation = secretGeneration.current;
         const mnemonic = await revealMnemonic(data.password);
         if (generation !== secretGeneration.current) return;
         setSecret(mnemonic);
         setShowPasswordDrawer(false);
       } catch (err: any) {
         await new Promise(res => setTimeout(res, 300));
+        // Checked after the delay, as RevealSecret does: leave() bumps the generation, and
+        // the user can leave while this await runs, so a guard above it protects nothing.
+        if (generation !== secretGeneration.current) return;
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
         setIsSubmitting(false);
@@ -287,10 +293,66 @@ const RevealSeedPhrase: FC = () => {
     leave();
   }, [setSecret, leave]);
 
-  const handlePasswordDrawerClose = useCallback(() => {
-    setShowPasswordDrawer(false);
-    leave();
-  }, [leave]);
+  // Passcode / password drawer (for non-hardware wallets). Mobile vaults are protected
+  // by the 6-digit onboarding passcode, so they get the numpad; extension/desktop use a
+  // typed password.
+  const usePasscodeEntry = isMobile();
+
+  // A sibling of the 'warning' and 'auth' branches below, not a child of either: closing
+  // the drawer (X, scrim, Escape, drag-release) runs leave(), which resets step to
+  // 'warning' in the same batch (#1122). Nested inside the 'auth' branch, that reset
+  // unmounted the Drawer before vaul's close animation could run. Kept at the same keyed
+  // slot in both branches, it survives the step change and closes through `open`; a closed
+  // Drawer is inert, so no mount flag gates it.
+  const passwordDrawer = (
+    <Drawer
+      key="password-drawer"
+      open={showPasswordDrawer}
+      onOpenChange={open => !open && leave()}
+      screenKey="reveal-seed"
+    >
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
+        </DrawerHeader>
+        {usePasscodeEntry ? (
+          <div className="px-4 pb-6">
+            <PasscodeEntry
+              onSubmit={code => onPasswordSubmit({ password: code })}
+              onChange={() => clearErrors()}
+              error={errors.password?.message ?? null}
+              isSubmitting={isSubmitting}
+            />
+          </div>
+        ) : (
+          <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
+            <TextField
+              {...register('password', { required: t('required') })}
+              label={t('password')}
+              id="reveal-seed-password"
+              type="password"
+              placeholder="********"
+              error={errors.password?.message}
+              errorTestId="error-caption"
+              containerClassName="mb-4"
+              onChange={e => {
+                register('password').onChange(e);
+                clearErrors();
+              }}
+            />
+            <Button
+              className="w-full justify-center"
+              variant={ButtonVariant.Primary}
+              title={t('continue')}
+              disabled={isSubmitting || !passwordValue}
+              isLoading={isSubmitting}
+              onClick={handleSubmit(onPasswordSubmit)}
+            />
+          </form>
+        )}
+      </DrawerContent>
+    </Drawer>
+  );
 
   if (seedStatus && seedStatus !== 'stored')
     return (
@@ -313,64 +375,64 @@ const RevealSeedPhrase: FC = () => {
   // reconciling one instance in place - PageHeader focuses the title from a mount
   // effect, so without a remount the announcement never fires and the h1 keeps no
   // tabIndex. Keyed per BRANCH, not on `step`: three of the four run with
-  // step === 'reveal'. The drawer branch is deliberately not focused - its sheet is a
-  // portal that owns focus, and that branch remounts on every failed submit.
+  // step === 'reveal'. The auth branch passes no `focusTitleOnMount` of its own, but gets
+  // it anyway - Settings (Settings.tsx:516,527) provides `true` for this route via
+  // SubPageHeaderProvider, and SubPageLayout falls back to that context value when a page
+  // doesn't set the prop itself. A pending or failed submit stays on this branch (#1122);
+  // a successful one leaves it for the words branch.
   if (step === 'warning') {
     return (
-      <SubPageLayout
-        key="warning"
-        title={t('recoveryPhrase')}
-        onBack={leave}
-        focusTitleOnMount
-        data-testid="reveal-seed-warning"
-        footer={
-          <>
-            <Button
-              className="flex-1 max-w-none"
-              variant={ButtonVariant.Secondary}
-              title={t('close')}
-              onClick={leave}
-            />
-            <Button
-              className="flex-1 max-w-none"
-              variant={ButtonVariant.Primary}
-              title={t('view')}
-              onClick={handleView}
-              disabled={hasHardwareProtector === null || isSubmitting}
-              isLoading={isSubmitting}
-            />
-          </>
-        }
-      >
-        <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
-          <SeedPhrasePlaceholder />
-        </SubPageSection>
+      <>
+        <SubPageLayout
+          key="warning"
+          title={t('recoveryPhrase')}
+          onBack={leave}
+          focusTitleOnMount
+          data-testid="reveal-seed-warning"
+          footer={
+            <>
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Secondary}
+                title={t('close')}
+                onClick={leave}
+              />
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Primary}
+                title={t('view')}
+                onClick={handleView}
+                disabled={hasHardwareProtector === null || isSubmitting}
+                isLoading={isSubmitting}
+              />
+            </>
+          }
+        >
+          <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
+            <SeedPhrasePlaceholder />
+          </SubPageSection>
 
-        {probeError && (
-          <div>
-            <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
-              {t(probeError)}
-            </Notice>
-            <Button
-              className="mt-3"
-              variant={ButtonVariant.Secondary}
-              title={t('retry')}
-              onClick={runProbe}
-              disabled={probing}
-              isLoading={probing}
-            />
-          </div>
-        )}
+          {probeError && (
+            <div>
+              <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
+                {t(probeError)}
+              </Notice>
+              <Button
+                className="mt-3"
+                variant={ButtonVariant.Secondary}
+                title={t('retry')}
+                onClick={runProbe}
+                disabled={probing}
+                isLoading={probing}
+              />
+            </div>
+          )}
 
-        <SeedPhrasePrivacyHero className="mt-auto pt-4" />
-      </SubPageLayout>
+          <SeedPhrasePrivacyHero className="mt-auto pt-4" />
+        </SubPageLayout>
+        {passwordDrawer}
+      </>
     );
-  }
-
-  // The error view is exempt: a Retry sets isSubmitting again, and blanking here
-  // would take the Notice and the Retry button off screen for the whole prompt.
-  if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
-    return null;
   }
 
   // Revealed view
@@ -455,60 +517,11 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Passcode / password drawer (for non-hardware wallets, shown on mount).
-  // Mobile vaults are protected by the 6-digit onboarding passcode, so they
-  // get the numpad; extension/desktop use a typed password.
-  const usePasscodeEntry = isMobile();
-
   return (
-    <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth">
-      <Drawer
-        open={showPasswordDrawer}
-        onOpenChange={open => !open && handlePasswordDrawerClose()}
-        screenKey="reveal-seed"
-      >
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
-          </DrawerHeader>
-          {usePasscodeEntry ? (
-            <div className="px-4 pb-6">
-              <PasscodeEntry
-                onSubmit={code => onPasswordSubmit({ password: code })}
-                onChange={() => clearErrors()}
-                error={errors.password?.message ?? null}
-                isSubmitting={isSubmitting}
-              />
-            </div>
-          ) : (
-            <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-              <TextField
-                {...register('password', { required: t('required') })}
-                label={t('password')}
-                id="reveal-seed-password"
-                type="password"
-                placeholder="********"
-                error={errors.password?.message}
-                errorTestId="error-caption"
-                containerClassName="mb-4"
-                onChange={e => {
-                  register('password').onChange(e);
-                  clearErrors();
-                }}
-              />
-              <Button
-                className="w-full justify-center"
-                variant={ButtonVariant.Primary}
-                title={t('continue')}
-                disabled={isSubmitting || !passwordValue}
-                isLoading={isSubmitting}
-                onClick={handleSubmit(onPasswordSubmit)}
-              />
-            </form>
-          )}
-        </DrawerContent>
-      </Drawer>
-    </SubPageLayout>
+    <>
+      <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth" />
+      {passwordDrawer}
+    </>
   );
 };
 
