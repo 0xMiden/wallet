@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
@@ -37,11 +37,26 @@ jest.mock('date-fns', () => ({
 
 jest.mock('lib/i18n', () => ({ getDateFnsLocale: () => undefined }));
 
-// The scroller only matters when a scroll parent is handed in; the list itself is what is tested.
+// The scroller only matters when a scroll parent is handed in; the list itself is what is tested. The
+// "next page" button stands in for the user nearing the end, which is when the real scroller calls
+// `loadMore` with the next page, and the scroll parent is exposed so a test can check which element
+// it listens to.
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({ children, hasMore }: { children: React.ReactNode; hasMore: boolean }) => (
+  default: ({
+    children,
+    hasMore,
+    loadMore,
+    getScrollParent
+  }: {
+    children: React.ReactNode;
+    hasMore: boolean;
+    loadMore?: (page: number) => void;
+    getScrollParent?: () => HTMLElement | null;
+  }) => (
     <div data-testid="infinite-scroll" data-has-more={String(hasMore)}>
+      <button data-testid="infinite-scroll-next" onClick={() => loadMore?.(2)} />
+      <span data-testid="infinite-scroll-parent" data-parent-id={getScrollParent?.()?.id ?? ''} />
       {children}
     </div>
   )
@@ -364,8 +379,20 @@ describe('ActivityGroupList', () => {
   });
 
   it('pages the list as the user scrolls when it has a scroll parent', () => {
-    renderList([entry({ secondaryAddress: 'mtst1alice' })], { hasMore: true, scrollParentRef: { current: null } });
+    const loadMore = jest.fn();
+    const parent = document.createElement('div');
+    parent.id = 'groups-scroll-parent';
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], {
+      hasMore: true,
+      loadMore,
+      scrollParentRef: { current: parent }
+    });
+
     expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
+    // The scroller listens to the caller's element and asks the list's own callback for the next page.
+    expect(screen.getByTestId('infinite-scroll-parent')).toHaveAttribute('data-parent-id', 'groups-scroll-parent');
+    fireEvent.click(screen.getByTestId('infinite-scroll-next'));
+    expect(loadMore).toHaveBeenCalledWith(2);
   });
 
   it('skips the scroller entirely without one', () => {
