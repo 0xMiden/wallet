@@ -150,15 +150,14 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     navigate('/');
   }, [remove]);
 
-  // Leaving the attempt, by any exit, abandons an in-flight reveal: its late result
-  // must not move the flow on or leave an error for the next attempt.
+  // Leaving the attempt, by any exit, abandons an in-flight reveal, so its late result
+  // cannot move the flow on or leave an error or password behind for the next attempt.
   const abandonReveal = useCallback(() => {
     secretGeneration.current += 1;
   }, []);
 
   const backToWarning = useCallback(() => {
     abandonReveal();
-    // A landed error and the typed password must not carry into the next attempt.
     reset();
     setStep('warning');
   }, [abandonReveal, reset]);
