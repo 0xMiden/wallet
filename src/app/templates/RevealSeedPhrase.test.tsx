@@ -1147,7 +1147,8 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockResolvedValue(false);
     const container = await renderAndView();
 
-    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    const before = container.querySelector('[data-testid="drawer"]');
+    expect(before!.getAttribute('data-open')).toBe('true');
 
     await act(async () => {
       (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
@@ -1155,8 +1156,9 @@ describe('RevealSeedPhrase', () => {
     await flush();
 
     expect(buttonWithText(container, 'view')).toBeTruthy();
-    expect(container.querySelector('[data-testid="drawer"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('false');
+    // The same element, not merely a closed one: a remount loses vaul's close transition.
+    expect(container.querySelector('[data-testid="drawer"]')).toBe(before);
+    expect(before!.getAttribute('data-open')).toBe('false');
   });
 
   it('surfaces a submit error caption after a failed desktop password unlock', async () => {
