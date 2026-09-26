@@ -88,6 +88,8 @@ jest.mock('./TransactionIcon', () => ({
 // stubs `isMobile`. Mirror the predicate inline instead, as already done for `isEarnWithdrawEntry`.
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
+  // Copies `isReceiveEntry` from `./transactionUtils` (the real module cannot be loaded in this
+  // file); keep this in step with it.
   isReceiveEntry: (entry: { transactionIcon?: string; txType?: string }) =>
     entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume'),
   isBridgeInEntry: jest.fn(() => false),

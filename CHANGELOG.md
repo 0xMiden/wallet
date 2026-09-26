@@ -22,7 +22,7 @@
 - [FIX][all] **Home and token details value IETH at the ETH price instead of $1 per token** (0.38 IETH read $0.38, not about $1,000), and the token-detail chart draws again (#1128). Every dollar figure now appears only for a token the price feed actually quotes: Home rows and token details show no fiat value for an unquoted token such as MIDEN, the Home total adds up the quoted tokens only (and shows "$-" when none of what you hold is quoted), and the Pending transfers total and the home "transfers waiting" prompt show no total when any transfer's asset has no price, where they used to count it at $1 a unit (#1105).
 - [FIX][android] The bottom tab bar no longer sits on the system navigation bar: its tabs end 8px above the Back, Home and Recents buttons (and the gesture handle), and the test-network ribbon in its corner can be tapped again (#1121).
 - [FIX][all] Spending limits now count IETH and IBTC at the ETH and BTC price, as the rest of the wallet values them, for sends, swaps, bridges, Earn deposits and dApp requests alike. They were counted as nothing, so moving either could go past the cap without the review stopping it; when the ETH or BTC price cannot be fetched, a limited account now asks for the same approval it asks for any other priced token. IETH and IBTC transfers made before this update were recorded as $0 and are not counted toward the cap, so the cap is exact again once they are more than 24 hours old (#1133).
-- [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to"; the compact history row now also shows a faucet claim in flight as received (#1102).
+- [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 
 ## 1.16.2 (2026-09-24)
 
