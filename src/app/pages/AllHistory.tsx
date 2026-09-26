@@ -111,9 +111,12 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const savedView = useActivityView();
   // A link that names a filter (the home prompt, a received-transfer notification) asks for the feed,
   // the only view with filters and Accept All, so it shows the List for that visit without changing
-  // the saved view. A tap on the Activity tab goes to `/history`, which names none.
+  // the saved view. Switching to the Activity tab from another tab goes to `/history`, which names none.
   const linkedFilter = filterFromSearch(locationSearch, filters);
   const view: ActivityView = linkedFilter ? 'list' : savedView;
+  // The filter on screen: the one the location names, read directly so a link's first frame already
+  // shows it (the effect above lands a render later); the kept choice otherwise.
+  const shownFilter = linkedFilter ?? filter;
   // Leaving the feed for Groups also drops the filter the location names, or the override above would
   // hold the List against the user's own choice.
   const changeView = (next: ActivityView) => {
@@ -162,7 +165,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         // kept while the user is away in Groups, and the row shows it again on the way back.
         filter={
           view === 'list'
-            ? { items: filters, value: filter, onChange: pickFilter, 'aria-label': t('activityFilters') }
+            ? { items: filters, value: shownFilter, onChange: pickFilter, 'aria-label': t('activityFilters') }
             : undefined
         }
       />
@@ -194,7 +197,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         <ActivityPendingHistory
           key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
           search={search}
-          filter={filter}
+          filter={shownFilter}
           programId={programId}
           onInitialLoad={handleHistoryLoaded}
         />

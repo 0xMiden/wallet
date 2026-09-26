@@ -86,6 +86,8 @@ jest.mock('components/ui/TabHeader', () => ({
 
 // Counts mounts, so a test can tell a remount from a re-render.
 const mockPendingMounts = { count: 0 };
+// Every render's filter prop, so a test can tell a stale first frame from a correct one.
+const mockPendingFilterRenders: string[] = [];
 // Stands in for a warm SWR cache: the list reports its load from its first commit.
 const mockReportOnMount = { value: false };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
@@ -95,6 +97,7 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
     filter: string;
     onInitialLoad?: () => void;
   }) => {
+    mockPendingFilterRenders.push(props.filter);
     const R = jest.requireActual<typeof import('react')>('react');
     const [instance] = R.useState(() => ++mockPendingMounts.count);
     R.useEffect(() => {
@@ -197,6 +200,7 @@ describe('AllHistory', () => {
     localStorage.clear();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    mockPendingFilterRenders.length = 0;
     mockReducedMotion.value = false;
     mockLocationSearch.value = '';
     HTMLElement.prototype.scrollIntoView = jest.fn();
@@ -661,7 +665,7 @@ describe('AllHistory', () => {
   describe('a link that names a filter', () => {
     beforeEach(() => localStorage.setItem('activity_view_setting', 'groups'));
 
-    it('shows the feed with that filter even when Groups was chosen, and keeps Groups saved', () => {
+    it('shows the feed with that filter even when Groups was chosen, and keeps Groups saved', async () => {
       mockLocationSearch.value = '?filter=pending';
       render(<AllHistory />);
 
@@ -669,6 +673,7 @@ describe('AllHistory', () => {
       expect(screen.queryByTestId('grouped-history')).toBeNull();
       expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
       fireEvent.click(screen.getByTestId('activity-view-button'));
+      await screen.findByTestId('activity-view-menu');
       expect(screen.getByTestId('activity-view-list')).toHaveAttribute('aria-checked', 'true');
       expect(localStorage.getItem('activity_view_setting')).toBe('groups');
     });
@@ -681,6 +686,8 @@ describe('AllHistory', () => {
       rerender(<AllHistory />);
 
       expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(mockPendingFilterRenders).toEqual(expect.arrayContaining(['pending']));
+      expect(mockPendingFilterRenders.every(f => f === 'pending')).toBe(true);
     });
 
     it('goes back to Groups when the user picks it, dropping the filter from the location', async () => {
@@ -693,6 +700,20 @@ describe('AllHistory', () => {
       await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
       expect(mockLocationSearch.value).toBe('');
       expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+      expect(navigate).toHaveBeenCalledWith(expect.any(Function), 'replacestate');
+      const updater = (navigate as jest.Mock).mock.calls[0][0] as (at: {
+        pathname: string;
+        search: string;
+        hash: string;
+        state: unknown;
+      }) => { pathname: string; search: string; hash: string; state: unknown };
+      const state = { from: 'test' };
+      expect(updater({ pathname: '/history/prog-42', search: '?filter=pending', hash: '#top', state })).toEqual({
+        pathname: '/history/prog-42',
+        search: '',
+        hash: '#top',
+        state
+      });
     });
 
     it('leaves the location alone when Groups is picked and no filter is named', async () => {
@@ -704,6 +725,17 @@ describe('AllHistory', () => {
 
       await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
       expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('returns to the saved Groups view once the location no longer names a filter', () => {
+      mockLocationSearch.value = '?filter=pending';
+      const { rerender } = render(<AllHistory />);
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+
+      mockLocationSearch.value = '';
+      rerender(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
     });
 
     it('ignores a filter the control does not offer', () => {
