@@ -14,9 +14,8 @@ import { type BackHandlerOptions, registerMobileBackHandler } from './back-handl
  *
  * @param handler - Function that returns true if it handled the back press
  * @param deps - Dependency array (like useEffect)
- * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree, or for a
- *   sheet component that closes itself through its own handler (returning false while closed);
- *   read at registration
+ * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree; a sheet or
+ *   popover that closes itself uses `useCloseOnBack`, which registers there for it; read at registration
  *
  * @example
  * ```typescript

@@ -5,13 +5,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { setCardColor, useCardColor } from 'lib/settings/card-color';
 import { CARD_COLORS, CardColor } from 'lib/settings/constants';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { navigate } from 'lib/woozie';
 
 import { CARD_COLOR_BG } from './BalanceCard';
-import { HeaderRule } from './HeaderRule';
 import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
 import { SectionHeader } from './SectionHeader';
@@ -27,6 +27,7 @@ export interface AccountsDrawerProps {
  * (navigates to /settings) and private-key account import.
  */
 export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) => {
+  useCloseOnBack(open, () => onOpenChange(false));
   const { t } = useTranslation();
   const selectedCardColor = useCardColor();
 
@@ -53,8 +54,6 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
         <DrawerHeader>
           <DrawerTitle>{t('accounts')}</DrawerTitle>
         </DrawerHeader>
-        {/* The tab roots' rule under the title, inset to the sheet's margin. */}
-        <HeaderRule className="mx-4 mb-4" />
 
         <div className="flex flex-col gap-5 px-4 pb-6">
           <section>

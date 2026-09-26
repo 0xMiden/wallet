@@ -16,7 +16,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { usePageActive } from 'app/layouts/page-active';
 import { useTabBarMotion } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import Portal from 'lib/ui/Portal';
 import { cn } from 'lib/ui/util';
 import { useLocation } from 'lib/woozie';
@@ -116,15 +116,7 @@ export const Popover: React.FC<PopoverProps> = ({
   }, [pathname, hash, pageActive]);
 
   useOverlayScreenKey(open, screenKey ? `popover:${screenKey}` : 'popover');
-  useMobileBackHandler(
-    () => {
-      if (!open) return false;
-      onClose();
-      return true;
-    },
-    [open, onClose],
-    { overlay: true }
-  );
+  useCloseOnBack(open, onClose);
 
   return (
     <Portal>

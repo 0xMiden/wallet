@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
@@ -22,19 +22,7 @@ export interface GuardianInfoDrawerProps {
  */
 export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
-
-  // Mobile back closes the sheet before the page or flow under it handles the press.
-  useMobileBackHandler(
-    () => {
-      if (!open) return false;
-      onOpenChangeRef.current(false);
-      return true;
-    },
-    [open],
-    { overlay: true }
-  );
+  useCloseOnBack(open, () => onOpenChange(false));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
