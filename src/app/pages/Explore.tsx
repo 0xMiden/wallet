@@ -399,6 +399,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         ) : (
           sortedTokens.map(asset => (
             <AssetRow
+              // Keyed by the account too, for the same reason as the total: a new account's row lands.
               key={`${address}:${asset.tokenId}`}
               asset={asset}
               tokenPrices={tokenPrices}

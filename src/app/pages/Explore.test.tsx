@@ -848,13 +848,11 @@ describe('Explore', () => {
 
     it('mounts a new row for a token both accounts hold', async () => {
       // the token list: one token 't1' held by both accounts, with different balances
-      // (set it the way this file's asset-list tests do)
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
       const { rerender } = await renderExplore();
       expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
 
       mockAccount = { publicKey: 'mtst1other' };
-      // same token 't1', a different balance
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
       act(() => {
         rerender(<Explore />);
@@ -864,7 +862,6 @@ describe('Explore', () => {
     });
 
     it('keeps the same row when only the balance of the same account changes', async () => {
-      // token 't1' for the same account, then a different balance, same account
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
       const { rerender } = await renderExplore();
 
@@ -876,7 +873,7 @@ describe('Explore', () => {
       expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
     });
 
-    it('keeps the Accounts drawer open across an account switch', async () => {
+    it('keeps HomeOverview state across an address change (only the figures are keyed)', async () => {
       const { rerender } = await renderExplore();
       fireEvent.click(screen.getByTestId('balance-more'));
       expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();

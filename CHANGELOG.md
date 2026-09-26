@@ -8,6 +8,7 @@
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
+- [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
 
 ### Fixes
 
@@ -20,7 +21,6 @@
 - [FIX][all] After importing a wallet, Home shows the balance as soon as it is read from the device instead of waiting behind the first sync (mobile and desktop), and until then the Assets list shows a loading row instead of "0 MIDEN" (#1123).
 - [FIX][all] **Home and token details value IETH at the ETH price instead of $1 per token** (0.38 IETH read $0.38, not about $1,000), and the token-detail chart draws again (#1128). Every dollar figure now appears only for a token the price feed actually quotes: Home rows and token details show no fiat value for an unquoted token such as MIDEN, the Home total adds up the quoted tokens only (and shows "$-" when none of what you hold is quoted), and the Pending transfers total and the home "transfers waiting" prompt show no total when any transfer's asset has no price, where they used to count it at $1 a unit (#1105).
 - [FIX][all] Spending limits now count IETH and IBTC at the ETH and BTC price, as the rest of the wallet values them, for sends, swaps, bridges, Earn deposits and dApp requests alike. They were counted as nothing, so moving either could go past the cap without the review stopping it; when the ETH or BTC price cannot be fetched, a limited account now asks for the same approval it asks for any other priced token. IETH and IBTC transfers made before this update were recorded as $0 and are not counted toward the cap, so the cap is exact again once they are more than 24 hours old (#1133).
-- [FIX][all] After an account import or switch, Home shows the new account's total and token figures at once instead of counting from the previous account's (#1107).
 
 ## 1.16.2 (2026-09-24)
 
