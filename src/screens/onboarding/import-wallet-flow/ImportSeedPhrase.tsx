@@ -9,6 +9,7 @@ import { Notice } from 'components/ui/Notice';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { isMobile } from 'lib/platform';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -96,15 +97,19 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 
   const wordRefs = useRef<(TextFieldElement | null)[]>([]);
 
-  // With an enterKeyHint set, Android Chromium sends the Next and Done keys as a plain Enter
-  // and no longer moves focus itself, so the hints are kept here. Done leaves the grid to
-  // dismiss the keyboard; Continue stays the only submit.
+  // With an enterKeyHint set, Android Chromium sends Next and Done as a plain Enter instead of
+  // moving focus itself, so this handler does what the hints promise. Done blurs only on mobile:
+  // that's what dismisses the soft keyboard, but on desktop/extension there is no keyboard to
+  // dismiss and blurring to body would lose a keyboard or screen-reader user's place.
   const onWordKeyDown = useCallback((event: React.KeyboardEvent<TextFieldElement>, index: number) => {
-    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    // Android's Next/Done action arrives as Enter (keyCode 13) while the word is still
+    // composing, so isComposing can't gate this. keyCode 229 marks an Enter that only
+    // commits an IME composition (every engine), which is the one Enter to leave alone.
+    if (event.key !== 'Enter' || event.nativeEvent.keyCode === 229) return;
     event.preventDefault();
     if (index < PHRASE_LENGTH - 1) {
       wordRefs.current[index + 1]?.focus();
-    } else {
+    } else if (isMobile()) {
       event.currentTarget.blur();
     }
   }, []);
