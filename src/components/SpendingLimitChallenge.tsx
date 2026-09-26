@@ -40,6 +40,8 @@ export function formatUsdMicroAmount(value: bigint): string {
 }
 
 export interface SpendingLimitChallengeProps {
+  /** `false` where the host's own back handler closes the challenge (the swap flow's). */
+  closeOnBack?: boolean;
   assessment?: SpendingLimitAssessment;
   /** The exact spends `assessment` was computed from. Required together with `assessment`, since
    * the resulting `usd` authorization binds to them, not to the assessed dollar figure. */
@@ -56,7 +58,8 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
   unpriced,
   onResult,
   now = () => Math.floor(Date.now() / 1000),
-  makeId
+  makeId,
+  closeOnBack
 }) => {
   const { t, i18n } = useTranslation();
   const breach = assessment?.breach;
@@ -94,7 +97,12 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
   );
 
   return (
-    <Drawer open onOpenChange={open => !open && onResult(undefined)} screenKey="spending-limit-challenge">
+    <Drawer
+      open
+      onOpenChange={open => !open && onResult(undefined)}
+      closeOnBack={closeOnBack}
+      screenKey="spending-limit-challenge"
+    >
       <DrawerContent data-testid="spending-limit-challenge">
         <DrawerHeader>
           <DrawerTitle>{t('spendingLimitChallengeTitle')}</DrawerTitle>

@@ -6,10 +6,13 @@ import { isAndroid, isMobile } from 'lib/platform';
  * Mobile back button handler system.
  *
  * Handles hardware back button and swipe-back gestures on both Android and iOS.
- * Overlay handlers, for UI rendered outside the routed page's React tree (app-level
- * dialogs and gates, provider modals, the router's banner sheet), run before page
- * handlers, so a page that re-registers while an overlay is open cannot take the
- * press from it. A sheet a page renders is closed by that page's own handler.
+ * Overlay handlers run before page handlers, so a page that re-registers while an
+ * overlay is open cannot take the press from it. They are for UI rendered outside the
+ * routed page's React tree (app-level dialogs and gates, provider modals, the router's
+ * banner sheet) and for a sheet or popover that closes itself (it returns false while
+ * closed): every sheet on the shared `Drawer` does this for itself, and `Popover` uses
+ * `useCloseOnBack`. A sheet its host's page handler closes passes `closeOnBack={false}`
+ * to the Drawer and stays in the page tier.
  * Within each tier the last registered runs first.
  * If a handler returns true, it consumed the event and no other handlers are called.
  * If no handler consumes the event: Android minimizes app, iOS does nothing.
@@ -18,7 +21,10 @@ import { isAndroid, isMobile } from 'lib/platform';
 type BackHandler = () => boolean | void;
 
 export interface BackHandlerOptions {
-  /** The handler belongs to UI rendered outside the routed page's tree: it runs before every page handler. */
+  /**
+   * Runs before every page handler: for UI outside the routed page's tree, or a sheet or popover that
+   * closes itself (returning false while closed; the shared Drawer and `useCloseOnBack` do this).
+   */
   overlay?: boolean;
 }
 
@@ -64,12 +70,15 @@ export async function initMobileBackHandler(): Promise<void> {
  * Register a back handler. Returns a function to unregister.
  *
  * @param handler - Function that returns true if it handled the back press
- * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree
+ * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree, or for a
+ *   sheet or popover that closes itself (returning false while closed; the Drawer and
+ *   `useCloseOnBack` register it)
  * @returns Unregister function
  *
  * @example
  * ```typescript
- * // A sheet this page renders; UI outside the page tree would pass { overlay: true }.
+ * // A sheet this page renders and closes (its Drawer passes closeOnBack={false}); UI
+ * // outside the page tree would pass { overlay: true }.
  * useEffect(() => {
  *   const unregister = registerMobileBackHandler(() => {
  *     if (sheetOpen) {

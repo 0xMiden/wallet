@@ -24,7 +24,8 @@ export const TYPE_STYLES = [
   'explainer',
   'body-sm',
   'label',
-  'caption'
+  'caption',
+  'caption-heading'
 ] as const;
 
 export type TypeStyle = `text-${(typeof TYPE_STYLES)[number]}`;
