@@ -83,7 +83,7 @@ describe('CheckboxIndicator', () => {
     const { container } = render(<CheckboxIndicator checked={false} />);
     const box = slot(container, 'checkbox-indicator');
     expect(box).toHaveAttribute('aria-hidden', 'true');
-    expect(box).toHaveClass('size-5.5', 'rounded-full', 'bg-page', 'ring-hairline');
+    expect(box).toHaveClass('size-5.5', 'rounded-full', 'bg-page', 'ring-muted');
   });
 
   it('fills on the snappy spring and draws the check on the tab-bar spring when checked', () => {
@@ -108,6 +108,11 @@ describe('CheckboxIndicator', () => {
 });
 
 describe('CheckboxRow', () => {
+  it('declares its flush inset (the 22px box and the 14px gap) for an inset plain ListGroup', () => {
+    render(<CheckboxRow data-testid="row" title="Fact" checked={false} onCheckedChange={() => {}} />);
+    expect(screen.getByTestId('row')).toHaveClass('[--row-flush-inset:36px]', 'before:left-[52px]');
+  });
+
   it('is one checkbox named by its title and described by its description', () => {
     render(<Row />);
     const box = screen.getByRole('checkbox', { name: 'Test tokens are not money' });

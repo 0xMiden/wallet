@@ -267,9 +267,9 @@ test.describe('infra resilience — the SW sync path under node faults (characte
 
         // The wallet as a whole must stay responsive. Deliberately a WEAK check,
         // and labelled as one: this read runs in the page realm and takes the
-        // WASM mutex non-blockingly (`tryWithWasmClientLock` in `fetchBalances`
-        // returns null rather than queueing), while the hung sync holds the
-        // SERVICE WORKER's mutex. So it cannot park behind that sync and its
+        // page realm's WASM mutex (`fetchBalances` tries it for a refresh and
+        // queues only while no balance has been read), while the hung sync holds
+        // the SERVICE WORKER's mutex. So it cannot park behind that sync and its
         // settling is not evidence about the wedged realm — it only says the page
         // still answers. The claim that a parked read would blow this budget was
         // wrong; the leg's real evidence is the fault-hit count and the blindness

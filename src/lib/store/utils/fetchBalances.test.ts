@@ -47,7 +47,16 @@ const lockOptionsSeen: unknown[] = [];
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   getCurrentWasmLockHold: () => currentHold,
-  withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
+  withWasmClientLock: async (operation: (hold: object) => Promise<unknown>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    const hold = {};
+    currentHold = hold;
+    try {
+      return await operation(hold);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  },
   tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
     lockOptionsSeen.push(options);
     return mockTryWithWasmClientLock(operation);
@@ -108,6 +117,18 @@ describe('fetchBalances', () => {
     await fetchBalances('my-address', {});
 
     expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+  });
+
+  it('bounds and labels a waiting read exactly like a skipping one (#1123)', async () => {
+    // A read that queues for the lock is still a balance probe: same ceiling, same fuse key.
+    mockGetAccount.mockResolvedValueOnce(null);
+    lockOptionsSeen.length = 0;
+    mockTryWithWasmClientLock.mockClear();
+
+    await fetchBalances('my-address', {}, { waitForLock: true });
+
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+    expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
   });
 
   it('skips the hold entirely once its own fuse is lit, and resumes on a success (#777)', async () => {
@@ -195,6 +216,29 @@ describe('fetchBalances', () => {
       mockTryWithWasmClientLock.mockImplementationOnce(() => Promise.reject(new Error('Failed to fetch')));
       await expect(fetchBalances('my-address', {})).rejects.toThrow('Failed to fetch');
     }
+    expect(isSyncFused('balances')).toBe(false);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('reports its own evictions to the fuse for a waiting read too, and a completed wait puts it out (#1123)', async () => {
+    __resetSyncFuseStateForTests();
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      mockGetAccount.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+      await expect(fetchBalances('my-address', {}, { waitForLock: true })).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+    }
+    expect(isSyncFused('balances')).toBe(true);
+
+    // Same exit as the skipping read's above: only a completed read puts the fuse out,
+    // proven through a real successful `fetchBalances` call rather than `noteSyncSuccess`
+    // directly, which would only re-test the ledger.
+    const realNow = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
+    mockGetAccount.mockResolvedValueOnce(null);
+    await fetchBalances('my-address', {}, { waitForLock: true });
+    nowSpy.mockRestore();
     expect(isSyncFused('balances')).toBe(false);
     __resetSyncFuseStateForTests();
   });
@@ -295,6 +339,28 @@ describe('fetchBalances', () => {
     // MIDEN with 0 balance
     expect(result[1]!.tokenSlug).toBe('MIDEN');
     expect(result[1]!.balance).toBe(0);
+  });
+
+  it('does not wait forever on a metadata lookup that never answers', async () => {
+    // The read holds the address's in-flight entry until it returns, so a node that accepts the
+    // metadata request and never answers would otherwise block every balance read (#1123).
+    jest.useFakeTimers();
+    try {
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'hung-faucet', amount: () => ({ toString: () => '1000000' }) }]
+        })
+      });
+      mockFetchTokenMetadata.mockReturnValueOnce(new Promise(() => {}));
+
+      const read = fetchBalances('my-address', {});
+      await jest.advanceTimersByTimeAsync(15_001);
+      const result = (await read)!;
+
+      expect(result.map(row => row.tokenSlug)).toEqual(['Unknown', 'MIDEN']);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('prices each row by its price symbol, and leaves a token the feed does not quote unpriced', async () => {
