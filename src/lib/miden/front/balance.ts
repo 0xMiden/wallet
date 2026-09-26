@@ -87,13 +87,18 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // Check global lock - prevents concurrent calls across all component instances
     if (fetchingAddresses.has(address)) return;
 
-    // Skip while a `withWasmClientLock` op (a transaction, sync, etc.) holds the
-    // WASM client. This poll deliberately bypasses `withWasmClientLock` for
-    // responsiveness, but during a transaction's `_withInnerWebClient` window
-    // the SDK runs our un-locked `getAccount` INLINE and it double-borrows the
-    // WASM RefCell — panicking the client (hangs guardian consumes on mobile).
-    // Skipping costs one delayed refresh; the next cycle picks it up once idle.
-    if (isWasmClientBusy()) return;
+    // Until this address has balances, the read queues for the WASM lock instead of
+    // skipping. After an import the sync, note reads and recovery keep the lock's queue
+    // full, and a skipping read starved behind them for as long as they ran (#1123).
+    // Once a figure is on screen, a refresh skips instead of queueing, so it never
+    // stalls behind a write.
+    // Holding the lock, not just avoiding it, is what matters: while a
+    // `withWasmClientLock` op (a transaction, sync, etc.) holds the client, an un-locked
+    // `getAccount` runs INLINE inside the SDK's `_withInnerWebClient` window and
+    // double-borrows the WASM RefCell, which panics the client (hangs guardian consumes
+    // on mobile).
+    const waitForLock = useWalletStore.getState().balances[address] === undefined;
+    if (!waitForLock && isWasmClientBusy()) return;
 
     // Read current value from store (not ref) to catch updates from prefetch
     const now = Date.now();
@@ -110,7 +115,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
       const tokenPrices = useWalletStore.getState().tokenPrices;
       const fetchedBalances = await fetchBalances(address, tokenMetadatasRef.current, {
         setAssetsMetadata,
-        tokenPrices
+        tokenPrices,
+        waitForLock
       });
 
       // `null` means the WASM client was busy (a tx/sync held the lock) and the
@@ -126,12 +132,9 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
         }));
       }
     } catch (error) {
+      // Loading is left as it was: with nothing read yet, clearing it would show the zero
+      // placeholder as a real "$0.00". The next tick retries.
       console.error('Failed to fetch balances:', error);
-      if (mountedRef.current) {
-        useWalletStore.setState(state => ({
-          balancesLoading: { ...state.balancesLoading, [address]: false }
-        }));
-      }
     } finally {
       // Release global lock
       fetchingAddresses.delete(address);
