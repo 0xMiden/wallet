@@ -7,6 +7,7 @@ import {
   getTokenPrice,
   listedFiatValue,
   listedPrice,
+  quotedPrice,
   Timeframe
 } from './binance';
 
@@ -201,6 +202,22 @@ describe('binance', () => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Failed to fetch kline'), expect.any(Error));
       warn.mockRestore();
     });
+  });
+});
+
+describe('quotedPrice', () => {
+  const eth = { price: 3000, change24h: 10, percentageChange24h: 0.1 };
+
+  it('returns the feed quote of a listed symbol', () => {
+    expect(quotedPrice({ ETH: eth }, 'ETH')).toEqual({ price: 3000, change24h: 10, percentageChange24h: 0.1 });
+  });
+
+  it('returns no quote for a symbol the feed does not list, never a $1 default', () => {
+    expect(quotedPrice({ ETH: eth }, 'MIDEN')).toBeUndefined();
+  });
+
+  it('returns no quote for a zero price', () => {
+    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
   });
 });
 

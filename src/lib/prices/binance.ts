@@ -86,6 +86,15 @@ export function getTokenPrice(prices: TokenPrices, symbol: string): TokenPriceIn
 }
 
 /**
+ * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
+ * price is not a quote. Resolve a held token's symbol with `priceSymbolFor` first (IETH at ETH).
+ */
+export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo | undefined {
+  const quote = prices[symbol];
+  return quote && quote.price > 0 ? quote : undefined;
+}
+
+/**
  * The feed's price for a symbol, or 0 when the feed does not list it. Never getTokenPrice's $1
  * default: the send flow reads 0 as no price, so an unlisted token shows no fiat anywhere in it.
  */

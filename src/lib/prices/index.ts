@@ -7,7 +7,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { fetchKlineData, fetchTokenPrices, Timeframe } from './binance';
 import { writeUsdPriceCache } from './usd';
 
-export { fetchKlineData, getTokenPrice, listedFiatValue, listedPrice } from './binance';
+export { fetchKlineData, getTokenPrice, listedFiatValue, listedPrice, quotedPrice } from './binance';
 export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
