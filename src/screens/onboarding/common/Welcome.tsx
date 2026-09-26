@@ -66,7 +66,7 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
         >
           <BreadLogo className="h-auto w-[140px]" />
         </div>
-        <h1 className="mt-6 font-heading text-[56px] leading-[60px] font-extrabold tracking-[-0.5px] text-ink">
+        <h1 className="mt-6 font-heading text-[min(56px,15vw)] leading-[1.07] font-extrabold tracking-[-0.5px] [overflow-wrap:anywhere] text-ink">
           <span className="block">{t('welcome')}</span>
           <span className="block">
             {t('toLowercase')} {t('midenWallet')}

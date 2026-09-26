@@ -340,6 +340,15 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {
+    const container = await renderReceive();
+
+    const page = container.querySelector('[data-testid="receive-page"]')!;
+    expect(page).toHaveClass('pt-5');
+    expect(page).not.toHaveClass('pt-9');
+    expect(container.querySelector('[data-testid="receive-qr-block"]')!.className).not.toMatch(/(^|\s)-mt-/);
+  });
+
   it('keeps the page heading for assistive tech only, so the code leads the page', async () => {
     const container = await renderReceive();
 
@@ -383,7 +392,7 @@ describe('Receive - Address', () => {
     // 16px gutter every pane shares.
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
     expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
-    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-9');
+    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-5');
   });
 
   it('clears the docked tab bar from the same expression the flow CTAs use', async () => {

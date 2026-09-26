@@ -16,7 +16,7 @@ export interface NetworkNoticeRow {
   tone: string;
 }
 
-/** The three facts, shared with onboarding's notice, which asks the user to tick each one. */
+/** The three facts, drawn by `NetworkNoticeRows` for the onboarding notice and the network sheet alike. */
 export const NETWORK_NOTICE_ROWS: readonly NetworkNoticeRow[] = [
   {
     id: 'no-value',
@@ -48,8 +48,7 @@ export const NETWORK_NOTICE_ROWS: readonly NetworkNoticeRow[] = [
  *
  * Plain `FactRow`s on the page, each led by the Settings group's `IconCircle` with its glyph in a
  * card-palette colour.
- * Onboarding draws the same three facts as `CheckboxRow`s in a `ListGroup`, so the sheet and the
- * checklist read as one list with and without the ticks.
+ * Onboarding shows them above its one "I understand" button.
  */
 export const NetworkNoticeRows: FC<{ className?: string }> = ({ className }) => {
   const { t } = useTranslation();

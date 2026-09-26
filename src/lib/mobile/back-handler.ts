@@ -6,10 +6,12 @@ import { isAndroid, isMobile } from 'lib/platform';
  * Mobile back button handler system.
  *
  * Handles hardware back button and swipe-back gestures on both Android and iOS.
- * Overlay handlers, for UI rendered outside the routed page's React tree (app-level
- * dialogs and gates, provider modals, the router's banner sheet), run before page
- * handlers, so a page that re-registers while an overlay is open cannot take the
- * press from it. A sheet a page renders is closed by that page's own handler.
+ * Overlay handlers run before page handlers, so a page that re-registers while an
+ * overlay is open cannot take the press from it. They are for UI rendered outside the
+ * routed page's React tree (app-level dialogs and gates, provider modals, the router's
+ * banner sheet) and for a sheet component that closes itself through its own back
+ * handler (it returns false while closed). A sheet its host closes stays in the page
+ * tier, closed by that page's own handler.
  * Within each tier the last registered runs first.
  * If a handler returns true, it consumed the event and no other handlers are called.
  * If no handler consumes the event: Android minimizes app, iOS does nothing.
@@ -18,7 +20,10 @@ import { isAndroid, isMobile } from 'lib/platform';
 type BackHandler = () => boolean | void;
 
 export interface BackHandlerOptions {
-  /** The handler belongs to UI rendered outside the routed page's tree: it runs before every page handler. */
+  /**
+   * Runs before every page handler: for UI outside the routed page's tree, or a sheet component that
+   * closes itself through its own handler (returning false while closed).
+   */
   overlay?: boolean;
 }
 
@@ -69,7 +74,8 @@ export async function initMobileBackHandler(): Promise<void> {
  *
  * @example
  * ```typescript
- * // A sheet this page renders; UI outside the page tree would pass { overlay: true }.
+ * // A sheet this page renders and closes; UI outside the page tree, or a sheet that
+ * // closes itself through its own handler, would pass { overlay: true }.
  * useEffect(() => {
  *   const unregister = registerMobileBackHandler(() => {
  *     if (sheetOpen) {

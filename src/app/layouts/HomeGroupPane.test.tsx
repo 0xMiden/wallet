@@ -76,14 +76,14 @@ describe('HomeGroupPaneBody', () => {
     expect(body(container)).not.toHaveClass('pt-9');
   });
 
-  it('draws the pane title, so all four sit at the same height', () => {
+  it('draws the pane title, so the titled panes (Send, Earn, Swap) sit at the same height', () => {
     render(
-      <HomeGroupPaneBody title="Receive at" titleTestId="receive-title">
+      <HomeGroupPaneBody title="Your Earnings" titleTestId="earn-title">
         <p>content</p>
       </HomeGroupPaneBody>
     );
 
-    const title = screen.getByTestId('receive-title');
+    const title = screen.getByTestId('earn-title');
     expect(title.tagName).toBe('H1');
     expect(title).toHaveClass('text-title-tab', 'text-ink');
   });
@@ -91,7 +91,7 @@ describe('HomeGroupPaneBody', () => {
   it('takes no title accessory: the title line is the h1 alone', () => {
     render(
       // @ts-expect-error titleAccessory is not a HomeGroupPaneBody prop; no pane passes one.
-      <HomeGroupPaneBody title="Receive at" titleAccessory={<span>chip</span>}>
+      <HomeGroupPaneBody title="Your Earnings" titleAccessory={<span>chip</span>}>
         <p>content</p>
       </HomeGroupPaneBody>
     );
@@ -180,5 +180,16 @@ describe('the four panes are drawn in one box', () => {
     // No `mx-auto`, no cap of its own: the pane fills the carousel's cell edge to edge, and
     // TabLayout already caps the column at 600px where there is room for more.
     expect(root.className).not.toMatch(/mx-auto|max-w-/);
+  });
+
+  it("starts a pane that opens on a visual 20px down, its quiet zone the rest of the gap (Receive's code)", () => {
+    const { container } = render(
+      <HomeGroupPaneBody top="visual">
+        <p>content</p>
+      </HomeGroupPaneBody>
+    );
+
+    expect(body(container)).toHaveClass('pt-5');
+    expect(body(container)).not.toHaveClass('pt-9');
   });
 });

@@ -154,7 +154,10 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
     });
 
-    const action = within(screen.getByTestId('meet-guardian-card')).getByTestId('meet-guardian-choose-different');
+    // The action closes the section, after the card rather than inside it.
+    const action = screen.getByTestId('meet-guardian-choose-different');
+    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(action);
+    expect(screen.getByTestId('meet-guardian-card')).not.toContainElement(action);
     expect(action).toHaveClass('focus-visible:ring-accent-primary', 'w-full', 'justify-between');
     fireEvent.click(action);
     expect(onChooseDifferent).toHaveBeenCalledTimes(1);
@@ -403,7 +406,8 @@ describe('MeetGuardianScreen: shared pieces', () => {
   it('offers the one change action, the row, while checking and when no operator answers', () => {
     const view = renderScreen();
     const row = () => screen.getByTestId('meet-guardian-choose-different');
-    expect(screen.getByTestId('meet-guardian-checking')).toContainElement(row());
+    expect(screen.getByTestId('meet-guardian-checking')).not.toContainElement(row());
+    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(row());
     expect(row()).toHaveClass('w-full', 'justify-between');
 
     view.setVerdicts({
@@ -412,5 +416,44 @@ describe('MeetGuardianScreen: shared pieces', () => {
     });
     expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
     expect(row()).toHaveClass('w-full', 'justify-between');
+  });
+
+  it('keeps the change action the same element, focus and all, when the round settles', () => {
+    const view = renderScreen();
+    const action = screen.getByTestId('meet-guardian-choose-different');
+    act(() => action.focus());
+
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    expect(screen.getByTestId('meet-guardian-card')).toBeInTheDocument();
+    expect(screen.getByTestId('meet-guardian-choose-different')).toBe(action);
+    expect(action.isConnected).toBe(true);
+    expect(document.activeElement).toBe(action);
+  });
+
+  it("holds the card's shape while checking: a three-row placeholder where the guarantees will be", () => {
+    renderScreen();
+
+    const placeholder = within(screen.getByTestId('meet-guardian-checking')).getByTestId(
+      'meet-guardian-guarantees-placeholder'
+    );
+    expect(placeholder.tagName).toBe('UL');
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder.children).toHaveLength(3);
+  });
+
+  it('tags the fastest operator with a neutral pill, not a status colour', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    const tag = screen.getByTestId('meet-guardian-fastest');
+    expect(tag).toHaveClass('bg-fill', 'text-ink');
+    expect(tag).not.toHaveClass('bg-positive-tint');
   });
 });

@@ -99,6 +99,8 @@ describe('WelcomeScreen', () => {
     const { container } = renderComponent();
     expect(container.querySelector('svg')).toHaveClass('w-[140px]');
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('font-heading', 'text-ink');
+    // 56px on a normal screen, smaller on the narrowest, and a long translated word wraps rather than clips.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[min(56px,15vw)]', '[overflow-wrap:anywhere]');
     expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
     const footer = screen.getByTestId('btn-getStarted').parentElement;
     expect(footer).toHaveAttribute('data-slot', 'footer');

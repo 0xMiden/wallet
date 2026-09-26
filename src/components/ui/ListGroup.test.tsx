@@ -34,9 +34,13 @@ describe('ListGroup surfaces', () => {
 });
 
 describe('ListGroup options', () => {
-  it('renders a list as a ul', () => {
-    const { container } = render(<ListGroup as="ul">{[<li key="a" />]}</ListGroup>);
+  it('renders a list as a ul with the list role WebKit drops from a marker-less ul', () => {
+    const { container, rerender } = render(<ListGroup as="ul">{[<li key="a" />]}</ListGroup>);
     expect((container.firstChild as HTMLElement).tagName).toBe('UL');
+    expect(container.firstChild).toHaveAttribute('role', 'list');
+
+    rerender(<ListGroup>{[<div key="a" />]}</ListGroup>);
+    expect(container.firstChild).not.toHaveAttribute('role');
   });
 
   it("lets a plain group keep each row's own inset, read from the row's --row-flush-inset", () => {

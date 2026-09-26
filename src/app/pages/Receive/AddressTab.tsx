@@ -175,13 +175,13 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
   return (
-    // The shared home-group pane body (HomeGroupPane): the page margin, the offset to the title, the
-    // scroll and gesture contract and the clearance over the tab bar, the same as Send, Earn and
-    // Swap. Last-resort scroll only: the column is laid out to fit between the top action bar and
+    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`: the
+    // code leads, its quiet zone the rest of the gap), the scroll and gesture contract and the
+    // clearance over the tab bar, the same as Send, Earn and Swap. Last-resort scroll only: the column is laid out to fit between the top action bar and
     // the tab bar on every supported height, and scrolls only when even that does not fit.
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
-    <HomeGroupPaneBody testId="receive-page">
+    <HomeGroupPaneBody testId="receive-page" top="visual">
       {/* No visible title: the action bar already says Receive and the code leads the page. The
           heading stays for assistive tech. */}
       <h1 data-testid="receive-title" className="sr-only">
@@ -194,9 +194,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
       {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
-      {/* -mt-4 pulls the code up into the pane's 36px top offset: with no title above it, the
-          white quiet zone around the modules already reads as the gap. */}
-      <div data-testid="receive-qr-block" className="-mt-4 flex flex-col items-center gap-2">
+      <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
         <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
           {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}

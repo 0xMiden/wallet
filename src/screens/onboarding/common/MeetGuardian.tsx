@@ -129,7 +129,8 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
 
-  // One action in every state: the full-width row that closes the section, ruled off from the checklist.
+  // One action in every state, rendered once after the state's block: the full-width row that closes the
+  // section. Settling the round swaps the block above it, never the action, so a press or focus survives.
   const chooseDifferent = noOperators ? null : (
     <TextAction layout="row" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
       {t('chooseDifferentGuardian')}
@@ -185,7 +186,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 </span>
                 {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
                 {!(progress.pickedByUser && options.length > 1) && (
-                  <Pill size="sm" tone="positive" data-testid="meet-guardian-fastest">
+                  <Pill size="sm" data-testid="meet-guardian-fastest">
                     {options.length > 1
                       ? t('meetGuardianFastestOf', { operators: String(options.length) })
                       : t('meetGuardianOnlyOperator')}
@@ -220,18 +221,15 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 />
               ))}
             </ListGroup>
-
-            <div className="mt-1.5">{chooseDifferent}</div>
           </div>
         ) : noneReachable ? (
-          <div className="flex flex-col gap-3">
-            <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-              {t('meetGuardianNoneReachable')}
-            </Notice>
-            {chooseDifferent}
-          </div>
+          <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
+            {t('meetGuardianNoneReachable')}
+          </Notice>
         ) : (
-          <div data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy>
+          // The card's shape while the first round is out, so the checklist below barely moves when the
+          // card replaces it: the logo row, a line where the bio goes, and the guarantees' three rows.
+          <div data-testid="meet-guardian-checking" className="flex flex-col" aria-busy>
             <div className="flex items-center gap-3">
               <Skeleton className="size-12 rounded-xl" />
               <div className="flex flex-1 flex-col gap-1.5">
@@ -239,10 +237,27 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 <Skeleton className="h-3.5 w-40" />
               </div>
             </div>
-            <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
-            {chooseDifferent}
+            <span className="mt-2.5 text-caption text-muted">{t('meetGuardianChecking')}</span>
+            <ListGroup
+              as="ul"
+              surface="outline"
+              className="mt-3.5 px-3 py-1"
+              aria-hidden
+              data-testid="meet-guardian-guarantees-placeholder"
+            >
+              {GUARDIAN_GUARANTEE_KEYS.map(key => (
+                <FactRow
+                  key={key}
+                  as="li"
+                  variant="item"
+                  leading={<Skeleton className="size-5 rounded-full" />}
+                  title={<Skeleton className="h-4 w-40" />}
+                />
+              ))}
+            </ListGroup>
           </div>
         )}
+        {chooseDifferent}
       </section>
 
       {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}

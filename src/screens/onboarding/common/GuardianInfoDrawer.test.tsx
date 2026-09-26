@@ -78,14 +78,21 @@ jest.mock('lib/ui/drawer', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Capture the back handler the sheet registers (the hook's real body needs a mobile shell).
-const mockBack: { handler: (() => boolean | void) | null; options: unknown } = { handler: null, options: undefined };
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (handler: () => boolean | void, _deps: unknown, options: unknown) => {
-    mockBack.handler = handler;
-    mockBack.options = options;
+// The real useMobileBackHandler, over a recorded registry: every registration with its options and
+// its own unregister spy, so a test can see which handler is live after a re-render.
+const mockRegistrations: {
+  handler: () => boolean | void;
+  options: unknown;
+  unregister: jest.Mock;
+}[] = [];
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
+    const unregister = jest.fn();
+    mockRegistrations.push({ handler, options, unregister });
+    return unregister;
   }
 }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => true }));
 
 const makeProps = (overrides: Partial<GuardianInfoDrawerProps> = {}): GuardianInfoDrawerProps => ({
   open: true,
@@ -100,20 +107,25 @@ const renderDrawer = (props: GuardianInfoDrawerProps = makeProps()) => render(<G
 // ---------------------------------------------------------------------------
 
 describe('GuardianInfoDrawer', () => {
-  it('closes on the mobile back press while open, ahead of the page under it', () => {
+  it('registers an overlay back handler that follows open: pass while closed, close while open', () => {
+    mockRegistrations.length = 0;
     const onOpenChange = jest.fn();
-    renderDrawer(makeProps({ open: true, onOpenChange }));
+    const live = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
+    // Every host mounts it closed and opens it through state.
+    const view = renderDrawer(makeProps({ open: false, onOpenChange }));
+    expect(live()).toHaveLength(1);
+    expect(live()[0]!.handler()).toBe(false);
 
-    expect(mockBack.options).toEqual({ overlay: true });
-    expect(mockBack.handler!()).toBe(true);
+    view.rerender(<GuardianInfoDrawer {...makeProps({ open: true, onOpenChange })} />);
+    expect(live()).toHaveLength(1);
+    expect(live()[0]!.options).toEqual({ overlay: true });
+    expect(live()[0]!.handler()).toBe(true);
     expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
 
-  it('leaves the back press alone while closed', () => {
-    const onOpenChange = jest.fn();
-    renderDrawer(makeProps({ open: false, onOpenChange }));
-
-    expect(mockBack.handler!()).toBe(false);
+    onOpenChange.mockClear();
+    view.rerender(<GuardianInfoDrawer {...makeProps({ open: false, onOpenChange })} />);
+    expect(live()).toHaveLength(1);
+    expect(live()[0]!.handler()).toBe(false);
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 

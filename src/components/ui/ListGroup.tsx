@@ -20,7 +20,7 @@ export interface ListGroupProps {
    *   sits: Activity's rows, pending transfers, Earn's cards, the home prompt card.
    */
   surface?: 'fill' | 'plain' | 'outline';
-  /** `ul` for a list whose rows are `li`s. */
+  /** `ul` for a list whose rows are `li`s; it carries `role="list"`, which WebKit drops from a marker-less `ul`. */
   as?: 'div' | 'ul';
   /**
    * `plain` only: each row keeps its own hairline inset instead of running the full width, read from
@@ -31,6 +31,8 @@ export interface ListGroupProps {
   /** Layout only (margins, width). */
   className?: string;
   'aria-label'?: string;
+  /** A decorative stand-in (a loading placeholder) that assistive tech should skip. */
+  'aria-hidden'?: boolean;
   'data-testid'?: string;
 }
 
@@ -47,6 +49,7 @@ export const ListGroup: React.FC<ListGroupProps> = ({
   insetHairlines = false,
   className,
   'aria-label': ariaLabel,
+  'aria-hidden': ariaHidden,
   'data-testid': dataTestId
 }) => (
   <Group
@@ -63,7 +66,9 @@ export const ListGroup: React.FC<ListGroupProps> = ({
           : '[&>*]:px-0 [&>*]:before:left-0'),
       className
     )}
+    role={Group === 'ul' ? 'list' : undefined}
     aria-label={ariaLabel}
+    aria-hidden={ariaHidden || undefined}
     data-testid={dataTestId}
   >
     {children}
