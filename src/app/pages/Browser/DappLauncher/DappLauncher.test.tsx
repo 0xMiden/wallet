@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ExploreCatalog, RecentDapp } from 'lib/dapp-browser';
+import { buildFaviconUrl } from 'lib/dapp-browser/favicon-cache';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import { DappLauncher } from './index';
@@ -15,6 +16,7 @@ jest.mock('lib/feature-flags', () => ({ isSwapEnabled: () => true }));
 let mockRecents: RecentDapp[] = [];
 jest.mock('lib/dapp-browser', () => ({
   ...jest.requireActual('lib/dapp-browser/explore-catalog'),
+  getFaviconUrl: jest.requireActual('lib/dapp-browser/favicon-cache').getFaviconUrl,
   getRecentDapps: () => Promise.resolve(mockRecents)
 }));
 
@@ -106,13 +108,70 @@ describe('DappLauncher', () => {
       'data-dapp-url',
       'https://quest.example/'
     );
-    expect(within(screen.getByTestId('explore-recents')).getByTestId('dapp-tile')).toHaveAttribute(
+    expect(within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row')).toHaveAttribute(
       'data-dapp-url',
       'https://recent.example/'
     );
     // Search lives in the header now, closed until its button opens it.
     expect(screen.getByTestId('explore-search-toggle')).toBeInTheDocument();
     expect(screen.queryByTestId('dapp-hero-search')).not.toBeInTheDocument();
+  });
+
+  it('draws a Recents row like the catalog rows: the name alone, and the chevron', async () => {
+    await renderLauncher();
+
+    const recent = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    expect(within(recent).getByText('Recent')).toBeInTheDocument();
+    // The recorded name is usually the host itself, so a host line would repeat it.
+    expect(within(recent).queryByText(/recent\.example/)).not.toBeInTheDocument();
+    // No second line of any kind: ListRow draws a subtitle as the title's next sibling.
+    expect(recent.querySelector('[data-slot="title"]')?.nextElementSibling).toBeNull();
+    expect(recent.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    const catalogRow = within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card');
+    expect(catalogRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // A vertical plain group, like a catalog list: not a sideways scroller, not a fill card.
+    expect(screen.getByTestId('explore-recents')).toHaveClass('px-4');
+    const group = recent.parentElement!;
+    expect(group).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(group).not.toHaveClass('bg-fill');
+    expect(group).not.toHaveClass('overflow-x-auto');
+  });
+
+  it("draws a Recents row's logo from the dApp's favicon", async () => {
+    mockRecents = [{ ...recent, favicon: 'https://recent.example/favicon.ico' }];
+    await renderLauncher();
+
+    const recentRow = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    const logo = recentRow.querySelector('[data-slot="app-icon"]');
+    expect(logo).not.toHaveAttribute('data-letter');
+    expect(logo?.querySelector('img')).toHaveAttribute('src', 'https://recent.example/favicon.ico');
+  });
+
+  it("falls back to the site's logo by origin when a recent has no favicon, as the capsule bar does", async () => {
+    await renderLauncher();
+
+    const recentRow = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    const logo = recentRow.querySelector('[data-slot="app-icon"]');
+    expect(logo).not.toHaveAttribute('data-letter');
+    expect(logo?.querySelector('img')).toHaveAttribute('src', buildFaviconUrl('https://recent.example'));
+  });
+
+  it('lays several featured apps side by side in one scrolling row, each opening its own app', async () => {
+    const onOpen = jest.fn();
+    const twoFeatured: ExploreCatalog = {
+      ...catalog,
+      sections: [{ id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet', 'quest'] }]
+    };
+    render(<DappLauncher onOpen={onOpen} catalog={twoFeatured} />);
+    await act(async () => {});
+
+    const cards = screen.getAllByTestId('explore-featured-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.parentElement).toBe(cards[1]!.parentElement);
+    expect(cards[0]!.parentElement).toHaveClass('overflow-x-auto');
+    fireEvent.click(cards[0]!);
+    fireEvent.click(cards[1]!);
+    expect(onOpen.mock.calls.map(call => call[0])).toEqual(['https://faucet.example/', 'https://quest.example/']);
   });
 
   it('hides recents when there are none', async () => {
@@ -133,7 +192,7 @@ describe('DappLauncher', () => {
     expect(within(card).getByText('exploreOpen')).toBeInTheDocument();
   });
 
-  it('opens an app from the featured card, a row and a tile, with one tap haptic each', async () => {
+  it('opens an app from the featured card, a catalog row and a Recents row, with one tap haptic each', async () => {
     const { onOpen } = await renderLauncher();
 
     fireEvent.click(screen.getByTestId('explore-featured-card'));
@@ -159,9 +218,10 @@ describe('DappLauncher', () => {
     const group = row.parentElement!;
     expect(group).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
     expect(group).not.toHaveClass('bg-fill');
-    // Still a ListRow, with the app's url for the E2E driver and Open as its trailing pill.
+    // Still a ListRow, with the app's url for the E2E driver.
     expect(row).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Faucet');
+    expect(row.querySelector('[data-slot="title"]')?.nextElementSibling).toHaveTextContent('Get testnet MIDEN tokens');
     // The row opens the app the way every navigating row says so: a chevron, no tinted pill.
     expect(within(row).queryByText('exploreOpen')).toBeNull();
     expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
@@ -197,8 +257,6 @@ describe('DappLauncher', () => {
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
   });
 
-  // The store decides how many recents exist (it keeps 12); the row renders what it is given. A
-  // second cap here silently dropped two of them, under the same name as the store's.
   // Recents arrive from a promise that resolves after mount. If the first reveal ends on the first
   // commit, the last section on the page rises at index 0 - ahead of every section above it.
   it('gives a late-arriving section its place in the first reveal, not the front', async () => {
@@ -236,6 +294,8 @@ describe('DappLauncher', () => {
     expect(screen.getByTestId('explore-section-helper-tools')).toHaveAttribute('data-reveal-index', '0');
   });
 
+  // The store decides how many recents exist (it keeps 12); Explore's Recents list renders what it is
+  // given. A second cap here silently dropped two of them, under the same name as the store's.
   it('renders every recent the store keeps', async () => {
     mockRecents = Array.from({ length: 12 }, (_, i) => ({
       url: `https://recent-${i}.example/`,
@@ -247,7 +307,7 @@ describe('DappLauncher', () => {
     render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
     await act(async () => {});
 
-    expect(within(screen.getByTestId('explore-recents')).getAllByTestId('dapp-tile')).toHaveLength(12);
+    expect(within(screen.getByTestId('explore-recents')).getAllByTestId('recent-dapp-row')).toHaveLength(12);
   });
 
   it('reveals the page on its first mount only', async () => {
