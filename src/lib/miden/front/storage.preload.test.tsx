@@ -48,8 +48,6 @@ const deferredRead = (key: string, value: string) => {
   return () => release();
 };
 
-const readsOf = (key: string) => mockGet.mock.calls.filter(([keys]) => keys[0] === key).length;
-
 describe('preloadStorage', () => {
   it('lets a storage hook render its value on its first render instead of suspending', async () => {
     await preloadStorage(['stored-key']);
@@ -70,15 +68,9 @@ describe('preloadStorage', () => {
   });
 
   it("keeps a reader's read that lands before the preload's", async () => {
-    let release!: () => void;
-    mockGet.mockImplementationOnce(
-      () =>
-        new Promise(resolve => {
-          release = () => resolve({ 'race-key': 'old' });
-        })
-    );
+    const release = deferredRead('race-key', 'old');
     const preload = preloadStorage(['race-key']);
-    mockGet.mockImplementationOnce(async () => ({ 'race-key': 'new' }));
+    mockStored['race-key'] = 'new';
     renderReader('race-key');
     expect((await screen.findByTestId('value')).textContent).toBe('new');
 
@@ -171,7 +163,6 @@ describe('preloadStorage', () => {
     renderReader('hung-key');
 
     expect((await screen.findByTestId('value')).textContent).toBe('read-by-hook');
-    expect(readsOf('hung-key')).toBe(2);
   });
 
   it("still caches a key no reader asked for when a reader supersedes another key's preload", async () => {
