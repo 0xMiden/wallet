@@ -204,6 +204,7 @@ describe('GuardianReplaceHotKey — guards', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
     expect(label()).toBe('confirmReplaceHotKey');
     expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
+    expect(screen.queryByText('replaceHotKeyConfirmationSeedRequired')).not.toBeInTheDocument();
   });
 });
 
@@ -211,16 +212,6 @@ describe('GuardianReplaceHotKey — guards', () => {
 // Confirmation copy follows whether the vault will ask for the phrase (#1113).
 // ---------------------------------------------------------------------------
 describe('GuardianReplaceHotKey - confirmation copy', () => {
-  it('says the recovery phrase is not required when the wallet stores it', async () => {
-    mockState.seedPhraseStatus = 'stored';
-    render(<GuardianReplaceHotKey />);
-
-    await click();
-
-    expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
-    expect(screen.queryByText('replaceHotKeyConfirmationSeedRequired')).not.toBeInTheDocument();
-  });
-
   it.each(['removing', 'removed', 'unavailable', undefined])(
     'says the recovery phrase will be asked for when its status is %s',
     async status => {
