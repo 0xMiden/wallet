@@ -1,6 +1,9 @@
 import '../../../../test/jest-mocks';
 
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+
+import { fetchBalances } from './fetchBalances';
 
 // The real mutex is the subject here: these tests are about WHEN the balance read gets
 // the lock relative to other holds, which a stubbed lock cannot show.
@@ -20,16 +23,12 @@ jest.mock('../../miden/front/assets', () => ({
 // jest-mocks.ts blanket-mocks lib/miden/sdk/miden-client (a manual stub that just runs the
 // operation with no real queueing) for every other suite. These tests are about lock
 // ORDERING, which only the real mutex can show, so this file needs the genuine module --
-// and `fetchBalances`'s own import of it must resolve to that SAME singleton mutex.
-// `jest.mock`/`jest.unmock` are hoisted above every import in this file, including the
-// `test/jest-mocks` one, so an ordinary call loses the ordering race to jest-mocks.ts's own
-// (later-executing) blanket mock of the same path. `jest.dontMock` is not hoisted, but a
-// static `import` of the module or of `fetchBalances` would still be resolved before it
-// runs (imports execute as one block ahead of any other statement) -- so both are pulled
-// in via a plain `require` positioned after it instead.
-jest.dontMock('lib/miden/sdk/miden-client');
-const { withWasmClientLock } = require('lib/miden/sdk/miden-client') as typeof import('lib/miden/sdk/miden-client');
-const { fetchBalances } = require('./fetchBalances') as typeof import('./fetchBalances');
+// and `fetchBalances`'s own import of it must resolve to that SAME singleton mutex. A
+// factory mock wins that regardless of load order: jest-runtime's `_requireMockWithId`
+// consults a registered factory before falling back to the automock jest-mocks.ts asks
+// for, so this file's own factory (`jest.requireActual`) is what both this file and
+// `fetchBalances` resolve to.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireActual('lib/miden/sdk/miden-client'));
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 

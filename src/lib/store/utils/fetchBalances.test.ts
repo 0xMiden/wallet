@@ -219,6 +219,29 @@ describe('fetchBalances', () => {
     __resetSyncFuseStateForTests();
   });
 
+  it('reports its own evictions to the fuse for a waiting read too, and a completed wait puts it out (#1123)', async () => {
+    __resetSyncFuseStateForTests();
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      mockGetAccount.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+      await expect(fetchBalances('my-address', {}, { waitForLock: true })).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+    }
+    expect(isSyncFused('balances')).toBe(true);
+
+    // Same exit as the skipping read's above: only a completed read puts the fuse out,
+    // proven through a real successful `fetchBalances` call rather than `noteSyncSuccess`
+    // directly, which would only re-test the ledger.
+    const realNow = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
+    mockGetAccount.mockResolvedValueOnce(null);
+    await fetchBalances('my-address', {}, { waitForLock: true });
+    nowSpy.mockRestore();
+    expect(isSyncFused('balances')).toBe(false);
+    __resetSyncFuseStateForTests();
+  });
+
   it('returns null (skips the read) when the WASM client lock is busy', async () => {
     // A transaction/sync holds withWasmClientLock — tryWithWasmClientLock can't
     // acquire, so it skips without running the read op.

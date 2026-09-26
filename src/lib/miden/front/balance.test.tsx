@@ -666,6 +666,7 @@ describe('the first read for an address (#1123)', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
+    expect(fetchBalancesMock()).toHaveBeenCalled();
     expect(lastIsLoading).toBe(true);
     expect(useWalletStore.getState().balances['fused-address']).toBeUndefined();
   });
