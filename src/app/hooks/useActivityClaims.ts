@@ -2,7 +2,6 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
@@ -14,6 +13,7 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
+import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
@@ -62,10 +62,6 @@ export function useActivityClaims() {
   const claim = useClaimNotes();
   const { signTransaction } = useMidenContext();
   const nativeFaucetId = useMidenFaucetId();
-  // Each queue call is one `note_handle` attempt. It wraps the call, not the whole action: the
-  // catches below absorb a queue-time throw, so a wrapper further out would report every failure
-  // as a success.
-  const reportClaim = useReportNoteClaim();
   const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
   const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
   const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
@@ -148,7 +144,10 @@ export function useActivityClaims() {
     busy.add(note.id);
     setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
     try {
-      const txId = await reportClaim(() =>
+      // Each queue call is one `note_handle` attempt. It wraps the call, not the whole action: the
+      // catch below absorbs a queue-time throw, so a wrapper further out would report every failure
+      // as a success.
+      const txId = await reportNoteClaim(() =>
         initiateConsumeTransaction(claim.account.publicKey, note, claim.isDelegatedProvingEnabled, true)
       );
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
@@ -188,7 +187,7 @@ export function useActivityClaims() {
     let queued = false;
     for (const groupNotes of groupNotesForClaim(accepted, nativeFaucetId)) {
       try {
-        const txId = await reportClaim(() =>
+        const txId = await reportNoteClaim(() =>
           initiateConsumeNotesTransaction(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
         );
         queued = true;
