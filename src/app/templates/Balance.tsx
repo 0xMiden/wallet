@@ -28,9 +28,9 @@ const Balance = memo<BalanceProps>(({ children }) => {
     // way for the user to see which asset spoiled it. Leaving such an asset out
     // understates the total; including it can invent one.
     //
-    // A token with no quote is left out the same way: it has no dollar value to add. When
-    // something is held and none of it is quoted there is no total at all, rather than a $0.00
-    // that reads as an empty wallet.
+    // A token with no quote is left out too: it has no dollar value to add, so the portfolio total
+    // is the value of what can be priced. When something is held and nothing can be valued there
+    // is no total at all, rather than a $0.00 that reads as an empty wallet.
     let totalFiat = 0;
     let holdsAnything = false;
     let valuedAnything = false;

@@ -83,7 +83,10 @@ export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type => type !== WalletPromptType.Faucet));
 
-/** The notes' USD total, or none when any of them has no quote: a partial sum would read as the whole. */
+/**
+ * The notes' USD total, or none when any of them has no quote or no known scale. It sits beside
+ * the button that accepts exactly these transfers, so a sum over only some of them would misstate it.
+ */
 export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number | null {
   let total = 0;
   for (const note of notes) {

@@ -349,11 +349,10 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
-            // Gap 16: until real prices have loaded, every token falls back to the
-            // $1 default, so the "USD total" would be a fabricated number equal to
-            // the raw token count. When no prices are available (feed down or still
-            // loading) show "$—" rather than that fake figure; once any real price
-            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // The dash when there is no total to show: prices have not loaded yet (feed
+            // down or still loading), or tokens are held and none can be valued (Balance
+            // hands null). Once any real price lands (stale-but-real via keepPreviousData
+            // counts), the total shows.
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={

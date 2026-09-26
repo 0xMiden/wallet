@@ -358,13 +358,13 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
     });
 
-    it('shows "$—" when the account holds tokens and none of them has a price', async () => {
+    it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
       mockPortfolioTotal = null;
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$\u2014');
     });
 
     // The same rule as the "$-" total above, one row down: a change figure the app does not have is
