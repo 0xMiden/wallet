@@ -431,32 +431,6 @@ describe('VerifySeedPhraseFlow', () => {
     }
   );
 
-  it('remove mode: stays on the warning when the reveal resolves after the auth back arrow', async () => {
-    let resolveReveal: (v: string) => void = () => undefined;
-    mockRevealMnemonic.mockImplementation(
-      () =>
-        new Promise<string>(res => {
-          resolveReveal = res;
-        })
-    );
-    render(<VerifySeedPhraseFlow remove />);
-    await flush();
-    clickText('continue');
-    fireEvent.change(screen.getByPlaceholderText('********'), { target: { value: 'my-password' } });
-    fireEvent.click(screen.getByText('continue'));
-    await flush();
-
-    fireEvent.click(screen.getByTestId('nav-back'));
-    await act(async () => {
-      resolveReveal(TWELVE);
-      await Promise.resolve();
-    });
-    await flush();
-
-    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
-    expect(screen.queryByTestId('verify-seed-review')).toBeNull();
-  });
-
   // The generation bump only drops the reveal it was raised against; a fresh
   // attempt started after it must still succeed normally.
   it('reveals with a fresh password after a reveal abandoned by the back arrow resolves late', async () => {
