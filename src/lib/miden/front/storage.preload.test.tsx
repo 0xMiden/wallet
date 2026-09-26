@@ -1,9 +1,8 @@
 import React, { Suspense } from 'react';
 
 import { act, render, screen } from '@testing-library/react';
-import { mutate } from 'swr';
 
-import { preloadStorage, useStorage } from './storage';
+import { preloadStorage, usePassiveStorage, useStorage } from './storage';
 
 // Real SWR and real suspense: the regression is a storage hook suspending the whole app on unlock.
 
@@ -25,10 +24,15 @@ const Reader = ({ storageKey }: { storageKey: string }) => {
   return <div data-testid="value">{value}</div>;
 };
 
-const renderReader = (storageKey: string) =>
+const PassiveReader = ({ storageKey }: { storageKey: string }) => {
+  const [value] = usePassiveStorage<string>(storageKey, 'fallback-value');
+  return <div data-testid="value">{value}</div>;
+};
+
+const renderReader = (storageKey: string, Component = Reader) =>
   render(
     <Suspense fallback={<div data-testid="suspended" />}>
-      <Reader storageKey={storageKey} />
+      <Component storageKey={storageKey} />
     </Suspense>
   );
 
@@ -190,22 +194,29 @@ describe('preloadStorage', () => {
     expect(screen.getByTestId('value').textContent).toBe('newer');
   });
 
-  it('never replaces a value written to the cache while its read was in flight', async () => {
-    const releaseRead = deferredRead('written-key', 'stale');
-    const preload = preloadStorage(['written-key']);
+  it('replaces a value an earlier read cached with its own newer read', async () => {
+    mockStored['remount-key'] = 'old';
+    await preloadStorage(['remount-key']);
+    mockStored['remount-key'] = 'new';
+    await preloadStorage(['remount-key']);
 
-    mockStored['written-key'] = 'written';
-    await act(async () => {
-      await mutate('written-key', 'written', { revalidate: false });
-    });
-
-    await act(async () => {
-      releaseRead();
-      await preload;
-    });
-    renderReader('written-key');
+    renderReader('remount-key');
 
     expect(screen.queryByTestId('suspended')).toBeNull();
-    expect(screen.getByTestId('value').textContent).toBe('written');
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("gives a usePassiveStorage reader the preload's newer read over a value an earlier read cached", async () => {
+    mockStored['passive-remount-key'] = 'old';
+    await preloadStorage(['passive-remount-key']);
+    mockStored['passive-remount-key'] = 'new';
+    await preloadStorage(['passive-remount-key']);
+
+    renderReader('passive-remount-key', PassiveReader);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
   });
 });

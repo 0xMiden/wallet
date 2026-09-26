@@ -101,8 +101,8 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight. A hook read of the key started later, so it removes the entry and the
-// older preload value never replaces the one the hook reads.
+// Each key's preload read still in flight. A hook read or a later preload removes or replaces the entry, so a preload
+// still holding it when it lands is the key's newest read and replaces whatever the cache holds.
 const preloadReads = new Map<string, Promise<unknown>>();
 
 function fetchForHook<T>(key: string): Promise<T | null> {
@@ -128,8 +128,7 @@ export async function preloadStorage(
       try {
         const value = await read;
         if (preloadReads.get(key) !== read) return;
-        // Only a later read drops the entry, so a value cached by now came from an earlier read or a direct cache write: keep it.
-        await mutate(key, (current: unknown) => (current === undefined ? value : current), { revalidate: false });
+        await mutate(key, value, { revalidate: false });
       } finally {
         if (preloadReads.get(key) === read) preloadReads.delete(key);
         onSettled?.(key);
