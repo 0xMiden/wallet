@@ -21,9 +21,12 @@ jest.mock('app/env', () => ({
 }));
 
 // `lib/platform.isMobile` is the other half of the address-trim branch — a
-// steerable jest.fn so each test picks the mobile / desktop path.
+// steerable jest.fn so each test picks the mobile / desktop path. `isExtension`
+// is stubbed too: `./transactionUtils`'s real module (loaded below via
+// `jest.requireActual`) pulls in `lib/i18n`, which reads it at import time.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => false)
 }));
 
 // `AddressShortView` pulls in the real address-truncation util; replace it with
@@ -83,15 +86,9 @@ jest.mock('./TransactionIcon', () => ({
     <div data-testid="tx-icon" data-size={size} data-icon={entry.transactionIcon ?? 'none'} />
   )
 }));
-// `jest.requireActual('./transactionUtils')` throws here: the real module pulls in `lib/i18n`,
-// which reads `isExtension()` at import time, and this file's `lib/platform` mock above only
-// stubs `isMobile`. Mirror the predicate inline instead, as already done for `isEarnWithdrawEntry`.
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
-  // Copies `isReceiveEntry` from `./transactionUtils` (the real module cannot be loaded in this
-  // file); keep this in step with it.
-  isReceiveEntry: (entry: { transactionIcon?: string; txType?: string }) =>
-    entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume'),
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'
@@ -269,6 +266,22 @@ describe('HistoryItem', () => {
     expect(screen.getByText('t:faucetRequest')).toBeInTheDocument();
     expect(screen.getByText(/t:from/)).toBeInTheDocument();
     expect(screen.queryByText(/t:to/)).toBeNull();
+    expect(screen.getByText('+5')).toHaveClass('text-positive-tint-ink');
+  });
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'consume',
+      message: 'Generating transaction',
+      secondaryAddress: 'sender',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText(/t:from/)).toBeInTheDocument();
     expect(screen.getByText('+5')).toHaveClass('text-positive-tint-ink');
   });
 
