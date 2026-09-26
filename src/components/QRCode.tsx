@@ -36,26 +36,10 @@ export interface QRCodeProps {
   recolourAttempt?: number;
 }
 
-/**
- * The QR's colour treatments: one per account-card colour, each blending that colour into another
- * of the five, so a treatment still reads as "the green one" while the modules carry a gradient.
- */
+/** The QR's colour treatments: one per account-card colour, painted solid in that colour. */
 export const QR_PALETTES = ['green', 'orange', 'slate', 'blue', 'purple'] as const;
 
 export type QRPalette = (typeof QR_PALETTES)[number];
-
-/**
- * Each treatment as the two custom properties it blends and the gradient's rotation in radians.
- * Every colour is a `--qr-*` token — the card palette pinned to its light values, because the
- * modules are always drawn on a white tile (see src/main.css).
- */
-const PALETTE_STOPS: Record<QRPalette, { from: string; to: string; rotation: number }> = {
-  green: { from: '--qr-green', to: '--qr-blue', rotation: Math.PI / 4 },
-  orange: { from: '--qr-orange', to: '--qr-purple', rotation: Math.PI / 2 },
-  slate: { from: '--qr-slate', to: '--qr-green', rotation: (3 * Math.PI) / 4 },
-  blue: { from: '--qr-blue', to: '--qr-purple', rotation: Math.PI },
-  purple: { from: '--qr-purple', to: '--qr-orange', rotation: (5 * Math.PI) / 4 }
-};
 
 export interface QRCodeHandle {
   /**
@@ -80,29 +64,12 @@ const readToken = (name: string): string => {
   return value || ACCENT_FALLBACK;
 };
 
-type DotsOptions = NonNullable<Options['dotsOptions']>;
-
 /**
- * The module colouring for a treatment: a linear gradient between its two stops. Both stops are card
- * colours, so a treatment never lightens the modules past what the palette already ships - the QR
- * stays scannable.
+ * A treatment's colour, painted solid: its `--qr-*` token, the card palette pinned to its light values
+ * because the modules are always drawn on a white tile (see src/main.css). The card colours are dark
+ * enough on that tile that the QR stays scannable.
  */
-const paletteOptions = (palette: QRPalette): { color: string; gradient: DotsOptions['gradient'] } => {
-  const stops = PALETTE_STOPS[palette];
-  const from = readToken(stops.from);
-  const to = readToken(stops.to);
-  return {
-    color: from,
-    gradient: {
-      type: 'linear',
-      rotation: stops.rotation,
-      colorStops: [
-        { offset: 0, color: from },
-        { offset: 1, color: to }
-      ]
-    }
-  };
-};
+const paletteColor = (palette: QRPalette): string => readToken(`--qr-${palette}`);
 
 /**
  * Paint the caption under the raw QR PNG. Returns null when the realm has no
@@ -150,7 +117,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
     const slotB = useRef<HTMLDivElement>(null);
 
     const options = useMemo<Options>(() => {
-      const colors = paletteOptions(palette);
+      const color = paletteColor(palette);
       return {
         type: 'svg',
         width: size,
@@ -162,9 +129,9 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
         // Higher error correction compensates for the centered logo cutout.
         qrOptions: { errorCorrectionLevel: 'H' },
         imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
-        dotsOptions: { type: 'dots', ...colors },
-        cornersSquareOptions: { type: 'extra-rounded', ...colors },
-        cornersDotOptions: { type: 'dot', ...colors },
+        dotsOptions: { type: 'dots', color },
+        cornersSquareOptions: { type: 'extra-rounded', color },
+        cornersDotOptions: { type: 'dot', color },
         backgroundOptions: { color: '#FFFFFF' }
       };
     }, [qrValue, size, palette]);
@@ -254,9 +221,9 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
           if (!(data instanceof Blob)) return null;
           if (!caption) return data;
           try {
-            // The caption is painted in the treatment's own leading colour, so a shared image
+            // The caption is painted in the treatment's colour, so a shared image
             // matches the QR the sender is looking at.
-            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(shownPalette).color);
+            const composed = await composeCaptionedPng(data, size, caption, paletteColor(shownPalette));
             if (composed) return composed;
             // The shared image loses its network caption here; leave a trace.
             console.warn('[QRCode] caption compose unavailable, sharing the raw QR');

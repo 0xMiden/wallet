@@ -4,6 +4,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from 'lib/ui/util';
 
+import { IconCircle } from './FactRow';
+
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
     /** `sm`: `text-label` `muted` (default, the spec's section label). `lg`: `text-title-section`
@@ -54,12 +56,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
   <div className={cn('flex items-center justify-between gap-3 px-1 pb-2', className)} data-testid={dataTestId}>
     {icon ? (
       <span className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fill [&>svg]:h-4 [&>svg]:w-4"
-        >
-          {icon}
-        </span>
+        <IconCircle>{icon}</IconCircle>
         <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
       </span>
     ) : (

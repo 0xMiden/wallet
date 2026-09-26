@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "Requiere atención",
   "guardianCheckingLabel": "Comprobando",
   "whatIsAGuardian": "¿Qué es un «Guardian»?",
+  "meetGuardianYourGuardian": "Tu Guardian",
   "guardianInfoDescription": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",
   "guardianInfoWhatItDoesTitle": "Para qué sirve",
   "guardianInfoWhatItDoesDescription": "Firma conjuntamente cada transacción: ni tu dispositivo ni el Guardian pueden mover fondos por sí solos. Te ayuda a recuperar tu cuenta si pierdes tu dispositivo.",

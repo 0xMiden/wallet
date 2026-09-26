@@ -10,16 +10,20 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } })
 }));
 
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({ open, children, onOpenChange }: any) =>
-    open ? (
+  Drawer: ({ open, children, onOpenChange, closeOnBack }: any) => {
+    mockDrawerCloseOnBack = closeOnBack;
+    return open ? (
       <div data-testid="challenge-drawer">
         {children}
         <button type="button" onClick={() => onOpenChange(false)}>
           dismiss
         </button>
       </div>
-    ) : null,
+    ) : null;
+  },
   DrawerContent: ({ children, ...rest }: any) => <div {...rest}>{children}</div>,
   DrawerHeader: ({ children }: any) => <header>{children}</header>,
   DrawerTitle: ({ children }: any) => <h2>{children}</h2>
@@ -68,6 +72,14 @@ const unpricedContext = () => ({
 const breachSpends = [{ faucetId: 'faucet-a', amount: 20n }];
 
 describe('SpendingLimitChallenge', () => {
+  it('closes itself on mobile back by default, and forwards closeOnBack for a host that owns back', () => {
+    const { rerender } = render(<SpendingLimitChallenge assessment={breachAssessment()} onResult={jest.fn()} />);
+    expect(mockDrawerCloseOnBack).toBeUndefined();
+
+    rerender(<SpendingLimitChallenge assessment={breachAssessment()} onResult={jest.fn()} closeOnBack={false} />);
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the dollar figures of a breach', () => {
     render(<SpendingLimitChallenge assessment={breachAssessment()} onResult={jest.fn()} />);
 

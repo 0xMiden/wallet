@@ -100,7 +100,7 @@ describe('Earn page', () => {
     const title = screen.getByTestId('earn-title');
     expect(title.tagName).toBe('H1');
     expect(title).toHaveTextContent('earnTitle');
-    // The same type style Send's "Send to" and Receive's "Receive at" take.
+    // The same type style Send's "Send to" and Swap's "You Pay" take.
     expect(title).toHaveClass('text-title-tab', 'text-ink');
 
     // One `h1` on the page: the section titles under it are `h2`s.

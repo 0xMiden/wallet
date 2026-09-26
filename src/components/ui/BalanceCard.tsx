@@ -1,12 +1,15 @@
 import React, { FC, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useCardColor } from 'lib/settings/card-color';
 import { CardColor } from 'lib/settings/constants';
+import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 
 import { CopyButton } from './CopyButton';
 import { Pill } from './Pill';
@@ -25,8 +28,8 @@ export const CARD_COLOR_BG: Record<CardColor, string> = {
   purple: 'bg-card-purple'
 };
 
-/* The card is one tone: solid in light mode, 50% over the page in dark mode. The five colors are
- * brand colors and never shift for contrast. */
+/* The card is two-tone: the colour is solid in light mode, 50% over the page in dark mode, and the
+ * footer sits on a darker well of it. The five colors are brand colors and never shift for contrast. */
 const CARD_COLOR_SURFACE: Record<CardColor, string> = {
   slate: 'bg-card-slate dark:bg-card-slate/50',
   orange: 'bg-card-orange dark:bg-card-orange/50',
@@ -70,6 +73,9 @@ export interface BalanceCardProps {
   state?: 'default' | 'loading' | 'zero' | 'hidden';
   className?: string;
 }
+
+/* The card is the widest tappable surface on the page, so it dips less than the keys' 0.96. */
+const CARD_PRESS_SCALE = 0.98;
 
 const AMOUNT_MAX_REM = 3.5;
 const AMOUNT_MIN_REM = 2.5;
@@ -131,6 +137,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const isZero = state === 'zero';
   const cardColor = useCardColor();
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
+  const press = usePreset('press');
+  // The card dips like the passcode keys, but only for a press on its own options button: the copy
+  // control is a sibling, so a whileTap on the card would dip it for a copy too. Only the primary
+  // pointer counts. Reduced motion keeps the dip, made instant by the preset's transition.
+  const { pressed, handlers: pressHandlers } = usePrimaryPress();
 
   const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
   // A neutral change carries no sign: the arrow and the sign are how the pill shows direction.
@@ -145,7 +156,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     onMore();
   };
   return (
-    <div
+    <motion.div
+      data-pressed={pressed || undefined}
+      animate={{ scale: pressed ? CARD_PRESS_SCALE : 1 }}
+      transition={press.transition}
       className={classNames(
         'relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token',
         CARD_COLOR_SURFACE[cardColor],
@@ -162,16 +176,17 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         <button
           type="button"
           onClick={handleMoreClick}
+          {...pressHandlers}
           aria-label={t('balanceCardAccountOptions')}
           // The ring has to be inset: this button's border box is exactly the box the card clips
           // to, so an outside ring is clipped away and keyboard focus would show nothing at all.
           className="absolute inset-0 z-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary focus-visible:outline-none"
         />
       )}
-      <div className={classNames('relative px-4 pt-4 pb-4', onMore && 'pointer-events-none')}>
+      <div className={classNames('relative px-5 pt-6 pb-5', onMore && 'pointer-events-none')}>
         {/* Every text on the card is the full-strength card ink: hierarchy comes from size and
             weight, since any translucent ink falls under 4.5:1 on the lighter card colors. */}
-        <div data-testid="balance-card-label" className="text-label">
+        <div data-testid="balance-card-label" className="text-value">
           {t('balanceCardTotalBalance')}
         </div>
 
@@ -220,11 +235,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         )}
       </div>
 
-      {/* The footer is the same card, set off by a hairline in the card's ink. */}
+      {/* The footer is the card's second tone: a darker well of the same colour. */}
       <div
         data-testid="balance-card-footer"
         className={classNames(
-          'relative mx-4 flex min-h-11 items-center justify-between gap-3 border-t border-surface-balance-rule',
+          'relative flex min-h-11 items-center justify-between gap-3 bg-surface-balance-footer px-5',
           onMore && 'pointer-events-none'
         )}
       >
@@ -249,7 +264,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           />
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
