@@ -131,7 +131,11 @@ export const AssetListItemSkeleton: FC<{ className?: string; 'data-testid'?: str
   className,
   'data-testid': dataTestId
 }) => (
-  <div data-testid={dataTestId} className={classNames('w-full h-18 flex items-center justify-between', className)}>
+  <div
+    aria-hidden="true"
+    data-testid={dataTestId}
+    className={classNames('w-full h-18 flex items-center justify-between', className)}
+  >
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <Skeleton className="shrink-0 w-9 h-9 rounded-full" />
       <div className="flex flex-col gap-1.5">

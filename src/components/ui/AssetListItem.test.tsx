@@ -203,4 +203,9 @@ describe('AssetListItemSkeleton', () => {
     expect(blocks).toHaveLength(5);
     expect(blocks[0]).toHaveClass('rounded-full', 'w-9', 'h-9');
   });
+
+  it('is hidden from assistive tech, since it has nothing to announce', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    expect(screen.getByTestId('skeleton-row')).toHaveAttribute('aria-hidden', 'true');
+  });
 });
