@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 import { privateKeyToAccount } from 'viem/accounts';
 
+import { getMessage } from 'lib/i18n';
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
 import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
@@ -1757,6 +1758,7 @@ describe('Vault.createHDAccount', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     expect((error as Error).message).toBe('createAccountLookupFailed');
+    expect(getMessage).toHaveBeenCalledWith('createAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
   it('aborts when the legacy probe fails for another reason after the v1 probe missed (#1127)', async () => {
@@ -1770,6 +1772,7 @@ describe('Vault.createHDAccount', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     expect((error as Error).message).toBe('createAccountLookupFailed');
+    expect(getMessage).toHaveBeenCalledWith('createAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
   it('stamps v1 when the first import probe finds the account (own mnemonic path)', async () => {
@@ -1938,6 +1941,7 @@ describe('Vault.spawn', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     expect((error as Error).message).toBe('restoreAccountLookupFailed');
+    expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
   it('aborts when the legacy probe fails for another reason after the v1 probe missed (#1127)', async () => {
@@ -1950,6 +1954,7 @@ describe('Vault.spawn', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     expect((error as Error).message).toBe('restoreAccountLookupFailed');
+    expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
   it('picks the legacy derivation when the v1 probe has no on-chain account', async () => {
