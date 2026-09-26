@@ -161,6 +161,7 @@ jest.mock('lib/telemetry', () => ({
 const mockIsMobile = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
+  isAndroid: () => false,
   isExtension: () => false
 }));
 

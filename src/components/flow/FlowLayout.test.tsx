@@ -10,7 +10,7 @@ import { FlowLayout } from './FlowLayout';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
+jest.mock('lib/platform', () => ({ isMobile: () => true, isAndroid: () => false }));
 jest.mock('app/icons/v2', () => ({
   IconName: { ArrowLeft: 'arrow-left', ChevronLeft: 'chevron-left', Close: 'close' },
   // Keep name and className: the glyph and its colour are what the back assertions check, and a

@@ -26,7 +26,7 @@ import { HomeGroupPane, HomeGroupPaneBody, HomeGroupPaneRoot } from './HomeGroup
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
+jest.mock('lib/platform', () => ({ isMobile: () => true, isAndroid: () => false }));
 jest.mock('app/icons/v2', () => ({
   IconName: { ArrowLeft: 'arrow-left', Close: 'close' },
   Icon: ({ name }: { name: string }) => <svg data-name={name} />

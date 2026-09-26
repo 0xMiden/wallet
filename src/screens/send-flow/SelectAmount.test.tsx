@@ -28,7 +28,8 @@ jest.mock('react-i18next', () => ({
 
 // --- Platform / haptics.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isAndroid: jest.fn(() => false)
 }));
 
 jest.mock('lib/mobile/haptics', () => ({

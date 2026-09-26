@@ -92,7 +92,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 const mockIsMobile = jest.fn();
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  isAndroid: () => false
 }));
 
 const mockWriteFile = jest.fn();
