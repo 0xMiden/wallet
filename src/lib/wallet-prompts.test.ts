@@ -177,7 +177,12 @@ describe('wallet prompts', () => {
     });
 
     it('gives no total when any note has no quote, never a $1 figure for it', () => {
-      const unquoted = { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'OTHER' } };
+      const unquoted = {
+        id: 'note-3',
+        amount: '3000000',
+        faucetId: '0xother',
+        metadata: { decimals: 6, symbol: 'OTHER' }
+      };
       expect(getPendingNotesUsdTotal([miden, unquoted], prices)).toBeNull();
     });
 
