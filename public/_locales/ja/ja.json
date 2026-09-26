@@ -1073,6 +1073,8 @@
   "seedRemovalBusy": "現在の取引が完了するまで待ってから、リカバリーフレーズを削除してください。",
   "seedRemovalKeysNotReady": "リカバリーフレーズを削除する前に、アカウントの復旧と日常キーの有効化を完了させてください。",
   "seedRequiredForAccountCreation": "アカウントの作成には、保存済みのリカバリーフレーズが必要です。この操作のためだけにそれを入力する機能は、現時点では利用できません。",
+  "restoreAccountLookupFailed": "アカウントを復元できませんでした。リカバリーフレーズに問題はありません。再度復元をお試しください。詳細：$reason$",
+  "createAccountLookupFailed": "アカウントを作成できませんでした。もう一度お試しください。詳細：$reason$",
   "recoverySeedRequired": "この操作には、リカバリーフレーズが必要です。",
   "recoverySeedRequiredTitle": "リカバリーフレーズを入力してください",
   "recoverySeedTemporaryDescription": "ペーパーバックアップをご利用ください。このフレーズはこの操作にのみ使用され、このデバイスには保存されません。",

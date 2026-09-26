@@ -23,9 +23,11 @@ describe('Skeleton', () => {
 
   it('renders the `inverse` tone for a skeleton on a colored surface', () => {
     render(<Skeleton data-testid="skeleton" tone="inverse" />);
-
     const el = screen.getByTestId('skeleton');
-    expect(el).toHaveClass('bg-white/15');
+    // `white` is the theme surface token and turns dark in dark mode, where a 15% wash of it
+    // vanished on the dark balance card (#1123); the fixed palette's white does not flip.
+    expect(el).toHaveClass('bg-pure-white/15');
+    expect(el).not.toHaveClass('bg-white/15');
     expect(el).not.toHaveClass('bg-fill');
   });
 
