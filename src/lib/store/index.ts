@@ -121,14 +121,17 @@ export const useWalletStore = create<WalletStore>()(
         lastSyncedAt: Date.now()
       });
 
-      // Immediately fetch balances when wallet becomes Ready (before any React effects)
+      // Immediately fetch balances when wallet becomes Ready (before any React effects).
+      // It queues for the WASM lock rather than skipping: called here, it holds the lock
+      // before the first sync tick can, so an import's balance lands in one local read
+      // instead of after the sync (#1123).
       // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
       if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
+        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices, waitForLock: true })
           .then(balances => {
-            // `null` = WASM client was busy and the read was skipped; leave any
-            // prior balances in place and let a later poll refresh.
+            // `null` = the balance probe is fused; leave any prior balances in place
+            // and let a later poll refresh.
             if (balances === null) return;
             set(s => ({
               balances: { ...s.balances, [address]: balances },
@@ -137,10 +140,9 @@ export const useWalletStore = create<WalletStore>()(
             }));
           })
           .catch(err => {
+            // Loading is left as it was: with nothing read yet, clearing it would show the
+            // zero placeholder as a real "$0.00". The balance poll retries.
             console.warn('[syncFromBackend] Initial balance fetch failed:', err);
-            set(s => ({
-              balancesLoading: { ...s.balancesLoading, [address]: false }
-            }));
           });
       }
     },
