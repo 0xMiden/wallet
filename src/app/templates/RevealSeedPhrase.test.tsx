@@ -812,7 +812,7 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockHapticLight).toHaveBeenCalled();
     expect(mockSetSecret).toHaveBeenCalledWith(null);
-    // Hide clears the secret, which also trips the auto-close effect: one pop, not two.
+    // Hide leaves through leave(): one pop.
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
@@ -941,8 +941,8 @@ describe('RevealSeedPhrase', () => {
     // The words branch renders ahead of the error branch, so a stale authError is
     // INVISIBLE while a secret exists - asserting here alone would pass either way.
     // It only bites once the 20s auto-hide clears the secret: the auto-close effect
-    // is now gated on authError, so an uncleared one makes it refuse to leave and
-    // the user lands back on a stale "biometric failed" screen with no way out.
+    // is gated on authError, so an uncleared one makes it refuse to leave and the
+    // user lands back on a stale "biometric failed" screen until Close or Back.
     mockSecret = null;
     await act(async () => {
       testRoot!.render(<RevealSeedPhrase />);
@@ -1194,8 +1194,7 @@ describe('RevealSeedPhrase', () => {
     });
     expect(mockGoBack).not.toHaveBeenCalled();
 
-    // onOpenChange(false) -> leave() -> goBack, exactly once even
-    // though closing the drawer also trips the auto-close effect.
+    // onOpenChange(false) -> leave() -> goBack, exactly once.
     await act(async () => {
       (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
     });

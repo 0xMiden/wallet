@@ -51,12 +51,11 @@ const RevealSeedPhrase: FC = () => {
   const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
   const [secret, setSecret] = useSecretState();
   const [step, setStep] = useState<Step>('warning');
-  // Every exit from this page goes through `leave`, never `goBack()` directly.
-  // Several paths want out at once — a failed biometric reveal's catch, then the
-  // auto-close effect once `finally` clears isSubmitting; Hide and the drawer's
-  // close, which also trip that effect — and `history.go(-1)` settles on a later
-  // task, so each call popped another page (Settings too). The hook fires once
-  // per location, and routes to the Settings root when opened cold.
+  // Every exit from this page goes through `leave`, never `goBack()` directly: it
+  // bumps the generation, resets the step and the drawer, then pops through this
+  // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
+  // each pop a page (Settings too); the hook fires once per location as a safety
+  // net, and routes to the Settings root when the page was opened cold.
   const popPage = useBackWithFallback('/settings');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
@@ -304,7 +303,7 @@ const RevealSeedPhrase: FC = () => {
   // 'warning' in the same batch (#1122). Nested inside the 'auth' branch, that reset
   // unmounted the Drawer before vaul's close animation could run. Kept at the same keyed
   // slot in both branches, it survives the step change and closes through `open`; a closed
-  // Drawer is inert, so it is rendered unconditionally.
+  // Drawer is inert, so no mount flag gates it.
   const passwordDrawer = (
     <Drawer
       key="password-drawer"
