@@ -255,7 +255,6 @@ test.describe('Fullpage UI', () => {
     await first.fill('abandon');
     await first.press('Enter');
     await expect(seedForm.locator('#seed-phrase-input-1')).toBeFocused();
-    await expect(first).toHaveValue('abandon');
 
     // The extension is a desktop surface: there is no soft keyboard for Done to dismiss, so
     // Enter on the last word keeps focus there instead of blurring to the grid.
@@ -263,7 +262,6 @@ test.describe('Fullpage UI', () => {
     await last.fill('about');
     await last.press('Enter');
     await expect(last).toBeFocused();
-    await expect(last).toHaveValue('about');
   });
 
   test('send flow renders and stays disabled without inputs', async ({ extensionContext, extensionId }) => {

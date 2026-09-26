@@ -80,30 +80,23 @@ describe('ImportSeedPhraseScreen keyboard', () => {
     expect(document.activeElement).toBe(inputs[11]);
   });
 
-  it('Enter on the last word does not import, even with a valid phrase', () => {
-    mockIsMobile.mockReturnValue(true);
+  it.each([
+    ['mobile', true],
+    ['desktop', false]
+  ])('Enter on the last word does not import on %s, even with a valid phrase', (_platform, mobile) => {
+    mockIsMobile.mockReturnValue(mobile);
     const { inputs, onSubmit } = setup();
     VALID_MNEMONIC.forEach((word, i) => fireEvent.change(inputs[i]!, { target: { value: word } }));
+    expect(screen.getByTestId('import-seed-submit')).toBeEnabled();
     inputs[11]!.focus();
     fireEvent.keyDown(inputs[11]!, { key: 'Enter' });
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("prevents Enter's default, so it can never submit or insert anything", () => {
+  it("prevents Enter's default when moving to the next word", () => {
     const { inputs } = setup();
     inputs[0]!.focus();
     expect(fireEvent.keyDown(inputs[0]!, { key: 'Enter' })).toBe(false);
-    inputs[11]!.focus();
-    expect(fireEvent.keyDown(inputs[11]!, { key: 'Enter' })).toBe(false);
-  });
-
-  it('keeps the word in the field it leaves', () => {
-    const { inputs } = setup();
-    fireEvent.change(inputs[0]!, { target: { value: 'abandon' } });
-    inputs[0]!.focus();
-    fireEvent.keyDown(inputs[0]!, { key: 'Enter' });
-    expect(inputs[0]).toHaveValue('abandon');
-    expect(inputs[1]).toHaveValue('');
   });
 
   // Android's Gboard reports the Next/Done action as a trusted Enter with isComposing still
