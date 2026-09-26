@@ -63,6 +63,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     watch,
     setError,
     clearErrors,
+    reset,
     formState: { errors }
   } = useForm<FormData>();
   const passwordField = register('password', { required: t('required') });
@@ -97,8 +98,8 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       setIsSubmitting(true);
       setAuthError(null);
       clearErrors();
+      const generation = secretGeneration.current;
       try {
-        const generation = secretGeneration.current;
         const phrase = await revealMnemonic(password);
         if (generation !== secretGeneration.current) return;
         setMnemonic(phrase);
@@ -107,12 +108,16 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         if (password === undefined) {
+          if (generation !== secretGeneration.current) return;
           setAuthError(message);
         } else {
           await new Promise(res => setTimeout(res, 300));
+          // After the delay: the user can back out while it runs.
+          if (generation !== secretGeneration.current) return;
           setError('password', { type: 'submit-error', message });
         }
       } finally {
+        // Unguarded: isSubmitting allows one reveal at a time, so this always resets it.
         setIsSubmitting(false);
       }
     },
@@ -142,12 +147,26 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     navigate('/');
   }, [remove]);
 
+  // Leaving the attempt, by any exit, abandons an in-flight reveal: its late result
+  // must not move the flow on or leave an error for the next attempt.
+  const abandonReveal = useCallback(() => {
+    secretGeneration.current += 1;
+  }, []);
+
+  const backToWarning = useCallback(() => {
+    abandonReveal();
+    // A landed error and the typed password must not carry into the next attempt.
+    reset();
+    setStep('warning');
+  }, [abandonReveal, reset]);
+
   const onExit = useCallback(() => {
+    abandonReveal();
     hapticLight();
     setMnemonic(null);
     setCredential(undefined);
     goBack();
-  }, []);
+  }, [abandonReveal]);
 
   useMobileBackHandler(() => {
     onExit();
@@ -260,7 +279,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     // get the numpad; extension/desktop use a typed password.
     if (isMobile()) {
       return (
-        <SubPageLayout title={t('verifySeedPhrase')} onBack={() => setStep('warning')} data-testid="verify-seed-auth">
+        <SubPageLayout title={t('verifySeedPhrase')} onBack={backToWarning} data-testid="verify-seed-auth">
           <SubPageSection title={t('enterYourPasscode')} description={t('verifySeedPhrasePasswordBody')} />
           <PasscodeEntry
             onSubmit={code => revealPhrase(code)}
@@ -276,7 +295,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={() => setStep('warning')}
+        onBack={backToWarning}
         data-testid="verify-seed-auth"
         footer={
           <Button
