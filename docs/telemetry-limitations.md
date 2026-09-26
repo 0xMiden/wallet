@@ -167,7 +167,10 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
   only by way of `platform`, which is on every event.
 - **`activity_view` completes on the history list's first settled load.**
   Reading a list emits nothing later; inventing a completion event (a row tap,
-  say) would report every ordinary visit as abandoned.
+  say) would report every ordinary visit as abandoned. It is cancelled when the
+  user leaves first, by unmount or by the page going off screen. The Activity tab
+  stays mounted once visited, so coming back starts no new flow: one flow per
+  mount, and a visit left before its first load stays cancelled.
 - **`receive_share` completes once the address renders**, and deliberately does
   not wait for a copy or a share — holding a QR code up to be scanned is an
   ordinary successful receive that fires neither.
@@ -527,6 +530,10 @@ release navigates and a crossing is not a visit. See `SendManager`,
 - **`instrumentation-coverage.test.ts` cannot catch this class of bug.** It
   proves a flow is begun somewhere, not that the place it is begun means what
   the flow's name claims. Only a real build against the sink showed it.
+
+Outside the carousel, the same trap holds for any page kept mounted: a visited
+tab, or a page a slide page covers. A view flow begun on mount there must also
+end when `usePageActive()` turns false, as `AllHistory` does for `activity_view`.
 
 ## Coupling to be aware of
 

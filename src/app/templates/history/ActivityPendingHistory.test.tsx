@@ -83,19 +83,22 @@ const mockHistoryRenders: Array<{
   pendingItems: PendingActivityItem[];
   drawnPendingItems?: PendingActivityItem[];
   renderPendingItem: unknown;
+  filter?: string;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
   default: ({
     pendingItems,
     drawnPendingItems,
-    renderPendingItem
+    renderPendingItem,
+    filter
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    filter?: string;
   }) => {
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem });
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -316,6 +319,12 @@ it('offers no Accept All on the other filters, or once every transfer is accepte
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+});
+
+it('still hands Pending to the timeline with no notes, so in-flight transactions list', () => {
+  mockState.items = [];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(mockHistoryRenders.at(-1)).toMatchObject({ filter: 'pending', pendingItems: [] });
 });
 
 it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {
