@@ -9,7 +9,13 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
-import { PageActiveContext, PageOnScreenContext, usePageActive } from './page-active';
+import {
+  PageActiveContext,
+  PageMountedByReturnContext,
+  PageOnScreenContext,
+  PageRevealedByLayerContext,
+  usePageActive
+} from './page-active';
 import TabLayout from './TabLayout';
 
 // ---------------------------------------------------------------------------
@@ -801,6 +807,32 @@ describe('TabLayout — mount fade and tab panes', () => {
     expect(wrapper.getAttribute('data-initial')).toBe(JSON.stringify(mockFadePreset.initial));
     expect(wrapper.getAttribute('data-animate')).toBe(JSON.stringify(mockFadePreset.animate));
     expect(wrapper.getAttribute('data-transition')).toBe(JSON.stringify(mockFadePreset.transition));
+  });
+
+  it('skips the fade when its layer reveals it', () => {
+    mockLocation.pathname = '/history';
+    render(
+      <PageMountedByReturnContext.Provider value={true}>
+        <PageRevealedByLayerContext.Provider value={true}>
+          <TabLayout>
+            <div data-testid="child-content" />
+          </TabLayout>
+        </PageRevealedByLayerContext.Provider>
+      </PageMountedByReturnContext.Provider>
+    );
+    expect(initialOf()).toBe('false');
+  });
+
+  it('keeps the fade when a return mounted it without a reveal', () => {
+    mockLocation.pathname = '/history';
+    render(
+      <PageMountedByReturnContext.Provider value={true}>
+        <TabLayout>
+          <div data-testid="child-content" />
+        </TabLayout>
+      </PageMountedByReturnContext.Provider>
+    );
+    expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
   });
 
   it('skips the fade when returning from a webview on mobile', () => {
