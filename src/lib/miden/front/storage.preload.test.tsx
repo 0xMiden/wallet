@@ -145,6 +145,24 @@ describe('preloadStorage', () => {
     expect((await screen.findByTestId('value')).textContent).toBe('new');
   });
 
+  it("keeps a usePassiveStorage reader's own read over a preload read that lands while the reader's is in flight", async () => {
+    const releasePreload = deferredRead('passive-late-key', 'old');
+    const preload = preloadStorage(['passive-late-key']);
+    const releaseReader = deferredRead('passive-late-key', 'new');
+    renderReader('passive-late-key', PassiveReader);
+    expect(screen.getByTestId('suspended')).toBeDefined();
+
+    await act(async () => {
+      releasePreload();
+      await preload;
+    });
+    await act(async () => {
+      releaseReader();
+    });
+
+    expect((await screen.findByTestId('value')).textContent).toBe('new');
+  });
+
   it('gives a reader its own read while a preload read of the key hangs', async () => {
     mockGet.mockImplementationOnce(() => new Promise(() => {}));
     void preloadStorage(['hung-key']);
