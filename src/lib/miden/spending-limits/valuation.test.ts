@@ -174,6 +174,14 @@ describe('resolveSpendsUsd', () => {
     expect(mockedPrice).toHaveBeenCalledWith('ETH', 10);
   });
 
+  it('does not value a non-registry faucet that calls itself IETH at the ETH price (#1133)', async () => {
+    mockedMetadata.mockResolvedValue(base('IETH', 8));
+    mockedPrice.mockResolvedValue(4_000_000_000n);
+
+    await expect(resolveSpendsUsd([{ faucetId: 'mtst1notregistry', amount: 100_000_000n }], 10)).resolves.toBe(0n);
+    expect(mockedPrice).not.toHaveBeenCalled();
+  });
+
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
     mockedMetadata.mockImplementation(async faucetId =>
       faucetId === TOKEN_IUSDT.faucetId ? base('IUSDT', 8) : base('IMIDEN', 8)
