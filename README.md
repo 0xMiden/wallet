@@ -65,11 +65,12 @@ Download the latest release: **https://miden.fi/**
 git clone https://github.com/0xMiden/miden-wallet.git
 cd miden-wallet
 
+# Copy environment file
+cp .env.example .env
+
 # Install dependencies
 yarn install
 ```
-
-Builds read the usage-data and crash-reporting keys (`APTABASE_APP_KEY`, `APTABASE_HOST`, `SENTRY_DSN`) only from the shell environment; export them before a release build, or it ships with both off. The build never reads `.env` (see `.env.example`).
 
 ### Browser Extension
 
