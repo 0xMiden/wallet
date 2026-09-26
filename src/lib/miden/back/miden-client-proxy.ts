@@ -933,7 +933,8 @@ export const midenClientProxy = {
       // `getMidenClient().getAccount(id)` does NOT take the WASM client lock.
       // That is correct because it exactly preserves today's behavior: every
       // current caller supplies its own serialization around getAccount — the
-      // hot balance poll uses `tryWithWasmClientLock` (fetchBalances), and
+      // balance read (fetchBalances) uses `tryWithWasmClientLock` for a refresh and
+      // `withWasmClientLock` for a first read, and
       // vault / guardian-sync use `withWasmClientLock`. An unlocked read fired
       // inside a transaction's `_withInnerWebClient` window double-borrows the
       // WASM RefCell and crashes (see `sdk/miden-client.ts` isWasmClientBusy).
