@@ -122,9 +122,39 @@ describe('DappLauncher', () => {
     expect(within(recent).getByText('Recent')).toBeInTheDocument();
     // The recorded name is usually the host itself, so a host line would repeat it.
     expect(within(recent).queryByText(/recent\.example/)).not.toBeInTheDocument();
+    // No second line of any kind: ListRow draws a subtitle as the title's next sibling.
+    expect(recent.querySelector('[data-slot="title"]')?.nextElementSibling).toBeNull();
     expect(recent.querySelector('[data-slot="chevron"]')).not.toBeNull();
     const catalogRow = within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card');
     expect(catalogRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
+  });
+
+  it("draws a Recents row's logo from the dApp's favicon", async () => {
+    mockRecents = [{ ...recent, favicon: 'https://recent.example/favicon.ico' }];
+    await renderLauncher();
+
+    const recentRow = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    const logo = recentRow.querySelector('[data-slot="app-icon"]');
+    expect(logo).not.toHaveAttribute('data-letter');
+    expect(logo?.querySelector('img')).toHaveAttribute('src', 'https://recent.example/favicon.ico');
+  });
+
+  it('lays several featured apps side by side in one scrolling row, each opening its own app', async () => {
+    const onOpen = jest.fn();
+    const twoFeatured: ExploreCatalog = {
+      ...catalog,
+      sections: [{ id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet', 'quest'] }]
+    };
+    render(<DappLauncher onOpen={onOpen} catalog={twoFeatured} />);
+    await act(async () => {});
+
+    const cards = screen.getAllByTestId('explore-featured-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.parentElement).toBe(cards[1]!.parentElement);
+    expect(cards[0]!.parentElement).toHaveClass('overflow-x-auto');
+    fireEvent.click(cards[0]!);
+    fireEvent.click(cards[1]!);
+    expect(onOpen.mock.calls.map(call => call[0])).toEqual(['https://faucet.example/', 'https://quest.example/']);
   });
 
   it('hides recents when there are none', async () => {
@@ -174,6 +204,7 @@ describe('DappLauncher', () => {
     // Still a ListRow, with the app's url for the E2E driver.
     expect(row).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Faucet');
+    expect(row.querySelector('[data-slot="title"]')?.nextElementSibling).toHaveTextContent('Get testnet MIDEN tokens');
     // The row opens the app the way every navigating row says so: a chevron, no tinted pill.
     expect(within(row).queryByText('exploreOpen')).toBeNull();
     expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
