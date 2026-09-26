@@ -167,68 +167,61 @@ const History = memo<HistoryProps>(
     }, [safeStateKey]);
 
     const onScreen = usePageActive();
-    // A retained page off screen shows nothing, so neither transaction read runs there. The Pending filter shows
-    // transfer cards and in-flight transactions only, so the settled-history read (and its paging) pauses under it
+    // A retained page off screen is not read, so neither transaction read runs there. The Pending filter shows
+    // transfer cards and in-flight transactions only, so the settled-history read (and its paging) stops under it
     // while the in-flight read keeps running.
     const readingCompleted = onScreen && filter !== 'pending';
     const readingPending = onScreen;
 
-    // No `keepPreviousData`: both keys carry the address and token, so it would show another
-    // account's (or token's) rows while this one loads; a key's own refresh keeps its data anyway.
+    // A read that is not running holds a null key rather than a paused one: another History on the same account
+    // (the Activity tab kept under a pushed group page) shares these keys, and SWR sends a key's refreshes (Retry,
+    // the cancel refresh, its error retry) to the first hook subscribed to it, so a paused subscriber would swallow
+    // them. SWR reads again when the key comes back. No `keepPreviousData`: both keys carry the address and token,
+    // so it would show another account's (or token's) rows while this one loads.
+    const completedKey = [`latest-transactions`, address, tokenId];
+    const pendingKey = [`latest-pending-transactions`, address, tokenId];
     const {
-      data: latestTransactions,
-      isLoading: transactionsLoading,
+      data: liveTransactions,
       error: latestError,
       mutate: mutateLatest
     } = useRetryableSWR(
-      [`latest-transactions`, address, tokenId],
+      readingCompleted ? completedKey : null,
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 10_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !readingCompleted
+        dedupingInterval: 3_000
       }
     );
+    const latestTransactions = useLastData(completedKey, readingCompleted, liveTransactions);
 
     const {
-      data: latestPendingTransactions,
-      isLoading: pendingLoading,
+      data: livePendingTransactions,
       error: pendingError,
       mutate: mutateTx
     } = useRetryableSWR(
-      [`latest-pending-transactions`, address, tokenId],
+      readingPending ? pendingKey : null,
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 5_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !readingPending
+        dedupingInterval: 3_000
       }
     );
-    // Under Pending the settled-history read is paused, and one that never ran reports loading until it resumes,
-    // so only the in-flight read decides. Otherwise one list: loading until both reads have answered once. The
-    // spinner and the initial-load report read this one value.
+    const latestPendingTransactions = useLastData(pendingKey, readingPending, livePendingTransactions);
+
+    // A read the list needs is loading while it holds no data (live, or kept for this key) and no error: the
+    // settled read unless Pending, the in-flight read always. So a page mounted off screen stays loading, and reports
+    // no initial load, until it is on screen and its reads have answered. The spinner and the report read this value.
+    const transactionsLoading = latestTransactions === undefined && !latestError;
+    const pendingLoading = latestPendingTransactions === undefined && !pendingError;
     const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
-    // The list is the reads that run together, so either failing is a failed load, and Retry re-runs both.
+    // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
     const loadError = filter === 'pending' ? Boolean(pendingError) : Boolean(latestError || pendingError);
     useEffect(() => {
       if (initialLoading) return;
       onInitialLoad?.();
     }, [initialLoading, onInitialLoad]);
-
-    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
-    // screen, or (for the settled history) a filter moved off Pending.
-    const wasReadingCompleted = useRef(readingCompleted);
-    useEffect(() => {
-      if (readingCompleted && !wasReadingCompleted.current) void mutateLatest();
-      wasReadingCompleted.current = readingCompleted;
-    }, [readingCompleted, mutateLatest]);
-    const wasReadingPending = useRef(readingPending);
-    useEffect(() => {
-      if (readingPending && !wasReadingPending.current) void mutateTx();
-      wasReadingPending.current = readingPending;
-    }, [readingPending, mutateTx]);
 
     const pendingTransactions = useMemo(
       () =>
@@ -397,6 +390,18 @@ const History = memo<HistoryProps>(
 );
 
 export default History;
+
+/**
+ * The data a read shows: its live data while it runs, and the last data it received for this same key while it does
+ * not (a retained page off screen stays visible behind the page above it). Never data from another key.
+ */
+function useLastData<T>(key: unknown[], running: boolean, live: T | undefined): T | undefined {
+  const last = useRef<{ id: string; data: T } | null>(null);
+  const id = JSON.stringify(key);
+  if (running && live !== undefined) last.current = { id, data: live };
+  const kept = last.current?.id === id ? last.current.data : undefined;
+  return running ? (live ?? kept) : kept;
+}
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
