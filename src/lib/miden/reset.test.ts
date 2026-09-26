@@ -149,6 +149,7 @@ describe('clearStorage', () => {
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
     const order: string[] = [];
     (resetNativeAssetCache as jest.Mock).mockImplementation(async () => {
+      await Promise.resolve();
       order.push('reset');
     });
     (primeNativeAssetId as jest.Mock).mockImplementation(() => {
