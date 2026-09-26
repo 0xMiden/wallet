@@ -610,6 +610,27 @@ describe('note_handle reporting', () => {
     expect(mockReported).toEqual(['ok']);
   });
 
+  it('reports a failed accept whose view was switched before the queue call rejected', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let failQueue = (_error: Error) => {};
+    mockQueue.mockReturnValue(new Promise<string>((_resolve, reject) => (failQueue = reject)));
+    const list = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = list.result.current.accept(note);
+    });
+    // AllHistory renders one view or the other, so a List/Groups switch unmounts this hook and mounts another.
+    list.unmount();
+    const groups = renderHook(() => useActivityClaims());
+    await act(async () => {
+      failQueue(new Error('queue failed'));
+      await accepting;
+    });
+    expect(mockReported).toEqual(['failed']);
+    expect(groups.result.current.items[0]?.status).toBe('failed');
+    log.mockRestore();
+  });
+
   it('completes each Accept All group whose view was switched before it queued', async () => {
     const other = { ...note, id: 'note-two', faucetId: 'other-faucet' };
     mockClaim.safeClaimableNotes = [note, other];

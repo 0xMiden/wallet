@@ -175,7 +175,12 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
   not wait for a copy or a share — holding a QR code up to be scanned is an
   ordinary successful receive that fires neither.
 - **`note_handle` is per claim attempt**, not per visit. Browsing pending notes
-  is not handling one.
+  is not handling one. The flow settles on the attempt's own outcome, so it never
+  ends `cancelled`; abandonment (the app or popup closing mid-claim) shows up as
+  a `started` with no matching `ended`. Builds before #1111 also ended it
+  `cancelled` when the Activity view switched, the account or network changed,
+  or the user went back mid-claim, so compare `note_handle` results across
+  versions by `appVersion`.
 - **`durationMs` has no bounds check.** `Math.round` passes a negative, `NaN`,
   or `Infinity` straight through. Durations come from `performance.now()`, which
   is monotonic, so this is not expected to bite — but nothing stops it.

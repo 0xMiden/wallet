@@ -27,14 +27,15 @@ const reportNoteClaim: ReportClaim = async attempt => {
  * is its own attempt, so its outcome is never swallowed by the (idempotent)
  * handle of the attempt that failed.
  *
- * A claim is "completed" once it is accepted for processing — the transaction
- * is queued and the user is handed to the generating-transaction screen. What
- * happens afterwards belongs to that screen, not to the tap that got there.
+ * A claim is "completed" once it is accepted for processing (the transaction
+ * is queued); what happens to that transaction afterwards is reported as its
+ * `tx_receive` operation, not by this flow.
  *
  * The attempt settles its own flow, whichever view is mounted by then: the
  * queue call outlives the view that started it (switching List and Groups
- * remounts both), and a realm that dies mid-call runs no cleanup at all, so its
- * unmatched `started` is already how abandonment is counted.
+ * unmounts one view and mounts the other), and a realm that dies mid-call runs
+ * no cleanup at all, so its unmatched `started` is already how abandonment is
+ * counted.
  */
 export function useReportNoteClaim(): ReportClaim {
   return reportNoteClaim;
