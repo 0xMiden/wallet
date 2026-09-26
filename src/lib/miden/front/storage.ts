@@ -26,6 +26,8 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
     async (val: SetStateAction<T>) => {
       const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
       await putToStorage(key, nextValue);
+      // The cache backs every reader of this key; off the extension no change event updates it.
+      await mutate(nextValue, { revalidate: false });
       valueRef.current = nextValue;
     },
     [key]
@@ -35,7 +37,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
 }
 
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
-  const { data } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
+  const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -49,11 +51,12 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
     const put = async () => {
       if (prevValue.current !== value) {
         await putToStorage(key, value);
+        await mutate(value, { revalidate: false });
       }
       prevValue.current = value;
     };
     put();
-  }, [key, value]);
+  }, [key, value, mutate]);
 
   return [value, setValue];
 }
@@ -101,13 +104,25 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight. A hook read or a later preload removes or replaces the entry, so a preload
-// still holding it when it lands is the key's newest read and replaces whatever the cache holds.
-const preloadReads = new Map<string, Promise<unknown>>();
+// Each key's preload read still in flight, with its value once it lands. A hook read or a later preload removes or
+// replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces whatever the
+// cache holds.
+interface PreloadRead {
+  read: Promise<unknown>;
+  landed?: { value: unknown };
+}
+const preloadReads = new Map<string, PreloadRead>();
 
-function fetchForHook<T>(key: string): Promise<T | null> {
+async function fetchForHook<T>(key: string): Promise<T | null> {
+  const preload = preloadReads.get(key);
   preloadReads.delete(key);
-  return fetchFromStorage<T>(key);
+  try {
+    return await fetchFromStorage<T>(key);
+  } catch (error) {
+    // Only a value already read: awaiting a preload still in flight could hang this reader with it.
+    if (preload?.landed) return preload.landed.value as T | null;
+    throw error;
+  }
 }
 
 /**
@@ -123,14 +138,15 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
-      const read = fetchFromStorage(key);
-      preloadReads.set(key, read);
+      const entry: PreloadRead = { read: fetchFromStorage(key) };
+      preloadReads.set(key, entry);
       try {
-        const value = await read;
-        if (preloadReads.get(key) !== read) return;
+        const value = await entry.read;
+        entry.landed = { value };
+        if (preloadReads.get(key) !== entry) return;
         await mutate(key, value, { revalidate: false });
       } finally {
-        if (preloadReads.get(key) === read) preloadReads.delete(key);
+        if (preloadReads.get(key) === entry) preloadReads.delete(key);
         onSettled?.(key);
       }
     })
