@@ -126,6 +126,9 @@ describe('priceSymbolFor', () => {
     expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBe('IUSDT');
     expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBe('IMIDEN');
     expect(priceSymbolFor('mtst1other', 'ETH')).toBe('ETH');
+    // Matched by faucet id only: a faucet that merely calls itself IETH is not the registry token.
+    expect(priceSymbolFor('mtst1other', 'IETH')).toBe('IETH');
+    expect(priceSymbolFor('mtst1other', 'IBTC')).toBe('IBTC');
   });
 
   it('converts each registry id once across calls', () => {
