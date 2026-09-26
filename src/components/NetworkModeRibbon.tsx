@@ -26,7 +26,9 @@ export interface NetworkModeRibbonProps {
  * - Docked: c = 50, word centre (25, 25) from the corner box's bottom-right corner, which is the
  *   screen's on iOS and the top of the system navigation bar on Android (BottomNav's `clearInset`).
  *   The word spans x and y 5.3..44.7; the band clears the popped Settings gear by 22pt (iPhone 17
- *   Pro) and 21pt (375pt).
+ *   Pro) and 21pt (375pt). On Android the tabs end 8px above that corner rather than 18px, so the
+ *   band sits nearer the gear: measured to the gear's box, 9px clear at 412dp, and at 360dp it meets
+ *   the box's corner, as it already did on an Android device that reports no inset.
  * - Floating: c = 44, word centre (22, 22); inside the pill's corner, 17pt clear of the gear.
  */
 const band = cva(
