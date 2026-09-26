@@ -28,6 +28,7 @@ import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
+import { isPendingActivityEntry } from './activityGroups';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -56,9 +57,9 @@ type HistoryProps = {
   searchQuery?: string;
   filter?: ActivityFilter;
   /**
-   * Fired when the transaction query settles, i.e. when the list stops being a
-   * spinner. The hosting screen reports "the user can see their activity" from
-   * this; the loading state lives here, so nothing above can derive it.
+   * Fired once the reads the current filter needs have answered (the in-flight read alone under Pending), i.e. when
+   * the list stops being a spinner; never while the page is off screen. The hosting screen reports "the user can see
+   * their activity" from this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
   /**
@@ -78,11 +79,14 @@ type HistoryProps = {
 export interface HistoryEntriesView {
   entries: IHistoryEntry[];
   initialLoading: boolean;
-  /** Either read behind `entries` failed. */
+  /** A read the current filter needs failed. */
   loadError: boolean;
-  /** Re-runs both reads. */
+  /** Re-runs whichever read is running. */
   onRetry: () => void;
-  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  /**
+   * False once the history is exhausted, and also while the settled read is not running (off screen, or under
+   * Pending), so it is final only for a page on screen off Pending. The Groups view passes its own false.
+   */
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
 }
@@ -102,8 +106,9 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
   );
 }
 
-// The chips above the activity list. `pending` shows only the notes that
-// wait for a claim, so it removes every settled history row.
+// The chips above the activity list. `pending` shows the notes that wait for a
+// claim and the wallet's own transactions still in flight, so it removes every
+// settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
 
 type ScopedEntries = { key: string; entries: IHistoryEntry[] };
@@ -165,58 +170,65 @@ const History = memo<HistoryProps>(
     }, [safeStateKey]);
 
     const onScreen = usePageActive();
-    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
-    // transaction reads run only while neither holds.
-    const reading = onScreen && filter !== 'pending';
+    // A retained page off screen is not read, so neither transaction read runs there. The Pending filter shows
+    // transfer cards and in-flight transactions only, so the settled-history read (and its paging) stops under it
+    // while the in-flight read keeps running.
+    const readingCompleted = onScreen && filter !== 'pending';
+    const readingPending = onScreen;
 
-    // No `keepPreviousData`: both keys carry the address and token, so it would show another
-    // account's (or token's) rows while this one loads; a key's own refresh keeps its data anyway.
+    // A read that is not running holds a null key rather than a paused one: another History on the same account
+    // (the Activity tab kept under a pushed group page) shares these keys, and SWR sends a key's refreshes (Retry,
+    // the cancel refresh, its error retry) to the first hook subscribed to it, so a paused subscriber would swallow
+    // them. A key that comes back is read again through `revalidateIfStale` (deduped inside the 3 s window), or
+    // `revalidateOnMount` the first time a hook runs it. No `keepPreviousData`: both keys carry the address and token,
+    // so it would show another account's (or token's) rows while this one loads.
+    const completedKey = [`latest-transactions`, address, tokenId];
+    const pendingKey = [`latest-pending-transactions`, address, tokenId];
     const {
-      data: latestTransactions,
-      isLoading: transactionsLoading,
+      data: liveTransactions,
       error: latestError,
       mutate: mutateLatest
     } = useRetryableSWR(
-      [`latest-transactions`, address, tokenId],
+      readingCompleted ? completedKey : null,
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 10_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !reading
+        dedupingInterval: 3_000
       }
     );
+    const latestTransactions = useLastData(completedKey, readingCompleted, liveTransactions);
 
     const {
-      data: latestPendingTransactions,
-      isLoading: pendingLoading,
+      data: livePendingTransactions,
       error: pendingError,
       mutate: mutateTx
     } = useRetryableSWR(
-      [`latest-pending-transactions`, address, tokenId],
+      readingPending ? pendingKey : null,
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 5_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !reading
+        dedupingInterval: 3_000
       }
     );
-    useEffect(() => {
-      if (transactionsLoading) return;
-      onInitialLoad?.();
-    }, [transactionsLoading, onInitialLoad]);
+    const latestPendingTransactions = useLastData(pendingKey, readingPending, livePendingTransactions);
 
-    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
-    // screen, or a filter moved off Pending.
-    const wasReading = useRef(reading);
+    // A read the list needs is loading while it holds no data (live, or kept for this key) and no error: the
+    // settled read unless Pending, the in-flight read always. So a page mounted off screen stays loading, and reports
+    // no initial load, until it is on screen and its reads have answered. The spinner and the report read this value.
+    const transactionsLoading = latestTransactions === undefined && !latestError;
+    const pendingLoading = latestPendingTransactions === undefined && !pendingError;
+    const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
+    // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
+    // Under Pending the settled read holds a null key, so it holds no error either.
+    const loadError = Boolean(latestError || pendingError);
     useEffect(() => {
-      if (reading && !wasReading.current) {
-        void mutateLatest();
-        void mutateTx();
-      }
-      wasReading.current = reading;
-    }, [reading, mutateLatest, mutateTx]);
+      if (initialLoading) return;
+      onInitialLoad?.();
+    }, [initialLoading, onInitialLoad]);
 
     const pendingTransactions = useMemo(
       () =>
@@ -318,7 +330,8 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        if (filter === 'pending') return false;
+        // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
+        if (filter === 'pending') return isPendingActivityEntry(e);
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -341,11 +354,6 @@ const History = memo<HistoryProps>(
       entries = entries.slice(0, maxIndex);
     }
 
-    // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-    // One list, so it is loading until both reads have answered once.
-    const initialLoading = filter !== 'pending' && (transactionsLoading || pendingLoading);
-    // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
-    const loadError = filter !== 'pending' && Boolean(latestError || pendingError);
     const onRetry = () => {
       void mutateLatest();
       void mutateTx();
@@ -359,7 +367,7 @@ const History = memo<HistoryProps>(
             initialLoading,
             loadError,
             onRetry,
-            hasMore: reading && hasMore,
+            hasMore: readingCompleted && hasMore,
             loadMore
           })}
         </>
@@ -373,9 +381,9 @@ const History = memo<HistoryProps>(
         loadError={loadError}
         onRetry={onRetry}
         loadMore={loadMore}
-        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
-        // row is filtered out, and off screen.
-        hasMore={reading && hasMore}
+        // Paging reads settled rows, so it stops wherever that read is off: under Pending, where every settled row
+        // is filtered out, and off screen.
+        hasMore={readingCompleted && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
@@ -389,6 +397,18 @@ const History = memo<HistoryProps>(
 );
 
 export default History;
+
+/**
+ * The data a read shows: its live data while it runs, and the last data it received for this same key while it does
+ * not (a retained page off screen stays visible behind the page above it). Never data from another key.
+ */
+function useLastData<T>(key: unknown[], running: boolean, live: T | undefined): T | undefined {
+  const last = useRef<{ id: string; data: T } | null>(null);
+  const id = JSON.stringify(key);
+  if (running && live !== undefined) last.current = { id, data: live };
+  const kept = last.current?.id === id ? last.current.data : undefined;
+  return running ? (live ?? kept) : kept;
+}
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
