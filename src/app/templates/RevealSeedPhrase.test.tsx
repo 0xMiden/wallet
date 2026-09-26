@@ -101,9 +101,9 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
-// Passthrough Drawer stub — keeps children in the DOM and exposes buttons that
-// fire onOpenChange with both `false` (close) and `true` (no-op) so the
-// `!open && ...` branch is fully exercised.
+// Drawer stub: like vaul's portal, it renders its content only while open. It
+// exposes buttons that fire onOpenChange with both `false` (close) and `true`
+// (no-op) so the `!open && ...` branch is fully exercised.
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
@@ -117,7 +117,7 @@ jest.mock('lib/ui/drawer', () => ({
     <div data-testid="drawer" data-open={String(open)}>
       <button data-testid="drawer-close" onClick={() => onOpenChange(false)} />
       <button data-testid="drawer-open" onClick={() => onOpenChange(true)} />
-      {children}
+      {open && children}
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
@@ -332,10 +332,10 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'close')).toBeTruthy();
     expect(buttonWithText(container, 'view')).toBeTruthy();
 
-    // No auth prompt, no password drawer, and (the auto-close effect must not
-    // mistake "no secret yet" for "secret expired") no navigation.
+    // No auth prompt, the password drawer mounted but closed, and (the auto-close
+    // effect must not mistake "no secret yet" for "secret expired") no navigation.
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="drawer"]')).toBeNull();
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('false');
     expect(mockGoBack).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -1166,7 +1166,7 @@ describe('RevealSeedPhrase', () => {
     });
     expect(mockGoBack).not.toHaveBeenCalled();
 
-    // onOpenChange(false) -> handlePasswordDrawerClose -> goBack, exactly once even
+    // onOpenChange(false) -> leave() -> goBack, exactly once even
     // though closing the drawer also trips the auto-close effect.
     await act(async () => {
       (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();

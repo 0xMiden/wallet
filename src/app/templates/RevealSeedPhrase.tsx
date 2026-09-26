@@ -76,10 +76,6 @@ const RevealSeedPhrase: FC = () => {
   }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
-  // Sticky once true, so `passwordDrawer` below stays in the tree once the user has
-  // opened it (see its own comment for why that has to survive a step reset).
-  const [passwordDrawerMounted, setPasswordDrawerMounted] = useState(false);
-  if (showPasswordDrawer && !passwordDrawerMounted) setPasswordDrawerMounted(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   // Set only when BOTH protector reads fail, which means storage itself is
@@ -299,27 +295,22 @@ const RevealSeedPhrase: FC = () => {
     leave();
   }, [setSecret, leave]);
 
-  const handlePasswordDrawerClose = useCallback(() => {
-    setShowPasswordDrawer(false);
-    leave();
-  }, [leave]);
-
   // Passcode / password drawer (for non-hardware wallets). Mobile vaults are protected
   // by the 6-digit onboarding passcode, so they get the numpad; extension/desktop use a
   // typed password.
   const usePasscodeEntry = isMobile();
 
   // A sibling of the 'warning' and 'auth' branches below, not a child of either: closing
-  // the drawer (X, scrim, Escape, drag-release) runs handlePasswordDrawerClose, which
-  // resets step to 'warning' in the same batch (leave(), #1122). Nested inside the 'auth'
-  // branch, that reset unmounted the whole keyed branch - Drawer included - before vaul's
-  // own close animation got a chance to run. `passwordDrawerMounted` keeps it in the tree
-  // once opened, so the step change plays through it instead of taking it out from under
-  // itself.
-  const passwordDrawer = passwordDrawerMounted && (
+  // the drawer (X, scrim, Escape, drag-release) runs leave(), which resets step to
+  // 'warning' in the same batch (#1122). Nested inside the 'auth' branch, that reset
+  // unmounted the Drawer before vaul's close animation could run. Kept at the same keyed
+  // slot in both branches, it survives the step change and closes through `open`; a closed
+  // Drawer is inert, so it is rendered unconditionally.
+  const passwordDrawer = (
     <Drawer
+      key="password-drawer"
       open={showPasswordDrawer}
-      onOpenChange={open => !open && handlePasswordDrawerClose()}
+      onOpenChange={open => !open && leave()}
       screenKey="reveal-seed"
     >
       <DrawerContent>
@@ -389,8 +380,8 @@ const RevealSeedPhrase: FC = () => {
   // step === 'reveal'. The auth branch passes no `focusTitleOnMount` of its own, but gets
   // it anyway - Settings (Settings.tsx:516,527) provides `true` for this route via
   // SubPageHeaderProvider, and SubPageLayout falls back to that context value when a page
-  // doesn't set the prop itself. It no longer remounts on submit either way (pending,
-  // success or failure all stay on this branch, #1122) - only a step change does that now.
+  // doesn't set the prop itself. A pending or failed submit stays on this branch (#1122);
+  // a successful one leaves it for the words branch.
   if (step === 'warning') {
     return (
       <>
