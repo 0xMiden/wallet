@@ -568,12 +568,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // no figure is better than a confidently wrong one.
   //
   // Still suppressed now that the breakdown below prices nothing by itself, and
-  // deliberately not replaced by a per-asset sum: `getTokenPrice` answers $1 for
-  // any symbol Binance does not list, and a batch claim's secondary faucets are
-  // exactly the ones the wallet has never resolved - so a "total" would quietly
-  // value every unknown asset at a dollar a unit. The assets an unknown-scale
-  // faucet contributed have no honest quantity to multiply either. Gating the
-  // figure on every asset being both resolved and listed would make it appear
+  // deliberately not replaced by a per-asset sum: a batch claim's secondary
+  // faucets are exactly the ones the wallet has never resolved, and the assets an
+  // unknown-scale faucet contributed have no honest quantity to multiply. Gating
+  // the figure on every asset being both resolved and quoted would make it appear
   // and vanish between renders as metadata lands, which is worse than absent.
   // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
