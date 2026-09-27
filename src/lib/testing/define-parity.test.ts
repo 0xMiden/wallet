@@ -84,6 +84,16 @@ describe('defineSource', () => {
   it('throws on a /* comment that never closes', () => {
     expect(() => defineSource('export default { define: { /* x')).toThrow('unbalanced');
   });
+
+  it('throws when the config has more than one define object', () => {
+    const source = [
+      'export default {',
+      "  optimizeDeps: { esbuildOptions: { define: { global: 'globalThis' } } },",
+      "  define: { 'process.env.A': JSON.stringify('a') }",
+      '};'
+    ].join('\n');
+    expect(() => defineSource(source)).toThrow('more than one define object');
+  });
 });
 
 describe('defineEntry', () => {
