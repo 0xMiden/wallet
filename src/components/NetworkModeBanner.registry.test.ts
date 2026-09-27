@@ -7,16 +7,18 @@ import { join } from 'path';
  * favour of a corner ribbon in the tab bar, and the ribbon reaches only tab pages - so every
  * screen that commits value silently stopped naming the network, with no test failing.
  *
- * These are the screens on which the user commits value. They span three shells and share no
- * wrapper: five full-screen routes render the banner themselves, two render inside `TabLayout`
- * through `ReviewLayout` - where the ribbon is HIDDEN, because that layout hides the tab-bar
- * footer the ribbon lives in - and the connected EVM bridge flow renders it once in its own shell
- * over every step, review included (the shell wraps its steps in `NetworkNamedByShell`, so
- * `ReviewLayout`'s own banner stands down there).
+ * These are the wallet screens on which the user commits value. They span three shells and share
+ * no wrapper: five full-screen routes render the banner themselves, the swap review renders it
+ * inside `TabLayout` through `ReviewLayout` - where the ribbon is HIDDEN, because that layout hides
+ * the tab-bar footer the ribbon lives in - and the connected EVM bridge flow renders it once in its
+ * own shell over every step, review included (the shell wraps its steps in `NetworkNamedByShell`,
+ * so the bridge review's own `ReviewLayout` banner stands down there). The dApp confirm window
+ * (`app/ConfirmPage.tsx`) shows the banner too, but it is its own extension window and is not in
+ * this list; its suite stubs the banner.
  *
  * WHAT THIS FILE IS, and what it is not. It is the written registry: the list below is the only
  * place the set is enumerated, and a new signing screen has to be added here by hand, because the
- * seven share no marker a search could key on - not a base component, not a naming convention
+ * eight share no marker a search could key on - not a base component, not a naming convention
  * (`BridgeDeposit` carries no "Review"), and four of them call no transaction hook at all.
  *
  * It no longer asserts the banner's PRESENCE, because a source-text match cannot tell a rendered
