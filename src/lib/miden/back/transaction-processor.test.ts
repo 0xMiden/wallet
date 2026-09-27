@@ -601,7 +601,7 @@ describe('a kick after a run spent its budget on queued claims', () => {
     jest.useRealTimers();
   });
 
-  it('starts one more full run when it lands in the run\'s last wait', async () => {
+  it("starts one more full run when it lands in the run's last wait", async () => {
     mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'claim' }]);
     jest.useFakeTimers();
     const mod = await import('./transaction-processor');
