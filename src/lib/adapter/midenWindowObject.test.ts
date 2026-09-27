@@ -291,7 +291,13 @@ describe('MidenWindowObject', () => {
         const { obj, fire } = await connectCapturing();
         const seen: unknown[] = [];
         obj.on('accountChange', () => seen.push([obj.address, obj.publicKey, obj.permission]));
-        const next = { rpc: 'rpc', address: 'mtst1qnext', privateDataPermission: 'None', allowedPrivateData: {}, publicKey: btoa('xyz') };
+        const next = {
+          rpc: 'rpc',
+          address: 'mtst1qnext',
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('xyz')
+        };
         fire(next);
         expect(seen).toEqual([['mtst1qnext', new Uint8Array([120, 121, 122]), next]]);
       });
@@ -322,7 +328,15 @@ describe('MidenWindowObject', () => {
         const { obj, fire } = await connectCapturing();
         const spy = jest.fn();
         obj.on('accountChange', spy);
-        expect(() => fire({ rpc: 'rpc', address: 'mtst1qnext', privateDataPermission: 'None', allowedPrivateData: {}, publicKey: '%%%' })).toThrow();
+        expect(() =>
+          fire({
+            rpc: 'rpc',
+            address: 'mtst1qnext',
+            privateDataPermission: 'None',
+            allowedPrivateData: {},
+            publicKey: '%%%'
+          })
+        ).toThrow();
         expect(spy).not.toHaveBeenCalled();
         expect(obj.address).toBe(ADDRESS);
         expect(obj.publicKey).toBe(permission.publicKey);
