@@ -616,6 +616,7 @@
   "newDeviceKey": "Nouvelle clé quotidienne",
   "replaceHotKeyDescription": "Générez une nouvelle clé quotidienne et remplacez la clé actuelle sur la chaîne. Cela s’avère utile si vous soupçonnez que votre appareil a été compromis.",
   "replaceHotKeyConfirmation": "Cette opération est signée avec votre clé de récupération (à froid). Votre phrase de récupération n’est pas requise, et vos fonds ainsi que votre compte restent inchangés. Continuer ?",
+  "replaceHotKeyConfirmationSeedRequired": "Cette opération est signée avec votre clé de récupération (à froid). Votre phrase de récupération vous sera demandée pour la signer, et vos fonds ainsi que votre compte resteront inchangés. Continuer ?",
   "confirmReplaceHotKey": "Confirmer la rotation",
   "hotKeyRotationOverlayTitle": "Remplacer votre clé quotidienne",
   "hotKeyRotationOverlayBody": "Votre clé quotidienne est en cours de rotation. Cette opération est nécessaire lors de la configuration d’un compte restauré afin qu’il puisse se synchroniser et effectuer des transactions.",
