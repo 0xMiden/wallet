@@ -3226,7 +3226,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // the ONLY guard standing between an eviction during this leg's longest
     // await and an irreversible broadcast.
     await loadModule();
-    const miden: any = await import('lib/miden/sdk/miden-client');
+    const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client') & { __evictHolder: () => void }>(
+      'lib/miden/sdk/miden-client'
+    );
     let releaseProve!: () => void;
     const parkedProve = new Promise<void>(resolve => {
       releaseProve = resolve;
