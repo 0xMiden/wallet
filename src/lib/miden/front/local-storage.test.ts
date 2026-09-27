@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 
-import { useLocalStorage } from './local-storage';
+import { useLocalStorage, readLocalStorage } from './local-storage';
 
 // Mock the logger
 jest.mock('shared/logger', () => ({
@@ -103,5 +103,33 @@ describe('useLocalStorage', () => {
 
     expect(result.current[0]).toBe('default');
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+describe('readLocalStorage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it('returns the stored value', () => {
+    localStorage.setItem('read-key', JSON.stringify(5));
+    expect(readLocalStorage('read-key', 1)).toBe(5);
+  });
+
+  it('returns the fallback when nothing is stored', () => {
+    expect(readLocalStorage('read-key', 1)).toBe(1);
+  });
+
+  it('returns the fallback for a value that does not parse', () => {
+    localStorage.setItem('read-key', '{not json');
+    expect(readLocalStorage('read-key', 1)).toBe(1);
+  });
+
+  it('reads a value another window wrote after a hook mounted', () => {
+    const { result } = renderHook(() => useLocalStorage('read-key', 1));
+    localStorage.setItem('read-key', JSON.stringify(6));
+    expect(result.current[0]).toBe(1);
+    expect(readLocalStorage('read-key', 1)).toBe(6);
   });
 });
