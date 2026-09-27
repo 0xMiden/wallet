@@ -7,16 +7,14 @@ import { TYPE_STYLES } from './type-styles';
 /**
  * Wipes the clipboard, used after a secret is pasted (see `ImportAccount`'s private-key field).
  *
- * Resolves whether the wipe actually happened, so a caller can warn when it did not - the secret
- * is still there. It never rejects, so a caller that ignores the result (React ignores a
- * handler's return value) creates nothing floating.
+ * Resolves whether the wipe happened, and never rejects.
  */
 export const clearClipboard = async (): Promise<boolean> => {
   try {
     await Clipboard.write({ string: '' });
     return true;
   } catch (error) {
-    // Nothing on screen can report this from here, but it must not vanish: the secret is still there.
+    // The log records the cause; the caller shows the warning.
     console.error('[clipboard] failed to clear the clipboard after a secret was pasted:', error);
     return false;
   }

@@ -147,17 +147,17 @@ it('ignores a second submission while the first import is pending', async () => 
   await waitFor(() => expect(mockUpdateCurrentAccount).toHaveBeenCalledWith('mtst1imported'));
 });
 
-it('clears the clipboard when a secret is pasted', async () => {
+it('clears the clipboard when a secret is pasted, and shows no warning when the wipe works', async () => {
   render(<ImportAccount />);
 
-  // The resolved mock drives a state update after the paste; act() flushes it so the update
-  // is not left dangling past the test's end (a warning today, real cross-test pollution once
-  // another test's render is on screen when it lands).
+  // `act` flushes the resolved wipe's state update before this asserts, so a warning that was
+  // never rendered because nothing waited for the microtask cannot pass for a successful wipe.
   await act(async () => {
     fireEvent.paste(screen.getByLabelText('privateKey'));
   });
 
   expect(clearClipboard).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument();
 });
 
 it('shows a warning notice when a pasted key could not be removed from the clipboard', async () => {
@@ -171,19 +171,6 @@ it('shows a warning notice when a pasted key could not be removed from the clipb
   const warning = await screen.findByRole('alert');
   expect(warning).toHaveAttribute('data-testid', 'import-account-clipboard-warning');
   expect(warning).toHaveTextContent('privateKeyClipboardNotCleared');
-});
-
-it('shows no warning when the pasted key is removed from the clipboard', async () => {
-  jest.mocked(clearClipboard).mockResolvedValue(true);
-  render(<ImportAccount />);
-
-  // `act` flushes the resolved promise's `.then` before this asserts, so a false positive
-  // (the warning was never rendered because nothing waited for the microtask) is ruled out.
-  await act(async () => {
-    fireEvent.paste(screen.getByLabelText('privateKey'));
-  });
-
-  expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument();
 });
 
 it('hides an earlier warning once a later paste clears the clipboard', async () => {
