@@ -94,6 +94,10 @@ var mockClaimRowOnRead: { id: string } | null = null;
 // fields look identical either way.
 var mockDeclinedWrites = 0;
 
+// Lets the loop's table scans see the stored rows, so a wake can drive a row other than the one it was armed for.
+// Off (scans empty) by default, which keeps every other test's loop laps from picking up its own row.
+var mockScansSeeStore = false;
+
 // Dexie's `innerDeepClone`: recurse into plain objects, hand everything else
 // back by reference.
 function dexieLikeClone<T>(value: T): T {
@@ -154,7 +158,9 @@ jest.mock('lib/miden/repo', () => ({
         return found;
       })
     })),
-    filter: jest.fn(() => ({ toArray: jest.fn(async () => []) }))
+    filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
+      toArray: jest.fn(async () => (mockScansSeeStore ? txStore.filter(predicate) : []))
+    }))
   }
 }));
 
@@ -498,6 +504,7 @@ beforeEach(() => {
   mockFailRowReads = null;
   mockClaimRowOnRead = null;
   mockDeclinedWrites = 0;
+  mockScansSeeStore = false;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
@@ -835,6 +842,50 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
       await jest.advanceTimersByTimeAsync(1_000);
       expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it("off-extension, an older row driven by another row's wake signs under its own id (#779)", async () => {
+    // The wake drives the whole queue with the provider its row was generated with, and generateTransaction wraps
+    // that provider again for whichever row the loop picks. The vault looks a recovery authorization up by the id
+    // signWord carries, so an older row signing under the requeued row's id would be refused as needing the seed.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('wake-requeued-a', row);
+      txStore.push({ ...buildTx('wake-older-b', row), initiatedAt: Math.floor(Date.now() / 1000) - 10 });
+      let serviceProvider: GuardianAccountProvider | undefined;
+      mockGetOrCreateMultisigService.mockImplementation(async (_accountId: string, p: GuardianAccountProvider) => {
+        serviceProvider = p;
+        return service;
+      });
+      // The real service signs through a WalletSigner, which passes only the public key and the word.
+      service.createSendProposal
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockImplementation(async () => {
+          await serviceProvider?.signWord('pk', '0xword');
+          return { id: 'prop', nonce: 7 };
+        });
+      const signWord = jest.fn(async (..._a: unknown[]) => 'sig');
+
+      await generateTransaction(buildTx('wake-requeued-a', row) as never, signCallback, false, {
+        ...provider,
+        signWord
+      } as never);
+      expect(txStore.find(r => r.id === 'wake-requeued-a')?.status).toBe(ITransactionStatus.Queued);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+
+      expect(signWord).toHaveBeenCalledTimes(1);
+      expect(signWord).toHaveBeenCalledWith('pk', '0xword', 'wake-older-b');
     } finally {
       restoreLocks();
       jest.clearAllTimers();

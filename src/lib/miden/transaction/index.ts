@@ -999,10 +999,13 @@ export const generateTransaction = async (
         );
     }
   }
+  // A requeue wake drives the whole loop with this wrapped provider, so another row can wrap it again. That row's
+  // id arrives here and must reach the vault, which finds a recovery authorization by it.
   const provider: GuardianAccountProvider = {
     ...guardianProvider,
     getAccounts,
-    signWord: (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, transaction.id)
+    signWord: (publicKey, wordHex, transactionId) =>
+      guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
