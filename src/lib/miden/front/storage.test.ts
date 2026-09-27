@@ -171,9 +171,12 @@ describe('storage utilities', () => {
 
     it('keeps the setter identity when the caller passes a fresh fallback object each render', () => {
       mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
-      const { result, rerender } = renderHook(({ fb }: { fb: { n: number } }) => useStorage('object-fallback-key', fb), {
-        initialProps: { fb: { n: 1 } }
-      });
+      const { result, rerender } = renderHook(
+        ({ fb }: { fb: { n: number } }) => useStorage('object-fallback-key', fb),
+        {
+          initialProps: { fb: { n: 1 } }
+        }
+      );
       const setter = result.current[1];
 
       rerender({ fb: { n: 1 } });
@@ -186,9 +189,12 @@ describe('storage utilities', () => {
       await mutate('empty-key-for-fallback-swap', null, { revalidate: false });
       mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
 
-      const { result, rerender } = renderHook(({ fb }: { fb: string }) => useStorage<string>('empty-key-for-fallback-swap', fb), {
-        initialProps: { fb: 'fallback-a' }
-      });
+      const { result, rerender } = renderHook(
+        ({ fb }: { fb: string }) => useStorage<string>('empty-key-for-fallback-swap', fb),
+        {
+          initialProps: { fb: 'fallback-a' }
+        }
+      );
       const setterFromFirstRender = result.current[1];
 
       rerender({ fb: 'fallback-b' });
