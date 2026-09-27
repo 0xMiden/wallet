@@ -88,7 +88,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     [t]
   );
   // `TabLayout` keeps this page mounted under another tab, whose location is not this page's, so off
-  // screen it keeps the search it last read on screen. Set during render, both frames are right at once.
+  // screen it keeps the search it last read on screen. Set during render, so it takes no extra commit.
   const [heldSearch, setHeldSearch] = useState(locationSearch);
   if (pageActive && heldSearch !== locationSearch) setHeldSearch(locationSearch);
   const routeSearch = pageActive ? locationSearch : heldSearch;

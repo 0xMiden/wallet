@@ -2196,6 +2196,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // dedicated /pending-notes page it replaced is gone. navigateTo() is a full goto, so the app
     // re-boots; wait for the rehydrated store (the route is `onlyReady`-gated on it) instead of
     // another fixed 3s.
+    // Mirrors ACTIVITY_PENDING_PATH (src/app/pages/activity-paths.ts); the E2E harness does not import from src.
     await this.navigateTo('/history?filter=pending&view=list');
     await this.waitForStoreReady(3_000);
   }

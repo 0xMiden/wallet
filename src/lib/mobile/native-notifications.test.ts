@@ -217,13 +217,13 @@ describe('native-notifications', () => {
       // Simulate notification tap
       await capturedCallback!({
         notification: {
-          extra: { navigateTo: '/history?filter=pending&view=list' }
+          extra: { navigateTo: '/settings' }
         }
       });
 
       jest.advanceTimersByTime(200);
 
-      expect(navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
+      expect(navigate).toHaveBeenCalledWith('/settings');
 
       jest.useRealTimers();
     });

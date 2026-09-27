@@ -242,6 +242,7 @@ export class AndroidWalletPage implements WalletPage {
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
     // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
+    // Mirrors ACTIVITY_PENDING_PATH (src/app/pages/activity-paths.ts); the E2E harness does not import from src.
     await this.navigateTo('/history?filter=pending&view=list');
     await sleep(3_000);
 
