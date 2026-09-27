@@ -3,7 +3,7 @@ import React from 'react';
 import { render, act, fireEvent } from '@testing-library/react';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
-import { TabActiveContext } from './page-active';
+import { PageActiveContext, TabActiveContext } from './page-active';
 
 // ---------------------------------------------------------------------------
 // Mock capture holders. All are `mock`-prefixed so jest's factory-hoisting
@@ -525,24 +525,30 @@ describe('HomeSwipeContainer', () => {
       expect(mockX).toBe(-0);
     });
 
-    // The swap is the tab's return (#1194), the one rule the action bar and Activity's filter row
-    // share; a route that leaves the home pages and comes back while the tab stays shown slides, as
-    // the action bar above it does.
-    it('slides when the route comes back to another page while the tab stays shown', () => {
+    // Only the tab's return swaps (#1194). A slide page closing back onto another Home page
+    // (TokenDetail to Send, Earn's withdraw Done to Overview) flips PageActiveContext and the route in
+    // one commit while the tab stays shown, and that reveal slides, as the action bar above it does.
+    it('slides when a slide page closes back onto another Home page', () => {
+      const layer = (active: boolean) => (
+        <TabActiveContext.Provider value={true}>
+          <PageActiveContext.Provider value={active}>
+            <HomeSwipeContainer />
+          </PageActiveContext.Provider>
+        </TabActiveContext.Provider>
+      );
       mockPathname = '/receive';
-      const { rerender } = render(pane(true));
+      const { rerender } = render(layer(true));
       measure(300);
       settleAt(-600);
-      mockPathname = '/token/abc';
       act(() => {
-        rerender(pane(true));
+        rerender(layer(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
 
       mockPathname = '/';
       act(() => {
-        rerender(pane(true));
+        rerender(layer(true));
       });
 
       expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());

@@ -214,8 +214,9 @@ const HomeSwipeContainer: FC = () => {
     // Any other route change outranks a release still in flight.
     endRelease(true);
     // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
-    // every page in between. Read, not a dependency: the route change that shows the tab runs this
-    // effect, and a later render must not re-run it mid-gesture.
+    // every page in between. Read, not a dependency: TabLayout mounts this carousel only on Home's own
+    // routes, so `onHome` rises only as the tab is shown again and that change runs this effect; a
+    // later render must not re-run it mid-gesture.
     if (shownAgain) {
       x.set(-activeIdx * width);
       return;
