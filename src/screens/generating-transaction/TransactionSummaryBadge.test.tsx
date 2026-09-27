@@ -500,7 +500,7 @@ describe('useTransactionSummaryBadgeContent', () => {
 // assertion for the same reason the network-banner registry is one - the fills are attributes on
 // an inline SVG, and jsdom does not resolve `var()` in an attribute, so a render assertion would
 // only ever read the literal string back.
-describe('the badge paints no retired activity hue of its own', () => {
+describe('the badge paints no activity hue of its own', () => {
   const source = readFileSync(join(__dirname, 'TransactionSummaryBadge.tsx'), 'utf8');
 
   it('takes the send arrow from the activity token', () => {
@@ -511,8 +511,23 @@ describe('the badge paints no retired activity hue of its own', () => {
     expect(source).toContain("fillForArrow: 'var(--tx-swap)'");
   });
 
-  it.each(['#91ACC1', '#BEACD2', '#99AC94', '#CCA4B8'])('carries no retired hue (%s)', hex => {
-    expect(source).not.toContain(hex);
+  // Colour literals live in one place: ARROW_INK, whose hex keys are the spellings TRANSACTION_COLORS
+  // hands the badge and whose values are fixed arrow inks. Anywhere else a hex is a mirrored hue, retired
+  // or current, in any case.
+  const HEX = /#[0-9a-f]{6}\b/gi;
+  const start = source.indexOf('export const ARROW_INK = {');
+  const end = source.indexOf('} as const satisfies', start);
+  const table = start === -1 || end === -1 ? '' : source.slice(start, end);
+
+  it('holds no hex colour outside the arrow-ink table', () => {
+    expect(table).not.toBe('');
+    expect(source.replace(table, '').match(HEX)).toBeNull();
+  });
+
+  it('keeps only the allowed fill spellings and inks in the arrow-ink table', () => {
+    expect([...new Set(table.match(HEX))].sort()).toEqual(
+      ['#191919', '#777487', '#BA839F', '#ba839f', '#ffffff'].sort()
+    );
   });
 });
 
