@@ -368,7 +368,24 @@ describe('SwapDetail note rows', () => {
     });
   });
 
-  it('keeps each stacked fill and reclaim note-id chip to its own tap target', () => {
+  it('keeps each chip of a two-note fill or reclaim row to its own tap target', () => {
+    renderDetail({
+      settledTransactions: [consume({ noteIds: ['0xnote1', '0xnote2'] })],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9', '0xnote10'] })]
+    });
+
+    const isNote = (chip: HTMLElement) => /^0xnote(1|2|9|10)$/.test(chip.textContent ?? '');
+    const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
+    expect(noteChips).toHaveLength(4);
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'true'));
+
+    // The faucet and transaction-hash chips sit alone in their rows.
+    const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !isNote(chip));
+    expect(rowChips.length).toBeGreaterThan(0);
+    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
+  });
+
+  it('leaves a one-note fill or reclaim row not stacked, since it has no neighbour to protect', () => {
     renderDetail({
       settledTransactions: [consume()],
       reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
@@ -377,12 +394,7 @@ describe('SwapDetail note rows', () => {
     const isNote = (chip: HTMLElement) => /^0xnote[19]$/.test(chip.textContent ?? '');
     const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
     expect(noteChips).toHaveLength(2);
-    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'true'));
-
-    // The faucet and transaction-hash chips sit alone in their rows.
-    const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !isNote(chip));
-    expect(rowChips.length).toBeGreaterThan(0);
-    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {

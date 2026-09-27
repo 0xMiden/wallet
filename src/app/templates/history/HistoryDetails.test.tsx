@@ -1431,12 +1431,12 @@ describe('HistoryDetails', () => {
       rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
     });
 
-    it('marks a one-note list stacked too', async () => {
+    it('leaves a one-note list not stacked, since it has no neighbour to protect', async () => {
       setMockRow(consumeTx({ noteId: 'note-0', noteIds: ['note-0'] }));
       await renderAndLoad();
 
       const chip = screen.getByTestId('history-consumed-notes').querySelector('[data-testid="hash-chip"]');
-      expect(chip).toHaveAttribute('data-stacked', 'true');
+      expect(chip).toHaveAttribute('data-stacked', 'false');
     });
 
     it('shows no expand affordance at exactly the preview count', async () => {

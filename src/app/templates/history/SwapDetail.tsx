@@ -167,7 +167,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
                 key={displayNoteId}
                 hash={displayNoteId}
                 trimHash
-                stacked
+                stacked={displayNoteIds.length > 1}
                 className="mt-1 max-w-full text-muted"
               />
             ))}
@@ -187,7 +187,13 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="min-w-0 text-right">
             {displayNoteIds.map(displayNoteId => (
-              <HashChip key={displayNoteId} hash={displayNoteId} trimHash stacked className="max-w-full text-muted" />
+              <HashChip
+                key={displayNoteId}
+                hash={displayNoteId}
+                trimHash
+                stacked={displayNoteIds.length > 1}
+                className="max-w-full text-muted"
+              />
             ))}
           </div>
         </div>
