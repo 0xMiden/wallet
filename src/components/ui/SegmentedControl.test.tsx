@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { springs } from 'lib/animation';
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 import { SegmentedControl, SegmentedControlItem, SegmentedControlProps } from './SegmentedControl';
@@ -456,5 +457,63 @@ describe('SegmentedControl selection', () => {
     const all = screen.getByRole('radio', { name: 'All' });
     // Later pills paint an opaque `page` fill, so the moving bubble must sit above them.
     expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveStyle({ zIndex: '1' });
+  });
+});
+
+// TabLayout keeps a visited tab's pane mounted, hidden, and a link that sets Activity's filter (the
+// pending-transfers prompt) hands the control its new value only in the commit that shows the pane
+// again (#1194).
+describe('SegmentedControl - shown again after its pane was hidden', () => {
+  const control = (shown: boolean, value: Filter) => (
+    <TabActiveContext.Provider value={shown}>
+      <SegmentedControl items={items} value={value} onChange={jest.fn()} aria-label="Filters" />
+    </TabActiveContext.Provider>
+  );
+
+  it('takes its new value at once: no slide, no pop, no smooth scroll', () => {
+    const { rerender } = render(control(true, 'all'));
+    rerender(control(false, 'all'));
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollSpy.mockClear();
+    rerender(control(true, 'pending'));
+
+    const pending = getRadio('Pending');
+    expect(JSON.parse(bubbleIn(pending)!.getAttribute('data-transition')!)).toEqual(tabBarSwap);
+    expect(popOf(pending)).toHaveAttribute('data-pop', 'rest');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    expect(JSON.parse(getRadio('Sent').getAttribute('data-while-tap')!)).toEqual({
+      scale: 0.92,
+      transition: springs.snappy
+    });
+  });
+
+  it('animates the next change while it stays shown', () => {
+    const { rerender } = render(control(true, 'all'));
+    rerender(control(false, 'all'));
+    rerender(control(true, 'pending'));
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollSpy.mockClear();
+    rerender(control(true, 'sent'));
+
+    const sent = getRadio('Sent');
+    expect(JSON.parse(bubbleIn(sent)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(popOf(sent)).toHaveAttribute('data-pop', 'pop');
+    expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  });
+
+  it('animates a change that lands as a slide page uncovers it, with its tab shown throughout', () => {
+    const page = (active: boolean, value: Filter) => (
+      <PageActiveContext.Provider value={active}>
+        <SegmentedControl items={items} value={value} onChange={jest.fn()} aria-label="Filters" />
+      </PageActiveContext.Provider>
+    );
+    const { rerender } = render(page(true, 'all'));
+    rerender(page(false, 'all'));
+    rerender(page(true, 'received'));
+
+    const received = getRadio('Received');
+    expect(JSON.parse(bubbleIn(received)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(popOf(received)).toHaveAttribute('data-pop', 'pop');
   });
 });
