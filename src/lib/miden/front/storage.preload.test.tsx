@@ -569,6 +569,19 @@ describe('storage writes and wipes (#1148)', () => {
     expect(screen.getByTestId('value').textContent).toBe('fallback-value');
   });
 
+  it('drops a preload still in flight at a wipe, so a reader mounted after it reads storage', async () => {
+    const release = deferredRead('wipe-race-key', 'old');
+    const preload = preloadStorage(['wipe-race-key']);
+    delete mockStored['wipe-race-key'];
+
+    await invalidateStorageCache();
+    release();
+    await preload;
+    renderReader('wipe-race-key');
+
+    expect((await screen.findByTestId('value')).textContent).toBe('fallback-value');
+  });
+
   it('gives a passive reader the fallback after the extension wipes a key no reader had mounted', async () => {
     jest.mocked(isExtension).mockReturnValue(true);
     try {
@@ -583,6 +596,30 @@ describe('storage writes and wipes (#1148)', () => {
       });
       renderReader('extension-wiped-key', PassiveReader);
 
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it('keeps a mounted useStorage reader rendered when the extension removes its key', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-removed-key'] = 'EUR';
+      await preloadStorage(['extension-removed-key']);
+      renderReader('extension-removed-key');
+      // Let both listeners' dynamic imports of the browser API resolve.
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      delete mockStored['extension-removed-key'];
+      // Synchronous, so a suspension the removal causes is still on screen when checked.
+      act(() => {
+        emitStorageChange({ 'extension-removed-key': { oldValue: 'EUR' } }, 'local');
+      });
+
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
       expect(screen.getByTestId('value').textContent).toBe('fallback-value');
     } finally {
       jest.mocked(isExtension).mockReturnValue(false);

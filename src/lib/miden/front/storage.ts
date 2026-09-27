@@ -7,13 +7,14 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
+  const { data, mutate } = useRetryableSWR<T | null>(key, fetchForHook as (key: string) => Promise<T | null>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
   });
 
-  useEffect(() => onStorageChanged(key, mutate), [key, mutate]);
+  // A removed key reads as null, as in listenForChanges; undefined would suspend this mounted reader.
+  useEffect(() => onStorageChanged<T | undefined>(key, newValue => mutate(newValue ?? null)), [key, mutate]);
 
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
@@ -155,8 +156,9 @@ async function fetchForHook(key: string): Promise<unknown> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A hook read, a `putToStorage` write, an `invalidateStorageCache` re-read or a later preload of a key, started
- * meanwhile, supersedes the key's preload, and the cache keeps that newer value.
+ * A hook read, a `putToStorage` write or a later preload of a key, started meanwhile, supersedes the key's preload,
+ * and the cache keeps that newer value. An `invalidateStorageCache` wipe supersedes every preload in flight; a key
+ * it does not re-read stays uncached until a hook reads it from storage.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -196,16 +198,14 @@ export async function putToStorage<T = any>(key: string, value: T) {
 }
 
 /**
- * Re-reads every storage key the SWR cache holds, after a wipe of the key-value store, so a reader
- * mounted afterwards renders what storage now holds rather than the previous wallet's value.
- * A key whose read fails keeps its cached value; the others still update.
+ * After a wipe of the key-value store, first drops every preload still in flight, then re-reads every storage
+ * key the SWR cache holds, so a reader mounted afterwards renders what storage now holds rather than the
+ * previous wallet's value. A key whose read fails keeps its cached value; the others still update.
  */
 export async function invalidateStorageCache(): Promise<void> {
+  preloadReads.clear();
   await Promise.allSettled(
-    [...cachedKeys].map(key => {
-      preloadReads.delete(key);
-      // With data, not a bare mutate(key), which SWR only turns into a revalidation of a mounted hook.
-      return mutateCache(key, fetchFromStorage(key), { revalidate: false });
-    })
+    // With data, not a bare mutate(key), which SWR only turns into a revalidation of a mounted hook.
+    [...cachedKeys].map(key => mutateCache(key, fetchFromStorage(key), { revalidate: false }))
   );
 }
