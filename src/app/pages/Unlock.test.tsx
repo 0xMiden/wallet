@@ -975,9 +975,10 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByTestId('digit-2')).toBeDisabled();
   });
 
-  // Cross-window form of the #1079 race above: this window's own lockLevel is stale not because of an
-  // earlier lockout, but because its own attempt count never left 1 while another window pushed the
-  // stored count to 5 after mount, and this window arms its lockout from that stored count (#1192).
+  // Cross-window form of the #1079 race above: this window's attempt count never left 1 while another
+  // window pushed the stored count to 5 after mount, so the guess arms the two-minute tier while the
+  // tick's closure holds level 0 (#1192). The guess holds its guard through the catch, so the tick only
+  // sets the countdown: 02:00 at the re-stamp instant, 00:00 from its closure's stamp or level.
   it("keeps a lockout armed against a tick from before it, armed from another window's stored attempt (#1192)", async () => {
     mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
     jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
@@ -985,22 +986,20 @@ describe('Unlock — mobile passcode numpad', () => {
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     const { container } = await renderUnlock();
     const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
-    // Another window has already failed four times, after this window mounted.
+    // Another window's fourth failure left 5 after this window mounted; that lockout has run out and been cleared.
     mockLsStore.PasswordAttempts = 5;
 
     type(container, '111111');
     await act(async () => {
       await jest.advanceTimersByTimeAsync(150); // auto-submit fires
       await jest.advanceTimersByTimeAsync(1000); // storedAttempt(5) > LAST_ATTEMPT sleep, then unlock rejects
-      await Promise.resolve();
-      await Promise.resolve(); // the catch has armed; React has not committed
-      await jest.advanceTimersByTimeAsync(1); // a sliver of real time, so a stale lockLevel-0 tick reads it as expired
       staleTick();
     });
     await advance(450);
 
     expect(mockLsStore.TimeLock).toBe(BASE + 1150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 02:00');
     expect(screen.getByTestId('digit-2')).toBeDisabled();
   });
 
