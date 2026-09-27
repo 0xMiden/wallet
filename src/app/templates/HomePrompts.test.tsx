@@ -1220,6 +1220,34 @@ describe('HomePrompts', () => {
       }
     });
 
+    it('names the unresolved request on a fee-broke re-arm of a completed prompt, over the missing fee asset', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({ storage: { faucetByAccount: { accountA: WalletPromptStatus.Completed } } })
+      );
+      markerStore.set('accountA', unresolvedMarker);
+      try {
+        mockBaseFee = 10000;
+        render(
+          <HomePrompts
+            account={account}
+            balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
+            balancesLoading={false}
+            claimableNotes={[]}
+            fundingNotes={[]}
+            tokenPrices={tokenPrices}
+          />
+        );
+        await act(async () => {});
+
+        // A completed prompt is no sign the record resolved: this request's funds never arrived.
+        expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+        expect(faucetCard()).not.toHaveTextContent('insufficientFeeAsset');
+        expect(markerStore.get('accountA')).toEqual(unresolvedMarker);
+      } finally {
+        mockBaseFee = 0;
+      }
+    });
+
     it.each([
       ['not sent yet, which another surface may still be sending', { requestedAt: Date.now() - 5_000 }, false],
       ['still running here', { requestedAt: Date.now() - 10 * 60_000, submitted: true }, true]
