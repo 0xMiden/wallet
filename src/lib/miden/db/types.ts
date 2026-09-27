@@ -15,6 +15,14 @@ export enum ITransactionStatus {
   Failed
 }
 
+/**
+ * A non-negative safe integer: the spending-limit guard's rule for a timestamp it can judge, so
+ * the rule a stored transaction's `initiatedAt` and an assessment time are held to (#1007).
+ */
+export function isValidTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'

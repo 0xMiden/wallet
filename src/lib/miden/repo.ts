@@ -1,6 +1,6 @@
 import Dexie, { Transaction } from 'dexie';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { ITransaction, ITransactionStatus, isValidTimestamp } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
@@ -196,15 +196,10 @@ defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
-/** Non-negative safe integer: what the `initiatedAt` index can place a row by (#1007). */
-function isPlaceableInitiatedAt(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
-}
-
 // Every insert goes through here. A row whose `initiatedAt` the index cannot place is invisible
 // to the spending-limit window read, so none is written (#1007).
 transactions.hook('creating', (_primaryKey, row) => {
-  if (!isPlaceableInitiatedAt(row.initiatedAt)) {
+  if (!isValidTimestamp(row.initiatedAt)) {
     throw new Error(`transaction ${row.id} has an unplaceable initiatedAt`);
   }
 });
@@ -448,26 +443,21 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   const status = Reflect.get(tx, 'status');
   const initiatedAt = Reflect.get(tx, 'initiatedAt');
   const completedAt = Reflect.get(tx, 'completedAt');
+  // `initiatedAt` is the spending-limit window's index: a row the index cannot place is invisible
+  // to that read, so an imported one takes a usable stamp - its completedAt, else now (#1007).
+  const placedAt = isValidTimestamp(initiatedAt)
+    ? initiatedAt
+    : isValidTimestamp(completedAt)
+      ? completedAt
+      : Math.floor(Date.now() / 1000);
+
   // Unconditional, on the terminal path too. Any row that ends up Completed or
   // Failed is read back through the completed-history path, which takes
   // `completedAt` as the row's timestamp with NO fallback — a missing one
   // becomes an invalid `Date` and throws while grouping history by day, taking
   // down the whole activity list. A dump is free to carry `{status: 2}` and no
   // `completedAt` at all, so this cannot be left to the unfinished branch.
-  const timestamp =
-    typeof completedAt === 'number'
-      ? completedAt
-      : typeof initiatedAt === 'number'
-        ? initiatedAt
-        : Math.floor(Date.now() / 1000);
-
-  // `initiatedAt` is the spending-limit window's index: a row the index cannot place is invisible
-  // to that read, so an imported one takes a usable stamp - its completedAt, else now (#1007).
-  const placedAt = isPlaceableInitiatedAt(initiatedAt)
-    ? initiatedAt
-    : isPlaceableInitiatedAt(completedAt)
-      ? completedAt
-      : Math.floor(Date.now() / 1000);
+  const timestamp = typeof completedAt === 'number' ? completedAt : placedAt;
 
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at

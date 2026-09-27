@@ -7,7 +7,7 @@ import {
   parsePersistedSpendingLimit,
   toPersistedSpendingLimit
 } from './types';
-import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
+import { ITransaction, ITransactionStatus, ITransactionType, isValidTimestamp } from '../db/types';
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -59,7 +59,7 @@ const validateProposal = (config: SpendingLimitConfiguration, proposal: Proposed
   if (typeof proposal.usdAmount !== 'bigint' || proposal.usdAmount < 0n) {
     throw unavailable('proposed amount is invalid');
   }
-  if (!Number.isSafeInteger(proposal.now) || proposal.now < 0) throw unavailable('assessment time is invalid');
+  if (!isValidTimestamp(proposal.now)) throw unavailable('assessment time is invalid');
 };
 
 /**
@@ -86,7 +86,7 @@ const matchingSpendEntries = (
     if (spend === undefined) continue;
     // A row that cannot be placed in time cannot be judged in or out of the window, so it stays
     // fatal. Everything below this line is about rows whose timestamp we can trust.
-    if (!Number.isSafeInteger(row.initiatedAt) || row.initiatedAt < 0) {
+    if (!isValidTimestamp(row.initiatedAt)) {
       throw unavailable('matching transaction timestamp is invalid');
     }
     // Fail closed on data that could HIDE spend, not on data that cannot affect the result. A row
