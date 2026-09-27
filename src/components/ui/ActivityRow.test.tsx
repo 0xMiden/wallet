@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
-import { Card } from './Card';
+import { Card, FOCUSABLE_CLASSES } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -338,6 +338,40 @@ describe('ActivityRow', () => {
       expect(onClick).toHaveBeenCalledTimes(1);
     });
 
+    it('takes keyboard focus, with the card focus ring, when it opens something', () => {
+      renderRow({ onClick: jest.fn() });
+
+      const button = screen.getByRole('button');
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      for (const classes of FOCUSABLE_CLASSES) {
+        for (const name of classes.split(' ')) expect(button.className.split(/\s+/)).toContain(name);
+      }
+    });
+
+    it.each([
+      ['Enter', 'Enter'],
+      ['Space', ' ']
+    ])('opens on %s, as a button does, without scrolling the list', (_, key) => {
+      const onClick = jest.fn();
+      renderRow({ onClick });
+
+      const notPrevented = fireEvent.keyDown(screen.getByRole('button'), { key });
+
+      expect(notPrevented).toBe(false);
+      expect(hapticLight).toHaveBeenCalledTimes(1);
+      expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores any other key', () => {
+      const onClick = jest.fn();
+      renderRow({ onClick });
+
+      fireEvent.keyDown(screen.getByRole('button'), { key: 'a' });
+
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
     it('has no button role and does not fire haptics when onClick is absent', () => {
       const { container } = renderRow();
 
@@ -345,8 +379,9 @@ describe('ActivityRow', () => {
       // clicking the row is a no-op
       fireEvent.click(container.firstChild as HTMLElement);
       expect(hapticLight).not.toHaveBeenCalled();
-      // the interactive classes are not applied
+      // the interactive classes are not applied, and the row takes no keyboard focus
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
+      expect((container.firstChild as HTMLElement).hasAttribute('tabindex')).toBe(false);
     });
   });
 
