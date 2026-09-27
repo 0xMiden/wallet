@@ -58,8 +58,6 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
     />
   );
 
-  // `text-ink`, not `text-text-muted`: both chips carry the same ink, so they
-  // read as a pair.
   expect(screen.getByText('Current')).toHaveClass('text-ink');
   // Provider names come from the canonical brand mapping (#464).
   expect(screen.getByText('LambdaClass · EU-WEST')).toHaveClass('text-ink');
