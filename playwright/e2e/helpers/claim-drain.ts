@@ -55,3 +55,87 @@ export function buildClickAcceptAllScript(): string {
 export function isDrained(sample: PendingSample): boolean {
   return sample.onPending && sample.rows === 0 && sample.acceptAll === 'absent' && !sample.loading;
 }
+
+export interface DrainDriver {
+  sample(): Promise<PendingSample>;
+  clickAcceptAll(): Promise<boolean>;
+  openPending(): Promise<void>;
+  /** The page object's `triggerSync`: a sleep on mobile, where `useSyncTrigger` syncs every 3 s. */
+  sync(): Promise<void>;
+  sleep(ms: number): Promise<void>;
+  now(): number;
+  /** Diagnostics only, such as the prove-timing pump. */
+  onLap?(): Promise<void>;
+  log?(line: string): void;
+}
+
+export interface DrainOptions {
+  timeoutMs: number;
+  label: string;
+}
+
+const STABLE_ZERO_THRESHOLD = 2;
+const ZERO_SPACING_MS = 2_000;
+// No usable signal for a consume the click just queued: the card leaves only when its row completes.
+const CLICK_HEAD_START_MS = 8_000;
+const POLL_SPACING_MS = 3_000;
+
+async function readOrNull(driver: DrainDriver): Promise<PendingSample | null> {
+  try {
+    return await driver.sample();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Waits for two consecutive drained reads of the Pending list, the rule Chrome's `claimAllNotes` uses,
+ * clicking Accept All whenever it is idle: a transfer that arrived after the first click, or a claim
+ * that failed and is listed again. Throws with the last read when the list never drains.
+ */
+export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label }: DrainOptions): Promise<void> {
+  const deadline = driver.now() + timeoutMs;
+  let stableZero = 0;
+  let laps = 0;
+
+  while (driver.now() < deadline) {
+    laps++;
+    await driver.sync();
+    await driver.onLap?.();
+    const sample = await readOrNull(driver);
+
+    if (sample && !sample.onPending) {
+      stableZero = 0;
+      driver.log?.(`[${label}] lap=${laps} off the Pending list; reopening it`);
+      await driver.openPending();
+      continue;
+    }
+    if (sample && isDrained(sample)) {
+      stableZero++;
+      driver.log?.(`[${label}] lap=${laps} drained ${stableZero}/${STABLE_ZERO_THRESHOLD}`);
+      if (stableZero >= STABLE_ZERO_THRESHOLD) return;
+      await driver.sleep(ZERO_SPACING_MS);
+      continue;
+    }
+    stableZero = 0;
+    if (sample?.acceptAll === 'idle' && (await driver.clickAcceptAll())) {
+      driver.log?.(`[${label}] lap=${laps} rows=${sample.rows} clicked Accept All`);
+      await driver.sleep(CLICK_HEAD_START_MS);
+      continue;
+    }
+    await driver.sleep(POLL_SPACING_MS);
+  }
+
+  // The deadline is checked only at the top of a lap, so a list that drained during the last lap
+  // arrives here short of its second read. Judge it on fresh reads, by the same two-read rule.
+  let last = await readOrNull(driver);
+  if (last && isDrained(last)) {
+    await driver.sleep(ZERO_SPACING_MS);
+    last = await readOrNull(driver);
+    if (last && isDrained(last)) return;
+  }
+  throw new Error(
+    `${label}: the Pending list did not drain within ${timeoutMs}ms after ${laps} lap(s); ` +
+      `last sample: ${JSON.stringify(last)}`
+  );
+}
