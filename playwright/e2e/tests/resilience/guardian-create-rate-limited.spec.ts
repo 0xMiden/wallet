@@ -2,8 +2,9 @@ import { test, expect } from '../../fixtures/two-wallets';
 
 /**
  * #906 / #903: a guardian that rate-limits `/configure` during creation must
- * not fail the wallet -- `createGuardianAccount`'s `registerOnGuardianWithRetry`
- * waits out the guardian's `meta.retry_after_secs` and re-registers.
+ * not fail the wallet. `createGuardianAccount` wraps `registerOnGuardian` in
+ * `withGuardianRateLimitRetry`, which waits out the guardian's
+ * `meta.retry_after_secs` and re-registers.
  *
  * The fault is the real 429 envelope (`{ code: 'rate_limit_exceeded', meta }`),
  * not a generic 500, so it exercises the same `isGuardianRateLimited` branch a
@@ -24,16 +25,23 @@ test.describe('infra resilience - guardian rate-limits creation', () => {
   }) => {
     test.setTimeout(300_000);
 
-    await steps.step('create_under_rate_limit', async () => {
-      walletA.armGuardianFault({ target: 'A', path: 'configure', mode: 'rateLimited', count: 2 });
+    await steps.step(
+      'create_under_rate_limit',
+      async () => {
+        walletA.armGuardianFault({ target: 'A', path: 'configure', mode: 'rateLimited', count: 2 });
 
-      const created = await walletA.createGuardianWallet(GUARDIAN_URL);
-      expect(created.address).toBeTruthy();
+        const created = await walletA.createGuardianWallet(GUARDIAN_URL);
+        expect(created.address).toBeTruthy();
 
-      // Two hits prove both rejections reached the wallet's registration and it
-      // came back for a third call; fewer means the fault never fired.
-      expect(walletA.guardianFaultHits(), 'the 429 fault must have answered two /configure calls').toBe(2);
-    });
+        // Two hits prove both rejections reached the wallet's registration and it
+        // came back for a third call; fewer means the fault never fired.
+        expect(walletA.guardianFaultHits(), 'the 429 fault must have answered two /configure calls').toBe(2);
+      },
+      {
+        captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+        screenshotWallets: [{ target: walletA.page, label: 'A' }]
+      }
+    );
 
     await steps.step('clear', async () => {
       await walletA.clearFaults();
