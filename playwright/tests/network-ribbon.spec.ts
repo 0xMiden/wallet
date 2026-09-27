@@ -89,12 +89,13 @@ test.describe('Network corner ribbon', () => {
     }) => {
       // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
       // (reveal-seed-phrase.spec.ts does the same): fresh_install loop 5s; importWallet's welcome
-      // 30s + notice 15s + select-type 15s + seed-phrase 15s + create-password 10s +
-      // recovery-method 15s + confirmation-submit 30s + telemetry-consent 30s + open-wallet 30s
-      // = 190s; openPopup's two 30s waits = 60s; banner 10s + ribbon-in-corner 10s + sheet CTA
-      // 15s + CTA text 10s + aria-expanded-true 10s + poll ctaBottom 5s + poll lastRow 10s +
-      // sheet-closed 10s + aria-expanded-false 10s = 90s; total 345s.
-      test.setTimeout(360_000);
+      // 30s + notice 30s (wait, then click) + select-type 15s + seed-phrase 15s + create-password
+      // 10s + recovery-method 15s + confirmation-submit 30s + telemetry-consent 40s (wait, decline,
+      // detach) + open-wallet 30s = 215s; openPopup's two 30s waits = 60s; banner 10s +
+      // ribbon-in-corner 10s + sheet CTA 15s + CTA text 10s + aria-expanded-true 10s + poll
+      // ctaBottom 5s + poll lastRow 10s + sheet-closed 10s + aria-expanded-false 10s = 90s;
+      // total 370s.
+      test.setTimeout(390_000);
 
       // Start as a returning user: the one-time "Pin Bread" tooltip (fixed, z-9999, top-right) can
       // cover the popup at this width. The product marks it seen by removing `fresh_install`; wait
