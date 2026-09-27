@@ -2432,9 +2432,12 @@ const generateGuardianTransaction = async (
       // persist-before-submit design relies on this blob surviving for the
       // reconcile path — so reaping orphaned pending keys belongs in a dedicated
       // cleanup, not this hot path. The same inert orphan can also arise if the
-      // vault locks while the proposal call above is still waiting out a pending
-      // delta (up to ~55s): the locked-vault requeue runs before any persist, so
-      // the next run of the row mints again.
+      // vault locks while the proposal call above is still retrying a pending
+      // delta - 12 attempts, 5 s apart, each re-syncing the chain, re-adopting
+      // the guardian state, and re-executing the summary before its POST: a
+      // minute or more, twice over if a stale-state refusal forces a rebuild -
+      // the locked-vault requeue runs before any persist, so the next run of
+      // the row mints again.
       await guardianProvider.persistNewHotKey(mintedKey.publicKeyHex, mintedKey.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.

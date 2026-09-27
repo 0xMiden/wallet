@@ -5240,6 +5240,10 @@ describe('generateTransaction — Guardian routing', () => {
       const createProposal = proposalFor();
       const { tx, row, coldService, client, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
       client.transactions.submitProven.mockRejectedValueOnce(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+      // Distinct from the mint's own '0xnewcommit' so the rebuild's commitment can only
+      // have come from THIS derivation (the persisted-key branch of resolveRotationHotKey),
+      // never from a bug that reuses the minted key's commitment across both attempts.
+      mockCommitmentFromPublicKeyHex.mockResolvedValueOnce('0xderivedcommit');
 
       const run = generateTransaction(
         tx,
@@ -5262,7 +5266,8 @@ describe('generateTransaction — Guardian routing', () => {
       expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
       expect(persistNewHotKey).toHaveBeenCalledTimes(1);
       expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith('new-hot-pub');
-      expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual(['0xnewcommit', '0xnewcommit']);
+      // The rebuild's proposal receives the DERIVED commitment, not the minted one.
+      expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual(['0xnewcommit', '0xderivedcommit']);
       expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     } finally {
       jest.useRealTimers();
@@ -5335,6 +5340,39 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore.find(r => r.id === tx.id)?.status).toBe(ITransactionStatus.Failed);
       expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledTimes(1);
       expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: the rebuild waits out its own pending-delta conflict (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      createProposal
+        .mockResolvedValueOnce({ id: 'prop-replace', nonce: 7 })
+        .mockRejectedValueOnce(PENDING_DELTA_409)
+        .mockResolvedValueOnce({ id: 'prop-replace', nonce: 7 });
+      const { tx, row, client, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValueOnce(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(createProposal).toHaveBeenCalledTimes(3);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      // One key: minted and persisted by the first run, read back by the rebuild,
+      // regardless of the rebuild's own proposal needing a conflict retry.
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     } finally {
       jest.useRealTimers();
     }
