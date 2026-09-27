@@ -284,7 +284,7 @@ describe('DappConfirmationModal origin', () => {
     // The row directly wrapping DappOrigin, not the modal card: the card's own
     // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
     // never clips text) and would otherwise make this guard fail on every render.
-    expectDomainNeverClipped(domain, shown.parentElement as HTMLElement);
+    expectDomainNeverClipped(domain, shown.parentElement!);
   });
 
   it('shows the origin the same way in the title when the dApp sends no name', () => {
