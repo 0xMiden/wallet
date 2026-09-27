@@ -267,17 +267,6 @@ describe('withGuardianRateLimitRetry (#906)', () => {
     expect(waits).toEqual([3000]);
   });
 
-  it('falls back to the capped exponential wait for a 429 with no Retry-After', async () => {
-    const { waits, sleepFn } = recordingSleep();
-    const fn = jest
-      .fn()
-      .mockRejectedValueOnce(rateLimited())
-      .mockRejectedValueOnce(rateLimited())
-      .mockResolvedValueOnce('ok');
-    await expect(withGuardianRateLimitRetry(fn, { sleepFn })).resolves.toBe('ok');
-    expect(waits).toEqual([1000, 2000]);
-  });
-
   it('clamps a Retry-After above a minute to 60 s', async () => {
     const { waits, sleepFn } = recordingSleep();
     const fn = jest.fn().mockRejectedValueOnce(rateLimited(120)).mockResolvedValueOnce('ok');

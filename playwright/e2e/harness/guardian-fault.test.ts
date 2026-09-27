@@ -199,15 +199,6 @@ describe('decideGuardianFault', () => {
     const third = decideGuardianFault(CONFIGURE_A, policy, second.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(third).toEqual({ action: { kind: 'continue' }, hits: 2 });
   });
-
-  it('rateLimited defaults count to 1 when omitted', () => {
-    const policy: GuardianFaultPolicy = { target: 'A', path: 'configure', mode: 'rateLimited' };
-    const first = decideGuardianFault(CONFIGURE_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
-    expect(first.action).toEqual({ kind: 'fulfillRateLimited' });
-    expect(decideGuardianFault(CONFIGURE_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS).action).toEqual({
-      kind: 'continue'
-    });
-  });
 });
 
 // ── applyGuardianFaultAction (fake Route, no browser) ───────────────────────

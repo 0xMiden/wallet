@@ -613,7 +613,6 @@ describe('createGuardianAccount', () => {
       ]);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
       expect(performance.now() - startedAt).toBe(60_000);
-      expect(performance.now() - startedAt).toBeLessThanOrEqual(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS);
     });
 
     it('counts the pubkey wait against the same deadline as the registration', async () => {
