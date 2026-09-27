@@ -1,7 +1,7 @@
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
-import { getPriceMicro } from 'lib/prices/usd';
+import { getPriceMicro, isCoveredSymbol } from 'lib/prices/usd';
 
 import { fetchTokenMetadata } from '../metadata';
 import { SpendingLimitPriceUnavailableError } from './types';
@@ -9,6 +9,7 @@ import { resolveSpendsUsd, usdMicroFromAmount } from './valuation';
 
 jest.mock('lib/prices/usd', () => ({
   ...jest.requireActual('lib/prices/usd'),
+  isCoveredSymbol: jest.fn(jest.requireActual('lib/prices/usd').isCoveredSymbol),
   getPriceMicro: jest.fn()
 }));
 jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
@@ -84,6 +85,18 @@ describe('resolveSpendsUsd', () => {
 
     await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 25_000_000n }], 10)).resolves.toBe(0n);
     expect(mockedPrice).not.toHaveBeenCalled();
+  });
+
+  // #1131: the allowlist alone decides coverage, so a symbol drift between it and the feed refuses
+  // the spend instead of valuing it at $0.
+  it('refuses an allowlisted faucet whose price symbol the feed does not quote', async () => {
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    jest.mocked(isCoveredSymbol).mockReturnValueOnce(false);
+    mockedPrice.mockResolvedValue(undefined);
+
+    await expect(resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10)).rejects.toBeInstanceOf(
+      SpendingLimitPriceUnavailableError
+    );
   });
 
   it('counts an uncovered asset as nothing and never asks for its price', async () => {
