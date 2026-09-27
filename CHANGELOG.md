@@ -19,7 +19,7 @@
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
-- [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so a stale (TBD) heading cannot hide a published section; its own tests run first in the same job (#1019).
+- [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 
 ### Fixes
 
