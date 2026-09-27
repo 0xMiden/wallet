@@ -998,6 +998,22 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('reads an unresolved marker as sent, even with no submitted flag stored', async () => {
+    // Only a sent request can be left unresolved; read as unsent, it would be cleared as abandoned.
+    await putToStorage('faucet_funding_v2:accountUnresolvedOnly', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      unresolved: true
+    });
+
+    expect(await fetchFaucetFundingMarker('accountUnresolvedOnly')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
   it('never reads an unresolved request as live, unless it still runs here', () => {
     const now = Date.now();
     // Sent 30 s ago, so its arrival window has not ended by this clock: the flag alone ends the wait.

@@ -370,8 +370,12 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   // Any stored value reads as submitted: erring the other way would clear a marker
   // for a mint that could still land.
   if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
-  // Any stored value reads as unresolved: erring the other way would resubmit silently.
-  if (Reflect.get(raw, 'unresolved') !== undefined) marker.unresolved = true;
+  // Any stored value reads as unresolved: erring the other way would resubmit silently. Only
+  // a sent request is left unresolved, so the flag also reads as sent.
+  if (Reflect.get(raw, 'unresolved') !== undefined) {
+    marker.submitted = true;
+    marker.unresolved = true;
+  }
   // Untrusted like requestedAt; an unusable send time falls back to the request time.
   const submittedAt = Reflect.get(raw, 'submittedAt');
   if (
