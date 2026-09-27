@@ -156,17 +156,11 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // clearClientStorage() above has ALREADY wiped the local wallet, so a
-        // failure here leaves the user with nothing. Swallowing it into
-        // console.error (and then navigating away regardless) showed them an
-        // empty wallet with no explanation — indistinguishable from data loss.
-        // Surface it and stay put so Retry is reachable (#630). The try covers
-        // the whole branch above because any step after the wipe leaves the
-        // user with nothing; a failed read aborts before the wipe, so the
-        // screen still stays put with Retry and nothing is lost.
+        // The override read (before the wipe), the wipe, the override
+        // restore, and registerWallet can each fail here; a failure usually
+        // comes after the wipe, so it surfaces the reason and stays put so
+        // Retry is reachable (#630).
         console.error(e);
-        // Set the message the user needs BEFORE telling telemetry, so a throw
-        // from classifyError or the flow handle can never suppress it.
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
         return 'failed';
