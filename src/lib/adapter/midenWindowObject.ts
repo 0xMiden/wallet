@@ -29,7 +29,7 @@ import {
   signBytes,
   waitForTransaction
 } from 'lib/adapter/client';
-import { MidenDAppPermission } from 'lib/adapter/types';
+import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
 import { TransactionOutput } from 'lib/miden/db/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
@@ -121,9 +121,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.address = perm.address;
     this.network = network;
     this.publicKey = perm.publicKey;
-    this.clearAccountChangeInterval = onPermissionChange((perm: MidenDAppPermission) => {
-      this.emit('accountChange', perm);
-    });
+    this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
   }
 
   async disconnect(): Promise<void> {
@@ -132,6 +130,27 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.permission = undefined;
     this.clearAccountChangeInterval && this.clearAccountChangeInterval();
   }
+
+  // An account switch arrives here (#174). The fields follow the new account before listeners
+  // hear of it, and null (no grant from that account) clears them. A malformed key throws before
+  // anything changes, so onPermissionChange keeps its old state and asks again on its next poll.
+  private applyPermission(perm: MidenDAppCurrentPermission) {
+    if (perm === null) {
+      this.address = undefined;
+      this.publicKey = undefined;
+      this.permission = undefined;
+      this.emit('accountChange', null);
+      return;
+    }
+    let publicKey: Uint8Array | undefined;
+    if (perm.publicKey) publicKey = b64ToU8(perm.publicKey);
+    else if (perm.address === this.address) publicKey = this.publicKey;
+    this.permission = perm;
+    this.address = perm.address;
+    this.publicKey = publicKey;
+    this.emit('accountChange', perm);
+  }
+
   /**
    * Not supported by this wallet.
    *
