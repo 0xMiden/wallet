@@ -827,7 +827,10 @@ const Welcome: FC = () => {
             // The page change clears registrationError, so the screen gets its own copy of the reason.
             let lookupFailure: string;
             if (isGuardianNotFound(error)) {
-              lookupFailure = GUARDIAN_ACCOUNT_NOT_FOUND;
+              // A key-pair import already carries its own translated "no account here" text
+              // (importHotKeyNoAccount); the sentinel would send it to a screen that hides the
+              // public-import option this key can still use.
+              lookupFailure = keyPairPayload ? failure : GUARDIAN_ACCOUNT_NOT_FOUND;
             } else if (!isWasmClientPoisonedError(error) && isLikelyNetworkError(error)) {
               // A raw "Failed to fetch" / RPC timeout message is not translated; show the
               // operator-unreachable notice instead. isWasmClientPoisonedError is checked first: a
