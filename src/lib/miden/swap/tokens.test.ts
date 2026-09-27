@@ -1,3 +1,5 @@
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { MIDEN_USDC_FAUCET, setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
@@ -115,26 +117,57 @@ describe('swap token price symbols', () => {
 describe('priceSymbolFor', () => {
   beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
 
-  it('prices IETH and IBTC as ETH and BTC under either id encoding', () => {
-    expect(priceSymbolFor(TOKEN_IETH.faucetId, 'IETH')).toBe('ETH');
-    expect(priceSymbolFor(`bech32:${TOKEN_IETH.faucetId}`, 'IETH')).toBe('ETH');
-    expect(priceSymbolFor(TOKEN_IBTC.faucetId, 'IBTC')).toBe('BTC');
-    expect(priceSymbolFor(`bech32:${TOKEN_IBTC.faucetId}`, 'IBTC')).toBe('BTC');
+  // #1131: every faucet the wallet knows stands for a quoted asset resolves a price symbol, so none of
+  // them silently drops out of spending-limit coverage.
+  it.each([
+    ['IETH', TOKEN_IETH.faucetId, 'ETH'],
+    ['IBTC', TOKEN_IBTC.faucetId, 'BTC'],
+    ['the Earn collateral USDC', MIDEN_USDC_FAUCET, 'USDC'],
+    ['the Agglayer-bridged ETH', MIDEN_AGGLAYER_FAUCET_ID, 'ETH']
+  ])('prices %s under either id encoding', (_name, faucetId, priceSymbol) => {
+    expect(priceSymbolFor(faucetId, 'ANY')).toBe(priceSymbol);
+    expect(priceSymbolFor(`bech32:${faucetId}`, 'ANY')).toBe(priceSymbol);
   });
 
-  it('leaves IUSDT, IMIDEN and a non-swap token on their own symbol', () => {
-    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBe('IUSDT');
-    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBe('IMIDEN');
-    expect(priceSymbolFor('mtst1other', 'ETH')).toBe('ETH');
-    // Matched by faucet id only: a faucet that merely calls itself IETH is not the registry token.
-    expect(priceSymbolFor('mtst1other', 'IETH')).toBe('IETH');
-    expect(priceSymbolFor('mtst1other', 'IBTC')).toBe('IBTC');
+  it('matches a faucet spelled in another encoding than the allowlist entry (hex against bech32)', () => {
+    // Both spellings canonicalize to one id, the way the SDK maps a hex id and its bech32 form.
+    mockToBech32.mockImplementation((id: any) =>
+      id === '0xiethhex' || id === TOKEN_IETH.faucetId ? 'canonical-ieth' : `bech32:${id}`
+    );
+    expect(priceSymbolFor('0xiethhex', 'IETH')).toBe('ETH');
   });
 
-  it('converts each registry id once across calls', () => {
-    priceSymbolFor('mtst1other', 'ETH');
-    priceSymbolFor('mtst1another', 'BTC');
-    expect(mockToBech32).toHaveBeenCalledTimes(getSwapTokens().length);
+  it('follows the Earn collateral faucet an E2E run injects', () => {
+    setEarnCollateralFaucetForTest('0xe2ecollateral');
+    try {
+      expect(priceSymbolFor('0xe2ecollateral', 'USDC')).toBe('USDC');
+      expect(priceSymbolFor(MIDEN_USDC_FAUCET, 'USDC')).toBeUndefined();
+    } finally {
+      setEarnCollateralFaucetForTest(undefined);
+    }
+  });
+
+  it('gives no price symbol to any other faucet, whatever symbol it gives itself', () => {
+    expect(priceSymbolFor('mtst1other', 'USDC')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'ETH')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'BTC')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'IETH')).toBeUndefined();
+    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBeUndefined();
+    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
+  });
+
+  it('prices the E2E fixture symbol TST by symbol only in an E2E build', () => {
+    const previous = process.env.MIDEN_E2E_TEST;
+    try {
+      process.env.MIDEN_E2E_TEST = 'true';
+      expect(priceSymbolFor('mtst1fixture', 'TST')).toBe('TST');
+      expect(priceSymbolFor('mtst1fixture', 'USDC')).toBeUndefined();
+      delete process.env.MIDEN_E2E_TEST;
+      expect(priceSymbolFor('mtst1fixture', 'TST')).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previous;
+    }
   });
 });
 
@@ -150,9 +183,9 @@ describe('tokenQuote', () => {
     });
   });
 
-  it('quotes an unregistered or unknown faucet under its own symbol', () => {
-    expect(tokenQuote({ ETH: eth }, 'mtst1other', 'ETH')).toEqual(eth);
-    expect(tokenQuote({ ETH: eth }, undefined, 'ETH')).toEqual(eth);
+  it('gives no quote to an unknown faucet, or to a token without a faucet id, whatever its symbol', () => {
+    expect(tokenQuote({ ETH: eth }, 'mtst1other', 'ETH')).toBeUndefined();
+    expect(tokenQuote({ ETH: eth }, undefined, 'ETH')).toBeUndefined();
     expect(tokenQuote({ ETH: eth }, undefined, 'IETH')).toBeUndefined();
   });
 

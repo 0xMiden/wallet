@@ -61,7 +61,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     }
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
     const priceSymbol = priceSymbolFor(faucetId, symbol);
-    if (!isCoveredSymbol(priceSymbol)) continue;
+    if (priceSymbol === undefined || !isCoveredSymbol(priceSymbol)) continue;
     const priceMicro = await getPriceMicro(priceSymbol, now);
     if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);
     total += usdMicroFromAmount(spend.amount, decimals, priceMicro);

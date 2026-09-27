@@ -14,6 +14,7 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { getEarnCollateralFaucet } from './collateral';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
@@ -32,24 +33,12 @@ import type { IntentResult } from './types';
  * `marketUid`/`action`/`payAsset` extraData, and a non-zero `protocolHashIdentifier`.
  */
 
-// Miden-side collateral token (the wallet's USDC faucet) and its decimals.
-export const MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
-export const MIDEN_USDC_DECIMALS = 6;
-
-// E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
-// can't exist on a local e2e node, and the CLI-minted faucet id is only known at
-// test time — so the harness injects it at runtime via `setEarnCollateralFaucetForTest`
-// (mirrors `setAgglayerSenderForE2E`). Unset in production, so `getEarnCollateralFaucet()`
-// returns `MIDEN_USDC_FAUCET` and behavior is byte-identical.
-let earnCollateralFaucetOverride: string | undefined;
-
-export function setEarnCollateralFaucetForTest(faucetHex: string | undefined): void {
-  earnCollateralFaucetOverride = faucetHex;
-}
-
-export function getEarnCollateralFaucet(): string {
-  return earnCollateralFaucetOverride ?? MIDEN_USDC_FAUCET;
-}
+export {
+  getEarnCollateralFaucet,
+  MIDEN_USDC_DECIMALS,
+  MIDEN_USDC_FAUCET,
+  setEarnCollateralFaucetForTest
+} from './collateral';
 
 export function getEarnCollateralFaucetId(): string {
   return ifHextoBech32(getEarnCollateralFaucet());

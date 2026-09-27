@@ -1,3 +1,5 @@
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
 import { getPriceMicro } from 'lib/prices/usd';
 
@@ -17,10 +19,16 @@ jest.mock('../sdk/helpers', () => {
   const actual = jest.requireActual('../sdk/helpers');
   return {
     ...actual,
+    // The priced hex faucets keep their spelling, so the metadata mocks below can key on them.
     canonicalFaucetBech32Id: (id: string) =>
       id === IETH_HEX
         ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId
-        : actual.canonicalFaucetBech32Id(id)
+        : [
+              jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
+              jest.requireActual('lib/agglayer/b2agg/constant').MIDEN_AGGLAYER_FAUCET_ID
+            ].includes(id)
+          ? id
+          : actual.canonicalFaucetBech32Id(id)
   };
 });
 
@@ -65,7 +73,17 @@ describe('resolveSpendsUsd', () => {
     mockedMetadata.mockResolvedValue(base('USDC', 6));
     mockedPrice.mockResolvedValue(1_000_000n);
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
+    await expect(resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10)).resolves.toBe(
+      25_000_000n
+    );
+  });
+
+  // #1131: coverage comes from the faucet id, never from the symbol a faucet gives itself.
+  it('counts a faucet that only calls itself USDC as uncovered and never asks for its price', async () => {
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+
+    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 25_000_000n }], 10)).resolves.toBe(0n);
+    expect(mockedPrice).not.toHaveBeenCalled();
   });
 
   it('counts an uncovered asset as nothing and never asks for its price', async () => {
@@ -77,14 +95,18 @@ describe('resolveSpendsUsd', () => {
 
   it('sums across several assets', async () => {
     mockedMetadata.mockImplementation(async faucetId =>
-      faucetId === 'eth' ? base('ETH', 18) : faucetId === 'usdc' ? base('USDC', 6) : base('MIDEN', 6)
+      faucetId === MIDEN_AGGLAYER_FAUCET_ID
+        ? base('ETH', 18)
+        : faucetId === MIDEN_USDC_FAUCET
+          ? base('USDC', 6)
+          : base('MIDEN', 6)
     );
     mockedPrice.mockImplementation(async symbol => (symbol === 'ETH' ? 4_000_000_000n : 1_000_000n));
 
     const total = await resolveSpendsUsd(
       [
-        { faucetId: 'eth', amount: 1_000_000_000_000_000_000n },
-        { faucetId: 'usdc', amount: 10_000_000n },
+        { faucetId: MIDEN_AGGLAYER_FAUCET_ID, amount: 1_000_000_000_000_000_000n },
+        { faucetId: MIDEN_USDC_FAUCET, amount: 10_000_000n },
         { faucetId: 'miden', amount: 500_000_000n }
       ],
       10
@@ -97,7 +119,7 @@ describe('resolveSpendsUsd', () => {
     mockedMetadata.mockResolvedValue(base('ETH', 18));
     mockedPrice.mockResolvedValue(undefined);
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
+    await expect(resolveSpendsUsd([{ faucetId: MIDEN_AGGLAYER_FAUCET_ID, amount: 1n }], 10)).rejects.toBeInstanceOf(
       SpendingLimitPriceUnavailableError
     );
   });

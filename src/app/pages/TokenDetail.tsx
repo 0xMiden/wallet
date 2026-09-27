@@ -160,7 +160,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {quote && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
           <TokenInfo tokenId={tokenId} />
 

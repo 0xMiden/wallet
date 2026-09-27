@@ -1,3 +1,5 @@
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -5,6 +7,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
+import { isE2eFixtureSymbol } from 'lib/prices/constant';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -142,26 +145,46 @@ export function normalizedFaucetId(faucetId: string): string {
 }
 
 /**
- * The symbol to look a held token's price up under: a swap token's `priceSymbol` (IETH at ETH),
- * matched by faucet in either id encoding as the swap picker matches balances, else its own symbol.
+ * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
+ * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), the Earn collateral USDC and
+ * the Agglayer-bridged ETH. Identity comes from the faucet id, never from the symbol a faucet gives
+ * itself, which anyone minting a token can set (#1131).
  */
-export function priceSymbolFor(faucetId: string, symbol: string): string {
-  const swapToken = getSwapTokens().find(
-    token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
-  );
-  return swapToken?.priceSymbol ?? symbol;
+function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+  return [
+    ...getSwapTokens().flatMap(token =>
+      token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
+    ),
+    { faucetId: getEarnCollateralFaucet(), priceSymbol: 'USDC' },
+    { faucetId: MIDEN_AGGLAYER_FAUCET_ID, priceSymbol: 'ETH' }
+  ];
 }
 
 /**
- * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it.
- * Without a faucet id the token's own symbol is looked up.
+ * The symbol to look a held token's price up under, matched by faucet id in either encoding as the
+ * swap picker matches balances; none for any other faucet, whatever its own symbol. The one
+ * exception is the E2E harness's fixture symbol, priced by symbol in E2E builds only.
+ */
+export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
+  const canonical = normalizedFaucetId(faucetId);
+  const priced = pricedFaucets().find(entry => {
+    const entryId = normalizedFaucetId(entry.faucetId);
+    return entry.faucetId === faucetId || entryId === faucetId || entryId === canonical;
+  });
+  if (priced) return priced.priceSymbol;
+  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
+}
+
+/**
+ * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it or
+ * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */
 export function tokenQuote(
   prices: TokenPrices,
   faucetId: string | undefined,
   symbol: string
 ): TokenPriceInfo | undefined {
-  return quotedPrice(prices, faucetId ? priceSymbolFor(faucetId, symbol) : symbol);
+  return faucetId ? quotedPrice(prices, priceSymbolFor(faucetId, symbol)) : undefined;
 }
 
 /**
