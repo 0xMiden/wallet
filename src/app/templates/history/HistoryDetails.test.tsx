@@ -1411,19 +1411,23 @@ describe('HistoryDetails', () => {
 
       expect(chips()).toEqual(noteIds);
       expect(screen.queryByTestId('history-consumed-notes-show-all')).toBeNull();
+      // Expanded, every chip still keeps its own tap target (#1046).
+      expect(
+        Array.from(screen.getByTestId('history-consumed-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          chip => chip.getAttribute('data-stacked')
+        )
+      ).toEqual(Array(8).fill('true'));
     });
 
-    it('keeps each stacked note-id chip to its own tap target, while a lone row chip keeps the wide one', async () => {
-      const noteIds = Array.from({ length: 8 }, (_, i) => `note-${i}`);
-      setMockRow(consumeTx({ noteId: noteIds[0], noteIds }));
+    it('keeps each chip of a two-note list stacked, while a lone row chip keeps the wide one', async () => {
+      // Two notes is the smallest list with a neighbour, so it pins where the opt-out starts.
+      setMockRow(consumeTx({ noteId: 'note-0', noteIds: ['note-0', 'note-1'] }));
       await renderAndLoad();
 
       const list = () => screen.getByTestId('history-consumed-notes');
       const stackedFlags = () =>
         Array.from(list().querySelectorAll('[data-testid="hash-chip"]')).map(chip => chip.getAttribute('data-stacked'));
-      expect(stackedFlags()).toEqual(Array(5).fill('true'));
-      fireEvent.click(screen.getByTestId('history-consumed-notes-show-all'));
-      expect(stackedFlags()).toEqual(Array(8).fill('true'));
+      expect(stackedFlags()).toEqual(['true', 'true']);
 
       // The external-tx-id row renders a chip of its own, outside the list.
       const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !list().contains(chip));
