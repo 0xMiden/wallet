@@ -3,8 +3,10 @@
  *
  * Only the offscreen document installs one (its prove worker client), so every other
  * realm - the service worker, mobile, desktop, Firefox - finds none and keeps proving
- * exactly as before. Nothing here touches the DOM or `chrome.*`, so the transaction
- * code can import it from any realm.
+ * exactly as before. Nothing here needs the DOM; the one extension call is
+ * `recordProveTiming`'s guarded marker post (`prove-telemetry`'s `recordProveMarker`),
+ * which every realm already imports, so the transaction code can still import this
+ * module from any realm.
  */
 import { ProvenTransaction, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 

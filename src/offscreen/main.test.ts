@@ -3219,6 +3219,55 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
+  it('guardianPipeline (delegated): stops before SUBMIT when the hold is evicted during the delegated prove (#777, #945)', async () => {
+    // The delegated leg never touches the prove worker, so the helper's own
+    // post-prove check cannot cover it: the pipeline's own
+    // `assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit')` is
+    // the ONLY guard standing between an eviction during this leg's longest
+    // await and an irreversible broadcast.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    let releaseProve!: () => void;
+    const parkedProve = new Promise<void>(resolve => {
+      releaseProve = resolve;
+    });
+    // The prove lives inside the executeRequest handle, so it is parked by
+    // substituting the handle rather than by a top-level spy.
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: { serialize: () => new Uint8Array([55, 66, 77]) },
+      id: { toHex: () => 'guardian-exec-hash' },
+      prove: jest.fn(async () => {
+        await parkedProve;
+        return {
+          submit: jest.fn(async () => {
+            G.__off.guardianSubmitted = true;
+            return { apply: jest.fn(async () => void (G.__off.guardianApplied = true)) };
+          })
+        };
+      })
+    }));
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-evicted-prove-delegated',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseProve();
+    await flush();
+
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(G.__off.guardianApplied).toBe(false);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
   it('guardianPipeline: a worker failure fails the write before submit, as ProveWorkerError (#945)', async () => {
     await loadModule();
     const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
