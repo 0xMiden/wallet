@@ -35,6 +35,7 @@
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
+- [FIX][all] After too many wrong passcode or password attempts, the one-minute lockout now always starts: a timer from before the failure could clear it straight away, leaving only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 
 ## 1.16.2 (2026-09-24)
 

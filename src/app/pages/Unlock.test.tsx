@@ -18,6 +18,10 @@ let mockCompact = false;
 // drive `attempt` / `timelock`; reset to `{}` in beforeEach for defaults.
 let mockLsStore: Record<string, unknown> = {};
 
+// Every value a setter was called with, in order, recorded in the setter itself: the state updater
+// can run more than once, which would double-count.
+let mockLsWrites: Array<[string, unknown]> = [];
+
 const mockUnlock = jest.fn();
 const mockNavigate = jest.fn();
 const mockOpenInFullPage = jest.fn();
@@ -66,6 +70,7 @@ jest.mock('lib/miden/front', () => {
       );
       const setter = R.useCallback(
         (next: unknown) => {
+          mockLsWrites.push([key, next]);
           setValue((prev: unknown) => {
             const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(prev) : next;
             mockLsStore[key] = resolved;
@@ -245,6 +250,7 @@ beforeEach(() => {
   mockIsMobile = false;
   mockCompact = false;
   mockLsStore = {};
+  mockLsWrites = [];
 
   mockUnlock.mockReset();
   mockNavigate.mockReset();
@@ -599,6 +605,72 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(2000);
 
     expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // Every 1 s interval callback registered so far, oldest first.
+  const intervalTicks = (spy: jest.SpyInstance) =>
+    (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
+
+  // The real useLocalStorage setter is a new function every render, so the 1 s interval is re-created
+  // constantly, and a tick from before the render that armed a lockout still holds the old TimeLock.
+  // The stub's setter is stable, so that tick is captured and run by hand (#1079).
+  it('keeps a lockout armed when a tick from before it lands afterwards', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+
+    type(container, '111111');
+    await advance(600);
+    const stamp = mockLsStore.TimeLock;
+    expect(stamp).toBe(BASE + 150);
+
+    act(() => staleTick());
+
+    expect(mockLsStore.TimeLock).toBe(stamp);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    type(container, '2');
+    await advance(200);
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  // The same tick holding an expired stamp from an earlier session instead of 0: the fresh lockout
+  // must survive it too, which only reading the live stamp guarantees.
+  it('keeps a lockout armed when a tick from before it still holds an expired stamp', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+
+    type(container, '111111');
+    await advance(600);
+    const stamp = mockLsStore.TimeLock;
+    expect(stamp).toBe(BASE + 150);
+
+    act(() => staleTick());
+
+    expect(mockLsStore.TimeLock).toBe(stamp);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+  });
+
+  it('writes nothing to storage while no lockout is armed', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([]);
+  });
+
+  it('clears an expired stored lockout stamp once', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([['TimeLock', 0]]);
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
