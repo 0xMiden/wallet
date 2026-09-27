@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -66,8 +68,8 @@ jest.mock('lib/ui/dialog', () => ({
 const mockUseConfirm = useConfirm as jest.Mock;
 const confirm = jest.fn();
 
-const applyEndpointOverride = jest.fn().mockResolvedValue(undefined);
-const clearEndpointOverride = jest.fn().mockResolvedValue(undefined);
+const applyEndpointOverride = jest.fn();
+const clearEndpointOverride = jest.fn();
 // The override the screen OPENS on. Null is the fresh-install case the rest of the suite wants;
 // opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
 // restore is about, so it has to be settable.
@@ -106,7 +108,7 @@ jest.mock('lib/miden-chain/endpoint-health', () => ({
   useEndpointHealth: () => mockHealthStatus.value
 }));
 
-const resetStorageDestructive = jest.fn().mockResolvedValue(undefined);
+const resetStorageDestructive = jest.fn();
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
@@ -114,7 +116,7 @@ jest.mock('lib/miden/reset', () => ({
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
 // (separate JS realm); handleSave's gating on `isExtension()` is asserted
 // against this spy below.
-const reloadEndpointOverridesInSW = jest.fn().mockResolvedValue(undefined);
+const reloadEndpointOverridesInSW = jest.fn();
 // `useWalletStore(selectIsIdle)` gates the SW nudge to pre-wallet (onboarding) —
 // `/developer-settings` is also reachable read-write from a live wallet (gated on
 // `!locked`, not `!ready`), so the nudge must not fire once a wallet exists. Default
@@ -178,6 +180,7 @@ jest.mock('components/Button', () => ({
 beforeEach(() => {
   mockHistoryPosition = 1;
   activeOverride = null;
+  __resetSyncFuseStateForTests();
   jest.clearAllMocks();
   // clearAllMocks keeps queued once-values, so one a failing test never used would reach the next.
   for (const service of [
@@ -195,6 +198,11 @@ beforeEach(() => {
   mockUseConfirm.mockReturnValue(confirm);
 });
 
+// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 /** A stored override: testnet's defaults with one endpoint the user authored. `allowNoGuardian`
  * differs from every preset's `false` in the case that asserts the restore carries URLs only. */
 const saved = (rpcUrl: string, allowNoGuardian = false) => ({
@@ -208,6 +216,14 @@ const saved = (rpcUrl: string, allowNoGuardian = false) => ({
   allowNoGuardian,
   networkName: 'testnet'
 });
+
+/** Lights the idle-sync fuse as consecutive watchdog evictions do. Stubs console.warn for the rest
+ * of the test, since both the fuse and the save it is paired with log. */
+const armIdleSyncFuse = () => {
+  jest.spyOn(console, 'warn').mockImplementation();
+  for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
+  expect(isSyncFused('idle-sync')).toBe(true);
+};
 
 describe('DeveloperSettings', () => {
   it('renders the warning banner and the RPC field', () => {
@@ -224,16 +240,7 @@ describe('DeveloperSettings', () => {
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {
-    const {
-      __resetSyncFuseStateForTests,
-      isSyncFused,
-      noteSyncWatchdogEviction
-    } = require('lib/miden/front/sync-fuse');
-    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
-    jest.spyOn(console, 'warn').mockImplementation();
-    __resetSyncFuseStateForTests();
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
-    expect(isSyncFused('idle-sync')).toBe(true);
+    armIdleSyncFuse();
 
     applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
     render(<DeveloperSettings />);
@@ -243,9 +250,6 @@ describe('DeveloperSettings', () => {
     expect(screen.getByTestId('dev-endpoints-save')).toHaveAttribute('data-loading', 'false');
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(isSyncFused('idle-sync')).toBe(true);
-
-    __resetSyncFuseStateForTests();
-    jest.restoreAllMocks();
   });
 
   it('clears the error as soon as a later save starts, and navigates home once it succeeds', async () => {
@@ -283,24 +287,13 @@ describe('DeveloperSettings', () => {
     // fused wallet pointed at a working RPC would otherwise probe once per 30 min — the
     // repoint reads as "nothing happened", and the successful sync that puts the fuse out
     // is exactly what the wallet stops giving itself the chance to observe (#777).
-    const {
-      __resetSyncFuseStateForTests,
-      isSyncFused,
-      noteSyncWatchdogEviction
-    } = require('lib/miden/front/sync-fuse');
-    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
-    jest.spyOn(console, 'warn').mockImplementation();
-    __resetSyncFuseStateForTests();
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
-    expect(isSyncFused('idle-sync')).toBe(true);
+    armIdleSyncFuse();
 
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     expect(isSyncFused('idle-sync')).toBe(false);
-    __resetSyncFuseStateForTests();
-    jest.restoreAllMocks();
   });
 
   it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {
@@ -597,7 +590,7 @@ describe('DeveloperSettings', () => {
   // The wipe has closed the storage handles, and only a reload reopens them, so a failed clear
   // after it must not keep the session on this screen.
   it('still reloads after the wipe when clearing the override fails', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     clearEndpointOverride.mockRejectedValueOnce(new Error('storage write failed'));
     render(<DeveloperSettings readOnly />);
@@ -606,11 +599,10 @@ describe('DeveloperSettings', () => {
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).toBeNull();
-    warn.mockRestore();
   });
 
   it('says the reset did not finish, and does not reload, when wiping storage fails', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
     render(<DeveloperSettings readOnly />);
@@ -620,11 +612,10 @@ describe('DeveloperSettings', () => {
     // The live wallet keeps the endpoints it runs on.
     expect(clearEndpointOverride).not.toHaveBeenCalled();
     expect(runtimeReload).not.toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it('clears the reset error when a new reset starts', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
     render(<DeveloperSettings readOnly />);
@@ -640,7 +631,6 @@ describe('DeveloperSettings', () => {
 
     finishWipe();
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
-    warn.mockRestore();
   });
 
   it('ignores a second Reset press while the reset runs', async () => {
@@ -661,6 +651,33 @@ describe('DeveloperSettings', () => {
 
     finishWipe();
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+  });
+
+  // jsdom's reload never unloads the page, so these end the way a reload that does not unload would.
+  it('stops the reset spinner when the mobile/desktop reload does not unload the page', async () => {
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true'));
+
+    finishWipe();
+    await waitFor(() => expect(clearEndpointOverride).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).not.toHaveBeenCalled();
+  });
+
+  it('stops the reset spinner when the extension reload does not unload the page', async () => {
+    mockIsExtension.value = true;
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true'));
+
+    finishWipe();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
   });
 
   it('shows a pending health note while a probe is in flight', () => {

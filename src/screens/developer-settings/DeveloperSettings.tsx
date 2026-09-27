@@ -115,8 +115,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     []
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
-  const [saving, setSaving] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
@@ -180,17 +179,11 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   };
 
   const handleSave = async () => {
-    if (saving) return;
-    setSaving(true);
+    if (pending) return;
+    setPending(true);
     setError(null);
     try {
-      try {
-        await applyEndpointOverride(form);
-      } catch (err) {
-        console.warn('[developer-settings] Could not save the endpoint override', err);
-        setError(t('devEndpointSaveFailed'));
-        return;
-      }
+      await applyEndpointOverride(form);
       // Every fuse conclusion was earned against the node this just stopped pointing at.
       // Mobile and desktop are exactly the realms that own the idle loop, so a fused
       // wallet repointed at a working RPC would otherwise probe once per 30 min - and the
@@ -223,13 +216,16 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // unchanged from before this nudge existed.
       if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
       navigate('/');
+    } catch (err) {
+      console.warn('[developer-settings] Could not save the endpoint override', err);
+      setError(t('devEndpointSaveFailed'));
     } finally {
-      setSaving(false);
+      setPending(false);
     }
   };
 
   const handleReset = async () => {
-    if (resetting) return;
+    if (pending) return;
     // Destructive: wipes the wallet DB and clears the vault/keys. Gate behind an
     // explicit confirmation (shared app-wide confirm dialog, see options.tsx's
     // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
@@ -241,48 +237,45 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     });
     if (!confirmed) return;
 
-    // Set only once confirmed, so a cancelled dialog cannot leave it on. A successful reset
-    // reloads, so only a failed wipe clears it.
-    setResetting(true);
+    // Set only once confirmed, so a cancelled dialog cannot leave it on.
+    setPending(true);
     hapticMedium();
     setError(null);
-    // The wipe goes first: it keeps the override through its blanket clear, so a failed wipe
-    // leaves the live wallet on the endpoints it runs on, and a retry runs it again.
     try {
+      // The wipe goes first: it keeps the override through its blanket clear, so a failed wipe
+      // leaves the live wallet on the endpoints it runs on, and a retry runs it again.
       await resetStorageDestructive();
+      // The wipe closed the storage handles and only the reload below reopens them, so a failed
+      // clear must not stop it. The override then survives into onboarding, where the editable
+      // screen can set the endpoints back to the defaults.
+      await clearEndpointOverride().catch(err =>
+        console.warn('[developer-settings] Could not clear the endpoint override', err)
+      );
+      // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
+      // override cache) can survive it - mirrors the canonical reset in src/options.tsx.
+      if (isExtension()) {
+        // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
+        // `chrome.runtime.id` is absent, so it must not be a top-level import - this
+        // screen is statically imported by PageRouter and evaluates on every platform
+        // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+        const browser = (await import('webextension-polyfill')).default;
+        browser.runtime.reload();
+      } else {
+        try {
+          // mobile/desktop: no background worker to resync with, just reload in place.
+          window.location.reload();
+        } catch {
+          // window.location.reload can't be relied on in every embedding (and can't be
+          // mocked in jsdom, since `window.location` is a non-configurable getter) -
+          // the storage wipe above already succeeded either way.
+          // no-op
+        }
+      }
     } catch (err) {
       console.warn('[developer-settings] Could not wipe the wallet storage', err);
       setError(t('devEndpointResetFailed'));
-      setResetting(false);
-      return;
-    }
-    // The wipe closed the storage handles and only the reload below reopens them, so a failed
-    // clear must not stop it. The override then survives into onboarding, where the editable
-    // screen can set the endpoints back to the defaults.
-    try {
-      await clearEndpointOverride();
-    } catch (err) {
-      console.warn('[developer-settings] Could not clear the endpoint override', err);
-    }
-    // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
-    // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
-    if (isExtension()) {
-      // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
-      // `chrome.runtime.id` is absent, so it must not be a top-level import — this
-      // screen is statically imported by PageRouter and evaluates on every platform
-      // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
-      const browser = (await import('webextension-polyfill')).default;
-      browser.runtime.reload();
-    } else {
-      try {
-        // mobile/desktop: no background worker to resync with, just reload in place.
-        window.location.reload();
-      } catch {
-        // window.location.reload can't be relied on in every embedding (and can't be
-        // mocked in jsdom, since `window.location` is a non-configurable getter) —
-        // the storage wipe above already succeeded either way.
-        // no-op
-      }
+    } finally {
+      setPending(false);
     }
   };
 
@@ -305,7 +298,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               className={actionButton}
               variant={ButtonVariant.Destructive}
               title={t('devEndpointResetAndReonboard')}
-              isLoading={resetting}
+              isLoading={pending}
               data-testid="dev-endpoints-reset"
               onClick={handleReset}
             />
@@ -315,7 +308,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
                 className={actionButton}
                 variant={ButtonVariant.Primary}
                 title={t('devEndpointSaveContinue')}
-                isLoading={saving}
+                isLoading={pending}
                 data-testid="dev-endpoints-save"
                 onClick={handleSave}
               />
