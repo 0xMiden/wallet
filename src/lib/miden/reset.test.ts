@@ -74,6 +74,8 @@ beforeEach(() => {
   (isMobile as jest.Mock).mockReturnValue(false);
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isExtension as jest.Mock).mockReturnValue(false);
+  localStorage.clear();
+  sessionStorage.clear();
   mockFetchFromStorage.mockResolvedValue(null);
   mockPutToStorage.mockResolvedValue(undefined);
 });
@@ -173,11 +175,20 @@ describe('resetStorageDestructive', () => {
 });
 
 describe('clearClientStorage', () => {
-  it('clears both localStorage and sessionStorage', () => {
-    const localSpy = jest.spyOn(Storage.prototype, 'clear');
+  it("keeps the desktop platform store's keys, removes every other localStorage key and clears sessionStorage", () => {
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+    localStorage.setItem('miden_wallet_guardian_url_setting', 'https://guardian.custom');
+    localStorage.setItem('i18nextLng', 'en');
+    localStorage.setItem('ui_draft', 'x');
+    sessionStorage.setItem('session_key', 'y');
+
     clearClientStorage();
-    // Both localStorage.clear() and sessionStorage.clear() share the prototype
-    expect(localSpy).toHaveBeenCalledTimes(2);
-    localSpy.mockRestore();
+
+    // Vault.spawn's reset wipes the platform store itself, after reading the legacy guardian URL.
+    expect(localStorage.getItem('miden_wallet_endpoint_overrides')).toBe('{"rpcUrl":"https://rpc.custom"}');
+    expect(localStorage.getItem('miden_wallet_guardian_url_setting')).toBe('https://guardian.custom');
+    expect(localStorage.getItem('i18nextLng')).toBeNull();
+    expect(localStorage.getItem('ui_draft')).toBeNull();
+    expect(sessionStorage.length).toBe(0);
   });
 });

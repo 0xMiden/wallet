@@ -3,6 +3,7 @@ import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
 
 // Keys that are configuration, NOT wallet data, and must survive a storage
 // reset. The dev-settings endpoint override selects the network the wallet is
@@ -85,7 +86,20 @@ export async function resetStorageDestructive() {
   await resetNativeAssetCache();
 }
 
+function localStorageKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key !== null) keys.push(key);
+  }
+  return keys;
+}
+
+// Leaves desktop's platform key-value store to Vault.spawn, which reads the legacy
+// guardian URL from it before its clearStorage wipes all but the preserved keys.
 export function clearClientStorage() {
-  localStorage.clear();
+  for (const key of localStorageKeys()) {
+    if (!key.startsWith(DESKTOP_STORAGE_PREFIX)) localStorage.removeItem(key);
+  }
   sessionStorage.clear();
 }

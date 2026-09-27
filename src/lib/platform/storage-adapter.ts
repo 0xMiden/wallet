@@ -13,12 +13,15 @@ export interface StorageProvider {
   remove(keys: string[]): Promise<void>;
 }
 
+/** Prefix of every key {@link DesktopStorage} keeps in localStorage. */
+export const DESKTOP_STORAGE_PREFIX = 'miden_wallet_';
+
 /**
  * Desktop storage implementation using localStorage
  * Works in Tauri webview context
  */
 export class DesktopStorage implements StorageProvider {
-  private prefix = 'miden_wallet_';
+  private prefix = DESKTOP_STORAGE_PREFIX;
 
   async get(keys: string[]): Promise<Record<string, any>> {
     const result: Record<string, any> = {};

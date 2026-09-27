@@ -7,11 +7,9 @@ import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
@@ -51,12 +49,6 @@ const ForgotPassword: FC = () => {
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
-
-  // The first non-null endpoint-override read across this attempt's retries.
-  // A failed restore can leave the key permanently null on desktop (the wipe
-  // already took it), so a later attempt's own null read is not "nothing to
-  // restore" but the same loss recurring (#1093).
-  const preservedEndpointOverride = useRef<unknown>(null);
 
   // Telemetry for the `recover` flow — regaining access to an EXISTING wallet
   // from its seed phrase. The other half of this screen (wipe and create a
@@ -120,35 +112,16 @@ const ForgotPassword: FC = () => {
   // nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
-      // `clearClientStorage()` is a blanket `localStorage.clear()`, and on
-      // DESKTOP localStorage is also the platform key-value store
-      // (`DesktopStorage`, prefix `miden_wallet_`) — so it takes the dev-settings
-      // endpoint override with it, the one key a storage reset must survive
-      // (`PRESERVED_STORAGE_KEYS` in lib/miden/reset). `Vault.spawn`'s own reset
-      // snapshots that key AFTER this call, so it reads null and restores
-      // nothing: the account is recovered on the custom network while the next
-      // launch resolves the build-default endpoints, which is exactly the
-      // account-here / client-there split the preserve list exists to prevent.
-      // Snapshot and restore it around the wipe. On the extension and on mobile
-      // the override lives in browser.storage.local / Capacitor Preferences,
-      // which `localStorage.clear()` cannot reach, so the restore rewrites the
-      // value it just read.
       try {
-        const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
-        if (endpointOverrides != null && preservedEndpointOverride.current === null) {
-          preservedEndpointOverride.current = endpointOverrides;
-        }
-        const overrideToRestore = endpointOverrides ?? preservedEndpointOverride.current;
+        // Leaves the platform key-value store to `Vault.spawn`'s reset, which
+        // preserves the dev-settings endpoint override in it (#1093).
         clearClientStorage();
-        if (overrideToRestore != null) {
-          await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, overrideToRestore);
-        }
         // Resolve the probed guardian endpoint (import path only) and thread it
         // explicitly into registerWallet (stage 1 of #408) rather than writing the
         // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
-        // clearClientStorage above cannot clobber it. When nothing was detected the
-        // endpoint stays undefined and the backend falls back to the stored /
-        // default endpoint.
+        // no storage wipe can clobber it. When nothing was detected the endpoint
+        // stays undefined and the backend falls back to the stored / default
+        // endpoint.
         // Endpoint only matters for a Guardian recovery; a non-guardian recovery
         // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
         const guardianEndpoint =
@@ -164,13 +137,11 @@ const ForgotPassword: FC = () => {
           onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
           guardianEndpoint
         );
-        preservedEndpointOverride.current = null;
         return 'ok';
       } catch (e) {
-        // The override read (before the wipe), the wipe, the override
-        // restore, and registerWallet can each fail here; a failure usually
-        // comes after the wipe, so it surfaces the reason and stays put so
-        // Retry is reachable (#630).
+        // clearClientStorage, the guardian endpoint lookup and registerWallet
+        // can each fail here; a failure usually comes after the wipe, so it
+        // surfaces the reason and stays put so Retry is reachable (#630).
         console.error(e);
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
@@ -195,7 +166,6 @@ const ForgotPassword: FC = () => {
       switch (action.id) {
         case 'create-wallet':
           discardGuardianProbe();
-          preservedEndpointOverride.current = null;
           setSeedPhrase(generateMnemonic().split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
@@ -205,7 +175,6 @@ const ForgotPassword: FC = () => {
           // the entry point of the `recover` flow.
           flowRef.current?.cancel();
           flowRef.current = beginFlow('recover');
-          preservedEndpointOverride.current = null;
           // Recovery is seed-phrase only — jump straight to the seed entry screen.
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromSeed);
@@ -303,7 +272,6 @@ const ForgotPassword: FC = () => {
           } else if (step === OnboardingStep.ImportFromSeed) {
             // Back to the reset screen's own welcome step — out of the recovery.
             settleRecoverFlow(handle => handle.cancel());
-            preservedEndpointOverride.current = null;
             setStep(OnboardingStep.Welcome);
           }
           break;
