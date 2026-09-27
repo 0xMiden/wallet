@@ -237,7 +237,9 @@ const Welcome: FC = () => {
   // time the user gets through the password/passcode step to the
   // recovery-method screen. It follows the live credential: each import submit
   // starts it for its own or ends the last one, and resetFlowState stops it, so
-  // Back and Forward inside an import keep it (a landing never resets it).
+  // Back and Forward inside an import keep it (a landing never resets it); the
+  // #import-from-seed landing drops a pasted key without ending its run, kept
+  // harmless by the credential gate below (no result shows with neither held).
   const guardianProbe = useGuardianProbe();
   const resetGuardianProbe = guardianProbe.reset;
   // Without a credential in memory (e.g. the popup was reopened directly on the

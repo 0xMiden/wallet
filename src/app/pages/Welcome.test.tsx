@@ -4083,6 +4083,7 @@ describe('Welcome - a file restore is the file it holds', () => {
 
 describe('Welcome - Guardian discovery across browser history', () => {
   const OPERATOR = 'https://detected.example';
+  const OTHER_HOT_KEY_HEX = 'ef'.repeat(32) + ':' + '34'.repeat(32);
   const DETECTED: GuardianProbeState = {
     status: 'done',
     result: {
@@ -4170,6 +4171,20 @@ describe('Welcome - Guardian discovery across browser history', () => {
     expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'probing' });
   });
 
+  it('shows a different key entered after Back its own discovery, not the last one', async () => {
+    await renderWelcome();
+    await enterKey();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: OTHER_HOT_KEY_HEX });
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockProbeStartWithKey).toHaveBeenLastCalledWith('ef'.repeat(32));
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'probing' });
+  });
+
   it('ends the discovery of a seed left for a wallet file', async () => {
     await renderWelcome();
     await enterSeed();
@@ -4184,7 +4199,8 @@ describe('Welcome - Guardian discovery across browser history', () => {
     expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
   });
 
-  it('ends the discovery of a seed left for a key that does not parse', async () => {
+  // ImportHotKey.tsx only ever submits a key it has already parsed; this pins the branch anyway.
+  it('a key submit that does not parse still ends the previous discovery (defensive guard: the UI only submits parsed keys)', async () => {
     await renderWelcome();
     await enterSeed();
     land(DETECTED);
