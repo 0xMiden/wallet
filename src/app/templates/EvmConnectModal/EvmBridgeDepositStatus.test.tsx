@@ -169,9 +169,9 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
   });
 
-  const submittedPhases: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];
+  const phasesInBothBodies: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];
 
-  it.each(submittedPhases)('rounds a long quoted amount in the %s state instead of showing every digit', phase => {
+  it.each(phasesInBothBodies)('rounds a long quoted amount in the %s state instead of showing every digit', phase => {
     mockRowState = {
       row: makeRow(makeInputs({ phase, sourceAmount: '151.500000000000000001', outputAmount: '150.00' })),
       loaded: true

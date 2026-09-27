@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { formatBridgeOutputAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
+import { formatBridgeInAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
@@ -32,11 +32,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
-  // The Fast route stores the exact 18-decimal quote and is rounded here the way Activity
-  // does; the Slow route stores what was typed (already capped at 6 decimals), so it is shown unchanged.
-  const roundedSourceAmount =
-    inputs.provider === 'epoch' ? formatBridgeOutputAmount(inputs.sourceAmount) : inputs.sourceAmount;
-  const sourceLabel = `${roundedSourceAmount} ${inputs.sourceSymbol}`;
+  const sourceLabel = `${formatBridgeInAmount(inputs.sourceAmount, inputs.provider)} ${inputs.sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');

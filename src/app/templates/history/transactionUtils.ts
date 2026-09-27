@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
+  IBridgeProvider,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -172,6 +173,16 @@ export const formatBridgeOutputAmount = (amount: string | undefined): string | u
   return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
 };
 
+/**
+ * A bridge-in amount is rounded only when it is a genuine Epoch quote, converted from base
+ * units and of unbounded precision; an amount the user typed (the Slow/Agglayer route) or the
+ * chain already credited is shown as stored.
+ */
+export const formatBridgeInAmount = (
+  amount: string | undefined,
+  provider: IBridgeProvider | undefined
+): string | undefined => (provider === 'epoch' ? formatBridgeOutputAmount(amount) : amount);
+
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
@@ -244,14 +255,12 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
-  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
-  // typed (at most 6 decimals), so it is shown as stored.
+  // Once the note is consumed the row's own (destination-scaled) amount is the truth, never a
+  // quote; in flight, formatBridgeInAmount applies the same by-route rule as the source side.
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()
-      : entry.bridgeInProvider === 'epoch'
-        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
-        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
+      : (formatBridgeInAmount(entry.bridgeInOutputAmount, entry.bridgeInProvider) ?? entry.amount?.toString());
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

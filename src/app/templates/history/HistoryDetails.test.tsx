@@ -2779,6 +2779,22 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
     });
 
+    it('shows a received Epoch bridge-in credited amount in full, the same as its list row', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150123456n,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          phase: 'received'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('150.123456')).toBeInTheDocument();
+    });
+
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
       setMockRow({
         ...baseSendTx,

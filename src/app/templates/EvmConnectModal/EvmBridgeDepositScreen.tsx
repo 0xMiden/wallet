@@ -25,7 +25,6 @@ import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
 } from 'lib/epoch/bridgeable-token';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -555,7 +554,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (raw == null) return undefined;
     try {
       const human = formatUnits(BigInt(String(raw)), MIDEN_USDC_FAUCET_DECIMALS);
-      return toAdaptiveFixed(human);
+      return formatBridgeOutputAmount(human);
     } catch {
       return undefined;
     }

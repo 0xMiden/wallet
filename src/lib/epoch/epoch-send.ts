@@ -1,4 +1,5 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
+import BigNumber from 'bignumber.js';
 import { formatUnits } from 'viem';
 
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -29,12 +30,16 @@ export interface EpochQuoteOutput {
  * Format an Epoch quote amount (18-decimal base units, or an already-human
  * decimal) to a display string with the standard 2-decimal precision, expanding
  * for small non-zero values that would otherwise appear as zero.
+ *
+ * Rounds DOWN, never half-up: a quote must not promise more than it pays. This is the
+ * app layer's `formatBridgeOutputAmount` rule, restated here because `lib/epoch` cannot
+ * import from `app/`.
  */
 function formatQuoteAmount(raw: string, decimals: number): string {
   if (!raw || raw === '0') return '0.00';
   try {
     const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
-    return toAdaptiveFixed(human);
+    return toAdaptiveFixed(human, undefined, BigNumber.ROUND_DOWN);
   } catch {
     return raw;
   }

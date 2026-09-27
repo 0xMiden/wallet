@@ -51,7 +51,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => false)
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -160,6 +161,15 @@ describe('EarnWithdrawReview', () => {
     expect(goBack).toHaveBeenCalledTimes(1);
   });
 
+  it('rounds the withdrawable amount down, never half-up', () => {
+    mockPositions = [{ ...position, withdrawable: '10.6555' }];
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
+    expect(within(hero).getByText('10.65')).toBeInTheDocument();
+    expect(within(hero).queryByText('10.6555')).not.toBeInTheDocument();
+  });
+
   it('gives the withdraw confirm the earn flow colour', () => {
     render(<EarnWithdrawReview positionId="position-1" />);
 
@@ -169,7 +179,9 @@ describe('EarnWithdrawReview', () => {
   it('falls back to an empty position and disables withdrawal for an unknown id', () => {
     render(<EarnWithdrawReview positionId="unknown" />);
 
-    expect(screen.getByText('0.00')).toBeInTheDocument();
+    // formatEarnWithdrawAmount does not pad a whole number (its own status-screen and
+    // Activity uses already read a zero source amount as '0', not '0.00').
+    expect(screen.getByText('0')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 
