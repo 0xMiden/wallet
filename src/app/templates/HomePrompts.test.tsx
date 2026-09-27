@@ -1087,6 +1087,91 @@ describe('HomePrompts', () => {
       expect(mockFaucet).not.toHaveBeenCalled();
     });
 
+    describe('on a card the user dismissed', () => {
+      const findFaucetCard = () =>
+        screen.queryAllByTestId('prompt-card').find(card => card.dataset.title === 'faucetPromptTitle');
+      const mintedNote: PendingNoteValue = { ...pendingNotes[0]!, id: 'minted-late' };
+      // Stateful, so a dismiss or a completion re-renders the card as it does in the app.
+      const promptStorageFrom = (initial: WalletPromptStatus) => () => {
+        const [faucetByAccount, setFaucetByAccount] = React.useState<Record<string, WalletPromptStatus>>({
+          accountA: initial
+        });
+        const setFaucetStatus = React.useCallback((address: string, status: WalletPromptStatus) => {
+          mockSetFaucetStatus(address, status);
+          setFaucetByAccount(current => ({ ...current, [address]: status }));
+        }, []);
+        const base = React.useMemo(() => makePromptState(), []);
+        return React.useMemo(
+          () => ({ ...base, setFaucetStatus, storage: { ...base.storage, faucetByAccount } }),
+          [base, faucetByAccount, setFaucetStatus]
+        );
+      };
+      const renderAt = (notes: PendingNoteValue[], balances: TokenBalanceData[]) => (
+        <HomePrompts
+          account={account}
+          balances={balances}
+          balancesLoading={false}
+          claimableNotes={notes}
+          fundingNotes={notes}
+          tokenPrices={tokenPrices}
+        />
+      );
+
+      it.each([
+        // The note waits to be claimed, so the record stays until a balance shows.
+        ['a new native note', [baselineNote, mintedNote], zeroBalance, unresolvedMarker],
+        ['a balance', [baselineNote], fundedBalance, undefined]
+      ])('keeps it dismissed when the funds land as %s', async (_case, notes, balances, markerAfter) => {
+        mockUseWalletPromptStorage.mockImplementation(promptStorageFrom(WalletPromptStatus.Pending));
+        markerStore.set('accountA', unresolvedMarker);
+        const { rerender } = render(renderAt([baselineNote], zeroBalance));
+        await act(async () => {});
+        expect(findFaucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+
+        fireEvent.click(within(findFaucetCard()!).getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
+        await act(async () => {});
+        expect(findFaucetCard()).toBeUndefined();
+
+        rerender(renderAt(notes, balances));
+        await act(async () => {});
+        await act(async () => {});
+
+        expect(findFaucetCard()).toBeUndefined();
+        expect(mockSetFaucetStatus).toHaveBeenCalledTimes(1);
+        expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Dismissed);
+        expect(markerStore.get('accountA')).toEqual(markerAfter);
+      });
+
+      it('still plays the Funded beat when the fee-broke rule shows it again', async () => {
+        mockUseWalletPromptStorage.mockImplementation(promptStorageFrom(WalletPromptStatus.Dismissed));
+        markerStore.set('accountA', unresolvedMarker);
+        const brokeNative: TokenBalanceData[] = [
+          {
+            tokenId: NATIVE_FAUCET_ID,
+            tokenSlug: NATIVE_FAUCET_ID,
+            metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' },
+            balance: 0,
+            fiatPrice: 0,
+            change24h: 0
+          }
+        ];
+        try {
+          mockBaseFee = 10000;
+          const { rerender } = render(renderAt([baselineNote], brokeNative));
+          await act(async () => {});
+          // A dismissal does not hide the only way out of an account that cannot pay a fee.
+          expect(findFaucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+
+          rerender(renderAt([baselineNote, mintedNote], brokeNative));
+
+          await waitFor(() => expect(findFaucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+          expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+        } finally {
+          mockBaseFee = 0;
+        }
+      });
+    });
+
     it('asks before a second request, and sends nothing when the answer is no', async () => {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       markerStore.set('accountA', unresolvedMarker);

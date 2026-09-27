@@ -738,8 +738,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // late and only just joined the list - from faking the success.
   // The same rule settles this account's unresolved request, whose funds may land after its wait.
   const watchedRequest: UnresolvedRequest | null = awaitingFaucetFunds ? fundingWait : unresolvedHere;
+  // Not on a card the user dismissed, though: the beat would bring it back. The settle effect above still
+  // clears the marker on a balance, and a dismissal the fee-broke rule overrides leaves the card on screen.
+  const faucetDismissed = faucetIsTerminal && faucetStatus === WalletPromptStatus.Dismissed;
   useEffect(() => {
-    if (watchedRequest === null) return;
+    if (watchedRequest === null || (!awaitingFaucetFunds && faucetDismissed)) return;
     // Only the note comparison needs the note set: an unloaded set can't be
     // graded against the baseline. A balance is independent of it, and gating it
     // here held the Funding hero - up to the 3-minute backstop - while spendable
@@ -765,7 +768,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // the beat regardless, so this changes nothing on screen.
     // Completed for the account whose funds landed, which is the one on screen.
     setFaucetStatus(address, WalletPromptStatus.Completed);
-  }, [fundingNotes, hasBalance, midenFaucetId, setFaucetStatus, watchedRequest]);
+  }, [awaitingFaucetFunds, faucetDismissed, fundingNotes, hasBalance, midenFaucetId, setFaucetStatus, watchedRequest]);
 
   // After the success beat, hand the stage to the pending-notes card / balance.
   // Pure presentation: the prompt was already completed at arrival.
