@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { mutate as mutateCache } from 'swr';
+import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -12,27 +12,28 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
     revalidateOnFocus: false,
     revalidateOnReconnect: false
   });
+  const { cache } = useSWRConfig();
 
   // On the extension each commit to the key arrives here, this page's own included; a removal carries no newValue.
   useEffect(() => onStorageChanged<unknown>(key, newValue => settle(key, begin(), newValue ?? null)), [key]);
 
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
-  const valueRef = useRef(value);
-  useEffect(() => {
-    valueRef.current = value;
-  }, [value]);
-
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
-      const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
-      await writeThrough(key, nextValue);
-      valueRef.current = nextValue;
+      // The base is the cache, which holds the newest value that landed; the rendered value can lag it.
+      const current: T = cache.get(key)?.data ?? fallback;
+      await writeThrough(key, isUpdater(val) ? val(current) : val);
     },
-    [key]
+    [cache, key, fallback]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
+}
+
+// A stored value is never a function, so a function is SetStateAction's updater form.
+function isUpdater<T>(val: SetStateAction<T>): val is (prev: T) => T {
+  return typeof val === 'function';
 }
 
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
