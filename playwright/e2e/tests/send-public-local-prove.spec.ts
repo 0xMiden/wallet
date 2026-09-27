@@ -1,4 +1,13 @@
 import { expect, test } from '../fixtures/two-wallets';
+import {
+  findProveWindow,
+  installFrameRecorder,
+  measureFrameGap,
+  type ProveMarker,
+  readFrameTimes,
+  readyWorkerThreads
+} from '../harness/frame-gap-probe';
+import { readProveTelemetry, readRealmMarkers } from '../harness/prove-telemetry-probe';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from '../helpers/balance-truth';
 
@@ -10,6 +19,10 @@ const MINT_BASE_UNITS = 100_000_000_000n;
 // What the send step types into the amount field, and the same figure in base units.
 const SEND_AMOUNT = '500';
 const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
+// #945: a local prove must not freeze the wallet page. A prove window shorter than
+// this cannot tell a freeze from a fast prove; a gap longer than MAX is a freeze.
+const MIN_PROVE_WINDOW_MS = 2000;
+const MAX_FRAME_GAP_MS = 1000;
 
 /**
  * Local-prove guard spec: the one E2E path that exercises in-browser WASM
@@ -123,7 +136,7 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           TOKEN,
           TOKEN_DECIMALS
         );
-        await walletA.sendTokens({
+        await walletA.prepareSendReview({
           recipientAddress: addressB!,
           amount: SEND_AMOUNT,
           // Devnet's native MIDEN row (0 balance) now renders above the
@@ -132,6 +145,59 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           tokenSymbol: TOKEN,
           isPrivate: false
         });
+
+        // #945: the wallet tab stamps every frame it paints. It shares a renderer
+        // process with the offscreen document, so a prove on that document's thread
+        // stops the stamps for the whole prove.
+        await installFrameRecorder(walletA.page);
+        await expect
+          .poll(async () => (await readFrameTimes(walletA.page)).length, {
+            message: 'the wallet page is not painting at all (hidden or occluded), so a frame gap would prove nothing',
+            timeout: 2_000
+          })
+          .toBeGreaterThanOrEqual(30);
+        const armedAt = await walletA.page.evaluate(() => Date.now());
+
+        await walletA.submitSendReview();
+        await walletA.waitForSendSubmissionAccepted();
+
+        // Read as soon as the window closes: the offscreen marker ring keeps 200
+        // lines and each sync adds about five, so the end of the test is too late.
+        let markers: ProveMarker[] = [];
+        await expect
+          .poll(
+            async () => {
+              markers = await readRealmMarkers(walletA.page, 'offscreen');
+              return findProveWindow(markers, armedAt) !== undefined;
+            },
+            { message: 'no local-prove window closed in the offscreen realm', timeout: 300_000, intervals: [1_000] }
+          )
+          .toBe(true);
+        const frames = await readFrameTimes(walletA.page);
+        const proveWindow = findProveWindow(markers, armedAt);
+        if (!proveWindow) throw new Error('unreachable: the poll above returned only once a window had closed');
+        expect(proveWindow.opens, 'exactly one local-prove window opens after arming').toBe(1);
+        expect(
+          proveWindow.closeTs - proveWindow.openTs,
+          `the prove window is shorter than ${MIN_PROVE_WINDOW_MS} ms, too short to tell a freeze from a fast prove`
+        ).toBeGreaterThanOrEqual(MIN_PROVE_WINDOW_MS);
+        const gap = measureFrameGap(frames, proveWindow.openTs, proveWindow.closeTs);
+        expect(
+          gap.maxGapMs,
+          `the page went ${gap.maxGapMs} ms without a frame during a ${gap.windowMs} ms local prove (${gap.framesInWindow} frames)`
+        ).toBeLessThanOrEqual(MAX_FRAME_GAP_MS);
+
+        const expectedThreads = await walletA.page.evaluate(() => Math.min(navigator.hardwareConcurrency, 6));
+        expect(
+          readyWorkerThreads(markers, armedAt),
+          'the prove worker came up cross-origin isolated with the capped pool'
+        ).toBe(expectedThreads);
+        await expect
+          .poll(async () => (await readProveTelemetry(walletA.page)).find(entry => entry.ts >= armedAt), {
+            message: 'the local prove recorded no telemetry',
+            timeout: 30_000
+          })
+          .toMatchObject({ path: 'local', realm: 'offscreen' });
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
