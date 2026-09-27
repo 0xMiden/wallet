@@ -18,6 +18,7 @@
 - [CHORE][all] The clipboard comments in the dApp actions sheet, the copy button and the recovery phrase backup test now point at useClipboardCopy's description of what @capacitor/clipboard does on each surface, instead of promising the call works where the Clipboard API is missing (#1088).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
+- [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 
 ### Fixes
