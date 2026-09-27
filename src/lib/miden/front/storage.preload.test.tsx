@@ -718,4 +718,90 @@ describe('storage operation order (#1168)', () => {
     expect(screen.queryByTestId('failed')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('old');
   });
+
+  it("ext: another page's value that arrived during this page's write wins", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-earlier-key'] = 'old';
+    await preloadStorage(['ext-earlier-key']);
+    renderReader('ext-earlier-key', Writer);
+    await drain();
+    const reads = mockGet.mock.calls.length;
+
+    const release = holdNextSet();
+    let write!: Promise<void> | void;
+    act(() => {
+      write = setStored('new');
+    });
+    act(() => deliverEchoes());
+    act(() => emitChange('ext-earlier-key', 'other'));
+    await act(async () => {
+      release();
+      await write;
+    });
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
+    expect(mockStored['ext-earlier-key']).toBe('other');
+    expect(mockGet).toHaveBeenCalledTimes(reads);
+  });
+
+  it('ext: a change event overtakes a pending preload', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-preload-key'] = 'seed';
+    await preloadStorage(['ext-preload-key']);
+    renderReader('ext-preload-key');
+    await drain();
+
+    const releasePreload = deferredRead('ext-preload-key', 'old');
+    const preload = preloadStorage(['ext-preload-key']);
+    const parkedReads: Array<(error: Error) => void> = [];
+    mockGet.mockImplementation(
+      () =>
+        new Promise<Record<string, unknown>>((_, reject) => {
+          parkedReads.push(reject);
+        })
+    );
+    act(() => emitChange('ext-preload-key', 'new'));
+    await act(async () => {
+      releasePreload();
+      await preload;
+    });
+    await act(async () => {
+      for (const reject of parkedReads) reject(new Error('read failed'));
+    });
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('ext: a removal renders the fallback without suspending', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-removed-key'] = 'old';
+    await preloadStorage(['ext-removed-key']);
+    renderReader('ext-removed-key');
+    await drain();
+
+    act(() => emitChange('ext-removed-key'));
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it("ext: a hook read that lands after another page's change does not replace it", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-read-key'] = 'old';
+    await preloadStorage(['ext-read-key']);
+    renderReader('ext-read-key');
+    await drain();
+
+    const releaseRead = deferredRead('ext-read-key', 'old');
+    act(() => {
+      void mutate('ext-read-key');
+    });
+    act(() => emitChange('ext-read-key', 'other'));
+    releaseRead();
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
+  });
 });

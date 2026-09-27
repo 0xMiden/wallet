@@ -7,13 +7,14 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { data, mutate } = useRetryableSWR<T | null>(key, readForHook<T>, {
+  const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
   });
 
-  useEffect(() => onStorageChanged(key, mutate), [key, mutate]);
+  // On the extension each commit to the key arrives here, this page's own included; a removal carries no newValue.
+  useEffect(() => onStorageChanged<unknown>(key, newValue => settle(key, begin(), newValue ?? null)), [key]);
 
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
