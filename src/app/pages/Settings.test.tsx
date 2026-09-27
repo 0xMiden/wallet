@@ -571,7 +571,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({
-      url: 'https://miden-feedback-form.miden-feedback-relay.workers.dev/',
+      url: 'https://miden-feedback-v2.miden-feedback-relay.workers.dev/',
       title: 'Send feedback'
     });
   });
