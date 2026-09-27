@@ -301,6 +301,23 @@ describe('DappConfirmationModal origin', () => {
     expectDomainInsideCard(within(title).getByTestId('dapp-origin-domain'));
   });
 
+  it('shows the origin in the title when the name is only its hostname, as the injected provider sends', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          origin: LONG_ORIGIN,
+          appMeta: { name: 'login.secure.account-verify.wallet.example.co.uk' }
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const title = screen.getByRole('heading', { level: 2 });
+    expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
+    expect(title).not.toHaveClass('truncate');
+  });
+
   it('keeps a dApp-sent name in the title, truncated as before', () => {
     render(
       <DappConfirmationModal
