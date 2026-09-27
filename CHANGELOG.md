@@ -14,6 +14,7 @@
 - [CHANGE][ci] The test-network ribbon's popup E2E now runs: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
 - [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
 - [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
+- [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 
 ### Fixes
 
