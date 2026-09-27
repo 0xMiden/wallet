@@ -2701,6 +2701,37 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('confirmed')).toBeInTheDocument();
     });
 
+    it('shows a Slow-route bridge-in amount as entered, not cut to two decimals', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          provider: 'agglayer',
+          sourceAmount: '0.015',
+          sourceSymbol: 'ETH',
+          outputAmount: '0.015',
+          outputSymbol: 'ETH'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getAllByText('0.015')).toHaveLength(2);
+    });
+
+    it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          sourceAmount: '151.500000000000000001'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+    });
+
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
       setMockRow({
         ...baseSendTx,

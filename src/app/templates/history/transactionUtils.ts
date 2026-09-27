@@ -244,10 +244,14 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
+  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
+  // typed (at most 6 decimals), so it is shown as stored.
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()
-      : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
+      : entry.bridgeInProvider === 'epoch'
+        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
+        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

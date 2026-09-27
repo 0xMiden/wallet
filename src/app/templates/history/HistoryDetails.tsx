@@ -126,11 +126,14 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
-  // raw quote/source string never renders with its full precision. `break-all`
-  // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
-  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '-';
-  const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
+  const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
+  // Bridge-out and a Fast-route bridge-in go through the adaptive formatter (2dp, expanding
+  // for dust) so a raw 18-decimal quote never renders with its full precision; a Slow-route
+  // bridge-in's amounts are what was typed (at most 6 decimals) and are shown as stored.
+  // `break-all` + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const bridgeInIsSlowRoute = bridgeIn && entry.bridgeInProvider !== 'epoch';
+  const inAmount = (bridgeInIsSlowRoute ? rawInAmount : formatBridgeOutputAmount(rawInAmount)) ?? '-';
+  const displayedOutAmount = (bridgeInIsSlowRoute ? outAmount : formatBridgeOutputAmount(outAmount)) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
