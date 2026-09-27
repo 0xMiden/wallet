@@ -800,7 +800,27 @@ function u8ToB64Local(u8: Uint8Array): string {
 }
 
 describe('account switch (#174)', () => {
-  const PERM = { rpc: 'rpc.testnet', address: '0xabc', privateDataPermission: 'ALL', allowedPrivateData: ['balance'] };
+  // The host names the network by id in the connect answer and by RPC URL in the poll answer
+  // (lib/miden/back/dapp.ts), so these tests connect the way the product does.
+  const CONNECT = {
+    network: 'testnet',
+    accountId: '0xabc',
+    privateDataPermission: 'ALL',
+    allowedPrivateData: ['balance'],
+    publicKey: btoa('abc')
+  };
+  const PERM = {
+    rpc: 'https://rpc.testnet.miden.io',
+    address: '0xabc',
+    privateDataPermission: 'ALL',
+    allowedPrivateData: ['balance']
+  };
+  async function connectedOnTestnet(): Promise<FakeWindow> {
+    const win = makeWindow();
+    inject(win);
+    await callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT);
+    return win;
+  }
   const flush = async () => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
   };
@@ -817,7 +837,7 @@ describe('account switch (#174)', () => {
   }
 
   it('does not poll before 10 s, and an unchanged grant emits nothing', async () => {
-    const win = await connectedWallet();
+    const win = await connectedOnTestnet();
     const spy = jest.fn();
     win.midenWallet.on('accountChange', spy);
     jest.advanceTimersByTime(9999);
@@ -828,7 +848,7 @@ describe('account switch (#174)', () => {
   });
 
   it('takes a switched account before emitting it', async () => {
-    const win = await connectedWallet();
+    const win = await connectedOnTestnet();
     const seen: unknown[] = [];
     win.midenWallet.on('accountChange', (p: unknown) =>
       seen.push([p, win.midenWallet.address, Array.from(win.midenWallet.publicKey)])
@@ -840,7 +860,7 @@ describe('account switch (#174)', () => {
   });
 
   it('clears on null and emits it, keeps polling, and emits the grant again on the switch back', async () => {
-    const win = await connectedWallet();
+    const win = await connectedOnTestnet();
     const spy = jest.fn();
     win.midenWallet.on('accountChange', spy);
     await answerPoll(win, null);
@@ -855,21 +875,25 @@ describe('account switch (#174)', () => {
     expect(win.midenWallet.address).toBe('0xabc');
   });
 
-  it('keeps the key on a same-address grant with none, and changes nothing on a malformed key', async () => {
-    const win = await connectedWallet();
+  it('emits nothing for a same-address grant on another rpc, and changes nothing on a malformed key', async () => {
+    const win = await connectedOnTestnet();
     const spy = jest.fn();
     win.midenWallet.on('accountChange', spy);
-    await answerPoll(win, { ...PERM, rpc: 'rpc.other' });
+    const permission = win.midenWallet.permission;
+    await answerPoll(win, { ...PERM, rpc: 'https://rpc.devnet.miden.io' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(win.midenWallet.address).toBe('0xabc');
+    expect(win.midenWallet.permission).toBe(permission);
     expect(Array.from(win.midenWallet.publicKey)).toEqual([97, 98, 99]);
     await answerPoll(win, { ...PERM, address: '0xdef', publicKey: '%%%' });
     expect(win.midenWallet.address).toBe('0xabc');
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).not.toHaveBeenCalled();
     await answerPoll(win, { ...PERM, address: '0xdef', publicKey: btoa('def') });
     expect(win.midenWallet.address).toBe('0xdef');
   });
 
   it('stops on disconnect, and a poll answered after disconnect changes nothing', async () => {
-    const win = await connectedWallet();
+    const win = await connectedOnTestnet();
     const spy = jest.fn();
     win.midenWallet.on('accountChange', spy);
     jest.advanceTimersByTime(10000);
@@ -889,20 +913,14 @@ describe('account switch (#174)', () => {
   });
 
   it('a second connect keeps one poll', async () => {
-    const win = await connectedWallet();
-    await callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), {
-      network: 'rpc.testnet',
-      accountId: '0xabc',
-      privateDataPermission: 'ALL',
-      allowedPrivateData: ['balance'],
-      publicKey: btoa('abc')
-    });
+    const win = await connectedOnTestnet();
+    await callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT);
     jest.advanceTimersByTime(10000);
     expect(polls(win)).toHaveLength(1);
   });
 
   it('a poll that times out is followed by the next one', async () => {
-    const win = await connectedWallet();
+    const win = await connectedOnTestnet();
     jest.advanceTimersByTime(10000);
     expect(polls(win)).toHaveLength(1);
     jest.advanceTimersByTime(300000);

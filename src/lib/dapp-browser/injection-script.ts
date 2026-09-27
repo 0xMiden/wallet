@@ -145,9 +145,10 @@ export const INJECTION_SCRIPT = `
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
+  // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
   function samePermission(a, b) {
     if (a === null || b === null) return a === b;
-    return a.address === b.address && a.rpc === b.rpc;
+    return a.address === b.address;
   }
 
   function watchPermission(wallet, seed) {
@@ -258,8 +259,6 @@ export const INJECTION_SCRIPT = `
         } catch (e) {
           return false;
         }
-      } else if (perm.address === this.address) {
-        publicKey = this.publicKey;
       }
       this.permission = perm;
       this.address = perm.address;
