@@ -202,7 +202,7 @@ describe('clearStorage', () => {
     await expect(clearStorage()).rejects.toThrow('quota');
   });
 
-  it('keeps only the list its caller passes: a file restore drops the legacy guardian URL (#1174)', async () => {
+  it("keeps only the list its caller passes: the full reset's list drops the legacy guardian URL (#1174)", async () => {
     jest.mocked(isExtension).mockReturnValue(true);
     mockBrowserStorageGet.mockResolvedValue({
       endpoint_overrides: OVERRIDE,

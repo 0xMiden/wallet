@@ -32,7 +32,7 @@ import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
-import { clearStorage, PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
+import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -1473,8 +1473,9 @@ export class Vault {
       // insert-key sink, and the restore below already inserts the derived secrets (#878).
       spawned = new Vault(vaultKey);
 
-      // A restore rebuilds the profile from the file, so it keeps only what every reset keeps.
-      await clearStorage(false, PRESERVED_STORAGE_KEYS);
+      // Keeps what every setup keeps, the legacy Guardian URL included: the action drops it once the
+      // restore is published, so a restore that fails leaves it for the next attempt.
+      await clearStorage(false);
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection
@@ -1668,7 +1669,7 @@ export class Vault {
       // Guarded, so a failure before the protector existed cannot wipe a profile
       // this restore never touched; a failed undo is logged, never thrown over the restore's error.
       if (protectorInstalled) {
-        await clearStorage(false, PRESERVED_STORAGE_KEYS).catch(undoError =>
+        await clearStorage(false).catch(undoError =>
           console.error('[Vault.spawnFromMidenClient] could not undo a failed restore:', undoError)
         );
       }

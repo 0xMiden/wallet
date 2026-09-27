@@ -2294,6 +2294,24 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
+  it('keeps the legacy guardian URL and the endpoint override through a rejected restore (#1174)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    memoryStore['stale_setting'] = 'from the previous profile';
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+
+    // The opening wipe and its undo both ran, so what survived them was kept, not skipped.
+    expect(memoryStore['stale_setting']).toBeUndefined();
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+  });
+
   it("surfaces the restore's own error when its undo cannot clear storage (#1174)", async () => {
     const { clearStorage } = jest.requireMock('lib/miden/reset');
     const wipe = clearStorage.getMockImplementation();
@@ -2402,15 +2420,17 @@ describe('Vault.spawnFromMidenClient', () => {
     expect((globalThis as any).__vaultTestRealmInsertKey).toEqual(expect.any(Function));
   });
 
-  it('drops the legacy guardian URL: a restore keeps only the endpoint override (#1174)', async () => {
+  it('keeps the legacy guardian URL through a restore; the action drops it once published (#1174)', async () => {
     memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
     memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    memoryStore['stale_setting'] = 'from the previous profile';
 
     await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
       { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
     ]);
 
-    expect(memoryStore['guardian_url_setting']).toBeUndefined();
+    expect(memoryStore['stale_setting']).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
     expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
   });
 

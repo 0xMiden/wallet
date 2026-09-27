@@ -61,10 +61,10 @@ export const DEFAULT_THEME: ThemeSetting = 'system';
  * key is no longer WRITTEN anywhere in the codebase. It is still READ as the
  * final fallback for a legacy account on a custom/self-hosted/rotated guardian
  * that the backfill can't identify — see `resolveGuardianEndpoint` and
- * `useCurrentGuardianEndpoint`. Wallet-setup storage resets keep it
- * (`SETUP_PRESERVED_STORAGE_KEYS`) until a setup succeeds, so a Retry after a
- * failed recovery reads it too; a successful setup (`dropLegacyGuardianUrl`), a
- * file restore and a full reset drop it. Do not reintroduce writes; deleting it
+ * `useCurrentGuardianEndpoint`. Every wallet-setup storage reset, a file restore
+ * included, keeps it (`SETUP_PRESERVED_STORAGE_KEYS`), so a Retry after a failed
+ * setup reads it too; it goes once any setup succeeds (`dropLegacyGuardianUrl`)
+ * and on a full reset. Do not reintroduce writes; deleting it
  * from a wallet that is only ever unlocked needs a "re-enter your guardian URL"
  * user flow (out of scope).
  */

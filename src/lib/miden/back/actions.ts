@@ -27,7 +27,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { clearStorage, dropLegacyGuardianUrl, PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
+import { clearStorage, dropLegacyGuardianUrl } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -317,6 +317,7 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
+        await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
         if (!published && vault) {
           // The spawn's own undo cannot fire here: it already RESOLVED, and the
@@ -327,7 +328,7 @@ export function registerImportedWallet(
           vault.retire();
           // Never let the undo replace the cause: this runs in a finally, so a
           // throw here would surface a storage error instead of the real failure.
-          await clearStorage(false, PRESERVED_STORAGE_KEYS).catch(undoError =>
+          await clearStorage(false).catch(undoError =>
             console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
           );
         }
