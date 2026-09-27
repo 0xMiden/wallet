@@ -6,7 +6,13 @@ import { join } from 'node:path';
 
 import type { DecryptedWalletFile, VersionTwoDecryptedWalletFile } from 'lib/miden/backup-file';
 import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
-import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import {
+  type GuardianProbeState,
+  NO_GUARDIAN_ID,
+  OnboardingStep,
+  OnboardingType,
+  WalletType
+} from 'screens/onboarding/types';
 
 import Welcome from './Welcome';
 
@@ -98,10 +104,15 @@ const mockProbeStart = jest.fn();
 // The real hook is { state, start, startWithKey, reset }; the key path is what
 // the seed-less Guardian import uses, so the stub carries it too.
 const mockProbeStartWithKey = jest.fn();
-const mockProbeReset = jest.fn();
+// What the hook would report. A reset, like a newer run, supersedes every earlier run, so its result never lands.
+const mockProbe: { state: GuardianProbeState; runs: number } = { state: { status: 'idle' }, runs: 0 };
+const mockProbeReset = jest.fn(() => {
+  mockProbe.runs += 1;
+  mockProbe.state = { status: 'idle' };
+});
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
   useGuardianProbe: () => ({
-    state: { status: 'idle' },
+    state: mockProbe.state,
     start: mockProbeStart,
     startWithKey: mockProbeStartWithKey,
     reset: mockProbeReset
@@ -369,6 +380,8 @@ beforeEach(() => {
   mockRegisterWalletFromHotKey.mockResolvedValue(undefined);
   mockProbeStart.mockResolvedValue(undefined);
   mockProbeStartWithKey.mockResolvedValue(undefined);
+  mockProbe.state = { status: 'idle' };
+  mockProbe.runs = 0;
   mockPutToStorage.mockResolvedValue(undefined);
   mockSeedWalletPrompt.mockResolvedValue(undefined);
   mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
@@ -4065,5 +4078,123 @@ describe('Welcome - a file restore is the file it holds', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+  });
+});
+
+describe('Welcome - Guardian discovery across browser history', () => {
+  const OPERATOR = 'https://detected.example';
+  const DETECTED: GuardianProbeState = {
+    status: 'done',
+    result: {
+      best: { endpoint: OPERATOR, accountIds: ['acct-1'], hdIndices: [0], nonce: 1n },
+      matches: [{ endpoint: OPERATOR, accountIds: ['acct-1'], hdIndices: [0], nonce: 1n }],
+      probedEndpoints: [OPERATOR],
+      failures: []
+    }
+  };
+
+  // A start opens a run as the hook does; `land` publishes that run's result unless a reset or a later run came first.
+  let land: (state: GuardianProbeState) => void = () => undefined;
+  const openRun = async () => {
+    mockProbe.runs += 1;
+    const run = mockProbe.runs;
+    mockProbe.state = { status: 'probing' };
+    land = state => {
+      if (mockProbe.runs === run) mockProbe.state = state;
+    };
+    return undefined;
+  };
+
+  beforeEach(() => {
+    land = () => undefined;
+    mockIsMobileFn.mockReturnValue(false);
+    mockProbeStart.mockImplementation(openRun);
+    mockProbeStartWithKey.mockImplementation(openRun);
+  });
+
+  const enterSeed = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+  };
+  const enterKey = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-with-key' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+  };
+  const continueToRecoveryMethod = async () => {
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+  };
+
+  it.each([
+    ['seed', '#import-from-seed', enterSeed],
+    ['key', '#import-from-key', enterKey]
+  ])('still offers the detected Guardian after Back to the %s entry and Forward', async (_name, entryHash, enter) => {
+    await renderWelcome();
+    await enter();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash(entryHash);
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockFlowProps.current.guardianProbe).toEqual(DETECTED);
+  });
+
+  it('shows a discovery that finishes after Back and Forward', async () => {
+    await renderWelcome();
+    await enterSeed();
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#create-password');
+    land(DETECTED);
+    await continueToRecoveryMethod();
+
+    expect(mockFlowProps.current.guardianProbe).toEqual(DETECTED);
+  });
+
+  it('shows a different seed entered after Back its own discovery, not the last one', async () => {
+    await renderWelcome();
+    await enterSeed();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'ee ff gg hh' });
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockProbeStart).toHaveBeenLastCalledWith(['ee', 'ff', 'gg', 'hh']);
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'probing' });
+  });
+
+  it('ends the discovery of a seed left for a wallet file', async () => {
+    await renderWelcome();
+    await enterSeed();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
+  });
+
+  it('ends the discovery of a seed left for a key that does not parse', async () => {
+    await renderWelcome();
+    await enterSeed();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-with-key' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
+
+    expect(mockProbeStartWithKey).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
   });
 });

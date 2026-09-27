@@ -235,7 +235,9 @@ const Welcome: FC = () => {
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
   // time the user gets through the password/passcode step to the
-  // recovery-method screen.
+  // recovery-method screen. It follows the live credential: each import submit
+  // starts it for its own or ends the last one, and resetFlowState stops it, so
+  // Back and Forward inside an import keep it (a landing never resets it).
   const guardianProbe = useGuardianProbe();
   const resetGuardianProbe = guardianProbe.reset;
   // Without a credential in memory (e.g. the popup was reopened directly on the
@@ -423,10 +425,14 @@ const Welcome: FC = () => {
   const startGuardianProbeWithKey = useCallback(
     (payload: string) => {
       const pair = parsePrivateKeyPair(payload);
-      if (!pair) return;
+      // Nothing to detect for a key that does not parse, and the last credential's result must not stand in for it.
+      if (!pair) {
+        resetGuardianProbe();
+        return;
+      }
       void guardianProbe.startWithKey(pair.hotPrivateKey);
     },
-    [guardianProbe]
+    [guardianProbe, resetGuardianProbe]
   );
 
   const register = useCallback(async () => {
@@ -697,6 +703,8 @@ const Welcome: FC = () => {
         setWalletFilePayload(action.payload);
         setSeedPhrase(action.payload.seedPhrase.split(' '));
         setKeyPairPayload(null);
+        // A file restore needs no Guardian discovery, and one left running for an earlier seed must end with it.
+        resetGuardianProbe();
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
           if (transitionGenerationRef.current !== generation) break;
@@ -982,9 +990,8 @@ const Welcome: FC = () => {
       case '#choose-guardian':
         // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
         // a create, and a history jump can land here before any protection step generated it (a create
-        // starts with no credentials, see resetFlowState). The seed is read through a ref: in the
-        // deps it would re-run the import cases, and #import-from-seed would reset the probe its submit
-        // just started.
+        // starts with no credentials, see resetFlowState). The seed is read through a ref: a credential
+        // change is not a navigation, so it does not re-run this routing.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
         else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
         else setStep(OnboardingStep.ChooseGuardian);
@@ -1001,16 +1008,10 @@ const Welcome: FC = () => {
         // A pasted key must not survive a switch back to seed entry — the two
         // credentials are mutually exclusive.
         setKeyPairPayload(null);
-        // Backing out to seed entry invalidates any detection for the previous
-        // phrase — abort it so a stale result can't be shown for a new seed.
-        resetGuardianProbe();
         break;
       case '#import-from-key':
         setOnboardingType(OnboardingType.Import);
         setStep(OnboardingStep.ImportFromKey);
-        // Same invalidation as seed entry: a detection for the previous
-        // credential must not outlive it.
-        resetGuardianProbe();
         break;
       case '#import-from-file':
         setOnboardingType(OnboardingType.Import);
@@ -1040,7 +1041,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, resetGuardianProbe]);
+  }, [hash, password, onboardingType]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
   // password or type change, and a reset there would wipe what the next action just set.
