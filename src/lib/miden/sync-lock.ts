@@ -7,8 +7,9 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  *
  * For the pure-sync holds outside the `useSyncTrigger` loop: the transaction
  * pipeline's pre-flight sync (`transaction/index.ts`), the two
- * landed-verification probes (`transaction/cancel.ts`), and the note-import
- * queue's trailing sync (`activity/notes.ts`). Their SDK call carries no
+ * landed-verification probes (`transaction/cancel.ts`), the note-import
+ * queue's trailing sync (`activity/notes.ts`), and the rotation's pre-build
+ * chain sync (`guardian/index.ts`). Their SDK call carries no
  * transport deadline on wasm32, so a parked gRPC-web fetch would otherwise hold
  * the lock until the 5-minute last resort.
  *
@@ -17,10 +18,15 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  * codec, the vault and intercom. That is why the frontend loop passes
  * `watchdogMs` to `withWasmClientLock` itself instead of calling this.
  *
- * Not every bounded sync hold comes through here: the frontend loop and the two
- * guardian `syncState` holds pass `watchdogMs` to `withWasmClientLock`
- * themselves, because this module is backend-only (above) and `guardian/index.ts`
- * is not. The holds still on the DEFAULT ceiling are so deliberately: they
+ * Not every bounded sync hold comes through here: the frontend loop passes
+ * `watchdogMs` to `withWasmClientLock` itself, because this module is
+ * backend-only (above) and the frontend loop is not. `guardian/index.ts`'s
+ * remaining two bounded holds, the `guardian-sync` and `guardian-adopt`
+ * `syncState` holds, do the same, but not for that reason - it already imports
+ * the same client proxy this module does. They sync the multisig client's
+ * guardian state (`this.multisig.syncState()`), not the chain, so this
+ * chain-sync-only helper does not fit them.
+ * The holds still on the DEFAULT ceiling are so deliberately: they
  * continue into other work under the same hold (a `getAccount`, a cold-restore's
  * on-chain probe) and so fall under the restriction below. The service worker's
  * own sync hold needs no ceiling for
@@ -36,5 +42,5 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  * into other work after the sync must take `withWasmClientLock` itself, on the
  * default ceiling.
  */
-export const syncUnderBoundedLock = (): Promise<void> =>
-  withWasmClientLock(async () => midenClientProxy.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+export const syncUnderBoundedLock = (label?: string): Promise<void> =>
+  withWasmClientLock(async () => midenClientProxy.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label });

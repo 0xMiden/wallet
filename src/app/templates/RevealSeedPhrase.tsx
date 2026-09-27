@@ -32,9 +32,8 @@ type FormData = {
 // The page opens on the privacy warning; the auth gate and the words come only after View.
 type Step = 'warning' | 'reveal';
 
-// The protector probe reads platform storage, which can hang rather than fail. The
-// bound only has to be shorter than a user's patience: its whole job is to convert a
-// hang into the retryable error path.
+// The protector probe reads platform storage, which can hang rather than fail. Past this bound the
+// page says it is still checking and how to retry (leave and reopen); the probe itself stays in flight.
 const PROBE_TIMEOUT_MS = 5_000;
 
 const RevealSeedPhrase: FC = () => {
@@ -84,7 +83,7 @@ const RevealSeedPhrase: FC = () => {
   // transient and the mount probe runs once.
   const [probeError, setProbeError] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
-  const probeGeneration = useRef(0);
+  const [probeSlow, setProbeSlow] = useState(false);
   const probeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
@@ -126,81 +125,54 @@ const RevealSeedPhrase: FC = () => {
       try {
         return !(await Vault.hasPasswordProtector());
       } catch (passwordError) {
-        // Carry both. The log is the only evidence for this state, and a bare rethrow
-        // could only ever name the complement's failure.
-        throw new Error('both protector reads failed', { cause: { hardwareError, passwordError } });
+        // Carry both, in the message too: the failure log prints the message and is the only
+        // evidence for this state, and a bare rethrow could only ever name the complement's failure.
+        const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
+        throw new Error(
+          `both protector reads failed (hardware: ${describe(hardwareError)}; password: ${describe(passwordError)})`,
+          { cause: { hardwareError, passwordError } }
+        );
       }
     }
   }, []);
 
-  // One runner for both entry points, with a monotonic token guarding every write.
-  // The token is NOT redundant: the deadline below releases the button without settling
-  // the read, so a user can start a second probe while the first is still outstanding -
-  // an overlap that could not happen before that change. The token is what makes the
-  // first probe's late settle a no-op instead of a write from a superseded run.
+  // One probe per page at a time. Retry exists only once a probe has settled with both reads
+  // rejected, so no second probe can start while one is in flight, and staying on the page adopts the
+  // first read's answer however late. During a hang the only retry is leaving and reopening, which
+  // ends this probe with the page: its late settle writes to an unmounted component, which React
+  // ignores, and the new page's read answers if the first was lost rather than wedged.
   const runProbe = useCallback(() => {
-    const generation = (probeGeneration.current += 1);
-    const isCurrent = () => generation === probeGeneration.current;
-    // At most one line per run. The deadline and a rejection can both land for the same
-    // run - a read that outlives the bound and then fails - and two lines for one banner
-    // would over-count probes in a report.
-    let logged = false;
-    const raiseBanner = (message: string) => {
-      if (!isCurrent()) return;
-      if (!logged) {
-        logged = true;
-        console.warn(`[RevealSeedPhrase] ${message}`);
-      }
-      setProbeError('couldNotCheckUnlockMethod');
-      setProbing(false);
-    };
-
     setProbing(true);
-    clearTimeout(probeTimer.current);
-    // Held in a LOCAL as well as the ref, and the local is what `.finally` clears. The
-    // ref alone was wrong: a superseded probe settles late by design here, and its
-    // `.finally` would then clear whatever handle the ref holds - which after a Retry is
-    // the LIVE probe's deadline. That left the second probe unbounded and put the page
-    // back in the dead end this whole mechanism exists to prevent. The ref stays for the
-    // unmount cleanup and the pre-arm clear, both of which do want the newest handle.
-    // A WAIT, not a failure. This fires on any read slower than the bound, and such a
-    // read is adopted below - so calling it a failure made the common mobile case, a slow
-    // bridge read that succeeds, report an error that never happened.
-    const timer = setTimeout(
-      () => raiseBanner(`protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`),
-      PROBE_TIMEOUT_MS
-    );
-    probeTimer.current = timer;
+    let waited = false;
+    probeTimer.current = setTimeout(() => {
+      waited = true;
+      console.warn(`[RevealSeedPhrase] protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`);
+      // The wait notice replaces an earlier failure's error: one message on screen at a time.
+      setProbeError(null);
+      setProbeSlow(true);
+    }, PROBE_TIMEOUT_MS);
 
     probe()
       .then(hasHw => {
-        if (!isCurrent()) return;
-        // Withdraw the wait, so "slow then answered" is separable from "never answered".
-        if (logged) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
+        if (waited) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
         setProbeError(null);
         setHasHardwareProtector(hasHw);
       })
-      .catch(err => raiseBanner(`protector probe failed: ${err instanceof Error ? err.message : String(err)}`))
+      .catch(err => {
+        console.warn(`[RevealSeedPhrase] protector probe failed: ${err instanceof Error ? err.message : String(err)}`);
+        setProbeError('couldNotCheckUnlockMethod');
+      })
       .finally(() => {
-        clearTimeout(timer);
-        if (isCurrent()) setProbing(false);
+        clearTimeout(probeTimer.current);
+        setProbeSlow(false);
+        setProbing(false);
       });
   }, [probe]);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
     runProbe();
-    // Bump on the way out, the same way `secretGeneration` is: round 2 replaced this
-    // effect's `cancelled` flag with the token and then never invalidated on unmount,
-    // so an in-flight probe could still write. Harmless under React 18, but the
-    // asymmetry with its sibling is the kind that bites later.
-    return () => {
-      probeGeneration.current += 1;
-      // The generation bump invalidates the WRITE; this invalidates the TIMER. Round 3
-      // added the first and not the second, which left a live handle behind on exactly
-      // the hanging read the bound exists for.
-      clearTimeout(probeTimer.current);
-    };
+    return () => clearTimeout(probeTimer.current);
   }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.
@@ -419,7 +391,7 @@ const RevealSeedPhrase: FC = () => {
             <SeedPhrasePlaceholder />
           </SubPageSection>
 
-          {probeError && (
+          {probeError ? (
             <div>
               <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
                 {t(probeError)}
@@ -433,6 +405,12 @@ const RevealSeedPhrase: FC = () => {
                 isLoading={probing}
               />
             </div>
+          ) : (
+            probeSlow && (
+              <Notice tone="neutral" role="status" data-testid="reveal-seed-probe-slow">
+                {t('checkingUnlockMethodSlow')}
+              </Notice>
+            )
           )}
 
           <SeedPhrasePrivacyHero className="mt-auto pt-4" />

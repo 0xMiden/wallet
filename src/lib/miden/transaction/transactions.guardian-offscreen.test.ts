@@ -52,9 +52,12 @@
  *     reconcile handler, update-procedure-threshold to Failed.
  */
 
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { WalletType } from 'screens/onboarding/types';
+
 import { generateTransaction } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
+import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
@@ -206,6 +209,20 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => ({
   MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
+}));
+
+// The rotation mints its hot key in the transaction layer (#904).
+const mockGenerateHotKey = jest.fn(async () => ({
+  ciphertext: 'new-cx',
+  publicKeyHex: '0xNEWHOT',
+  commitmentHex: '0xnewcommit'
+}));
+jest.mock('lib/secure-hot-key', () => ({
+  generateHotKey: () => mockGenerateHotKey()
+}));
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: async () => '0xnewcommit'
 }));
 
 // See the same block in transactions.guardian.test.ts: the pipeline re-checks hold
@@ -648,9 +665,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
   });
 
   it('an unauthorized replace-hot-key is NOT requeued — a structural op must not re-mint', async () => {
-    // The type gate is the only thing stopping a structural op from re-running a
-    // proposal creator that has already minted a hardware hot key, orphaning one
-    // per cycle. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
+    // By this arm the row's key is already persisted, so a rerun would read it
+    // back rather than mint another; the type gate is the only thing stopping a
+    // structural op from being requeued here regardless, so it fails for the
+    // user to re-initiate instead - the same honest-outcome call as
+    // `earn-deposit`. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
     // conjunct is mutation-dead: deleting it leaves every suite green.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
@@ -670,11 +689,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     );
 
     const stored = txStore.find(r => r.id === 'on-replace-hot-key-unauthorized') as Record<string, unknown>;
-    // Pins WHY it failed. Without this the test is vacuous: a structural op does
-    // not reach the leaf in this harness, so it ends Failed for an unrelated
-    // reason and the assertion below stays green even with the type gate deleted.
-    // The `earn-deposit` case above and the membership test below are what
-    // actually hold that gate honest.
+    // Pins WHY it failed. Without this the test is vacuous: this file's shared
+    // `provider` fixture returns no accounts (`getAccounts: async () => []`), so
+    // THIS arrangement's replace-hot-key case throws on its own account lookup
+    // before ever reaching the leaf, for a reason unrelated to the type gate -
+    // not a claim that a structural op can never reach it (a stale-state rebuild
+    // does, elsewhere). The `earn-deposit` case above and the membership test
+    // below are what actually hold that gate honest.
     expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
     expect(stored.status).toBe(ITransactionStatus.Failed);
     expect(stored.nextEligibleAt).toBeUndefined();
@@ -682,10 +703,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
   it('the unauthorized requeue set is exactly the value-moving retryable types', async () => {
     // Membership asserted directly because the behavioural tests cannot reach it
-    // from both sides: a structural row dies before the leaf in this harness, so
-    // ADDING `replace-hot-key` here changes no test's outcome, and no suite sends
+    // from both sides: the replace-hot-key test above throws on its own account
+    // lookup (this file's shared `provider` fixture returns no accounts) before
+    // ever reaching this arm's decision, for a reason unrelated to the gate, so
+    // ADDING `replace-hot-key` here changes no test's outcome; and no suite sends
     // an unauthorized `swap` or `execute`, so DROPPING those changes nothing
-    // either. Both directions matter — one lets a retry re-mint a hot key, the
+    // either. Both directions matter - one lets a post-persist rerun retry a
+    // structural op the design fails for the user to re-initiate instead, the
     // other silently narrows the fix back to the two types that happen to have
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
@@ -2416,10 +2440,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 // single service object to assert on.
 const makeStructuralService = () => ({
   createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
-  createReplaceHotKeyProposal: jest.fn(async () => ({
-    proposal: { id: 'prop', nonce: 7 },
-    newHot: { publicKeyHex: '0xNEWHOT', ciphertext: new Uint8Array([0xab, 0xcd]) }
-  })),
+  createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   signProposal: jest.fn(async () => {}),
   signAndCreateTransactionRequest: jest.fn(async () => ({
@@ -2590,7 +2611,8 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
 
     // Persisted exactly once, with the freshly-minted key material, on BOTH flags.
     expect(sp.persistNewHotKey).toHaveBeenCalledTimes(1);
-    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', new Uint8Array([0xab, 0xcd]));
+    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', 'new-cx');
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
 
     // Ordering: persist ran BEFORE signAndCreateTransactionRequest, which ran BEFORE the
     // leaf — the SAME relative order flag-on vs flag-off. The offscreen move does not
@@ -2605,6 +2627,48 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
         : inline.__executeRequest.mock.invocationCallOrder[0]
     )!;
     expect(signOrder).toBeLessThan(leafOrder);
+  });
+});
+
+describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
+  // Queues one rejection then one resolution on the shared module-level mock; if the
+  // rebuild under test regresses to a single attempt, the resolution is never consumed
+  // and `jest.clearAllMocks()` (the file's own beforeEach) does not drop queued
+  // once-values, so it would otherwise leak into the next test to call this mock.
+  afterEach(() => {
+    mockDispatchGuardianPipeline.mockReset();
+  });
+
+  it('a superseded-commitment refusal crossing the offscreen bus is rebuilt once with the same key', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline
+      .mockRejectedValueOnce(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
+            'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+      )
+      .mockResolvedValueOnce(makeResult());
+    const tx = new ReplaceHotKeyTransaction('guardian-acc', false);
+    const { service } = arrangeStructural(tx.id, { type: 'replace-hot-key', extraInputs: {} });
+    const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
+    const rotationProvider: GuardianAccountProvider = {
+      getAccounts: async () => [
+        { publicKey: 'guardian-acc', name: 'Guardian', isPublic: false, type: WalletType.Guardian, hdIndex: 0 }
+      ],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey
+    };
+
+    await generateTransaction(tx, signCallback, false, rotationProvider);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(2);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.createReplaceHotKeyProposal).toHaveBeenCalledTimes(2);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+    expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+    expect(mockComplete.replaceHotKey).toHaveBeenCalledTimes(1);
   });
 });
 
