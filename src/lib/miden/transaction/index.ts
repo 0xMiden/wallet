@@ -41,6 +41,7 @@ import {
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   MAX_QUEUED_AGE,
+  sweepInterruptedTransactionsOnce,
   verifyConsumeLanded
 } from './cancel';
 import {
@@ -3312,6 +3313,9 @@ export const safeGenerateTransactionsLoop = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  // Off the extension the cold-start sweep must fail the previous process's orphans
+  // before this realm's first pass can start a row, or it fails that row too (#924).
+  if (!isExtension()) await sweepInterruptedTransactionsOnce();
   return navigator.locks
     .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return;

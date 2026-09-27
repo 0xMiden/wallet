@@ -11,12 +11,12 @@ import { render, waitFor } from '@testing-library/react';
 
 import { __resetColdStartSweepForTests, OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 
-const mockFailInterrupted = jest.fn(async () => {});
+const mockSweepOnce = jest.fn(async () => {});
 const mockCancelStuck = jest.fn(async () => {});
 const mockGetAllUncompleted = jest.fn(async (): Promise<unknown[]> => []);
 const mockStartBg = jest.fn();
 jest.mock('../transaction', () => ({
-  failInterruptedTransactions: () => mockFailInterrupted(),
+  sweepInterruptedTransactionsOnce: () => mockSweepOnce(),
   cancelStuckTransactions: () => mockCancelStuck(),
   getAllUncompletedTransactions: () => mockGetAllUncompleted(),
   startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args)
@@ -51,7 +51,7 @@ describe('OrphanedTransactionRecovery', () => {
 
     render(<OrphanedTransactionRecovery />);
 
-    await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockSweepOnce).toHaveBeenCalledTimes(1));
     expect(mockCancelStuck).not.toHaveBeenCalled();
     await waitFor(() => expect(mockStartBg).toHaveBeenCalledWith(mockSignTransaction, false, { kind: 'zustand' }));
   });
@@ -62,7 +62,7 @@ describe('OrphanedTransactionRecovery', () => {
     // is the ONLY row still has to be cleared out of `GeneratingTransaction`.
     render(<OrphanedTransactionRecovery />);
 
-    await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockSweepOnce).toHaveBeenCalledTimes(1));
     expect(mockStartBg).not.toHaveBeenCalled();
   });
 
@@ -73,7 +73,7 @@ describe('OrphanedTransactionRecovery', () => {
     render(<OrphanedTransactionRecovery />);
 
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(mockFailInterrupted).not.toHaveBeenCalled();
+    expect(mockSweepOnce).not.toHaveBeenCalled();
     expect(mockStartBg).not.toHaveBeenCalled();
   });
 
@@ -85,29 +85,30 @@ describe('OrphanedTransactionRecovery', () => {
     rerender(<OrphanedTransactionRecovery />);
 
     await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
-    expect(mockFailInterrupted).toHaveBeenCalledTimes(1);
+    expect(mockSweepOnce).toHaveBeenCalledTimes(1);
   });
 
-  it('never re-runs the age-independent sweep after a REMOUNT in the same process', async () => {
-    // The latch is module scope, not a component ref, precisely because
-    // `failInterruptedTransactions` fails every in-progress row regardless of age:
-    // a second run inside a live app process would kill a transaction that is
-    // actively processing right now.
+  it('never re-runs the startup recovery after a REMOUNT in the same process', async () => {
+    // The sweep is once per realm on its own (sweepInterruptedTransactionsOnce); the
+    // module-scope latch keeps a provider remount from starting a second poller.
     mockGetAllUncompleted.mockResolvedValue([{ id: 'tx-orphan' }]);
 
     const first = render(<OrphanedTransactionRecovery />);
-    await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalledTimes(1));
     first.unmount();
 
     render(<OrphanedTransactionRecovery />);
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(mockFailInterrupted).toHaveBeenCalledTimes(1);
+    expect(mockSweepOnce).toHaveBeenCalledTimes(1);
+    expect(mockStartBg).toHaveBeenCalledTimes(1);
   });
 
-  it('swallows a failing sweep instead of crashing the app tree', async () => {
+  it('swallows a failing row read instead of crashing the app tree', async () => {
+    // The sweep never rejects (it logs its own failure), so the read after it is
+    // what reaches this catch.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockFailInterrupted.mockRejectedValueOnce(new Error('db closed'));
+    mockGetAllUncompleted.mockRejectedValueOnce(new Error('db closed'));
 
     render(<OrphanedTransactionRecovery />);
 

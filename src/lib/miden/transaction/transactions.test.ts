@@ -23,6 +23,8 @@ import {
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
+  sweepInterruptedTransactionsOnce,
+  __resetInterruptedSweepForTests,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
@@ -1285,6 +1287,33 @@ describe('transactions utilities', () => {
       // tx died in the 'proving' stage — that would invite the retry the sweep avoids.
       expect(dbTx.error).toMatch(/interrupted/i);
       expect(dbTx.error).not.toMatch(/prov(e|ing)|try again/i);
+    });
+  });
+
+  describe('sweepInterruptedTransactionsOnce', () => {
+    beforeEach(() => __resetInterruptedSweepForTests());
+
+    it('sweeps once per realm, whoever asks first', async () => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+
+      const first = sweepInterruptedTransactionsOnce();
+      expect(sweepInterruptedTransactionsOnce()).toBe(first);
+      await first;
+      await sweepInterruptedTransactionsOnce();
+
+      expect(mockTransactionsFilter).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves after a failed sweep, logs it, and never sweeps again', async () => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockRejectedValue(new Error('db closed')) });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(sweepInterruptedTransactionsOnce()).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalled();
+      await sweepInterruptedTransactionsOnce();
+
+      expect(mockTransactionsFilter).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
   });
 

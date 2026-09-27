@@ -9,6 +9,8 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
+import { isGuardianAccount } from 'lib/miden/front/guardian-manager';
+
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
@@ -17,6 +19,8 @@ import {
   generateTransaction,
   generateTransactionsLoop,
   getUncompletedTransactions,
+  __resetInterruptedSweepForTests,
+  sweepInterruptedTransactionsOnce,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
   verifyStuckTransactionsFromNode,
@@ -148,9 +152,11 @@ jest.mock('../activity/helpers', () => ({
   interpretTransactionResult: jest.fn((tx: any) => ({ ...tx, displayMessage: 'Executed' }))
 }));
 
+// eslint-disable-next-line no-var
+var mockGapsIsExtension = true;
 jest.mock('lib/platform', () => ({
   isMobile: () => false,
-  isExtension: () => true
+  isExtension: () => mockGapsIsExtension
 }));
 
 jest.mock('shared/logger', () => ({
@@ -227,6 +233,7 @@ beforeEach(() => {
   // A hold leaked by an eviction test would flip another test's ownership checks.
   gapsHold = null;
   _gh.__noteTypeForTest = 'private';
+  mockGapsIsExtension = true;
 });
 
 describe('getUncompletedTransactions', () => {
@@ -823,6 +830,104 @@ describe('waitForTransactionCompletion', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('the cold-start sweep and the first loop pass in a realm (#924)', () => {
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const queuedSend = (id: string) => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    secondaryAccountId: 'recipient',
+    status: ITransactionStatus.Queued,
+    initiatedAt: nowSec(),
+    noteType: NoteTypeEnum.Public,
+    faucetId: 'f'
+  });
+  const row = (id: string) => txStore.find(t => t.id === id);
+  // Holds the pass right after it marks its row GeneratingTransaction: the guardian
+  // lookup is the next await.
+  const holdPass = () => {
+    let release: () => void = () => {};
+    jest.mocked(isGuardianAccount).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_resolve, reject) => {
+          release = () => reject(new Error('released'));
+        })
+    );
+    return () => release();
+  };
+  const until = async (condition: () => boolean) => {
+    for (let i = 0; i < 200 && !condition(); i++) await new Promise(resolve => setTimeout(resolve, 5));
+  };
+
+  beforeEach(() => {
+    __resetInterruptedSweepForTests();
+    const nav = (globalThis as any).navigator || {};
+    Object.defineProperty(nav, 'locks', {
+      value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
+      writable: true,
+      configurable: true
+    });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.mocked(console.warn).mockRestore();
+    // A hold the pass never reached would otherwise answer the next suite's lookup.
+    jest
+      .mocked(isGuardianAccount)
+      .mockReset()
+      .mockImplementation(async () => false);
+  });
+
+  it('leaves a carried-over row the first pass started alone when the recovery sweeps', async () => {
+    mockGapsIsExtension = false;
+    txStore.push(queuedSend('carried'));
+    const release = holdPass();
+    const loop = safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+    await until(() => row('carried').status === ITransactionStatus.GeneratingTransaction);
+
+    await sweepInterruptedTransactionsOnce();
+
+    expect(row('carried').status).toBe(ITransactionStatus.GeneratingTransaction);
+    release();
+    await loop;
+  });
+
+  it("fails the previous process's orphans before the realm's first pass starts a row", async () => {
+    mockGapsIsExtension = false;
+    txStore.push({
+      ...queuedSend('orphan'),
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: nowSec()
+    });
+    txStore.push(queuedSend('queued'));
+    const release = holdPass();
+    const loop = safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+    await until(() => row('queued').status === ITransactionStatus.GeneratingTransaction);
+
+    expect(row('orphan').status).toBe(ITransactionStatus.Failed);
+    expect(row('orphan').displayMessage).toMatch(/interrupted/i);
+    expect(row('queued').status).toBe(ITransactionStatus.GeneratingTransaction);
+    release();
+    await loop;
+  });
+
+  it('never sweeps from a loop pass on the extension', async () => {
+    txStore.push({
+      ...queuedSend('orphan'),
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: nowSec()
+    });
+    txStore.push(queuedSend('queued'));
+    const release = holdPass();
+
+    await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+
+    expect(row('orphan').status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(row('queued').status).toBe(ITransactionStatus.Queued);
+    release();
   });
 });
 
