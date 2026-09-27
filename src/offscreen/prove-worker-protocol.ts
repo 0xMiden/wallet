@@ -18,7 +18,14 @@ export interface ProveRequestMessage {
 
 export type ProveWorkerInitFailure = 'not-cross-origin-isolated' | 'wasm-load' | 'thread-pool';
 
-const PROVE_WORKER_INIT_FAILURES: readonly string[] = ['not-cross-origin-isolated', 'wasm-load', 'thread-pool'];
+// A Record over the union, not a string[]: if `ProveWorkerInitFailure` ever gains or
+// loses a member, a missing or stale key here is a tsc error, not a silent drift that
+// only a test could catch.
+const INIT_FAILURES: Record<ProveWorkerInitFailure, true> = {
+  'not-cross-origin-isolated': true,
+  'wasm-load': true,
+  'thread-pool': true
+};
 
 /** Worker to parent. A successful result's `proven.buffer` travels in the transfer list. */
 export type ProveWorkerMessage =
@@ -98,7 +105,10 @@ export function isProveWorkerMessage(data: unknown): data is ProveWorkerMessage 
       return (
         'reason' in data &&
         typeof data.reason === 'string' &&
-        PROVE_WORKER_INIT_FAILURES.includes(data.reason) &&
+        // `Object.hasOwn`, not `in`: `in` walks the prototype chain, so a reason of
+        // 'constructor' or 'toString' would read as present even though it is not
+        // one of the object's own keys.
+        Object.hasOwn(INIT_FAILURES, data.reason) &&
         'message' in data &&
         typeof data.message === 'string'
       );

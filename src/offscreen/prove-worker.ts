@@ -59,16 +59,20 @@ async function boot(): Promise<WebClient | null> {
     return null;
   }
   let client: WebClient;
+  let threads: number;
   try {
     await initThreadPool(proveThreadCount(navigator.hardwareConcurrency));
     // A raw client that never runs createClient: with an explicit prover,
     // proveTransaction is a pure computation that needs no store or network.
     client = new WebClient();
+    // Inside the try too: a throw here left `boot()` an unhandled rejection with
+    // nothing posted at all, since nothing downstream ever awaits or catches it.
+    threads = rayonThreadCount();
   } catch (error) {
     post({ type: 'init-failed', reason: 'thread-pool', message: messageOf(error) });
     return null;
   }
-  post({ type: 'ready', threads: rayonThreadCount(), crossOriginIsolated: true });
+  post({ type: 'ready', threads, crossOriginIsolated: true });
   return client;
 }
 
@@ -108,5 +112,17 @@ let queue: Promise<void> = Promise.resolve();
 globalThis.addEventListener('message', event => {
   const data: unknown = event.data;
   if (!isProveRequestMessage(data)) return;
-  queue = queue.then(() => prove(data));
+  // A `finally`-block throw (a WASM handle's `free()` trapping) rejects `prove()`'s
+  // own promise even after it already posted a result. Uncaught, that would leave
+  // `queue` permanently rejected, and every later `.then()` on it skips its
+  // callback forever - a silent stall, not just a missed message. Catching here and
+  // rethrowing on a fresh macrotask keeps the chain alive while still surfacing the
+  // failure as this realm's `error` event, which the client already handles.
+  queue = queue
+    .then(() => prove(data))
+    .catch(error => {
+      setTimeout(() => {
+        throw error;
+      });
+    });
 });

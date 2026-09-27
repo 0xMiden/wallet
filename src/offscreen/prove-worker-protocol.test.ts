@@ -62,6 +62,11 @@ describe('isProveWorkerMessage', () => {
   it.each([
     ['ready', { type: 'ready', threads: 6, crossOriginIsolated: true }],
     ['init-failed', { type: 'init-failed', reason: 'wasm-load', message: 'x' }],
+    [
+      'init-failed not-cross-origin-isolated',
+      { type: 'init-failed', reason: 'not-cross-origin-isolated', message: 'x' }
+    ],
+    ['init-failed thread-pool', { type: 'init-failed', reason: 'thread-pool', message: 'x' }],
     ['a success', { type: 'result', id: 1, ok: true, proven: new Uint8Array([1]), durationMs: 3 }],
     ['a failure', { type: 'result', id: 1, ok: false, message: 'x' }]
   ])('accepts %s', (_label, data) => {
@@ -81,7 +86,8 @@ describe('isProveWorkerMessage', () => {
     ['a failure without a message', { type: 'result', id: 1, ok: false }],
     ['a non-boolean ok', { type: 'result', id: 1, ok: 'yes', message: 'x' }],
     ['ready with crossOriginIsolated false', { type: 'ready', threads: 6, crossOriginIsolated: false }],
-    ['init-failed with an unknown reason', { type: 'init-failed', reason: 'unknown-reason', message: 'x' }]
+    ['init-failed with an unknown reason', { type: 'init-failed', reason: 'unknown-reason', message: 'x' }],
+    ['init-failed with reason constructor', { type: 'init-failed', reason: 'constructor', message: 'x' }]
   ])('rejects %s', (_label, data) => {
     expect(isProveWorkerMessage(data)).toBe(false);
   });

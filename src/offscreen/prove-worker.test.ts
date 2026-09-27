@@ -11,6 +11,7 @@ const mockSdk = {
   hasInitThreadPool: true,
   rayonThreadCount: jest.fn(() => 6),
   webClients: 0,
+  webClientCtorShouldThrow: false,
   proveTransaction: jest.fn(async (_result: unknown, _prover: unknown) => mockProven),
   deserialize: jest.fn((_bytes: Uint8Array) => mockResult),
   newLocalProver: jest.fn(() => ({ local: true }))
@@ -26,6 +27,7 @@ jest.mock('@miden-sdk/miden-sdk/mt/lazy', () => ({
   rayonThreadCount: () => mockSdk.rayonThreadCount(),
   WebClient: class {
     constructor() {
+      if (mockSdk.webClientCtorShouldThrow) throw new Error('WebClient ctor failed');
       mockSdk.webClients++;
     }
     proveTransaction(result: unknown, prover: unknown) {
@@ -80,8 +82,10 @@ beforeEach(() => {
   onMessage = undefined;
   mockSdk.hasInitThreadPool = true;
   mockSdk.webClients = 0;
+  mockSdk.webClientCtorShouldThrow = false;
   mockSdk.getWasmOrThrow.mockImplementation(async () => ({}));
   mockSdk.initThreadPool.mockImplementation(async () => undefined);
+  mockSdk.rayonThreadCount.mockImplementation(() => 6);
   mockSdk.proveTransaction.mockImplementation(async () => mockProven);
 });
 
@@ -136,6 +140,27 @@ describe('prove worker boot', () => {
     await loadWorker();
     expect(posted.map(p => p.message)).toEqual([{ type: 'init-failed', reason: 'thread-pool', message: 'no workers' }]);
   });
+
+  it('reports thread-pool when the WebClient constructor throws, and never posts ready', async () => {
+    mockSdk.webClientCtorShouldThrow = true;
+    await loadWorker();
+    expect(posted.map(p => p.message)).toEqual([
+      { type: 'init-failed', reason: 'thread-pool', message: 'WebClient ctor failed' }
+    ]);
+    expect(mockSdk.webClients).toBe(0);
+  });
+
+  it('reports thread-pool when rayonThreadCount throws after the pool starts', async () => {
+    mockSdk.rayonThreadCount.mockImplementationOnce(() => {
+      throw new Error('rayon query failed');
+    });
+    await loadWorker();
+    expect(posted.map(p => p.message)).toEqual([
+      { type: 'init-failed', reason: 'thread-pool', message: 'rayon query failed' }
+    ]);
+    expect(mockSdk.initThreadPool).toHaveBeenCalledTimes(1);
+    expect(mockSdk.webClients).toBe(1);
+  });
 });
 
 describe('prove worker proving', () => {
@@ -182,6 +207,60 @@ describe('prove worker proving', () => {
     expect(posted.map(p => p.message)).toEqual([{ type: 'result', id: 9, ok: false, message: 'prover trapped' }]);
     expect(mockResult.free).toHaveBeenCalledTimes(1);
     expect(mockProven.free).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a free() failure asynchronously instead of stalling the queue, and the next prove still runs', async () => {
+    const freeError = new Error('free failed');
+    await loadWorker();
+    posted = [];
+
+    const realSetTimeout = globalThis.setTimeout;
+    const capturedTimeouts: Array<() => void> = [];
+    Object.defineProperty(globalThis, 'setTimeout', {
+      value: (cb: () => void) => {
+        capturedTimeouts.push(cb);
+        return 0;
+      },
+      configurable: true,
+      writable: true
+    });
+
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 20; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.resolve();
+      }
+    };
+
+    try {
+      mockResult.free.mockImplementationOnce(() => {
+        throw freeError;
+      });
+      send(proveRequest(20));
+      await flushMicrotasks();
+
+      // the successful result already posted before free() threw in the `finally`
+      expect(posted.map(p => p.message)).toEqual([
+        { type: 'result', id: 20, ok: true, proven: expect.any(Uint8Array), durationMs: expect.any(Number) }
+      ]);
+      // the rejection is rescheduled onto a fresh macrotask, not swallowed and not
+      // left to reject `queue` forever
+      expect(capturedTimeouts).toHaveLength(1);
+      expect(() => capturedTimeouts[0]?.()).toThrow(freeError);
+    } finally {
+      Object.defineProperty(globalThis, 'setTimeout', {
+        value: realSetTimeout,
+        configurable: true,
+        writable: true
+      });
+    }
+
+    posted = [];
+    send(proveRequest(21));
+    await flush();
+    expect(posted.map(p => p.message)).toEqual([
+      { type: 'result', id: 21, ok: true, proven: expect.any(Uint8Array), durationMs: expect.any(Number) }
+    ]);
   });
 
   it('answers ok:false for a prove that arrives after a failed boot', async () => {
