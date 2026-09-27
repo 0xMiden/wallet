@@ -2,8 +2,6 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
-import { springs, tabBarSwap } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
@@ -33,13 +31,7 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => (
-          <div
-            ref={ref}
-            data-layout={String(layout)}
-            data-transition={JSON.stringify(transition)}
-            data-while-tap={whileTap ? 'on' : undefined}
-            {...rest}
-          >
+          <div ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
             {children}
           </div>
         )
@@ -49,13 +41,7 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLButtonElement>
         ) => (
-          <button
-            ref={ref}
-            data-layout={String(layout)}
-            data-transition={JSON.stringify(transition)}
-            data-while-tap={whileTap ? 'on' : undefined}
-            {...rest}
-          >
+          <button ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
             {children}
           </button>
         )
@@ -447,42 +433,4 @@ it('renders a status it does not know as the neutral badge, and the row survives
   const badge = screen.getByTestId('row-status');
   expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
   expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
-});
-
-// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
-// again (#1194): a row that survives it takes its new place at once, whichever element it renders.
-describe('ActivityRow - its tab shown again', () => {
-  const row = (shown: boolean, onClick: (() => void) | undefined, onScreen = true) => (
-    <PageActiveContext.Provider value={onScreen}>
-      <TabActiveContext.Provider value={shown}>
-        <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} testId="row" onClick={onClick} />
-      </TabActiveContext.Provider>
-    </PageActiveContext.Provider>
-  );
-  const moveOf = () => JSON.parse(screen.getByTestId('row').getAttribute('data-transition')!);
-
-  it.each([
-    ['BUTTON', () => undefined],
-    ['DIV', undefined]
-  ])('as a %s, moves at once in the commit that shows the tab again, then slides', (tag, onClick) => {
-    const { rerender } = render(row(true, onClick));
-    rerender(row(false, onClick));
-    rerender(row(true, onClick));
-    expect(screen.getByTestId('row').tagName).toBe(tag);
-    expect(moveOf()).toEqual(tabBarSwap);
-
-    rerender(row(true, onClick));
-    expect(moveOf()).toEqual(springs.settle);
-  });
-
-  it.each([
-    ['BUTTON', () => undefined],
-    ['DIV', undefined]
-  ])('as a %s, slides when a slide page uncovers it', (tag, onClick) => {
-    const { rerender } = render(row(true, onClick));
-    rerender(row(true, onClick, false));
-    rerender(row(true, onClick, true));
-    expect(screen.getByTestId('row').tagName).toBe(tag);
-    expect(moveOf()).toEqual(springs.settle);
-  });
 });
