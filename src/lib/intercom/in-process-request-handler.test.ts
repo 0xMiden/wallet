@@ -11,9 +11,15 @@ import { processInProcessRequest } from './in-process-request-handler';
 
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
+const mockUnlock = jest.fn(async (_password: string) => undefined);
 jest.mock('lib/miden/back/actions', () => ({
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
-  exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined]))
+  exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
+  unlock: (password: string) => mockUnlock(password)
+}));
+const mockStartTransactionProcessing = jest.fn(async () => undefined);
+jest.mock('lib/miden/back/transaction-processor', () => ({
+  startTransactionProcessing: () => mockStartTransactionProcessing()
 }));
 
 describe('processInProcessRequest', () => {
@@ -45,5 +51,28 @@ describe('processInProcessRequest', () => {
 
     expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
     expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
+  });
+
+  // #924: claims requeued while the vault was locked have nothing else to restart them here either.
+  it('UnlockRequest kicks transaction processing once the vault has unlocked', async () => {
+    const res = await processInProcessRequest(
+      { type: WalletMessageType.UnlockRequest, password: 'pw' } as WalletRequest,
+      'test-adapter'
+    );
+
+    expect(res).toEqual({ type: WalletMessageType.UnlockResponse });
+    expect(mockUnlock).toHaveBeenCalledWith('pw');
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed unlock does not kick transaction processing', async () => {
+    mockUnlock.mockRejectedValueOnce(new Error('Invalid password'));
+    await expect(
+      processInProcessRequest(
+        { type: WalletMessageType.UnlockRequest, password: 'wrong' } as WalletRequest,
+        'test-adapter'
+      )
+    ).rejects.toThrow('Invalid password');
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
   });
 });
