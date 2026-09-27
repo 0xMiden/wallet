@@ -14,9 +14,11 @@
 - [CHANGE][ci] The test-network ribbon's popup E2E now runs: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
 - [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
 - [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
+- [CHANGE][ci] A test fails if the copy confirmation's swap slot stops forwarding its ref to its root, which keeps the leaving and arriving glyph or label in one box while they swap (#1087).
 - [CHORE][all] The clipboard comments in the dApp actions sheet, the copy button and the recovery phrase backup test now point at useClipboardCopy's description of what @capacitor/clipboard does on each surface, instead of promising the call works where the Clipboard API is missing (#1088).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
+- [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 
 ### Fixes
 
@@ -40,6 +42,7 @@
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] Copying the recovery phrase, from Settings or from the phrase check, now uses the native clipboard on iOS and Android, like address and hash copies, and a second tap while Copied is showing copies again instead of being ignored (#1049).
+- [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 
 ## 1.16.2 (2026-09-24)
 
