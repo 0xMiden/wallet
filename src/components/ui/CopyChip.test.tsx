@@ -196,9 +196,9 @@ it('takes taps across 44px (10px above and below its 24px) without drawing anyth
   expect(chip.className).not.toMatch(/before:(bg|border|shadow|ring|outline)/);
 });
 
-it('keeps its tap target to itself when stacked, so a tap cannot copy a neighbour', () => {
+it('keeps its tap target to its own box with compactHitArea, so a tap cannot copy a neighbour', () => {
   render(
-    <CopyChip text="0xabc123" stacked data-testid="chip">
+    <CopyChip text="0xabc123" compactHitArea data-testid="chip">
       0xab…c123
     </CopyChip>
   );

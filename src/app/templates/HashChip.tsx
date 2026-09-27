@@ -12,7 +12,8 @@ export interface HashChipProps {
   lastCharsCount?: number;
   displayName?: string;
   className?: string;
-  stacked?: boolean;
+  /** Forwarded to CopyChip: the tap target stays the chip's own box, for a chip in a list of chips. */
+  compactHitArea?: boolean;
   'data-testid'?: string;
 }
 
@@ -40,10 +41,15 @@ const HashChip: FC<HashChipProps> = ({
   lastCharsCount,
   displayName,
   className,
-  stacked,
+  compactHitArea,
   'data-testid': dataTestId
 }) => (
-  <CopyChip text={hash} className={cn(DEFAULT_CLASS_NAME, className)} stacked={stacked} data-testid={dataTestId}>
+  <CopyChip
+    text={hash}
+    className={cn(DEFAULT_CLASS_NAME, className)}
+    compactHitArea={compactHitArea}
+    data-testid={dataTestId}
+  >
     <HashShortView
       hash={hash}
       trimHash={trimHash}

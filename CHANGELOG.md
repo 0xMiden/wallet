@@ -24,7 +24,7 @@
 - [CHORE][all] The Guardian transition hero's chip comment names the chip's real ink and drops a muted-token colour and contrast ratio that stopped being true (#1045).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
-- [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip beside it, while a lone note id keeps the wider target (#1046).
+- [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 
 ### Fixes
 

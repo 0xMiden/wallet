@@ -16,10 +16,10 @@ export interface CopyChipProps {
   size?: PillSize;
   className?: string;
   /**
-   * The chip sits in a list of chips stacked closer than its hit area reaches (a note-id list):
-   * the tap target stays the chip itself, so a tap near its edge cannot copy the neighbour.
+   * The tap target is the chip's own 24px box, not the 44px hit area: for a chip with neighbours
+   * closer than that area reaches (a note-id list), so a tap near its edge cannot copy the next one.
    */
-  stacked?: boolean;
+  compactHitArea?: boolean;
   'data-testid'?: string;
   /**
    * A screen reader label; the copy glyph itself has no text of its own. A function receives the
@@ -45,7 +45,7 @@ export const CopyChip: React.FC<CopyChipProps> = ({
   children,
   size = 'sm',
   className,
-  stacked = false,
+  compactHitArea = false,
   'data-testid': dataTestId,
   'aria-label': ariaLabel
 }) => {
@@ -60,7 +60,7 @@ export const CopyChip: React.FC<CopyChipProps> = ({
         // Fills the Pill's own glyph box; the morph is the one every copy control shares.
         icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
         onClick={() => void copy()}
-        className={cn(!stacked && HIT_AREA, className)}
+        className={cn(!compactHitArea && HIT_AREA, className)}
         aria-label={typeof ariaLabel === 'function' ? ariaLabel(copied) : ariaLabel}
         data-testid={dataTestId}
       >

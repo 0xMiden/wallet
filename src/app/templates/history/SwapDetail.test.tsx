@@ -64,8 +64,8 @@ jest.mock('components/Button', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash, className, stacked }: { hash: string; className?: string; stacked?: boolean }) => (
-    <span data-testid="hash-chip" className={className} data-stacked={String(Boolean(stacked))}>
+  default: ({ hash, className, compactHitArea }: { hash: string; className?: string; compactHitArea?: boolean }) => (
+    <span data-testid="hash-chip" className={className} data-compact-hit-area={String(Boolean(compactHitArea))}>
       {hash}
     </span>
   )
@@ -377,15 +377,15 @@ describe('SwapDetail note rows', () => {
     const isNote = (chip: HTMLElement) => /^0xnote(1|2|9|10)$/.test(chip.textContent ?? '');
     const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
     expect(noteChips).toHaveLength(4);
-    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'true'));
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'true'));
 
     // The faucet and transaction-hash chips sit alone in their rows.
     const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !isNote(chip));
     expect(rowChips.length).toBeGreaterThan(0);
-    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
+    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'false'));
   });
 
-  it('leaves a one-note fill or reclaim row not stacked, since it has no neighbour to protect', () => {
+  it('leaves a one-note fill or reclaim row its taller hit area, since it has no neighbour to protect', () => {
     renderDetail({
       settledTransactions: [consume()],
       reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
@@ -394,7 +394,7 @@ describe('SwapDetail note rows', () => {
     const isNote = (chip: HTMLElement) => /^0xnote[19]$/.test(chip.textContent ?? '');
     const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
     expect(noteChips).toHaveLength(2);
-    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'false'));
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {
