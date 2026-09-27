@@ -196,22 +196,20 @@ describe('faucet-api', () => {
       }
     });
 
-    it('does not start the back-off when the caller aborted during the first attempt', async () => {
-      // The abort lands while the 429 response is still in flight: the sleep must
-      // never begin, so the rejection carries the reason with no wait at all.
-      fetchMock.mockImplementation(
-        (_url: string, init: RequestInit) =>
-          new Promise((_resolve, reject) => {
-            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
-          })
-      );
+    it('rejects the back-off at once when the caller aborted before it began', async () => {
+      // Real timers: the assertion itself proves the capped 30s wait was never
+      // entered. The fetch mock ignores the (already-aborted) signal and answers
+      // with the 429 anyway, so only the back-off's own synchronous `aborted`
+      // guard stands between this and a 30s wait.
+      fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
       const controller = new AbortController();
       const reason = new Error('caller gave up');
-
-      const request = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal });
       controller.abort(reason);
 
-      await expect(request).rejects.toThrow('caller gave up');
+      const startedAt = Date.now();
+      await expect(faucetFetch('https://faucet-api.example/pow', { signal: controller.signal })).rejects.toBe(reason);
+
+      expect(Date.now() - startedAt).toBeLessThan(1000);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
