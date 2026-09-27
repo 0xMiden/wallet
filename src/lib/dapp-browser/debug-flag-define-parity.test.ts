@@ -68,6 +68,7 @@ describe('dApp-bridge build-time flags', () => {
     const source = read(config);
 
     it.each(flags)('defines process.env.%s', flag => {
+      expect(source).toContain(`'process.env.${flag}':`);
       expect(occurrences(source, `'process.env.${flag}':`)).toBe(1);
     });
   });
