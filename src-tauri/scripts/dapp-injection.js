@@ -133,6 +133,42 @@
     });
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+
+  // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+  function samePermission(a, b) {
+    if (a === null || b === null) return a === b;
+    return a.address === b.address;
+  }
+
+  function watchPermission(wallet, seed) {
+    stopPermissionWatch();
+    let current = seed;
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission && !samePermission(current, res.permission) && wallet._applyPermission(res.permission)) {
+          current = res.permission;
+        }
+      } catch (e) {
+        // A refused or timed-out poll leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   function injectToolbar() {
     // SECURITY: this toolbar is ordinary DOM inside the dApp's own document, and
     // this script runs in the page's main world — so the page can rewrite, restyle
@@ -291,9 +327,12 @@
 
         // Emit accountChange event (what the adapter listens for)
         this._emit('accountChange', this.permission);
+
+        watchPermission(this, this.permission);
       }
 
       async disconnect() {
+        stopPermissionWatch();
         const res = await request({
           type: 'DISCONNECT_REQUEST',
           network: this.network,
@@ -308,6 +347,31 @@
         this._emit('accountChange', null);
 
         return res;
+      }
+
+      // Fields follow the new account before listeners hear of it; null clears them. Returns false,
+      // changing nothing, when the key cannot be decoded, so the next poll retries.
+      _applyPermission(perm) {
+        if (perm === null) {
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this._emit('accountChange', null);
+          return true;
+        }
+        let publicKey;
+        if (perm.publicKey) {
+          try {
+            publicKey = base64ToUint8Array(perm.publicKey);
+          } catch (e) {
+            return false;
+          }
+        }
+        this.permission = perm;
+        this.address = perm.address;
+        this.publicKey = publicKey;
+        this._emit('accountChange', perm);
+        return true;
       }
 
       async requestSend(transaction) {

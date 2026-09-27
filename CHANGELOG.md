@@ -68,6 +68,7 @@
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
+- [FIX][all] A connected dApp follows an account switch: within 10 s the wallet's provider takes the new account's address and key and emits `accountChange` with its permission for the dApp, or `null` when that account has not connected it, on the extension, the mobile in-app browser and the desktop dApp window (#174).
 
 ## 1.16.2 (2026-09-24)
 
