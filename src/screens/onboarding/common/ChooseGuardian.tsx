@@ -25,8 +25,10 @@ export type { GuardianOption };
 
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  // Highlight (and default-skip) the option matching this endpoint — used by
-  // GuardianSettings to mark the user's currently-active guardian.
+  // The account's current Guardian, passed by RotateGuardian. The listed operator matching it is
+  // pre-selected and badged as current; an endpoint no listed operator matches (a custom Guardian)
+  // pre-selects nothing, so Continue waits for a pick or a custom URL. While it is set, an offline
+  // pre-selection is never replaced by the first online operator.
   currentEndpoint?: string;
   title?: string;
   description?: string;
