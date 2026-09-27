@@ -90,7 +90,7 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// The copy goes through @capacitor/clipboard (the one call every surface makes; on the web it
+// The copy goes through @capacitor/clipboard (the one call every surface makes; on desktop and the extension it
 // delegates to navigator.clipboard), so that is the boundary to assert. `navigator.clipboard` is still stubbed
 // because jsdom exposes none and unrelated code may reach for it.
 const mockWriteText = jest.fn();

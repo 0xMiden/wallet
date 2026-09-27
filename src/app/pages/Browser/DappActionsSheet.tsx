@@ -92,11 +92,11 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     if (!session) return;
     hapticLight();
     // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
-    // writes through the native bridge on iOS and Android, and on desktop and
-    // the extension it calls `navigator.clipboard`, failing wherever that is
-    // missing, but as a rejection this catch sees rather than a synchronous
-    // throw. Swallow errors - the sheet closes either way, and there is
-    // nowhere left on screen to report a failure once it has.
+    // writes through the native bridge on iOS and Android and calls
+    // `navigator.clipboard` on desktop, failing where a direct call would, but
+    // on every surface a failure arrives as a rejection this catch sees, never
+    // a synchronous throw. Swallow errors - the sheet closes either way, and
+    // there is nowhere left on screen to report a failure once it has.
     void Clipboard.write({ string: session.url }).catch(() => {});
     close();
   }, [session, close]);
