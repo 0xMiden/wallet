@@ -53,13 +53,27 @@ interface StoredLockout {
   locked: boolean;
 }
 
+// What this window's own writes of the guess record could not store; 0 where nothing is held back.
+interface LockoutFloor {
+  attempt: number;
+  timelock: number;
+}
+
 // Judged from storage, not a window's state: another window may have counted failures or armed a lockout
 // since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
-const readStoredLockout = (): StoredLockout => {
-  const attempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
-  const timelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
+// The floor is merged in, so a window whose writes fail still judges from what it recorded itself.
+const readStoredLockout = (floor: LockoutFloor): StoredLockout => {
+  const attempt = Math.max(readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1), floor.attempt);
+  const timelock = Math.max(readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0), floor.timelock);
   const level = lockLevelOf(attempt);
   return { attempt, timelock, level, locked: isLockedAt(timelock, level, Date.now()) };
+};
+
+// A write that lands holds nothing back; one that fails keeps its value in the floor, so storage that
+// cannot persist never makes guessing free.
+const recordLockout = (floor: LockoutFloor, field: keyof LockoutFloor, value: number) => {
+  const key = field === 'attempt' ? MidenSharedStorageKey.PasswordAttempts : MidenSharedStorageKey.TimeLock;
+  floor[field] = writeLocalStorage(key, value) ? 0 : value;
 };
 
 interface UnlockProps {
@@ -80,6 +94,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // old `timelock` (0, or a stamp from an earlier lockout): read from its closure, it would clear the
   // fresh stamp and the lockout would never start. Arming writes this first; the tick reads it.
   const timelockRef = useRef(timelock);
+  // Empty while storage works; every read of the lockout merges it in (see readStoredLockout).
+  const floorRef = useRef<LockoutFloor>({ attempt: 0, timelock: 0 });
 
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
@@ -253,7 +269,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     async (passcode: string) => {
       if (isSubmitting) return;
       // The fast path: a window another one locked refuses at once, instead of sleeping 1-3s first.
-      const stored = readStoredLockout();
+      const stored = readStoredLockout(floorRef.current);
       if (stored.locked) {
         adoptLockout(stored);
         setCode('');
@@ -271,23 +287,24 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
         // The final check and the record are one synchronous step right before unlock(), so another window
         // checking while this guess is in flight finds it counted, and at the threshold locked out (#1192).
-        const preUnlock = readStoredLockout();
+        const preUnlock = readStoredLockout(floorRef.current);
         if (preUnlock.locked) {
           adoptLockout(preUnlock);
           setCode('');
           setIsSubmitting(false);
           return;
         }
-        // Storage only: through this window's state, a correct guess at the threshold would disable its own
-        // form while still in flight. Success resets the count, which makes the provisional stamp inert.
-        writeLocalStorage(MidenSharedStorageKey.PasswordAttempts, preUnlock.attempt + 1);
+        // Not through this window's state: that would disable its own form while a correct guess at the
+        // threshold is still in flight. Success resets the count, which makes the provisional stamp inert.
+        recordLockout(floorRef.current, 'attempt', preUnlock.attempt + 1);
         if (preUnlock.attempt >= LAST_ATTEMPT) {
           provisionalStamp = Date.now();
-          writeLocalStorage(MidenSharedStorageKey.TimeLock, provisionalStamp);
+          recordLockout(floorRef.current, 'timelock', provisionalStamp);
         }
 
         await unlock(passcode);
 
+        floorRef.current = { attempt: 0, timelock: 0 };
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
@@ -300,13 +317,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       } catch (err) {
         // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
         // provisional stamp: a different one is another window's lockout (#1192).
-        if (
-          provisionalStamp !== null &&
-          readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) === provisionalStamp
-        ) {
-          writeLocalStorage(MidenSharedStorageKey.TimeLock, Date.now());
+        if (provisionalStamp !== null && readStoredLockout(floorRef.current).timelock === provisionalStamp) {
+          recordLockout(floorRef.current, 'timelock', Date.now());
         }
-        adoptLockout(readStoredLockout());
+        adoptLockout(readStoredLockout(floorRef.current));
 
         console.error(err);
 
@@ -409,7 +423,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       const stamp = timelockRef.current;
       // This window's own attempt can be stale (level 0) while it armed from a stored count another
       // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
-      const stored = readStoredLockout();
+      const stored = readStoredLockout(floorRef.current);
       // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
       if (stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
         if (stored.timelock === stamp) {

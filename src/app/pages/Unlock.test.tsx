@@ -22,6 +22,10 @@ let mockLsStore: Record<string, unknown> = {};
 // state updater can run more than once, which would double-count.
 let mockLsWrites: Array<[string, unknown]> = [];
 
+// False models storage that cannot persist (quota, a blocked origin): every write, through a setter or
+// writeLocalStorage, is attempted and recorded but never lands, and writeLocalStorage reports false.
+let mockLsWritesLand = true;
+
 const mockUnlock = jest.fn();
 const mockNavigate = jest.fn();
 const mockOpenInFullPage = jest.fn();
@@ -68,7 +72,9 @@ jest.mock('lib/miden/front', () => {
       Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : fallback,
     writeLocalStorage: (key: string, value: unknown) => {
       mockLsWrites.push([key, value]);
+      if (!mockLsWritesLand) return false;
       mockLsStore[key] = value;
+      return true;
     },
     useLocalStorage: (key: string, initial: unknown) => {
       const [value, setValue] = R.useState(
@@ -77,7 +83,7 @@ jest.mock('lib/miden/front', () => {
       const setter = R.useCallback(
         (next: unknown) => {
           mockLsWrites.push([key, next]);
-          mockLsStore[key] = next;
+          if (mockLsWritesLand) mockLsStore[key] = next;
           setValue(next);
         },
         [key]
@@ -269,6 +275,7 @@ beforeEach(() => {
   mockCompact = false;
   mockLsStore = {};
   mockLsWrites = [];
+  mockLsWritesLand = true;
 
   mockUnlock.mockReset();
   mockNavigate.mockReset();
@@ -545,6 +552,66 @@ describe('Unlock — extension password form', () => {
     await flushMicro();
 
     expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+  });
+
+  // Storage that cannot persist must not make guessing free: the window counts and locks out from what
+  // its own writes could not store, as it did before #1192.
+  it('counts its own guesses and locks itself out when storage cannot persist them (#1192)', async () => {
+    mockLsWritesLand = false;
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    for (let guess = 0; guess < 4; guess++) {
+      submitPassword(container, 'wrong');
+      await advance(500);
+    }
+
+    expect(mockUnlock).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(passwordField(container)).toBeDisabled();
+    expect(mockLsStore).toEqual({});
+  });
+
+  it('opens its own lockout at a full tier from the failure when storage cannot persist it (#1192)', async () => {
+    mockLsWritesLand = false;
+    mockUnlock
+      .mockRejectedValueOnce(new Error('bad'))
+      .mockRejectedValueOnce(new Error('bad'))
+      .mockImplementationOnce(() => new Promise((_, reject) => setTimeout(() => reject(new Error('bad')), 1500)));
+    const { container } = await renderUnlock();
+    submitPassword(container, 'wrong');
+    await advance(500);
+    submitPassword(container, 'wrong');
+    await advance(500);
+
+    submitPassword(container, 'wrong');
+    await advance(1500); // the third unlock() rejects
+
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // With storage working, nothing this window wrote is held back, so a reset another window wrote while
+  // the guess was in flight (its success, or the retire) stands when the guess fails.
+  it('leaves a reset another window wrote while this guess was in flight when the guess fails (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'wrong');
+    await advance(500);
+    mockLsStore.PasswordAttempts = 1;
+    mockLsStore.TimeLock = 0;
+
+    await act(async () => rejectUnlock(new Error('bad')));
+    await flushMicro();
+
+    expect(mockLsStore.PasswordAttempts).toBe(1);
   });
 
   // The stamp a threshold guess writes before unlock() is provisional; the failure re-stamps it, so

@@ -15,12 +15,17 @@ export const readLocalStorage = <T>(key: string, fallback: T): T => {
   }
 };
 
-/** Stores `value` under `key` as JSON, for a later read in any window; no hook's state changes with it. */
-export const writeLocalStorage = <T>(key: string, value: T) => {
+/**
+ * Stores `value` under `key` as JSON, for a later read in any window; no hook's state changes with it.
+ * Returns whether the value landed.
+ */
+export const writeLocalStorage = <T>(key: string, value: T): boolean => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (error) {
     logger.error('Failed to store item in local storage', error);
+    return false;
   }
 };
 

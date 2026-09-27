@@ -130,4 +130,18 @@ describe('writeLocalStorage', () => {
     expect(localStorage.getItem('write-key')).toBe(JSON.stringify({ attempt: 4 }));
     expect(readLocalStorage('write-key', null)).toEqual({ attempt: 4 });
   });
+
+  it('returns true when the value lands', () => {
+    expect(writeLocalStorage('write-key', 4)).toBe(true);
+  });
+
+  it('returns false when setItem throws', () => {
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage full');
+    });
+
+    expect(writeLocalStorage('write-key', 4)).toBe(false);
+
+    jest.restoreAllMocks();
+  });
 });
