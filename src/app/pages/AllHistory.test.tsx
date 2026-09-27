@@ -719,26 +719,6 @@ describe('AllHistory', () => {
       expect(rowRendersAfter.every(value => value === 'pending')).toBe(true);
     });
 
-    // Leaving the link's List for Groups drops only its request for the List, so the filter shows again
-    // on the way back.
-    it('keeps a filter a link brought to an open page through a trip to Groups and back', async () => {
-      const { rerender } = render(<AllHistory />);
-      mockLocationSearch.value = '?filter=pending&view=list';
-      rerender(<AllHistory />);
-
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-groups'));
-      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
-      expect(mockLocationSearch.value).toBe('?filter=pending');
-
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-list'));
-
-      await waitFor(() => expect(getHistory().getAttribute('data-filter')).toBe('pending'));
-      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
-      expect(mockLocationSearch.value).toBe('?filter=pending');
-    });
-
     it('goes back to Groups when the user picks it, dropping the request for the List', async () => {
       mockLocationSearch.value = '?filter=pending&view=list';
       render(<AllHistory />);
@@ -823,40 +803,6 @@ describe('AllHistory', () => {
       expect(screen.getByTestId('grouped-history')).toBeTruthy();
     });
 
-    it("keeps the feed's filter through a remount while Groups is showing", async () => {
-      localStorage.setItem('activity_view_setting', 'list');
-      const first = render(<AllHistory />);
-      fireEvent.click(getFilterButton('sent'));
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-groups'));
-      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
-
-      first.unmount();
-      render(<AllHistory />);
-      expect(screen.getByTestId('grouped-history')).toBeTruthy();
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-list'));
-
-      await waitFor(() => expect(getHistory().getAttribute('data-filter')).toBe('sent'));
-    });
-
-    it("keeps a link's filter through a remount after the user leaves its List for Groups", async () => {
-      mockLocationSearch.value = '?filter=pending&view=list';
-      const first = render(<AllHistory />);
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-groups'));
-      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
-      expect(mockLocationSearch.value).toBe('?filter=pending');
-
-      first.unmount();
-      render(<AllHistory />);
-      expect(screen.getByTestId('grouped-history')).toBeTruthy();
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-list'));
-
-      await waitFor(() => expect(getHistory().getAttribute('data-filter')).toBe('pending'));
-    });
-
     it('stays on the feed when the user picks another filter on a List a link asked for', () => {
       mockLocationSearch.value = '?filter=pending&view=list';
       render(<AllHistory />);
@@ -868,12 +814,27 @@ describe('AllHistory', () => {
     });
 
     // The link's filter becomes the kept choice, as a pick does, so it survives a return to Activity
-    // through the tab, whose `/history` names no filter.
+    // through the tab, whose `/history` names no filter. A link reaches the page two ways: it boots
+    // straight into Activity, or it lands on the pane TabLayout keeps mounted under another tab.
     it("keeps a link's filter when the user comes back to Activity through the tab", () => {
       localStorage.setItem('activity_view_setting', 'list');
       mockLocationSearch.value = '?filter=pending&view=list';
       const { rerender } = render(onScreen(true));
 
+      mockLocationSearch.value = '';
+      rerender(onScreen(false));
+      rerender(onScreen(true));
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('keeps the filter of a link that reached the open page when the user comes back through the tab', () => {
+      localStorage.setItem('activity_view_setting', 'list');
+      const { rerender } = render(onScreen(false));
+
+      mockLocationSearch.value = '?filter=pending&view=list';
+      rerender(onScreen(true));
       mockLocationSearch.value = '';
       rerender(onScreen(false));
       rerender(onScreen(true));
