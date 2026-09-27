@@ -32,6 +32,16 @@ jest.mock('framer-motion', () => {
             {children}
           </div>
         )
+      ),
+      button: ReactActual.forwardRef(
+        (
+          { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLButtonElement>
+        ) => (
+          <button ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </button>
+        )
       )
     }
   };
@@ -338,6 +348,14 @@ describe('ActivityRow', () => {
       expect(onClick).toHaveBeenCalledTimes(1);
     });
 
+    it('is a native button when it opens something, so focus, Enter and Space come from the element', () => {
+      renderRow({ onClick: jest.fn() });
+
+      const button = screen.getByRole('button');
+      expect(button.tagName).toBe('BUTTON');
+      expect(button).toHaveAttribute('type', 'button');
+    });
+
     it('takes keyboard focus, with the card focus ring, when it opens something', () => {
       renderRow({ onClick: jest.fn() });
 
@@ -347,29 +365,6 @@ describe('ActivityRow', () => {
       for (const classes of FOCUSABLE_CLASSES) {
         for (const name of classes.split(' ')) expect(button.className.split(/\s+/)).toContain(name);
       }
-    });
-
-    it.each([
-      ['Enter', 'Enter'],
-      ['Space', ' ']
-    ])('opens on %s, as a button does, without scrolling the list', (_, key) => {
-      const onClick = jest.fn();
-      renderRow({ onClick });
-
-      const notPrevented = fireEvent.keyDown(screen.getByRole('button'), { key });
-
-      expect(notPrevented).toBe(false);
-      expect(hapticLight).toHaveBeenCalledTimes(1);
-      expect(onClick).toHaveBeenCalledTimes(1);
-    });
-
-    it('ignores any other key', () => {
-      const onClick = jest.fn();
-      renderRow({ onClick });
-
-      fireEvent.keyDown(screen.getByRole('button'), { key: 'a' });
-
-      expect(onClick).not.toHaveBeenCalled();
     });
 
     it('has no button role and does not fire haptics when onClick is absent', () => {

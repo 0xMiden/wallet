@@ -129,13 +129,6 @@ export const ActivityRow: FC<ActivityRowProps> = ({
     hapticLight();
     onClick();
   };
-  // The row announces as a button, so it answers the keys a button does; Space would otherwise
-  // scroll the list the row sits in.
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    handleClick();
-  };
   // A "Claim All" can sweep up any number of distinct assets, and this row has
   // one line for them; past a couple the amount column starves the title beside
   // it. Show the first few in the order the caller passed and count the rest.
@@ -154,25 +147,15 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // motion value. The avatar and the status dot below are plain elements whose
   // radius is a class, so under a full `layout` both draw as ovals for the whole
   // spring. Same reason as the inline radius on SegmentedActionBar's pill and segments.
-  return (
-    <motion.div
-      layout="position"
-      whileTap={onClick ? { opacity: 0.9 } : undefined}
-      transition={transition}
-      data-testid={testId}
-      data-entry-key={entryKey}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onClick={onClick ? handleClick : undefined}
-      onKeyDown={onClick ? handleKeyDown : undefined}
-      // Every row is the same height: the title and subtitle each hold one line, so a long
-      // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
-      className={cn(
-        'relative w-full flex items-center py-4 justify-between gap-3',
-        onClick && ['cursor-pointer', FOCUSABLE_CLASSES],
-        className
-      )}
-    >
+  // Every row is the same height: the title and subtitle each hold one line, so a long
+  // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
+  const rowClassName = cn(
+    'relative w-full flex items-center py-4 justify-between gap-3',
+    onClick && ['cursor-pointer text-left', FOCUSABLE_CLASSES],
+    className
+  );
+  const content = (
+    <>
       {leading}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div
@@ -236,6 +219,35 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
         {timestamp && <span className="text-caption text-muted">{timestamp}</span>}
       </div>
+    </>
+  );
+  // A row that opens something is a native button, as CardButton is, so focus, Enter and Space are the
+  // element's own.
+  if (onClick) {
+    return (
+      <motion.button
+        type="button"
+        layout="position"
+        whileTap={{ opacity: 0.9 }}
+        transition={transition}
+        data-testid={testId}
+        data-entry-key={entryKey}
+        onClick={handleClick}
+        className={rowClassName}
+      >
+        {content}
+      </motion.button>
+    );
+  }
+  return (
+    <motion.div
+      layout="position"
+      transition={transition}
+      data-testid={testId}
+      data-entry-key={entryKey}
+      className={rowClassName}
+    >
+      {content}
     </motion.div>
   );
 };
