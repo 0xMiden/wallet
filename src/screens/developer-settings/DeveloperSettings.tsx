@@ -277,8 +277,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
-  // Not `flex-1`: in the stacked footer that sizes the height from a zero basis and squashes the button.
-  const actionButton = 'max-w-none';
+  const actionButton = 'flex-1 max-w-none';
 
   return (
     <SubPageLayout

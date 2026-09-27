@@ -124,6 +124,29 @@ describe('SubPageLayout', () => {
     expect(footer(screen.getByTestId('page'))).toBeNull();
   });
 
+  // In a column, a row-style `flex-1` sizes a button's height from a zero basis and squashes it to
+  // its label, so the stack puts every child back at its own height; the row keeps its even split.
+  it('keeps each stacked child at its own height whatever flex it carries, and leaves the row split alone', () => {
+    const action = (
+      <button type="button" className="flex-1">
+        a
+      </button>
+    );
+    const { rerender } = render(
+      <SubPageLayout title="Keys" data-testid="page" footer={action} footerLayout="stack">
+        <p>content</p>
+      </SubPageLayout>
+    );
+    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col', '[&>*]:flex-none');
+
+    rerender(
+      <SubPageLayout title="Keys" data-testid="page" footer={action}>
+        <p>content</p>
+      </SubPageLayout>
+    );
+    expect(footer(screen.getByTestId('page'))).not.toHaveClass('[&>*]:flex-none');
+  });
+
   it('takes its header from the route that opened it, and lets the page override it', () => {
     const onBack = jest.fn();
     const { rerender } = render(
