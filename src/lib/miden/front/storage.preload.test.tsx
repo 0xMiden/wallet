@@ -17,8 +17,13 @@ type StorageChangeHandler = (
   changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
   areaName: string
 ) => void;
-const mockAddListener = jest.fn<void, [StorageChangeHandler]>();
-const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>();
+const mockListeners = new Set<StorageChangeHandler>();
+const mockAddListener = jest.fn<void, [StorageChangeHandler]>(listener => {
+  mockListeners.add(listener);
+});
+const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>(listener => {
+  mockListeners.delete(listener);
+});
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
@@ -32,11 +37,20 @@ jest.mock('webextension-polyfill', () => ({
 }));
 
 const mockStored: Record<string, unknown> = { 'stored-key': 'stored-value' };
-const mockGet = jest.fn(
-  async ([key]: string[]): Promise<Record<string, unknown>> => (key! in mockStored ? { [key!]: mockStored[key!] } : {})
-);
-const mockSet = jest.fn(async (items: Record<string, unknown>) => {
+const mockFailingReads = new Set<string>();
+const mockGet = jest.fn(async ([key]: string[]): Promise<Record<string, unknown>> => {
+  if (mockFailingReads.has(key!)) throw new Error('read failed');
+  return key! in mockStored ? { [key!]: mockStored[key!] } : {};
+});
+// browser.storage fires onChanged in every page, the writer's included.
+const mockCommit = (items: Record<string, unknown>) => {
+  const changes: Record<string, { newValue?: unknown; oldValue?: unknown }> = {};
+  for (const [key, newValue] of Object.entries(items)) changes[key] = { newValue, oldValue: mockStored[key] };
   Object.assign(mockStored, items);
+  mockListeners.forEach(listener => listener(changes, 'local'));
+};
+const mockSet = jest.fn(async (items: Record<string, unknown>) => {
+  mockCommit(items);
 });
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({ get: mockGet, set: mockSet })
@@ -94,6 +108,43 @@ const deferredRead = (key: string, value: string) => {
   );
   return () => release();
 };
+
+// The write commits at once, as storage orders writes by when they start; only its promise waits for the release.
+const heldWrite = () => {
+  let release!: () => void;
+  mockSet.mockImplementationOnce(async items => {
+    mockCommit(items);
+    await new Promise<void>(resolve => {
+      release = resolve;
+    });
+  });
+  return () => release();
+};
+
+const heldFailingRead = () => {
+  let fail: (() => void) | undefined;
+  mockGet.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        fail = () => reject(new Error('read failed'));
+      })
+  );
+  return {
+    started: () => fail !== undefined,
+    fail: () => fail!()
+  };
+};
+
+const renderGuardedReader = (storageKey: string) =>
+  render(
+    <Boundary>
+      <Suspense fallback={<div data-testid="suspended" />}>
+        <Reader storageKey={storageKey} />
+      </Suspense>
+    </Boundary>
+  );
+
+const settle = () => act(() => new Promise(resolve => setTimeout(resolve, 50)));
 
 describe('preloadStorage', () => {
   it('lets a storage hook render its value on its first render instead of suspending', async () => {
@@ -478,11 +529,10 @@ describe('storage hooks (#1148)', () => {
     expect(screen.getByTestId('value').textContent).toBe('new');
   });
 
-  it('writes through on the extension when a storage change event for the same key lands during the write', async () => {
-    // Prediction: the write's own cache mutate (revalidate: false) and the change event's bound
-    // SWR mutate (default revalidate) both touch the cache for this key without looping - the
-    // rendered value stays the written one, and the change event's own revalidation accounts for
-    // the only extra mockGet call, not a growing series of them.
+  it('keeps the written value on the extension, one read per change event, when its change event also arrives after the write', async () => {
+    // Prediction: the mock's set delivers the write's change event during the write and the test
+    // delivers it again after; each event's bound SWR mutate revalidates once, so the rendered value
+    // stays the written one and the reads stay at one per event, not a growing series of them.
     jest.mocked(isExtension).mockReturnValue(true);
     try {
       mockStored['extension-setter-key'] = 'old';
@@ -506,5 +556,220 @@ describe('storage hooks (#1148)', () => {
     } finally {
       jest.mocked(isExtension).mockReturnValue(false);
     }
+  });
+
+  it("shows storage's last value on the extension when another page writes the key while this page's write is pending", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-race-key'] = 'old';
+      await preloadStorage(['extension-race-key']);
+      renderReader('extension-race-key', Writer);
+      // Let onStorageChanged's dynamic import register its listener and the mount's own revalidation settle.
+      await settle();
+      const callsBefore = mockGet.mock.calls.length;
+
+      const release = heldWrite();
+      let write: Promise<void> | void;
+      await act(async () => {
+        write = setStored('new');
+      });
+      await act(async () => {
+        mockCommit({ 'extension-race-key': 'other' });
+      });
+      await act(async () => {
+        release();
+        await write;
+      });
+      await settle();
+
+      expect(mockStored['extension-race-key']).toBe('other');
+      expect(screen.getByTestId('value').textContent).toBe('other');
+      expect(mockGet.mock.calls.length - callsBefore).toBe(2);
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it('keeps the last usePassiveStorage value when an earlier write of the key finishes after it', async () => {
+    mockStored['passive-revert-key'] = 'old';
+    await preloadStorage(['passive-revert-key']);
+    const first = renderReader('passive-revert-key', PassiveWriter);
+    await settle();
+
+    const release = heldWrite();
+    await act(async () => {
+      setStored('new');
+    });
+    await act(async () => {
+      setStored('old');
+    });
+    await act(async () => {
+      release();
+    });
+    await settle();
+
+    expect(mockSet).toHaveBeenLastCalledWith({ 'passive-revert-key': 'old' });
+    first.unmount();
+    renderReader('passive-revert-key', PassiveReader);
+    expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+
+  it('fills the cache from a pending preload when the reader read that took it over fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const releasePreload = deferredRead('handback-key', 'preloaded');
+      const preload = preloadStorage(['handback-key']);
+      mockFailingReads.add('handback-key');
+      const first = renderGuardedReader('handback-key');
+      expect(await screen.findByTestId('failed')).toBeDefined();
+      first.unmount();
+
+      await act(async () => {
+        releasePreload();
+        await preload;
+      });
+      renderGuardedReader('handback-key');
+
+      expect(screen.queryByTestId('failed')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('preloaded');
+    } finally {
+      mockFailingReads.delete('handback-key');
+      consoleError.mockRestore();
+    }
+  });
+
+  it('keeps a setter write over a pending preload that a failed reader read took over', async () => {
+    try {
+      mockStored['handback-write-key'] = 'old';
+      await preloadStorage(['handback-write-key']);
+      const releasePreload = deferredRead('handback-write-key', 'preloaded');
+      const preload = preloadStorage(['handback-write-key']);
+      const read = heldFailingRead();
+      // The mount's own revalidation is the read that takes the pending preload over.
+      const first = renderReader('handback-write-key', Writer);
+      await settle();
+      expect(read.started()).toBe(true);
+
+      await act(async () => {
+        await setStored('new');
+      });
+      mockFailingReads.add('handback-write-key');
+      await act(async () => {
+        read.fail();
+      });
+      first.unmount();
+
+      await act(async () => {
+        releasePreload();
+        await preload;
+      });
+      renderReader('handback-write-key');
+
+      expect(screen.getByTestId('value').textContent).toBe('new');
+    } finally {
+      mockFailingReads.delete('handback-write-key');
+    }
+  });
+
+  it('drops a pending preload on a change event, so a failed revalidation cannot bring its older value back', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['event-preload-key'] = 'old';
+      await preloadStorage(['event-preload-key']);
+      renderReader('event-preload-key', Writer);
+      await settle();
+
+      const releasePreload = deferredRead('event-preload-key', 'old');
+      const preload = preloadStorage(['event-preload-key']);
+      const read = heldFailingRead();
+      await act(async () => {
+        mockCommit({ 'event-preload-key': 'new' });
+      });
+      expect(read.started()).toBe(true);
+      await act(async () => {
+        releasePreload();
+        await preload;
+      });
+      await act(async () => {
+        read.fail();
+      });
+      await settle();
+
+      expect(screen.getByTestId('value').textContent).toBe('new');
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it("leaves the cache to another page's write whose change event arrives before this page's write resolves", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-other-key'] = 'old';
+      await preloadStorage(['extension-other-key']);
+      renderReader('extension-other-key', Writer);
+      await settle();
+
+      mockSet.mockImplementationOnce(async items => {
+        mockCommit(items);
+        mockCommit({ 'extension-other-key': 'other' });
+      });
+      await act(async () => {
+        await setStored('new');
+      });
+      await settle();
+
+      expect(screen.getByTestId('value').textContent).toBe('other');
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it('keeps the later of two setter writes when the earlier one finishes last', async () => {
+    mockStored['setter-order-key'] = 'old';
+    await preloadStorage(['setter-order-key']);
+    const first = renderReader('setter-order-key', Writer);
+    await settle();
+
+    const release = heldWrite();
+    let earlier: Promise<void> | void;
+    await act(async () => {
+      earlier = setStored('new');
+    });
+    await act(async () => {
+      await setStored('other');
+    });
+    await act(async () => {
+      release();
+      await earlier;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
+    first.unmount();
+    renderReader('setter-order-key');
+    expect(screen.getByTestId('value').textContent).toBe('other');
+  });
+
+  it('keeps a preload that read storage after a setter write began over that write when the write finishes last', async () => {
+    mockStored['preload-after-write-key'] = 'old';
+    await preloadStorage(['preload-after-write-key']);
+    renderReader('preload-after-write-key', Writer);
+    await settle();
+
+    const release = heldWrite();
+    let write: Promise<void> | void;
+    await act(async () => {
+      write = setStored('new');
+    });
+    // A writer outside the hooks: off the extension no change event reports it.
+    mockStored['preload-after-write-key'] = 'other';
+    await act(async () => {
+      await preloadStorage(['preload-after-write-key']);
+    });
+    await act(async () => {
+      release();
+      await write;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
   });
 });
