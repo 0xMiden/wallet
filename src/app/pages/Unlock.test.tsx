@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import Unlock from './Unlock';
 
@@ -243,6 +243,14 @@ async function renderUnlock(props: { openForgotPasswordInFullPage?: boolean } = 
   return utils;
 }
 
+// Scoped to one window's container, so two windows rendered side by side each submit their own form.
+function submitPassword(container: HTMLElement, value: string) {
+  const form = container.querySelector('form');
+  if (!form) throw new Error('no password form in this window');
+  fireEvent.change(within(form).getByLabelText('password'), { target: { value } });
+  fireEvent.submit(form);
+}
+
 beforeEach(() => {
   jest.useFakeTimers();
   jest.setSystemTime(BASE);
@@ -330,21 +338,24 @@ describe('Unlock — extension password form', () => {
     expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
   });
 
-  it('refuses a guess while another window holds a lockout, and shows it (#1192)', async () => {
+  // The refusal before the post-lockout sleep is the fast path: without it the post-sleep re-check
+  // still refuses, but only after the guess has spun for the 1-3s sleep (#1192).
+  it('refuses a guess at once while another window holds a lockout, and shows it (#1192)', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
     const { container } = await renderUnlock();
     // Another window failed its way into a lockout after this one mounted.
     mockLsStore.PasswordAttempts = 6;
     mockLsStore.TimeLock = BASE;
 
-    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
-    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
-    // A guess that got past the refusal would sleep 1-3s before it could reach unlock(); wait that out
-    // so the assertion below can actually fail if the refusal is missing.
-    await advance(3100);
+    submitPassword(container, 'guess');
+    await advance(0); // well inside the 1000ms a guess past the fast path would still be sleeping
 
-    expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
-    expect(container.querySelector('#unlock-password')).toBeDisabled();
+    expect(within(container).getByLabelText('password')).toBeDisabled();
+    expect(mockUnlock).not.toHaveBeenCalled();
+
+    await advance(1100);
+    expect(mockUnlock).not.toHaveBeenCalled();
   });
 
   it("counts a wrong guess from the stored attempt, not this window's (#1192)", async () => {
@@ -413,15 +424,14 @@ describe('Unlock — extension password form', () => {
     const NEW_STAMP = BASE + 90_000;
     mockLsStore.TimeLock = NEW_STAMP;
 
-    // Past the ORIGINAL stamp's own two-minute level, so this window's tick notices storage moved on.
-    await advance(120_000);
+    // To just after the tick at BASE + 121s, the first past the ORIGINAL stamp's two-minute level:
+    // the one that notices storage moved on and adopts the newer stamp.
+    await advance(118_000);
 
     expect(mockLsStore.TimeLock).toBe(NEW_STAMP); // adopted, not erased
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
     expect(container.querySelector('#unlock-password')).toBeDisabled();
-
-    // One more tick lets the newly-adopted stamp's own countdown catch up.
-    await advance(1000);
+    // The adopting tick counts down from the stamp it adopted, not the expired one it replaced.
     expect(screen.getByTestId('unlock-error')).not.toHaveTextContent('00:00');
   });
 

@@ -37,7 +37,30 @@ const formatDuration = (ms: number) => {
   return `${checkTime(Math.floor(diff / 60))}:${checkTime(Math.floor(diff % 60))}`;
 };
 
-const getTimeLeft = (start: number, end: number) => formatDuration(start + end - Date.now());
+// A tier every third failure: level 0 before the third, then LOCK_TIME more for each further three.
+const lockLevelOf = (attempt: number) => LOCK_TIME * Math.floor(attempt / 3);
+
+const isLockedAt = (stamp: number, level: number, now: number) => now - stamp <= level;
+
+const msLeft = (stamp: number, level: number, now: number) => stamp + level - now;
+
+const getTimeLeft = (stamp: number, level: number) => formatDuration(msLeft(stamp, level, Date.now()));
+
+interface StoredLockout {
+  attempt: number;
+  timelock: number;
+  level: number;
+  locked: boolean;
+}
+
+// Judged from storage, not a window's state: another window may have counted failures or armed a lockout
+// since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
+const readStoredLockout = (): StoredLockout => {
+  const attempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
+  const timelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
+  const level = lockLevelOf(attempt);
+  return { attempt, timelock, level, locked: isLockedAt(timelock, level, Date.now()) };
+};
 
 interface UnlockProps {
   openForgotPasswordInFullPage?: boolean;
@@ -50,7 +73,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-  const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
+  const lockLevel = lockLevelOf(attempt);
 
   // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
   // re-created constantly, and a tick from before the render that armed a lockout still holds the
@@ -179,6 +202,18 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
+  // Takes a stored lockout into this window, countdown included. It leaves the code alone: each caller
+  // clears it when it shows its result, so a failure's dots empty with its shake, not before.
+  const adoptLockout = useCallback(
+    (lockout: StoredLockout) => {
+      timelockRef.current = lockout.timelock;
+      setTimeLock(lockout.timelock);
+      setAttempt(lockout.attempt);
+      setTimeleft(getTimeLeft(lockout.timelock, lockout.level));
+    },
+    [setTimeLock, setAttempt]
+  );
+
   const [code, setCode] = useState('');
   // Extension-only: the vault is protected by a full password, not a passcode.
   const [password, setPassword] = useState('');
@@ -188,7 +223,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // the dots once.
   const [errorCount, setErrorCount] = useState(0);
 
-  const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
+  const isDisabled = useMemo(() => isLockedAt(timelock, lockLevel, Date.now()), [timelock, lockLevel]);
   // What the live region says while a lockout runs, captured whenever it is re-derived: when the
   // lockout starts, when this screen mounts, and on each biometric failure or retry during it.
   // Never on a clock tick (see `announcement`). Synchronous by design: an effect writing this into
@@ -197,7 +232,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // than a dependency the body ignores (which `yarn lint` rejects). `t` stays out, so its identity
   // cannot re-read the clock.
   const lockout = useMemo(
-    () => (isDisabled ? { leftMs: timelock + lockLevel - Date.now(), afterFailure: biometricError } : null),
+    () => (isDisabled ? { leftMs: msLeft(timelock, lockLevel, Date.now()), afterFailure: biometricError } : null),
     [isDisabled, biometricError, timelock, lockLevel]
   );
 
@@ -217,16 +252,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const submitPasscode = useCallback(
     async (passcode: string) => {
       if (isSubmitting) return;
-      // Judged from storage, not this window's state: another window may have counted failures or armed a lockout
-      // since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
-      const storedAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
-      const storedTimelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-      const storedLockLevel = LOCK_TIME * Math.floor(storedAttempt / 3);
-      if (Date.now() - storedTimelock <= storedLockLevel) {
-        timelockRef.current = storedTimelock;
-        setTimeLock(storedTimelock);
-        setAttempt(storedAttempt);
-        setTimeleft(getTimeLeft(storedTimelock, storedLockLevel));
+      // The fast path: a window another one locked refuses at once, instead of sleeping 1-3s first.
+      const stored = readStoredLockout();
+      if (stored.locked) {
+        adoptLockout(stored);
         setCode('');
         return;
       }
@@ -237,18 +266,13 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
-        if (storedAttempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+        if (stored.attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
 
         // Another window may have armed a lockout while this one slept; re-check before spending the
         // guess, or two close submits could both reach unlock() (#1192).
-        const preUnlockAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
-        const preUnlockTimelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-        const preUnlockLockLevel = LOCK_TIME * Math.floor(preUnlockAttempt / 3);
-        if (Date.now() - preUnlockTimelock <= preUnlockLockLevel) {
-          timelockRef.current = preUnlockTimelock;
-          setTimeLock(preUnlockTimelock);
-          setAttempt(preUnlockAttempt);
-          setTimeleft(getTimeLeft(preUnlockTimelock, preUnlockLockLevel));
+        const preUnlock = readStoredLockout();
+        if (preUnlock.locked) {
+          adoptLockout(preUnlock);
           setCode('');
           setIsSubmitting(false);
           return;
@@ -275,7 +299,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           setTimeLock(stamp);
         }
         setAttempt(currentAttempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((currentAttempt + 1) / 3)));
+        setTimeleft(getTimeLeft(Date.now(), lockLevelOf(currentAttempt + 1)));
 
         console.error(err);
 
@@ -288,7 +312,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         endUnlock();
       }
     },
-    [isSubmitting, unlock, setAttempt, setTimeLock, beginUnlock, endUnlock]
+    [isSubmitting, unlock, setAttempt, setTimeLock, beginUnlock, endUnlock, adoptLockout]
   );
 
   useEffect(() => {
@@ -378,30 +402,27 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       const stamp = timelockRef.current;
       // This window's own attempt can be stale (level 0) while it armed from a stored count another
       // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
-      const storedAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
-      const level = LOCK_TIME * Math.floor(storedAttempt / 3);
+      const stored = readStoredLockout();
       // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
-      if (stamp !== 0 && Date.now() - stamp > level) {
-        const storedTimeLock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-        if (storedTimeLock === stamp) {
+      if (stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
+        if (stored.timelock === stamp) {
           // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
           timelockRef.current = 0;
           setTimeLock(0);
         } else {
           // Storage no longer holds this stamp: adopt it, or isDisabled stays frozen on an expired
           // value with nothing left to trigger the re-render that would clear it (#1192).
-          timelockRef.current = storedTimeLock;
-          setTimeLock(storedTimeLock);
-          setAttempt(storedAttempt);
+          adoptLockout(stored);
+          return;
         }
       }
-      setTimeleft(getTimeLeft(stamp, level));
+      setTimeleft(getTimeLeft(stamp, stored.level));
     }, 1_000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [setTimeLock, setAttempt]);
+  }, [setTimeLock, adoptLockout]);
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
