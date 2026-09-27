@@ -11,7 +11,7 @@
 - [CHANGE][ci] Tests pin the usage-data and crash-reporting key defines in every build config that bundles them, and the dApp-bridge debug flag and update-flag define tests check the same way: deleting a define, commenting it out with // or adding a second entry for the same key fails a test, as does changing a telemetry key's empty default (#1118, #1147).
 - [CHANGE][ci] The Activity lists' paging tests now fail if a list stops handing the scroller its page loader, its scroll parent, whether more pages remain, or the setting that makes it listen on that parent (#1103).
 - [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
-- [CHANGE][ci] The test-network ribbon's popup E2E runs again: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
+- [CHANGE][ci] The test-network ribbon's popup E2E now runs: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
 
 ### Fixes
 

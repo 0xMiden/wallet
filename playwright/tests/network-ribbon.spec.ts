@@ -87,6 +87,15 @@ test.describe('Network corner ribbon', () => {
       extensionContext,
       extensionId
     }) => {
+      // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
+      // (reveal-seed-phrase.spec.ts does the same): fresh_install loop 5s; importWallet's welcome
+      // 30s + notice 15s + select-type 15s + seed-phrase 15s + create-password 10s +
+      // recovery-method 15s + confirmation-submit 30s + telemetry-consent 30s + open-wallet 30s
+      // = 190s; openPopup's two 30s waits = 60s; banner 10s + ribbon-in-corner 10s + sheet CTA
+      // 15s + CTA text 10s + aria-expanded-true 10s + poll ctaBottom 5s + poll lastRow 10s +
+      // sheet-closed 10s + aria-expanded-false 10s = 90s; total 345s.
+      test.setTimeout(360_000);
+
       // Start as a returning user: the one-time "Pin Bread" tooltip (fixed, z-9999, top-right) can
       // cover the popup at this width. The product marks it seen by removing `fresh_install`; wait
       // for the service worker to write the flag on install, then remove it, so neither ordering can
@@ -109,7 +118,8 @@ test.describe('Network corner ribbon', () => {
       // The ribbon is drawn inside the bar's corner, over the tabs, and inside the popup. The word is
       // a button on a band rotated -45deg, so its axis-aligned box overhangs the corner by design and
       // the corner box clips it: check that the word's centre sits in the corner's 44px square (the
-      // floating bar's c = 44 in NetworkModeRibbon) and that the clip covers the whole bar.
+      // floating bar's c = 44 in NetworkModeRibbon), that the ribbon is inside the clip, and that the
+      // clip covers the whole bar and matches its rounding.
       const ribbon = page.getByTestId('network-mode-ribbon');
       const nav = page.locator('[data-tabbar-footer] nav');
       const ribbonBox = (await ribbon.boundingBox())!;
@@ -123,7 +133,12 @@ test.describe('Network corner ribbon', () => {
       expect(wordCentre.y).toBeGreaterThan(navBottom - 44);
       expect(wordCentre.y).toBeLessThan(navBottom);
       const corner = nav.locator('[data-slot="bottom-nav-corner"]');
-      expect(await corner.evaluate(el => getComputedStyle(el).overflow)).toBe('hidden');
+      await expect(corner.getByTestId('network-mode-ribbon')).toHaveCount(1);
+      expect(await corner.evaluate(el => getComputedStyle(el).overflow)).toMatch(/^(hidden|clip)$/);
+      expect(await corner.evaluate(el => getComputedStyle(el).borderRadius)).toBe(
+        await nav.evaluate(el => getComputedStyle(el).borderRadius)
+      );
+      expect(await nav.evaluate(el => getComputedStyle(el).borderRadius)).not.toBe('0px');
       expect(await corner.boundingBox()).toEqual(navBox);
 
       // It takes no layout space: every tab is the same width, as without it. Settings is the last.
