@@ -2,9 +2,9 @@ import React, { FC } from 'react';
 
 import classNames from 'clsx';
 
-import { DappOrigin } from 'app/atoms/DappOrigin';
 import Logo from 'app/atoms/Logo';
 import { Icon, IconName } from 'app/icons/v2';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { DappMetadata } from 'lib/miden/types';
 
 type ConnectBannerProps = {

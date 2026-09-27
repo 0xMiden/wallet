@@ -14,6 +14,7 @@ import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { Spinner } from 'components/ui/Spinner';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -29,7 +30,6 @@ import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import { DappOrigin } from './atoms/DappOrigin';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
