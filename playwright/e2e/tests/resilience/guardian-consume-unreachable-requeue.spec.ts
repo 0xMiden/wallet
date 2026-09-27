@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { getEnvironmentConfig } from '../../config/environments';
 import { test, expect } from '../../fixtures/two-wallets';
 import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
+import { ensureFeeFunded } from '../../helpers/fee-funding';
 import {
   TxStatus,
   describeTransactionRow,
@@ -28,7 +29,8 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *
  * What goes red, and why:
  *   - a Failed row while the guardian refuses: the pre-#779 behaviour;
- *   - a second consume row: a failed attempt followed by a fresh claim, or a broken consume dedup;
+ *   - a second consume row created by this claim: a failed attempt followed by a fresh claim, or a broken consume
+ *     dedup;
  *   - a Completed consume while the guardian refuses: the fault never reached the consume;
  *   - no sample of the row back in Queued at 'creating-proposal': the loop never ran it into the guardian, which would
  *     leave the three checks above passing on a row nobody touched. A first pickup writes 'syncing' while Queued and
@@ -43,7 +45,11 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *   - zero `networkFaultHits()`: the refusal reached no guardian request. The frontend's guardian sync counts too,
  *     so on its own this proves less than the requeue sample;
  *   - after `clearFaults()`, a drain that never finishes, a vault short of the mint, or anything but one Completed
- *     consume row: the requeued row did not recover once the guardian answered.
+ *     consume row created by this claim, for the minted amount: the requeued row did not recover once the guardian
+ *     answered.
+ *
+ * The wallet's fee funding is claimed, and its consume row settled, before the baseline read; every count above
+ * reads only rows created after that read, except the no-Failed checks, which read every row.
  */
 // The fault's `guardianA` target resolves from the same config, so the wallet and the fault cannot disagree on
 // which operator is A.
@@ -88,10 +94,10 @@ async function readRows(page: Page): Promise<TransactionRowSnapshot[]> {
   }
 }
 
-function expectHeldWhileRefused(rows: TransactionRowSnapshot[]): void {
+function expectHeldWhileRefused(rows: TransactionRowSnapshot[], baselineIds: ReadonlySet<string>): void {
   const dump = describeRows(rows);
-  // The wallet is created in this spec and holds one note, so every consume row is that note's claim.
-  const consumes = rows.filter(isConsume);
+  // Rows from before the baseline read are the fee funding's; every consume row after it is this claim's.
+  const consumes = rows.filter(row => isConsume(row) && !baselineIds.has(row.id));
   expect(
     rows.filter(isFailed),
     `no row may fail while the guardian refuses connections - a pre-submit refusal must requeue:\n  ${dump}`
@@ -120,6 +126,7 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
     test.setTimeout(600_000 + FIRST_REQUEUE_TIMEOUT_MS + OUTAGE_HOLD_MS + REQUEUE_COOLDOWN_SLACK_MS);
 
     let addressA = '';
+    let baselineIds: ReadonlySet<string> = new Set();
     // Settles to the drain's error rather than rejecting: it runs across two steps, and a rejection nobody is
     // awaiting yet would be reported as unhandled.
     let claimDrain: Promise<Error | null> | undefined;
@@ -127,6 +134,9 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
     await steps.step('create_and_fund_guardian_wallet', async () => {
       const a = await walletA.createGuardianWallet(GUARDIAN_URL);
       addressA = a.address;
+      // Funded and claimed here, so the fee note's own consume settles before the baseline read instead of racing
+      // this spec's claim; mint's own fee funding then does nothing.
+      await ensureFeeFunded(midenCli, walletA, addressA);
       await midenCli.init();
       const faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, MINT_BASE_UNITS, 'public');
@@ -140,11 +150,22 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
     await steps.step(
       'consume_waits_while_guardian_refuses',
       async () => {
+        // The fee funding's consume can still be finishing its post-completion guardian sync; let it settle so no
+        // row from before the fault changes after the baseline read.
+        for (const row of (await readRows(walletA.page)).filter(isConsume)) {
+          await waitForTransactionRow(
+            walletA.page,
+            row.id,
+            settled => settled?.status === TxStatus.Completed || settled?.status === TxStatus.Failed,
+            { what: 'the fee funding consume to reach a terminal status', timeoutMs: 120_000 }
+          );
+        }
         const baseline = await readRows(walletA.page);
         expect(
-          baseline.filter(row => isConsume(row) || isFailed(row)),
-          `every consume or Failed row counted below must be this claim's:\n  ${describeRows(baseline)}`
+          baseline.filter(row => isFailed(row) || (isConsume(row) && row.status !== TxStatus.Completed)),
+          `before the fault no row may have failed and every consume must be settled:\n  ${describeRows(baseline)}`
         ).toHaveLength(0);
+        baselineIds = new Set(baseline.map(row => row.id));
 
         await walletA.armNetworkFault({ target: 'guardianA', mode: 'connectionRefused' });
         const armedAt = Date.now();
@@ -161,8 +182,8 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
         for (;;) {
           rows = await readRows(walletA.page);
           samples++;
-          expectHeldWhileRefused(rows);
-          const requeued = rows.find(isRequeuedAtProposal);
+          expectHeldWhileRefused(rows, baselineIds);
+          const requeued = rows.find(row => isRequeuedAtProposal(row) && !baselineIds.has(row.id));
           if (requeued?.nextEligibleAt !== undefined) {
             if (firstRequeue === undefined) {
               firstRequeue = { seenAt: Date.now(), id: requeued.id, nextEligibleAt: requeued.nextEligibleAt };
@@ -237,7 +258,7 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
         });
 
         const landed = await readRows(walletA.page);
-        const consumeRow = landed.find(isConsume);
+        const consumeRow = landed.find(row => isConsume(row) && !baselineIds.has(row.id));
         if (!consumeRow) throw new Error(`no consume row is left after the claim landed:\n  ${describeRows(landed)}`);
         // A guardian consume runs its post-completion guardian sync before the row is stamped Completed, so the
         // drain can see the note consumed while the row is still GeneratingTransaction.
@@ -250,9 +271,12 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
 
         const rows = await readRows(walletA.page);
         const dump = describeRows(rows);
-        const consumes = rows.filter(isConsume);
+        const consumes = rows.filter(row => isConsume(row) && !baselineIds.has(row.id));
         expect(consumes, `the outage must leave exactly one consume row behind:\n  ${dump}`).toHaveLength(1);
         expect(consumes[0]?.status, `the one consume row must end Completed:\n  ${dump}`).toBe(TxStatus.Completed);
+        expect(consumes[0]?.amount, `the one consume row must be the minted note's claim:\n  ${dump}`).toBe(
+          MINT_BASE_UNITS.toString()
+        );
         expect(rows.filter(isFailed), `no row may have failed across the outage:\n  ${dump}`).toHaveLength(0);
 
         timeline.emit({
