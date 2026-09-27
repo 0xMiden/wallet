@@ -171,9 +171,18 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockFlowHandles.length = 0;
+  // clearAllMocks only clears call data, not a queued *Once implementation, so a
+  // test whose mockRejectedValueOnce/mockImplementationOnce never fires (e.g. it
+  // stops before the dispatch that would consume it) leaks that one-shot into
+  // the next test that calls the same mock. Reset these four explicitly and
+  // re-apply their default; mockBeginFlow is never given a one-shot.
+  mockRegisterWallet.mockReset();
+  mockRegisterWallet.mockResolvedValue(undefined);
+  mockPutToStorage.mockReset();
+  mockNavigate.mockReset();
+  mockClassifyError.mockReset();
   mockClassifyError.mockReturnValue('unknown');
   mockFetchFromStorage.mockResolvedValue(null);
-  mockRegisterWallet.mockResolvedValue(undefined);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
@@ -669,7 +678,7 @@ describe('ForgotPassword', () => {
     expect(captured.props?.recoveryError).toContain('guardian not found');
   });
 
-  it('clears the spinner when navigating on after a successful registration throws (#1093)', async () => {
+  it('leaves the spinner cleared when navigating on after a successful registration throws', async () => {
     mockNavigate.mockImplementationOnce(() => {
       throw new Error('navigation failed');
     });
