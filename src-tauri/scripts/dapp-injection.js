@@ -325,10 +325,11 @@
           publicKey: this.publicKey
         };
 
+        // The watch starts first, so a listener that disconnects from this emission stops it.
+        watchPermission(this, this.permission);
+
         // Emit accountChange event (what the adapter listens for)
         this._emit('accountChange', this.permission);
-
-        watchPermission(this, this.permission);
       }
 
       async disconnect() {

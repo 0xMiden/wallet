@@ -66,16 +66,18 @@ const flush = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
+const CONNECT = {
+  network: 'testnet',
+  accountId: '0xabc',
+  privateDataPermission: 'ALL',
+  allowedPrivateData: ['balance'],
+  publicKey: btoa('abc')
+};
+
 async function connected() {
   const h = load();
   const connecting = h.win.midenWallet.connect('ALL', 'testnet', ['balance']);
-  h.answer(h.last().reqId, {
-    network: 'testnet',
-    accountId: '0xabc',
-    privateDataPermission: 'ALL',
-    allowedPrivateData: ['balance'],
-    publicKey: btoa('abc')
-  });
+  h.answer(h.last().reqId, CONNECT);
   await connecting;
   return h;
 }
@@ -172,16 +174,26 @@ describe('account switch (#174)', () => {
   it('a second connect keeps one poll', async () => {
     const h = await connected();
     const again = h.win.midenWallet.connect('ALL', 'testnet', ['balance']);
-    h.answer(h.last().reqId, {
-      network: 'testnet',
-      accountId: '0xabc',
-      privateDataPermission: 'ALL',
-      allowedPrivateData: ['balance'],
-      publicKey: btoa('abc')
-    });
+    h.answer(h.last().reqId, CONNECT);
     await again;
     jest.advanceTimersByTime(10000);
     expect(h.polls()).toHaveLength(1);
+  });
+
+  it('a listener that disconnects from the connect emission leaves no poll', async () => {
+    const h = load();
+    const w = h.win.midenWallet;
+    let disconnecting: Promise<unknown> | undefined;
+    w.on('accountChange', p => {
+      if (p && !disconnecting) disconnecting = w.disconnect();
+    });
+    const connecting = w.connect('ALL', 'testnet', ['balance']);
+    h.answer(h.last().reqId, CONNECT);
+    await connecting;
+    h.answer(h.last().reqId, { type: 'DISCONNECT_RESPONSE' });
+    await disconnecting;
+    jest.advanceTimersByTime(10000);
+    expect(h.polls()).toHaveLength(0);
   });
 
   it('a poll that times out is followed by the next one', async () => {

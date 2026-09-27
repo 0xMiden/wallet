@@ -226,10 +226,11 @@ export const INJECTION_SCRIPT = `
       this.network = network;
       this.publicKey = decodedPublicKey;
 
+      // The watch starts first, so a throwing listener cannot leave it unstarted and one that disconnects stops it.
+      watchPermission(this, this.permission);
+
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
-
-      watchPermission(this, this.permission);
       return this.permission;
     }
 

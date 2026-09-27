@@ -919,6 +919,19 @@ describe('account switch (#174)', () => {
     expect(polls(win)).toHaveLength(1);
   });
 
+  it('keeps watching when a connect listener throws', async () => {
+    const win = makeWindow();
+    inject(win);
+    win.midenWallet.on('connect', () => {
+      throw new Error('listener failed');
+    });
+    await expect(
+      callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT)
+    ).rejects.toThrow('listener failed');
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(1);
+  });
+
   it('a poll that times out is followed by the next one', async () => {
     const win = await connectedOnTestnet();
     jest.advanceTimersByTime(10000);
