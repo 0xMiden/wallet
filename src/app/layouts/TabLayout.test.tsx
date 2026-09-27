@@ -166,9 +166,9 @@ jest.mock('components/ui', () => ({
     </div>
   ),
   SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
-    const shown = jest.requireActual('app/layouts/page-active').usePageActive();
+    const tabActive = jest.requireActual('app/layouts/page-active').useTabActive();
     return (
-      <div data-testid="action-bar" data-active={activeId} data-page-active={String(shown)} className={className}>
+      <div data-testid="action-bar" data-active={activeId} data-tab-active={String(tabActive)} className={className}>
         {items.map((it: any) => (
           <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
             {it.icon}
@@ -960,6 +960,45 @@ describe('TabLayout — mount fade and tab panes', () => {
     expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
   });
 
+  // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that
+  // shows the Home tab again; the tab-active context is how the bar tells that commit apart (#1068).
+  it('re-renders the hidden bar with the tab-active context, and shows it again with its new segment', () => {
+    mockLocation.pathname = '/send';
+    const { rerender } = renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+
+    mockLocation.pathname = '/history';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'false');
+
+    mockLocation.pathname = '/';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'overview');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+  });
+
+  // A slide page covering Home and closing back onto a different Home-group route is not a tab swap:
+  // the Home tab was never deselected, only covered, so the bar stays reported active throughout (#1068).
+  it('keeps the tab active while a slide page covers Home, and again once it closes onto Send', () => {
+    mockLocation.pathname = '/';
+    const { rerender } = render(
+      <PageActiveContext.Provider value={false}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+
+    mockLocation.pathname = '/send';
+    rerender(
+      <PageActiveContext.Provider value={true}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+  });
+
   it('refreshes the active tab content on every render', () => {
     mockLocation.pathname = '/history';
     const { rerender } = renderLayout(<div data-testid="child-content">one</div>);
@@ -996,24 +1035,6 @@ describe('TabLayout — footer scaffolding', () => {
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
-  });
-
-  // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that
-  // shows it again; the pane context is how the bar tells that commit apart (#1068).
-  it('re-renders the hidden bar with the pane context, and shows it again with its new segment', () => {
-    mockLocation.pathname = '/send';
-    const { rerender } = renderLayout();
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'true');
-
-    mockLocation.pathname = '/history';
-    rerender(<TabLayout>{<div />}</TabLayout>);
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'false');
-
-    mockLocation.pathname = '/';
-    rerender(<TabLayout>{<div />}</TabLayout>);
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'overview');
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'true');
   });
 });
 
