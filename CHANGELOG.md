@@ -23,6 +23,7 @@
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
+- [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 
 ### Fixes
 
