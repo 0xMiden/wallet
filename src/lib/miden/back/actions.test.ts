@@ -191,9 +191,9 @@ jest.mock('./dapp', () => ({
   waitForTransaction: jest.fn()
 }));
 
-// `remove` is what the failed-restore undo calls through clearStorage; without it
+// `clear` is what the failed-restore undo calls through clearStorage; without it
 // the undo throws inside a finally and masks the failure it was undoing.
-const mockStorageRemove = jest.fn().mockResolvedValue(undefined);
+const mockStorageClear = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('webextension-polyfill', () => {
   // One object behind both views: consumers read `default ?? module`, and a test
@@ -201,8 +201,8 @@ jest.mock('webextension-polyfill', () => {
   const storage = {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true }),
-      // `remove` is what the failed-restore undo reaches through clearStorage.
-      remove: (...args: unknown[]) => mockStorageRemove(...args)
+      // `clear` is what the failed-restore undo reaches through clearStorage.
+      clear: (...args: unknown[]) => mockStorageClear(...args)
     }
   };
   const runtime = { onMessage: { addListener: jest.fn() } };
@@ -239,7 +239,7 @@ describe('actions', () => {
     // Steered per-test with mockRejectedValueOnce, so it resets where the others
     // do: an unconsumed one-shot would otherwise run a later test's undo down the
     // failure arm while its name claims the successful one.
-    mockStorageRemove.mockReset().mockResolvedValue(undefined);
+    mockStorageClear.mockReset().mockResolvedValue(undefined);
     mockInited.mockClear();
     mockLocked.mockClear();
     mockUnlocked.mockClear();
@@ -783,14 +783,14 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(provisionalVault);
 
-      mockStorageRemove.mockClear();
+      mockStorageClear.mockClear();
 
       await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
       expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
       expect(mockUnlocked).not.toHaveBeenCalled();
       // The spawn RESOLVED, so its own undo cannot fire: without this one the
       // profile keeps a complete, unlockable vault while the UI reports failure.
-      expect(mockStorageRemove).toHaveBeenCalled();
+      expect(mockStorageClear).toHaveBeenCalled();
     });
 
     it('does not let a failed undo replace the failure it was undoing', async () => {
@@ -802,7 +802,7 @@ describe('actions', () => {
         isOwnMnemonic: jest.fn(),
         retire: jest.fn()
       });
-      mockStorageRemove.mockRejectedValueOnce(new Error('storage unavailable'));
+      mockStorageClear.mockRejectedValueOnce(new Error('storage unavailable'));
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       // The undo runs in a finally, so an unguarded throw there would surface the
@@ -810,7 +810,7 @@ describe('actions', () => {
       await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
       // Prove the undo was actually attempted: without this the assertion above is
       // equally satisfied by a run in which it never fired.
-      expect(mockStorageRemove).toHaveBeenCalled();
+      expect(mockStorageClear).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
     });
   });

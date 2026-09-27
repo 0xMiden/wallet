@@ -103,8 +103,8 @@ jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-// The key `Vault.spawn`'s reset preserves; the page never reads or writes it
-// (see the endpoint-override test below).
+// The key `Vault.spawn`'s reset preserves; the page has to preserve it across
+// its own wipe too (see the endpoint-override test below).
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
 }));
@@ -314,38 +314,43 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  // `Vault.spawn`'s reset keeps the dev-settings endpoint override and the page's
-  // own wipe leaves the platform store alone, so a page-side read and write-back
-  // could only lose the override on a failed attempt (#1093).
-  it.each([
-    [
-      'create',
-      async () => {
-        await dispatch({ id: 'create-wallet' });
-        await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
-      }
-    ],
-    [
-      'Guardian import',
-      async () => {
-        mockProbeStart.mockResolvedValueOnce(PROBED_RESULT);
-        await dispatch({ id: 'select-import-type' });
-        await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
-        await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-        await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
-      }
-    ]
-  ])('never reads or writes the endpoint override on the %s path (#1093)', async (_path, reachConfirmation) => {
-    mockFetchFromStorage.mockImplementation(async key =>
-      key === 'endpoint_overrides' ? { rpcUrl: 'https://custom.example.com' } : null
-    );
+  /**
+   * The recovery wipe must not take the dev-settings endpoint override with it.
+   * `clearClientStorage()` is a blanket `localStorage.clear()`, and on desktop
+   * localStorage IS the platform key-value store, so the override — the one key
+   * a storage reset is supposed to survive — went with it. `Vault.spawn`'s reset
+   * snapshots it only AFTER this call, so it read null and restored nothing: the
+   * account was recovered on the custom network while the next launch resolved
+   * the build-default endpoints (empty balances, wrong native token, no error).
+   */
+  it('preserves the endpoint override across the recovery wipe (desktop localStorage)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
     renderPage();
-    await reachConfirmation();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockFetchFromStorage).not.toHaveBeenCalledWith('endpoint_overrides');
-    expect(mockPutToStorage.mock.calls.filter(([key]) => key === 'endpoint_overrides')).toEqual([]);
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
+    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', { rpcUrl: 'https://custom.example.com' });
+    // Read BEFORE the wipe, written back AFTER it — the order is the fix.
+    expect(mockFetchFromStorage.mock.invocationCallOrder[0]).toBeLessThan(
+      mockClearClientStorage.mock.invocationCallOrder[0]!
+    );
+    expect(mockPutToStorage.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockClearClientStorage.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('writes no override back when none was set', async () => {
+    // The common case: no dev-settings override, so the wipe has nothing to
+    // preserve and must not resurrect a key with a null value.
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 
   it('confirmation hands off to the side panel when available (#428)', async () => {
@@ -394,8 +399,8 @@ describe('ForgotPassword', () => {
   });
 
   it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {
-    // registerWallet wipes the old wallet before it builds the new one, so a
-    // rejection here can leave the user with no local wallet. Navigating away would drop them on a wiped
+    // clearClientStorage() runs BEFORE registerWallet, so a rejection here leaves
+    // the user with no local wallet. Navigating away would drop them on a wiped
     // wallet with no explanation, which is indistinguishable from data loss. Stay
     // on the confirmation step so the surfaced error and Retry are reachable.
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
@@ -602,23 +607,46 @@ describe('ForgotPassword', () => {
     errSpy.mockRestore();
   });
 
-  it('clears the spinner and shows the error when registerWallet rejects, and Retry runs the whole branch again (#1093)', async () => {
-    mockRegisterWallet.mockRejectedValueOnce(new Error('register failed'));
+  it('clears the spinner when reading the endpoint override fails (#1093)', async () => {
+    mockFetchFromStorage.mockRejectedValue(new Error('storage unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
     expect(captured.props?.isLoading).toBe(false);
-    expect(captured.props?.recoveryError).toContain('register failed');
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
     expect(mockNavigate).not.toHaveBeenCalled();
+    // A read that fails aborts before anything destructive runs.
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
 
+  it('retries from the start after a failed restore (#1093)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('quota exceeded');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    const result = captured.backHandler!();
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    mockPutToStorage.mockResolvedValue(undefined);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+    // Retry restarts from the read, not from wherever the first attempt broke.
+    expect(mockFetchFromStorage).toHaveBeenCalledTimes(2);
     expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
-    expect(captured.props?.recoveryError).toBeNull();
-    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   // -------------------------------------------------------------------------
