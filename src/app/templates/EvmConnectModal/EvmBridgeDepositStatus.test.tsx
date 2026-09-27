@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import type { IBridgedReceiveExtraInputs, ITransaction } from 'lib/miden/db/types';
+import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -169,25 +169,50 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
   });
 
-  it.each(['submitting', 'failed', 'delivering', 'received'] as const)(
-    'rounds a long quoted amount in the %s state instead of showing every digit',
-    phase => {
-      mockRowState = {
-        row: makeRow(makeInputs({ phase, sourceAmount: '151.500000000000000001', outputAmount: '150.00' })),
-        loaded: true
-      };
-      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+  const submittedPhases: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];
 
-      const badge = screen.getByTestId('summary-badge');
-      expect(badge).toHaveTextContent('151.50 USDC');
-      expect(badge).not.toHaveTextContent('151.500000000000000001');
-    }
-  );
+  it.each(submittedPhases)('rounds a long quoted amount in the %s state instead of showing every digit', phase => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase, sourceAmount: '151.500000000000000001', outputAmount: '150.00' })),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    const badge = screen.getByTestId('summary-badge');
+    expect(badge).toHaveTextContent('151.50 USDC');
+    expect(badge).not.toHaveTextContent('151.500000000000000001');
+  });
 
   it('expands the decimals of a tiny amount instead of showing zero', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '0.000001234' })), loaded: true };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.0000012 USDC');
+  });
+
+  it('rounds the Fast route deposit down, never half-up', () => {
+    mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '10.6555' })), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge')).toHaveTextContent('10.65 USDC');
+  });
+
+  it('shows the Slow route amounts as typed, not rounded to two decimals', () => {
+    mockRowState = {
+      row: makeRow(
+        makeInputs({
+          provider: 'agglayer',
+          sourceAmount: '0.015',
+          sourceSymbol: 'ETH',
+          outputAmount: '0.015',
+          outputSymbol: 'ETH',
+          phase: 'delivering'
+        })
+      ),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.015 ETH → 0.015 ETH');
   });
 });

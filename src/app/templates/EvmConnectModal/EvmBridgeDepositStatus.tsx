@@ -32,8 +32,11 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
-  // The row keeps the exact quoted deposit (18 decimals); the screen shows it the way Activity does.
-  const sourceLabel = `${formatBridgeOutputAmount(inputs.sourceAmount)} ${inputs.sourceSymbol}`;
+  // The Fast route stores the exact 18-decimal quote and is rounded here the way Activity
+  // does; the Slow route stores what was typed (already capped at 6 decimals), so it is shown unchanged.
+  const roundedSourceAmount =
+    inputs.provider === 'epoch' ? formatBridgeOutputAmount(inputs.sourceAmount) : inputs.sourceAmount;
+  const sourceLabel = `${roundedSourceAmount} ${inputs.sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
