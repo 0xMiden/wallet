@@ -45,6 +45,7 @@ import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
 import {
   addContact,
+  addContactFromSend,
   advanceToSendReview,
   deleteContact,
   listSendPickerContacts,
@@ -66,6 +67,12 @@ const SEND_AMOUNT = '1';
 // Deliberately not a substring of any other picker row's name, so "exactly one
 // row carries this name" is a meaningful check.
 const CONTACT_NAME = 'Wallet B Savings';
+
+// The send flow's own "Add to contacts?" sheet. Any lowercase 0x address is a valid
+// recipient, so the EVM contact needs no second chain.
+const MIDEN_SHEET_CONTACT = 'Wallet B From Send';
+const EVM_SHEET_CONTACT = 'Sepolia From Send';
+const EVM_ADDRESS = '0x00000000000000000000000000000000000c0ffe';
 
 test.describe('Address Book send', () => {
   test.describe.configure({ mode: 'serial' });
@@ -223,6 +230,62 @@ test.describe('Address Book send', () => {
       // mean the delete landed rather than the list being broken.
       await expect(walletA.page.getByTestId('send-contacts-empty')).toBeVisible();
       await expect(walletA.page.getByTestId(`send-contact-${addressB!}`)).toHaveCount(0);
+    });
+  });
+
+  // The second save path: a typed recipient saved from the send flow's own sheet
+  // (AddContactDrawer), which, unlike the New contact page, carries a network for a
+  // 0x recipient. Nothing is sent, so neither wallet needs funding.
+  test("saves a Miden and a 0x recipient from the send flow's add-contact sheet, each on its network", async ({
+    walletA,
+    walletB,
+    steps
+  }) => {
+    test.setTimeout(300_000);
+    let addressB: string;
+
+    await steps.step('create_wallets', async () => {
+      await walletA.createNewWallet();
+      // The address book drops a contact that is one of this wallet's own accounts,
+      // so the Miden recipient has to be another wallet.
+      addressB = (await walletB.createNewWallet()).address;
+    });
+
+    await steps.step(
+      'save_miden_recipient_from_send',
+      async () => {
+        await addContactFromSend(walletA, {
+          name: MIDEN_SHEET_CONTACT,
+          address: addressB!,
+          network: { id: 'miden', name: 'Miden' }
+        });
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    await steps.step(
+      'save_evm_recipient_from_send',
+      async () => {
+        await addContactFromSend(walletA, {
+          name: EVM_SHEET_CONTACT,
+          address: EVM_ADDRESS,
+          network: { id: 'sepolia', name: 'Sepolia' }
+        });
+      },
+      { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+    );
+
+    await steps.step('address_book_lists_both_on_their_networks', async () => {
+      await openSettingsDrawer(walletA, 'address-book');
+      // Each row's subtitle leads with its network, then the truncated address. With
+      // Sepolia the only bridge network, a 0x row reads Sepolia even if none was saved,
+      // so this pins what the user sees; AddContactDrawer.test.tsx pins the saved field.
+      const midenRow = walletA.page.getByTestId(`address-book-contact-${addressB!}`);
+      await expect(midenRow).toContainText(MIDEN_SHEET_CONTACT);
+      await expect(midenRow).toContainText('Miden · ');
+      const evmRow = walletA.page.getByTestId(`address-book-contact-${EVM_ADDRESS}`);
+      await expect(evmRow).toContainText(EVM_SHEET_CONTACT);
+      await expect(evmRow).toContainText('Sepolia · ');
     });
   });
 });
