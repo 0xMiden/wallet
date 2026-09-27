@@ -48,7 +48,7 @@ async function updateDismissedActivations(
   });
 }
 
-// A write that fails leaves the dismissal in this window only, as it always did; it is not retried.
+// A failed write is not retried: this window keeps its change and storage keeps the old record.
 const ignoreFailedWrite = () => {};
 
 /**
