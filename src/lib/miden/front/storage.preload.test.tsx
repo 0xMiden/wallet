@@ -1,6 +1,8 @@
 import React, { Suspense } from 'react';
 
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+
+import { isExtension } from 'lib/platform';
 
 import { preloadStorage, usePassiveStorage, useStorage } from './storage';
 
@@ -8,15 +10,36 @@ import { preloadStorage, usePassiveStorage, useStorage } from './storage';
 
 jest.mock('lib/platform', () => ({
   isMobile: () => true,
-  isExtension: () => false
+  isExtension: jest.fn(() => false)
+}));
+
+type StorageChangeHandler = (
+  changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
+  areaName: string
+) => void;
+const mockAddListener = jest.fn<void, [StorageChangeHandler]>();
+const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>();
+jest.mock('webextension-polyfill', () => ({
+  __esModule: true,
+  default: {
+    storage: {
+      onChanged: {
+        addListener: mockAddListener,
+        removeListener: mockRemoveListener
+      }
+    }
+  }
 }));
 
 const mockStored: Record<string, unknown> = { 'stored-key': 'stored-value' };
 const mockGet = jest.fn(
   async ([key]: string[]): Promise<Record<string, unknown>> => (key! in mockStored ? { [key!]: mockStored[key!] } : {})
 );
+const mockSet = jest.fn(async (items: Record<string, unknown>) => {
+  Object.assign(mockStored, items);
+});
 jest.mock('lib/platform/storage-adapter', () => ({
-  getStorageProvider: () => ({ get: mockGet, set: jest.fn() })
+  getStorageProvider: () => ({ get: mockGet, set: mockSet })
 }));
 
 const Reader = ({ storageKey }: { storageKey: string }) => {
@@ -28,6 +51,30 @@ const PassiveReader = ({ storageKey }: { storageKey: string }) => {
   const [value] = usePassiveStorage<string>(storageKey, 'fallback-value');
   return <div data-testid="value">{value}</div>;
 };
+
+let setStored!: (value: string) => Promise<void> | void;
+
+const Writer = ({ storageKey }: { storageKey: string }) => {
+  const [value, setValue] = useStorage<string>(storageKey, 'fallback-value');
+  setStored = setValue;
+  return <div data-testid="value">{value}</div>;
+};
+
+const PassiveWriter = ({ storageKey }: { storageKey: string }) => {
+  const [value, setValue] = usePassiveStorage<string>(storageKey, 'fallback-value');
+  setStored = setValue;
+  return <div data-testid="value">{value}</div>;
+};
+
+class Boundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? <div data-testid="failed" /> : this.props.children;
+  }
+}
 
 const renderReader = (storageKey: string, Component = Reader) =>
   render(
@@ -232,5 +279,232 @@ describe('preloadStorage', () => {
     });
 
     expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+});
+
+describe('storage hooks (#1148)', () => {
+  it('shows a value set through useStorage after its reader remounts, with no storage change event', async () => {
+    mockStored['setter-key'] = 'old';
+    await preloadStorage(['setter-key']);
+    const first = renderReader('setter-key', Writer);
+
+    await act(async () => {
+      await setStored('new');
+    });
+    first.unmount();
+    renderReader('setter-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('shows a value set through usePassiveStorage after its reader remounts, with no storage change event', async () => {
+    mockStored['passive-setter-key'] = 'old';
+    await preloadStorage(['passive-setter-key']);
+    const first = renderReader('passive-setter-key', PassiveWriter);
+
+    await act(async () => {
+      setStored('new');
+    });
+    // The passive hook writes from an effect; let its storage write and cache update finish before the remount.
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith({ 'passive-setter-key': 'new' }));
+    await act(async () => {});
+    first.unmount();
+    renderReader('passive-setter-key', PassiveReader);
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("falls back to a preload value that already landed when the reader's own read fails", async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const releasePreload = deferredRead('fallback-key', 'preloaded');
+      const preload = preloadStorage(['fallback-key']);
+      let failRead!: () => void;
+      mockGet.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failRead = () => reject(new Error('read failed'));
+          })
+      );
+      render(
+        <Boundary>
+          <Suspense fallback={<div data-testid="suspended" />}>
+            <Reader storageKey="fallback-key" />
+          </Suspense>
+        </Boundary>
+      );
+
+      await act(async () => {
+        releasePreload();
+        await preload;
+      });
+      await act(async () => {
+        failRead();
+      });
+
+      expect((await screen.findByTestId('value')).textContent).toBe('preloaded');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('does not wait for a preload still in flight when the reader read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockGet.mockImplementationOnce(() => new Promise(() => {}));
+      void preloadStorage(['pending-key']);
+      let failRead!: () => void;
+      mockGet.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failRead = () => reject(new Error('read failed'));
+          })
+      );
+      render(
+        <Boundary>
+          <Suspense fallback={<div data-testid="suspended" />}>
+            <Reader storageKey="pending-key" />
+          </Suspense>
+        </Boundary>
+      );
+
+      await act(async () => {
+        failRead();
+      });
+
+      expect(await screen.findByTestId('failed')).toBeDefined();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('keeps the cached value when a setter write to storage fails', async () => {
+    mockStored['failing-set-key'] = 'old';
+    await preloadStorage(['failing-set-key']);
+    const first = renderReader('failing-set-key', Writer);
+
+    mockSet.mockRejectedValueOnce(new Error('write failed'));
+    await act(async () => {
+      await expect(setStored('new')).rejects.toThrow('write failed');
+    });
+    first.unmount();
+    renderReader('failing-set-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+
+  it('shows the error screen when both the preload and the reader read fail', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      let rejectPreload!: () => void;
+      mockGet.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectPreload = () => reject(new Error('preload read failed'));
+          })
+      );
+      const preload = preloadStorage(['both-fail-key']);
+      let failRead!: () => void;
+      mockGet.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failRead = () => reject(new Error('read failed'));
+          })
+      );
+      render(
+        <Boundary>
+          <Suspense fallback={<div data-testid="suspended" />}>
+            <Reader storageKey="both-fail-key" />
+          </Suspense>
+        </Boundary>
+      );
+
+      await act(async () => {
+        rejectPreload();
+        await preload.catch(() => {});
+      });
+      await act(async () => {
+        failRead();
+      });
+
+      expect(await screen.findByTestId('failed')).toBeDefined();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('a setter write supersedes a preload still in flight', async () => {
+    mockStored['setter-race-key'] = 'old';
+    await preloadStorage(['setter-race-key']);
+    renderReader('setter-race-key', Writer);
+    // Let the mount's own SWR revalidation settle before starting a second, overlapping preload.
+    await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+    const release = deferredRead('setter-race-key', 'old');
+    const pending = preloadStorage(['setter-race-key']);
+    await act(async () => {
+      await setStored('new');
+    });
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a usePassiveStorage setter write supersedes a preload still in flight', async () => {
+    mockStored['passive-race-key'] = 'old';
+    await preloadStorage(['passive-race-key']);
+    const first = renderReader('passive-race-key', PassiveWriter);
+    // Let the mount's own SWR revalidation settle before starting a second, overlapping preload.
+    await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+    const release = deferredRead('passive-race-key', 'old');
+    const pending = preloadStorage(['passive-race-key']);
+    await act(async () => {
+      setStored('new');
+    });
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith({ 'passive-race-key': 'new' }));
+    await act(async () => {});
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    first.unmount();
+    renderReader('passive-race-key', PassiveReader);
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('writes through on the extension when a storage change event for the same key lands during the write', async () => {
+    // Prediction: the write's own cache mutate (revalidate: false) and the change event's bound
+    // SWR mutate (default revalidate) both touch the cache for this key without looping - the
+    // rendered value stays the written one, and the change event's own revalidation accounts for
+    // the only extra mockGet call, not a growing series of them.
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-setter-key'] = 'old';
+      await preloadStorage(['extension-setter-key']);
+      renderReader('extension-setter-key', Writer);
+      // Let onStorageChanged's dynamic import resolve and register its browser listener.
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      expect(mockAddListener).toHaveBeenCalled();
+      const handleChanged = mockAddListener.mock.calls[mockAddListener.mock.calls.length - 1]![0];
+      const callsBefore = mockGet.mock.calls.length;
+
+      await act(async () => {
+        await setStored('new');
+        handleChanged({ 'extension-setter-key': { newValue: 'new' } }, 'local');
+      });
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      expect(screen.getByTestId('value').textContent).toBe('new');
+      expect(mockGet.mock.calls.length - callsBefore).toBeLessThanOrEqual(2);
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
   });
 });
