@@ -7,7 +7,7 @@ import {
   readFrameTimes,
   readyWorkerThreads
 } from '../harness/frame-gap-probe';
-import { readProveTelemetry, readRealmMarkers } from '../harness/prove-telemetry-probe';
+import { readRealmMarkers } from '../harness/prove-telemetry-probe';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from '../helpers/balance-truth';
 
@@ -192,12 +192,22 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           readyWorkerThreads(markers, armedAt),
           'the prove worker came up cross-origin isolated with the capped pool'
         ).toBe(expectedThreads);
+        // Offscreen documents get chrome.runtime but never chrome.storage, so
+        // prove-telemetry.ts's persist() finds no storage there and silently
+        // skips the write -- the settled entry never reaches miden_prove_telemetry.
+        // The relayed `[prove-timing] path=local` marker is the observable record.
+        let proveLine: ProveMarker | undefined;
         await expect
-          .poll(async () => (await readProveTelemetry(walletA.page)).find(entry => entry.ts >= armedAt), {
-            message: 'the local prove recorded no telemetry',
-            timeout: 30_000
-          })
-          .toMatchObject({ path: 'local', realm: 'offscreen' });
+          .poll(
+            async () => {
+              markers = await readRealmMarkers(walletA.page, 'offscreen');
+              proveLine = markers.find(m => m.ts >= armedAt && m.line.includes('path=local '));
+              return proveLine !== undefined;
+            },
+            { message: 'no local prove recorded in the relayed offscreen marker trail', timeout: 30_000 }
+          )
+          .toBe(true);
+        expect(proveLine?.line).toMatch(/^\[prove-timing\] path=local duration_ms=[\d.]+ platform=\w+$/);
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]
