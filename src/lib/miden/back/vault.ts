@@ -1072,7 +1072,11 @@ export class Vault {
               // override; createGuardianAccount falls back to the network default
               // when it is undefined (it no longer consults the frozen global key
               // for NEW accounts — #408 stage 3).
-              const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint);
+              // Creation waits out guardian 429s inside this hold, so it re-checks
+              // ownership after each of its own parking awaits.
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint, step =>
+                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
+              );
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
@@ -1810,7 +1814,10 @@ export class Vault {
 
           if (walletType === WalletType.Guardian) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
+            // Same re-check as Vault.spawn's: creation's 429 waits park inside this hold.
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint, step =>
+              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
+            );
             return {
               accountId: result.accountId,
               keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
