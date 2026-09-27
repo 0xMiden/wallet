@@ -386,6 +386,37 @@ describe('useConnectivityState', () => {
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
 
+    // #1158: the window where the user tapped always hides what it shows, even when the record already holds a later
+    // activation of the category (a clock step back after a recovery no window saw).
+    it('hides the banner even when the record holds a later since', async () => {
+      storedDismissedActivations = { network: 999 };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
+      storageSnapshot = makeSnapshot({ network: true });
+      const { result } = renderHook(() => useConnectivityState());
+
+      act(() => result.current.dismiss('network'));
+      await settle();
+
+      expect(result.current.state.network.active).toBe(false);
+      expect(stored()).toEqual({ network: 999 });
+    });
+
+    it("keeps another window's dismissal of the current activation when a lagging window dismisses", async () => {
+      // Window A still shows network's old activation (123); window B already shows the current one (999).
+      storageSnapshot = makeSnapshot({ network: true });
+      const lagging = renderHook(() => useConnectivityState());
+      storageSnapshot = { ...makeSnapshot(), network: { active: true, since: 999 } };
+      const current = renderHook(() => useConnectivityState());
+
+      act(() => current.result.current.dismiss('network'));
+      await settle();
+      act(() => lagging.result.current.dismiss('network'));
+      await settle();
+
+      expect(stored()).toEqual({ network: 999 });
+      expect(current.result.current.state.network.active).toBe(false);
+    });
+
     it('keeps both changes local when their writes fail, and tries each once', async () => {
       // The cleanup forgets the recovered network dismissal and the user dismisses node; both writes are refused.
       mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
