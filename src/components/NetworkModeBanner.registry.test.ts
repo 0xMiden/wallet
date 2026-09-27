@@ -94,7 +94,10 @@ const moduleName = (specifier: string) =>
 const mockedModules = (source: string) =>
   [...source.matchAll(/jest\.(?:mock|doMock)\(\s*(['"`])([^'"`]+)\1/g)].map(match => moduleName(match[2]!));
 
-/** Whether a suite writes the banner's test id in any form: only NetworkModeBanner.tsx may, so a registered suite may mention it only to read it. */
+/**
+ * Whether a suite writes the banner's test id in any form: only NetworkModeBanner.tsx may, so a registered
+ * suite may mention it only to read it.
+ */
 const writesBannerTestId = (source: string) =>
   source
     .replace(/\b(?:get|query|find)(?:All)?ByTestId\(\s*(['"`])network-mode-banner\1\s*\)/g, '')
