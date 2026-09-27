@@ -324,14 +324,14 @@ describe('AllHistory', () => {
   });
 
   it('lands on Pending from a repeat link after the user picked another filter', () => {
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     const { rerender } = render(<AllHistory />);
     expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(getFilterButton('all'));
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
 
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     rerender(<AllHistory />);
     expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
     expect(getHistory().getAttribute('data-filter')).toBe('pending');
@@ -896,7 +896,7 @@ describe('AllHistory — opened at a filter', () => {
   });
 
   it('opens on the Pending filter when the link asked for it', () => {
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     render(<AllHistory />);
 
     expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
@@ -914,7 +914,7 @@ describe('AllHistory — opened at a filter', () => {
     const { rerender } = render(<AllHistory />);
     expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
 
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     rerender(<AllHistory />);
     expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
   });

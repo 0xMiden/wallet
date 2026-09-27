@@ -95,7 +95,8 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   // The filter the location names, read once per render.
   const linkedFilter = filterFromSearch(routeSearch, filters);
   // A link asks for the feed, the only view with filters and Accept All, with `view=list` beside its
-  // filter; the page's own record of a pick never does, so Back or a reload onto it keeps the saved view.
+  // filter; the page's own record of a pick carries `view=list` only on a List a link opened, so Back
+  // or a reload onto any other record keeps the saved view.
   const listAsked = linkedFilter !== undefined && new URLSearchParams(routeSearch).get('view') === 'list';
   const [filter, setFilter] = useState<ActivityFilter>('all');
   // The location's filter also becomes the kept choice, so a link's filter survives a return to
