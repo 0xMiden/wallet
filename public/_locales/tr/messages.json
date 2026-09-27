@@ -5250,6 +5250,10 @@
     "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   },
+  "checkingUnlockMethodSlow": {
+    "message": "Bu cüzdanın kilit açma yöntemini kontrol etmek normalden daha uzun sürüyor. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
+  },
   "receiveQrColorAction": {
     "message": "QR kodu rengini değiştir",
     "englishSource": "Change the QR code color"

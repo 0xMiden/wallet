@@ -21,7 +21,9 @@
 - [CHANGE][ci] The send flow's Add to contacts sheet is covered end to end: a Miden recipient and a 0x recipient are each saved from it, the sheet names the typed address and its network, the recipient step then shows the contact by name, and the address book lists each under its network (#1044).
 - [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
+- [CHORE][all] The Guardian transition hero's chip comment names the chip's real ink and drops a muted-token colour and contrast ratio that stopped being true (#1045).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
+- [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
 
 ### Fixes
 
@@ -54,6 +56,8 @@
 - [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
+- [FIX][extension] Transfers queued while the wallet was locked are claimed after it unlocks: an unlock now restarts the background claim processing, which had stopped after about five minutes of retrying against the locked wallet and left them showing Claiming with no way on (#924).
+- [FIX][all] Recovering a Guardian account from its seed within seconds of the old device's last transaction no longer stops on the everyday-key rotation's failure screen asking you to tap Retry: the rotation waits for that transaction to settle and finishes on its own (#904).
 - [FIX][all] A transaction queued while the wallet was still processing earlier ones, such as a dApp request, or an everyday-key rotation in the browser extension, now starts instead of waiting until something else restarts processing (#907).
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).

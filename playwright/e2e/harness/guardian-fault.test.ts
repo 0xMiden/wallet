@@ -64,58 +64,63 @@ describe('pathOf', () => {
 const PUBKEY_B = 'http://localhost:3001/pubkey?scheme=ecdsa';
 const PUBKEY_A = 'http://localhost:3000/pubkey?scheme=ecdsa';
 const DELTA_A = 'http://localhost:3000/delta?account_id=abc';
+const DELTA_PROPOSAL_A = 'http://localhost:3000/delta/proposal?account_id=abc&commitment=0x1';
 
 describe('decideGuardianFault', () => {
   it('passes through when no policy is armed', () => {
-    const result = decideGuardianFault(PUBKEY_B, null, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(PUBKEY_B, 'GET', null, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'continue' }, hits: 0 });
   });
 
   it('passes through requests to an unrelated origin even with a policy armed', () => {
     const policy: GuardianFaultPolicy = { path: 'pubkey', mode: 'status500' };
-    const result = decideGuardianFault('http://localhost:57291/rpc', policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault('http://localhost:57291/rpc', 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'continue' }, hits: 0 });
   });
 
   it('passes through when target does not match', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'pubkey', mode: 'status500' };
-    const result = decideGuardianFault(PUBKEY_B, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(PUBKEY_B, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'continue' }, hits: 0 });
   });
 
   it('passes through when path does not match', () => {
     const policy: GuardianFaultPolicy = { path: 'configure', mode: 'status500' };
-    const result = decideGuardianFault(PUBKEY_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(PUBKEY_A, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'continue' }, hits: 0 });
   });
 
   it('matches on path alone when no target is specified', () => {
     const policy: GuardianFaultPolicy = { path: 'pubkey', mode: 'status500' };
-    expect(decideGuardianFault(PUBKEY_A, policy, 0, LOCAL_GUARDIAN_ORIGINS).action).toEqual({ kind: 'fulfill500' });
-    expect(decideGuardianFault(PUBKEY_B, policy, 0, LOCAL_GUARDIAN_ORIGINS).action).toEqual({ kind: 'fulfill500' });
+    expect(decideGuardianFault(PUBKEY_A, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS).action).toEqual({
+      kind: 'fulfill500'
+    });
+    expect(decideGuardianFault(PUBKEY_B, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS).action).toEqual({
+      kind: 'fulfill500'
+    });
   });
 
   it('status500 mode fulfills 500 and increments hits', () => {
     const policy: GuardianFaultPolicy = { target: 'B', path: 'pubkey', mode: 'status500' };
-    const result = decideGuardianFault(PUBKEY_B, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(PUBKEY_B, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'fulfill500' }, hits: 1 });
   });
 
   it('abort mode aborts and increments hits', () => {
     const policy: GuardianFaultPolicy = { target: 'B', path: 'pubkey', mode: 'abort' };
-    const result = decideGuardianFault(PUBKEY_B, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(PUBKEY_B, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'abort' }, hits: 1 });
   });
 
   it('delay mode defaults to 3000ms and increments hits', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'delay' };
-    const result = decideGuardianFault(DELTA_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(DELTA_A, 'POST', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'delay', delayMs: 3000 }, hits: 1 });
   });
 
   it('delay mode honors a custom delayMs', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'delay', delayMs: 500 };
-    const result = decideGuardianFault(DELTA_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(DELTA_A, 'POST', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'delay', delayMs: 500 }, hits: 1 });
   });
 
@@ -123,38 +128,38 @@ describe('decideGuardianFault', () => {
     const policy: GuardianFaultPolicy = { target: 'B', path: 'pubkey', mode: 'failFirstN', count: 2 };
     let hits = 0;
 
-    const first = decideGuardianFault(PUBKEY_B, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const first = decideGuardianFault(PUBKEY_B, 'GET', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(first.action).toEqual({ kind: 'fulfill500' });
     hits = first.hits;
     expect(hits).toBe(1);
 
-    const second = decideGuardianFault(PUBKEY_B, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const second = decideGuardianFault(PUBKEY_B, 'GET', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(second.action).toEqual({ kind: 'fulfill500' });
     hits = second.hits;
     expect(hits).toBe(2);
 
     // Third matching request: count (2) already reached -> passes through, and
     // the hit counter does not keep climbing past what was actually armed.
-    const third = decideGuardianFault(PUBKEY_B, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const third = decideGuardianFault(PUBKEY_B, 'GET', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(third.action).toEqual({ kind: 'continue' });
     expect(third.hits).toBe(2);
 
-    const fourth = decideGuardianFault(PUBKEY_B, policy, third.hits, LOCAL_GUARDIAN_ORIGINS);
+    const fourth = decideGuardianFault(PUBKEY_B, 'GET', policy, third.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(fourth.action).toEqual({ kind: 'continue' });
     expect(fourth.hits).toBe(2);
   });
 
   it('failFirstN defaults count to 1 when omitted', () => {
     const policy: GuardianFaultPolicy = { target: 'B', path: 'pubkey', mode: 'failFirstN' };
-    const first = decideGuardianFault(PUBKEY_B, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const first = decideGuardianFault(PUBKEY_B, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(first.action).toEqual({ kind: 'fulfill500' });
-    const second = decideGuardianFault(PUBKEY_B, policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
+    const second = decideGuardianFault(PUBKEY_B, 'GET', policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(second.action).toEqual({ kind: 'continue' });
   });
 
   it('conflictPendingDelta fulfills a 409 (not a 500) and increments hits', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta' };
-    const result = decideGuardianFault(DELTA_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const result = decideGuardianFault(DELTA_A, 'POST', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(result).toEqual({ action: { kind: 'fulfillConflictPendingDelta' }, hits: 1 });
   });
 
@@ -162,12 +167,12 @@ describe('decideGuardianFault', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 2 };
     let hits = 0;
 
-    const first = decideGuardianFault(DELTA_A, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const first = decideGuardianFault(DELTA_A, 'POST', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(first.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
     hits = first.hits;
     expect(hits).toBe(1);
 
-    const second = decideGuardianFault(DELTA_A, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const second = decideGuardianFault(DELTA_A, 'POST', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(second.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
     hits = second.hits;
     expect(hits).toBe(2);
@@ -175,17 +180,38 @@ describe('decideGuardianFault', () => {
     // Third matching request: count (2) already reached -> passes through, same
     // self-clearing shape as failFirstN above (a real guardian conflict is
     // transient and must eventually let the retried request through).
-    const third = decideGuardianFault(DELTA_A, policy, hits, LOCAL_GUARDIAN_ORIGINS);
+    const third = decideGuardianFault(DELTA_A, 'POST', policy, hits, LOCAL_GUARDIAN_ORIGINS);
     expect(third.action).toEqual({ kind: 'continue' });
     expect(third.hits).toBe(2);
   });
 
   it('conflictPendingDelta defaults count to 1 when omitted', () => {
     const policy: GuardianFaultPolicy = { target: 'A', path: 'delta', mode: 'conflictPendingDelta' };
-    const first = decideGuardianFault(DELTA_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    const first = decideGuardianFault(DELTA_A, 'POST', policy, 0, LOCAL_GUARDIAN_ORIGINS);
     expect(first.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
-    const second = decideGuardianFault(DELTA_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
+    const second = decideGuardianFault(DELTA_A, 'POST', policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(second.action).toEqual({ kind: 'continue' });
+  });
+
+  it('a method-scoped policy leaves an other-method request alone, and still faults the scoped one', () => {
+    // The stress spec's real hazard (#904): `/delta/proposal` sees both the
+    // rotation's POSTs and unrelated GET polls on the same path segment. A
+    // policy scoped to POST must not spend its count on a GET that lands in
+    // the gap between the rotation's own retries.
+    const policy: GuardianFaultPolicy = {
+      target: 'A',
+      path: 'delta',
+      method: 'POST',
+      mode: 'conflictPendingDelta',
+      count: 2
+    };
+    const getResult = decideGuardianFault(DELTA_PROPOSAL_A, 'GET', policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    expect(getResult.action).toEqual({ kind: 'continue' });
+    expect(getResult.hits).toBe(0);
+
+    const postResult = decideGuardianFault(DELTA_PROPOSAL_A, 'POST', policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    expect(postResult.action).toEqual({ kind: 'fulfillConflictPendingDelta' });
+    expect(postResult.hits).toBe(1);
   });
 });
 
@@ -201,7 +227,9 @@ function makeFakeRoute(url: string): GuardianRouteLike & {
     abortCalls: [],
     fulfillCalls: [],
     request() {
-      return { url: () => url };
+      // Method is not exercised by these tests (they call `applyGuardianFaultAction`
+      // directly, not `decideGuardianFault`); the value is arbitrary.
+      return { url: () => url, method: () => 'GET' };
     },
     async continue() {
       this.continueCalls++;
