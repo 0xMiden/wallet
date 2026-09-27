@@ -370,10 +370,14 @@ export const unauthorizedRequeueCooldownSec = (draw: number): number =>
 // that can simply be rebuilt, so failing it (and letting the user re-initiate)
 // is the honest outcome.
 // Exported for its test: this set is what stands between a structural op and a
-// retry that would re-mint a hot key, and it is derived rather than written out,
-// so nothing else pins its membership. A behavioural test cannot cover the
-// structural types here — they fail before reaching the leaf for unrelated
-// reasons — which would leave both directions of the set free to drift.
+// requeue this arm would run after the persist - for replace-hot-key that rerun
+// reads the persisted key back rather than minting, so the reason it stays
+// excluded is the same honest-outcome call as `earn-deposit` above, not a
+// re-mint risk; for switch-guardian / update-procedure-threshold it is still the
+// duplicate-delta risk a rerun can register. It is derived rather than written
+// out, so nothing else pins its membership. A behavioural test cannot exercise a
+// structural type through this arm (see the membership test's own premise for
+// why), which would otherwise leave both directions of the set free to drift.
 export const UNAUTHORIZED_EXECUTION_REQUEUEABLE: ReadonlySet<ITransactionType> = new Set<ITransactionType>(
   [...REQUEUEABLE_ON_PENDING_CONFLICT].filter(type => type !== 'earn-deposit')
 );
@@ -1202,9 +1206,13 @@ const generateTransactionWithProvider = async (
       // (with backoff) and completes once the prover recovers. Re-read the row: the
       // in-memory `transaction` still carries the stage it was picked at, not the
       // 'proving' stage set mid-run. Structural ops are gated out via
-      // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key / register
-      // a duplicate delta); MAX_QUEUED_AGE remains the terminal cap. The prover
-      // connectivity banner explains the wait and auto-clears on the next success.
+      // REQUEUEABLE_ON_PENDING_CONFLICT: by this stage replace-hot-key's key is
+      // already persisted, so it is excluded for the same honest-outcome reason as
+      // `earn-deposit` (fail it, let the user re-initiate), not a re-mint risk,
+      // while switch-guardian / update-procedure-threshold stay excluded for the
+      // duplicate-delta risk a rerun can register; MAX_QUEUED_AGE remains the
+      // terminal cap. The prover connectivity banner explains the wait and
+      // auto-clears on the next success.
       //
       // A lock-recovery eviction is excluded (issue #775). The stage gate's
       // safety argument is that 'proving' precedes submit, which holds for an
@@ -1249,7 +1257,11 @@ const generateTransactionWithProvider = async (
       // requeue. We gate on the RE-READ row because the in-memory `transaction`
       // still carries the stage it was picked at, not the stage the failure
       // actually happened in. Structural ops stay excluded via
-      // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key).
+      // REQUEUEABLE_ON_PENDING_CONFLICT: at these stages replace-hot-key's key is
+      // not yet persisted (the persist follows a successful proposal creation,
+      // after both), so a requeue really would re-mint it; switch-guardian /
+      // update-procedure-threshold stay excluded for the duplicate-delta risk
+      // instead.
       //
       // Candidate cleanup differs per arm, and neither is a guarantee:
       // 'creating-proposal' fails before any candidate exists; 'signing-proposal'
@@ -1298,9 +1310,13 @@ const generateTransactionWithProvider = async (
       // `provenTx.submit()`. So the transfer provably never reached the chain
       // and the retry cannot double-spend, which is the property an op with no
       // input-note nullifier needs. Structural ops stay excluded via
-      // UNAUTHORIZED_EXECUTION_REQUEUEABLE (a requeue would re-mint a hot key /
-      // register a duplicate delta), as does `earn-deposit`, whose caller is
-      // waiting on the row's result.
+      // UNAUTHORIZED_EXECUTION_REQUEUEABLE: this arm fires after replace-hot-key's
+      // key is already persisted, so a rerun would read it back rather than mint
+      // another, and it is the same honest-outcome call as `earn-deposit` (fail
+      // it, let the user re-initiate) that excludes it here, not a re-mint risk;
+      // switch-guardian / update-procedure-threshold stay excluded for the
+      // duplicate-delta risk a rerun can register. `earn-deposit` is excluded
+      // too, whose caller is waiting on the row's result.
       //
       // Bounded by age so a row that is genuinely — rather than racily —
       // unauthorized surfaces that reason instead of ageing out as "expired";

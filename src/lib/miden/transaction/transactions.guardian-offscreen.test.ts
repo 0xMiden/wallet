@@ -665,9 +665,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
   });
 
   it('an unauthorized replace-hot-key is NOT requeued — a structural op must not re-mint', async () => {
-    // The type gate is the only thing stopping a structural op from re-running a
-    // proposal creator that has already minted a hardware hot key, orphaning one
-    // per cycle. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
+    // By this arm the row's key is already persisted, so a rerun would read it
+    // back rather than mint another; the type gate is the only thing stopping a
+    // structural op from being requeued here regardless, so it fails for the
+    // user to re-initiate instead - the same honest-outcome call as
+    // `earn-deposit`. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
     // conjunct is mutation-dead: deleting it leaves every suite green.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
@@ -687,11 +689,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     );
 
     const stored = txStore.find(r => r.id === 'on-replace-hot-key-unauthorized') as Record<string, unknown>;
-    // Pins WHY it failed. Without this the test is vacuous: a structural op does
-    // not reach the leaf in this harness, so it ends Failed for an unrelated
-    // reason and the assertion below stays green even with the type gate deleted.
-    // The `earn-deposit` case above and the membership test below are what
-    // actually hold that gate honest.
+    // Pins WHY it failed. Without this the test is vacuous: this file's shared
+    // `provider` fixture returns no accounts (`getAccounts: async () => []`), so
+    // THIS arrangement's replace-hot-key case throws on its own account lookup
+    // before ever reaching the leaf, for a reason unrelated to the type gate -
+    // not a claim that a structural op can never reach it (a stale-state rebuild
+    // does, elsewhere). The `earn-deposit` case above and the membership test
+    // below are what actually hold that gate honest.
     expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
     expect(stored.status).toBe(ITransactionStatus.Failed);
     expect(stored.nextEligibleAt).toBeUndefined();
@@ -699,10 +703,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
   it('the unauthorized requeue set is exactly the value-moving retryable types', async () => {
     // Membership asserted directly because the behavioural tests cannot reach it
-    // from both sides: a structural row dies before the leaf in this harness, so
-    // ADDING `replace-hot-key` here changes no test's outcome, and no suite sends
+    // from both sides: the replace-hot-key test above throws on its own account
+    // lookup (this file's shared `provider` fixture returns no accounts) before
+    // ever reaching this arm's decision, for a reason unrelated to the gate, so
+    // ADDING `replace-hot-key` here changes no test's outcome; and no suite sends
     // an unauthorized `swap` or `execute`, so DROPPING those changes nothing
-    // either. Both directions matter — one lets a retry re-mint a hot key, the
+    // either. Both directions matter - one lets a post-persist rerun retry a
+    // structural op the design fails for the user to re-initiate instead, the
     // other silently narrows the fix back to the two types that happen to have
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
