@@ -149,11 +149,15 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
 };
 
 /** Build a controllable `chrome` global for the side-panel restore branch. */
-const makeChromeStub = (getResult: Record<string, unknown>, panelBehavior: 'resolve' | 'reject') => ({
+const makeChromeStub = (
+  getResult: Record<string, unknown>,
+  panelBehavior: 'resolve' | 'reject',
+  setBehavior: 'resolve' | 'reject' = 'resolve'
+) => ({
   storage: {
     local: {
       get: jest.fn((_key: string, cb: (result: Record<string, unknown>) => void) => cb(getResult)),
-      set: jest.fn()
+      set: jest.fn(() => (setBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('set failed'))))
     }
   },
   action: { setPopup: jest.fn() },
@@ -213,6 +217,19 @@ describe('background.ts — Chrome side-panel restore', () => {
 
     // First call opens the panel (empty popup), the catch restores 'popup.html'.
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(1, { popup: '' });
+    expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore failed, reverting to popup:',
+      expect.any(Error)
+    );
+  });
+
+  it('leaves no unhandled rejection when the reverting storage.local.set also rejects', async () => {
+    const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
     expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
     expect(warnSpy).toHaveBeenCalledWith(
