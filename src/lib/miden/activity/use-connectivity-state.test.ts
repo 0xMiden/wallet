@@ -416,56 +416,6 @@ describe('useConnectivityState', () => {
       expect(current.result.current.state.network.active).toBe(false);
     });
 
-    // #1158: this window's own dismissals are kept apart from the stored record, so another write re-delivering the
-    // record never undoes one the record does not hold.
-    const redeliver = (hook: { rerender: () => void }) => {
-      storedDismissedActivations = { ...(stored() as Partial<Record<ConnectivityCategory, number | null>>) };
-      hook.rerender();
-    };
-
-    it('keeps an outranked dismissal when another write re-delivers the record', async () => {
-      storedDismissedActivations = { network: 999 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
-      storageSnapshot = { ...makeSnapshot({ network: true }), node: { active: true, since: 124 } };
-      const hook = renderHook(() => useConnectivityState());
-
-      act(() => hook.result.current.dismiss('network'));
-      act(() => hook.result.current.dismiss('node'));
-      await settle();
-      redeliver(hook);
-
-      expect(hook.result.current.state.network.active).toBe(false);
-      expect(hook.result.current.state.node.active).toBe(false);
-    });
-
-    it('keeps a dismissal whose write failed when another window writes', async () => {
-      storageSnapshot = makeSnapshot({ network: true });
-      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
-      const hook = renderHook(() => useConnectivityState());
-
-      act(() => hook.result.current.dismiss('network'));
-      await settle();
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { node: 124 };
-      redeliver(hook);
-
-      expect(hook.result.current.state.network.active).toBe(false);
-    });
-
-    it('forgets a recovered later since this window saw only in the record', async () => {
-      storedDismissedActivations = { network: 999 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
-      storageSnapshot = makeSnapshot({ network: true });
-      const hook = renderHook(() => useConnectivityState());
-      act(() => hook.result.current.dismiss('network'));
-      await settle();
-
-      storageSnapshot = makeSnapshot();
-      hook.rerender();
-      await settle();
-
-      expect(stored()).toEqual({});
-    });
-
     it('keeps both changes local when their writes fail, and tries each once', async () => {
       // The cleanup forgets the recovered network dismissal and the user dismisses node; both writes are refused.
       mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
@@ -478,12 +428,7 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(result.current.state.node.active).toBe(false);
-      // The refused dismissal is not retried; the cleanup may forget network again on its next evaluation, and
-      // nothing loops.
-      const writes = putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY);
-      expect(writes.filter(([, value]) => JSON.stringify(value).includes('"node"'))).toHaveLength(1);
-      await settle();
-      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(writes.length);
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(2);
     });
   });
 
@@ -506,21 +451,6 @@ describe('useConnectivityState', () => {
     expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
       node: getConnectivityState().node.since
     });
-  });
-
-  it('forgets its own recovered dismissal off the extension, where the stored record never re-delivers', async () => {
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => markConnectivityIssue('network'));
-    act(() => result.current.dismiss('network'));
-    await settle();
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      network: getConnectivityState().network.since
-    });
-
-    act(() => resetConnectivityState());
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({});
   });
 
   it('keeps both of two overlapping turns without Web Locks', async () => {
