@@ -12,6 +12,7 @@ export interface HashChipProps {
   lastCharsCount?: number;
   displayName?: string;
   className?: string;
+  stacked?: boolean;
   'data-testid'?: string;
 }
 
@@ -39,9 +40,10 @@ const HashChip: FC<HashChipProps> = ({
   lastCharsCount,
   displayName,
   className,
+  stacked,
   'data-testid': dataTestId
 }) => (
-  <CopyChip text={hash} className={cn(DEFAULT_CLASS_NAME, className)} data-testid={dataTestId}>
+  <CopyChip text={hash} className={cn(DEFAULT_CLASS_NAME, className)} stacked={stacked} data-testid={dataTestId}>
     <HashShortView
       hash={hash}
       trimHash={trimHash}

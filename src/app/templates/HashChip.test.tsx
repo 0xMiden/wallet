@@ -110,4 +110,16 @@ describe('HashChip', () => {
 
     expect(mockCopyChipProps.mock.calls[0][0]['aria-label']).toBeUndefined();
   });
+
+  it('forwards stacked to its CopyChip', () => {
+    render(<HashChip hash="0xabcdef0123456789" stacked />);
+
+    expect(mockCopyChipProps.mock.calls[0][0].stacked).toBe(true);
+  });
+
+  it('leaves stacked unset by default', () => {
+    render(<HashChip hash="0xabcdef0123456789" />);
+
+    expect(mockCopyChipProps.mock.calls[0][0].stacked).toBeUndefined();
+  });
 });

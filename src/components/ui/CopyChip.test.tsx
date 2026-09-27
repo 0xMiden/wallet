@@ -181,3 +181,29 @@ it('lets a caller compute aria-label from the copied state (e.g. "Copy" vs "Copi
 
   expect(screen.getByRole('button', { name: 'copied the hash' })).toBeInTheDocument();
 });
+
+const HIT_AREA = ['before:absolute', 'before:inset-x-0', 'before:-inset-y-2.5'];
+
+it('takes taps across 44px (10px above and below its 24px) without drawing anything', () => {
+  render(
+    <CopyChip text="0xabc123" data-testid="chip">
+      0xab…c123
+    </CopyChip>
+  );
+
+  const chip = screen.getByTestId('chip');
+  expect(chip).toHaveClass('h-6', 'relative', ...HIT_AREA);
+  expect(chip.className).not.toMatch(/before:(bg|border|shadow|ring|outline)/);
+});
+
+it('keeps its tap target to itself when stacked, so a tap cannot copy a neighbour', () => {
+  render(
+    <CopyChip text="0xabc123" stacked data-testid="chip">
+      0xab…c123
+    </CopyChip>
+  );
+
+  const chip = screen.getByTestId('chip');
+  expect(chip).toHaveClass('h-6');
+  for (const cls of HIT_AREA) expect(chip).not.toHaveClass(cls);
+});
