@@ -19,7 +19,7 @@ let mockIsMobile = false;
 // Backing store for the mocked `useLocalStorage` — seed keys per-test to drive
 // the attempt/timelock branches.
 let mockStore: Record<string, unknown> = {};
-// The store's account list, read by the step to name what the file leaves out.
+// The store's account list, read by the step to name what the file does not restore.
 let mockAccounts: WalletAccount[] = [];
 // The active locale the step joins those names in.
 let mockLocale = 'en';
@@ -470,7 +470,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.getByTestId('action-button')).toBeDisabled();
   });
 
-  describe('accounts the file leaves out (#1114)', () => {
+  describe('accounts the file does not restore (#1114)', () => {
     const account = (name: string, type: WalletType, hdIndex: number): WalletAccount => ({
       publicKey: `pk-${name}`,
       name,
@@ -479,7 +479,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
       hdIndex
     });
 
-    it('names every hot-key Guardian account the file leaves out, before the consent (#1114)', async () => {
+    it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {
       mockAccounts = [
         account('Seed account', WalletType.OnChain, 0),
         account('Imported', WalletType.OnChain, -1),

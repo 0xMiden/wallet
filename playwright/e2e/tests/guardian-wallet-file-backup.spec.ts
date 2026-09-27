@@ -23,7 +23,7 @@ const CHALLENGE_WORD = `0x${Array.from({ length: 32 }, (_, index) =>
 /**
  * #1114: a wallet onboarded from a Guardian account's everyday and EVM keys that also holds
  * an imported private-key account writes its Encrypted Wallet File, the export screen names
- * the Guardian account the file leaves out before the user consents, and the file restores
+ * the Guardian account the file does not restore before the user consents, and the file restores
  * into a fresh wallet with the imported account and no Guardian account.
  */
 test.describe('a hot-key Guardian wallet file (#1114)', () => {
@@ -42,7 +42,7 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
     if (handoffDir) fs.rmSync(handoffDir, { recursive: true, force: true });
   });
 
-  test('exports its imported account and names the account it leaves out (#1114)', async ({
+  test('exports its imported account and names the account it does not restore (#1114)', async ({
     walletA,
     walletB,
     steps
@@ -77,13 +77,13 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
       }
     });
 
-    await steps.step('export_screen_names_the_account_it_leaves_out', async () => {
+    await steps.step('export_screen_names_the_account_it_does_not_restore', async () => {
       await walletB.navigateTo('/settings/encrypted-wallet-file');
       const unlockStep = walletB.page
         .getByTestId('encrypted-file-manager-flow')
         .getByTestId('encrypted-file-wallet-password');
       const notice = unlockStep.getByTestId('encrypted-file-excluded-accounts');
-      await expect(notice).toContainText(`Not in this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
+      await expect(notice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
       await expect(notice).not.toContainText(IMPORTED_ACCOUNT_NAME);
 
       await captureBothThemes(walletB.page, notice, 'default');
@@ -109,7 +109,9 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
           .getByTestId('encrypted-file-manager-flow')
           .getByTestId('encrypted-file-wallet-password');
         const popupNotice = popupUnlockStep.getByTestId('encrypted-file-excluded-accounts');
-        await expect(popupNotice).toContainText(`Not in this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
+        await expect(popupNotice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`, {
+          timeout: 60_000
+        });
 
         // The real popup shell has no fullpage.html-style min-width: assert it actually fits
         // 360px rather than trusting the viewport size alone.

@@ -55,7 +55,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 }) => {
   const { unlock } = useMidenContext();
   const { t } = useTranslation();
-  // The exporter leaves these out by the same rule, so the notice matches the file.
+  // The exporter drops these records by the same rule, so the notice matches the file.
   const accounts = useWalletStore(s => s.accounts);
   const excludedAccounts = useMemo(() => accounts.filter(isExcludedFromWalletFile), [accounts]);
   const {

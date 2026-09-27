@@ -203,7 +203,7 @@ const TAB_GROUPS: TabGroup[] = [
         // The file is the only backup of an OffChain account's private state and of an
         // imported key; the recovery phrase restores neither. A wallet of Guardian
         // accounts only has nothing the file could restore (a seed-derived one comes
-        // back from the phrase, a hot-key one is left out of the file), so it gets no row.
+        // back from the phrase, a hot-key one is not restored from the file), so it gets no row.
         slug: 'encrypted-wallet-file',
         titleI18nKey: 'encryptedWalletFile',
         Component: EncryptedFileFlow,

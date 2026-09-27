@@ -1161,7 +1161,7 @@ describe('Vault.exportWalletBackupMaterial', () => {
     await removeMany([keys.mnemonic]);
   };
 
-  it('backs up the imported account and leaves out a hot-key Guardian account beside it (#1114)', async () => {
+  it('backs up the imported account and does not restore a hot-key Guardian account beside it (#1114)', async () => {
     await seedHotKeyWallet([hotKeyGuardian, importedAccount]);
     mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
 
