@@ -2185,6 +2185,41 @@ describe('HomePrompts', () => {
     expect(card).toHaveAttribute('data-actionable', 'false');
   });
 
+  it('names the unresolved record a request this card joined is refused over, and paints no failure', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    // Remounted between the tap and the lock's refusal, over a record this card's own read did not find.
+    const record = { requestedAt: Date.now() - 10 * 60_000, baselineNoteIds: [] };
+    let refuse = () => {};
+    mockGetInFlightFaucetRequest.mockReturnValue(
+      new Promise<void>((_resolve, reject) => {
+        refuse = () => reject(new FaucetRequestUnresolvedError(record));
+      })
+    );
+    mockGetInFlightFaucetMarker.mockReturnValue({ requestedAt: Date.now() - 1_000, baselineNoteIds: [] });
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    await act(async () => {});
+    mockGetInFlightFaucetRequest.mockReturnValue(null);
+    await act(async () => {
+      refuse();
+    });
+
+    const card = screen.getAllByTestId('prompt-card')[0]!;
+    expect(card).toHaveTextContent('faucetPromptUnresolvedBody');
+    expect(card).toHaveAttribute('data-status', 'idle');
+    expect(card).not.toHaveAttribute('data-hero');
+    expect(card).toHaveAttribute('data-actionable', 'true');
+  });
+
   describe('another surface writing the marker while this card decides to clear it (#935)', () => {
     // This card's read of the marker answers late, with the record as it was when asked.
     const holdNextMarkerRead = () => {

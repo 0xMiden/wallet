@@ -533,6 +533,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         setFaucetStatusIndicator('idle');
         return;
       }
+      if (error instanceof FaucetRequestUnresolvedError) {
+        // Nothing was sent: an earlier request is unresolved. Name it, so the next tap asks first.
+        if (accountKeyRef.current !== address) return;
+        setUnresolvedRequest({ address, ...error.record });
+        setFaucetStatusIndicator('idle');
+        return;
+      }
       // The rejection belongs to `address`, not to whoever is on screen: drop
       // that account's wait unconditionally (the updater is already
       // address-matched), or switching back to it restores a Funding hero with
@@ -697,8 +704,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       console.warn('[wallet-prompts] failed to read faucet funding marker; offering Fund for', address, error);
       // An unreadable marker must not disable funding for good; the read is settled and Fund
       // is offered (#936). Safe because a tap re-reads the marker under the lock before any
-      // proof of work: a read that fails again refuses the request, and a request already on
-      // its way refuses it too.
+      // proof of work: a read that fails again refuses the request, a request already on its
+      // way refuses it too, and so does an unresolved one until the user confirms replacing it.
       if (!cancelled) setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
     });
     return () => {
