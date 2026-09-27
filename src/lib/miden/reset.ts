@@ -34,16 +34,12 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
   }
 }
 
-// Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's
-// prefix. Keys are collected first: removing while indexing shifts the indices.
+// Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
 function removeLocalStorageExcept(keep: readonly string[]): void {
   const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
-  const doomed: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key !== null && !kept.has(key)) doomed.push(key);
+  for (const key of Object.keys(localStorage)) {
+    if (!kept.has(key)) localStorage.removeItem(key);
   }
-  for (const key of doomed) localStorage.removeItem(key);
 }
 
 /**
