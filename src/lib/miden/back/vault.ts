@@ -1666,8 +1666,12 @@ export class Vault {
       // is the same call the restore opens with, so it takes the protector and any
       // other plain key this attempt wrote and leaves the transactions table alone.
       // Guarded, so a failure before the protector existed cannot wipe a profile
-      // this restore never touched.
-      if (protectorInstalled) await clearStorage(false, PRESERVED_STORAGE_KEYS);
+      // this restore never touched; a failed undo is logged, never thrown over the restore's error.
+      if (protectorInstalled) {
+        await clearStorage(false, PRESERVED_STORAGE_KEYS).catch(undoError =>
+          console.error('[Vault.spawnFromMidenClient] could not undo a failed restore:', undoError)
+        );
+      }
       throw error;
     });
   }

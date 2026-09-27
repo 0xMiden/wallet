@@ -2294,6 +2294,24 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
+  it("surfaces the restore's own error when its undo cannot clear storage (#1174)", async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const wipe = clearStorage.getMockImplementation();
+    // The restore's opening wipe runs as usual; the undo's wipe fails.
+    clearStorage.mockImplementationOnce(wipe).mockImplementationOnce(async () => {
+      throw new Error('storage down');
+    });
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    consoleErrorSpy.mockRestore();
+  });
+
   it('rejects a version 2 restore when the SDK database lacks the imported account', async () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([]);
 
