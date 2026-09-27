@@ -151,7 +151,20 @@ jest.mock('app/pages/Settings', () => ({
     return <div data-testid="settings" data-tab-slug={props.tabSlug ?? ''} />;
   }
 }));
-jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
+const mockRetireLockoutRecord = jest.fn();
+jest.mock('app/pages/Unlock', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: () => <div data-testid="unlock" />,
+    retireLockoutRecord: () => mockRetireLockoutRecord(),
+    // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
+    useRetireLockoutOnReady: (ready: boolean) =>
+      R.useEffect(() => {
+        if (ready) mockRetireLockoutRecord();
+      }, [ready])
+  };
+});
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
 
 jest.mock('screens/developer-settings/DeveloperSettings', () => ({
@@ -781,6 +794,20 @@ describe('app/PageRouter — app-lifecycle telemetry', () => {
     expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ ready: false, locked: false, hydrated: false })
     );
+  });
+});
+
+// A correct guess whose window went away mid-call leaves its record behind; the next window to turn
+// ready retires it (#1192).
+describe('app/PageRouter - the lockout record', () => {
+  it('retires the guess record once the wallet is ready', () => {
+    renderAt('/', ready);
+    expect(mockRetireLockoutRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the guess record alone while the wallet is locked', () => {
+    renderAt('/', { locked: true, ready: false, hydrated: true });
+    expect(mockRetireLockoutRecord).not.toHaveBeenCalled();
   });
 });
 

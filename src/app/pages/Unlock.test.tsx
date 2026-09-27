@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 
-import Unlock from './Unlock';
+import Unlock, { retireLockoutRecord, useRetireLockoutOnReady } from './Unlock';
 
 // ---------------------------------------------------------------------------
 // Mutable platform / env state (mock-prefixed so jest's hoisted factories may
@@ -1655,5 +1655,44 @@ describe('the biometric key shows the sensor the device actually has', () => {
     // Only the glyph depends on the sensor, so failing to read it must not stop the unlock.
     expect(mockUnlock).toHaveBeenCalledWith();
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+// A guess is recorded before unlock(), so a correct one whose window went away mid-call leaves a
+// phantom failure, and at the threshold a provisional stamp; the window that turns ready retires it.
+describe('retiring the guess record once the wallet is ready (#1192)', () => {
+  it('resets a count and stamp left behind to 1 and 0', () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE };
+
+    retireLockoutRecord();
+
+    expect(mockLsStore).toEqual({ PasswordAttempts: 1, TimeLock: 0 });
+    expect(mockLsWrites).toEqual([
+      ['PasswordAttempts', 1],
+      ['TimeLock', 0]
+    ]);
+  });
+
+  it.each([
+    ['holds 1 and 0', { PasswordAttempts: 1, TimeLock: 0 }],
+    ['holds nothing', {}]
+  ])('writes nothing when storage already %s', (_label, stored) => {
+    mockLsStore = stored;
+
+    retireLockoutRecord();
+
+    expect(mockLsWrites).toEqual([]);
+  });
+
+  it('retires through the hook only once the wallet turns ready', () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE };
+    const { rerender } = renderHook(({ ready }) => useRetireLockoutOnReady(ready), {
+      initialProps: { ready: false }
+    });
+    expect(mockLsWrites).toEqual([]);
+
+    rerender({ ready: true });
+
+    expect(mockLsStore).toEqual({ PasswordAttempts: 1, TimeLock: 0 });
   });
 });

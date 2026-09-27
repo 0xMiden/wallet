@@ -76,6 +76,26 @@ const recordLockout = (floor: LockoutFloor, field: keyof LockoutFloor, value: nu
   floor[field] = writeLocalStorage(key, value) ? 0 : value;
 };
 
+/** Resets the stored guess record to no failures and no lockout, writing only a field that is not clear already. */
+export const retireLockoutRecord = () => {
+  if (readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1) !== 1) {
+    writeLocalStorage(MidenSharedStorageKey.PasswordAttempts, 1);
+  }
+  if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) !== 0) {
+    writeLocalStorage(MidenSharedStorageKey.TimeLock, 0);
+  }
+};
+
+/**
+ * Retires the guess record once this window's wallet is ready, whichever path unlocked it: a correct guess
+ * whose window went away mid-call then leaves no phantom failure or provisional stamp behind (#1192).
+ */
+export const useRetireLockoutOnReady = (ready: boolean) => {
+  useEffect(() => {
+    if (ready) retireLockoutRecord();
+  }, [ready]);
+};
+
 interface UnlockProps {
   openForgotPasswordInFullPage?: boolean;
 }
