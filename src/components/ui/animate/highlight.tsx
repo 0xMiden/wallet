@@ -578,7 +578,6 @@ const HighlightItem = React.forwardRef<HTMLElement, HighlightItemProps>(function
           transition={itemTransition}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          custom={exitTransition}
           variants={highlightExit}
           exit="exit"
           {...dataAttributes}
