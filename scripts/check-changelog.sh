@@ -12,10 +12,16 @@ CHANGELOG_FILE="${1:-CHANGELOG.md}"
 #
 # Runs before the "no changelog" escape hatch on purpose: a malformed file is a
 # problem whether or not THIS PR was required to add an entry.
-duplicate_headings=$(grep -E '^## ' "${CHANGELOG_FILE}" | sort | uniq -d)
-if [ -n "${duplicate_headings}" ]; then
+#
+# Headings are read as release-notes.yml reads them: a line whose first blank-separated field is
+# `##`, its version the second field, so an indented copy of a version counts too.
+if ! duplicate_versions=$(awk '$1 == "##" { print $2 }' "${CHANGELOG_FILE}" | sort | uniq -d); then
+    >&2 echo "Could not read the version headings of ${CHANGELOG_FILE}."
+    exit 2
+fi
+if [ -n "${duplicate_versions}" ]; then
     >&2 echo "Duplicate version heading(s) in ${CHANGELOG_FILE}:"
-    >&2 echo "${duplicate_headings}"
+    >&2 echo "${duplicate_versions}"
     >&2 echo
     >&2 echo "This usually means a union merge combined two PRs that each opened the same"
     >&2 echo "version section. Keep one heading and put both sets of entries under it."
@@ -46,7 +52,8 @@ echo "The \"CHANGELOG.md\" file has been updated."
 # Where each changed line may sit. release-notes.yml publishes a version's notes from its own
 # section, so a line filed under a released version edits notes that already shipped and is missing
 # from the next release. Two rules: a line the pull request adds, or an unchanged line whose section
-# it changes, must sit under a version newer than the latest release (or in the preamble, as prose);
+# it changes, must sit under a version newer than the latest release (or, as prose, outside every
+# version section: the preamble, or after a `---` line, which ends a section for release-notes.yml);
 # and a line that sat under a released version stays under it. The latest release is the highest
 # vX.Y.Z tag, not the newest `(TBD)` heading, which can outlive its release; release candidates do
 # not close a version. The job checks out with fetch-depth: 0, so the tags are there.
@@ -75,7 +82,9 @@ fi
 # in step, skipping those, pairs every other head line with its base line; a pair that differs, or
 # two files that do not run out together, means the diff was misread, so the check fails closed.
 awk -v latest="${latest_release}" -v diff_file="${work}/diff" -v base_file="${work}/base" -v file="${CHANGELOG_FILE}" '
-    function version_of(line,    words) { split(substr(line, 4), words, " "); return words[1] }
+    function fields(line) { return split(line, field, " ") }
+    function heading(line) { return fields(line) >= 1 && field[1] == "##" }
+    function version_of(line) { fields(line); return field[2] }
     function xyz(v) { return v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ }
     function newer(v,    a, b, k) {
         split(v, a, ".")
@@ -90,14 +99,14 @@ awk -v latest="${latest_release}" -v diff_file="${work}/diff" -v base_file="${wo
     # A line the pull request put where it is: an added line, or one whose section it changed.
     function judge(n, v, prefix) {
         if (v == "") {
-            if (head[n] ~ /^[ \t]*[-*+] /) report(n, prefix "an entry above every version heading")
+            if (head[n] ~ /^[ \t]*[-*+] /) report(n, prefix "an entry outside every version section")
         } else if (!xyz(v)) {
             report(n, prefix "under \"" v "\", which is not an X.Y.Z version")
         } else if (!newer(v)) {
             report(n, prefix "under " v ", which is not newer than the latest release, " latest)
         }
     }
-    function skip(line) { return line ~ /^## / || line ~ /^[ \t]*$/ }
+    function skip(line) { return heading(line) || line ~ /^[ \t]*$/ }
     FILENAME == diff_file {
         if ($0 ~ /^@@ /) {
             split($2, old, ",")
@@ -116,14 +125,16 @@ awk -v latest="${latest_release}" -v diff_file="${work}/diff" -v base_file="${wo
         next
     }
     FILENAME == base_file {
-        if ($0 ~ /^## /) base_version = version_of($0)
+        if (heading($0)) base_version = version_of($0)
+        if ($0 ~ /^---$/) base_version = ""
         base[FNR] = $0
         bver[FNR] = base_version
         nb = FNR
         next
     }
     {
-        if ($0 ~ /^## /) head_version = version_of($0)
+        if (heading($0)) head_version = version_of($0)
+        if ($0 ~ /^---$/) head_version = ""
         head[FNR] = $0
         hver[FNR] = head_version
         nh = FNR
@@ -132,10 +143,12 @@ awk -v latest="${latest_release}" -v diff_file="${work}/diff" -v base_file="${wo
         i = 1
         j = 1
         while (i <= nh || j <= nb) {
-            if (i <= nh && (i in added)) {
+            # A line removed and re-added unchanged, as a change to the final newline shows, is kept.
+            same = i <= nh && j <= nb && (i in added) && (j in removed) && head[i] == base[j]
+            if (!same && i <= nh && (i in added)) {
                 if (!skip(head[i])) judge(i, hver[i], "")
                 i++
-            } else if (j <= nb && (j in removed)) {
+            } else if (!same && j <= nb && (j in removed)) {
                 j++
             } else if (i > nh || j > nb || head[i] != base[j]) {
                 printf "%s: could not pair line %d with line %d of the base copy\n", file, i, j
@@ -143,9 +156,9 @@ awk -v latest="${latest_release}" -v diff_file="${work}/diff" -v base_file="${wo
             } else {
                 if (!skip(head[i]) && hver[i] != bver[j]) {
                     if (xyz(bver[j]) && !newer(bver[j])) {
-                        report(i, "moved from released " bver[j] " to " (hver[i] == "" ? "above every version heading" : hver[i]))
+                        report(i, "moved from released " bver[j] " to " (hver[i] == "" ? "outside every version section" : hver[i]))
                     } else {
-                        judge(i, hver[i], "moved from " (bver[j] == "" ? "the preamble" : bver[j]) " and now ")
+                        judge(i, hver[i], "moved from " (bver[j] == "" ? "outside every version section" : bver[j]) " and now ")
                     }
                 }
                 i++
