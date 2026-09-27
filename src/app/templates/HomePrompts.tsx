@@ -35,6 +35,7 @@ import {
   getFaucetRequestSettledAt,
   getInFlightFaucetMarker,
   FaucetRequestInProgressError,
+  FaucetRequestUnresolvedError,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
   isFaucetFundingMarkerLive,
@@ -558,70 +559,90 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // until the set has loaded (see `fundingReady`), so this is an invariant,
     // not a path a tap can take.
     if (fundingNotes === undefined) return;
-    if (unresolvedHere !== null) {
+    // The question stays open for as long as the user takes: act on a yes only while the record asked
+    // about is still the one on screen, since its funds may have landed or the account changed meanwhile.
+    const confirmReplacing = async (requestedAt: number) => {
       const again = await confirm({
         title: t('faucetRequestAgainTitle'),
         children: t('faucetRequestAgainBody'),
         confirmLabel: t('faucetRequestAgainAction')
       });
-      // The question stays open for as long as the user takes: act on a yes only while this record
-      // is still the one on screen, since its funds may have landed or the account changed meanwhile.
       const onScreen = unresolvedHereRef.current;
-      if (!again || onScreen?.address !== address || onScreen.requestedAt !== unresolvedHere.requestedAt) return;
+      if (!again || onScreen?.address !== address || onScreen.requestedAt !== requestedAt) return false;
       setUnresolvedRequest(current => (current !== null && current.address === address ? null : current));
-    }
-    // Snapshot the notes that already exist: only a note beyond this baseline
-    // (or a balance) counts as the mint landing.
-    const baselineNoteIds = fundingNoteIds;
-    // Identifies this request. It anchors only the wait while the request is unsent; once it
-    // goes out, the arrival window runs from its settle (see the backstop).
-    const requestedAt = Date.now();
-    const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
-    setFaucetStatusIndicator('loading');
-    setFaucetError(null);
-    // Installed before the request is awaited, while the account on screen is still the one
-    // asking: nothing has been awaited yet, or the check after the question above confirmed it.
-    setFundingWait({ address, ...marker });
-    try {
-      // The request persists the marker, so a card that unmounts over it still
-      // resumes the wait, and flags it submitted before the token request goes out.
-      await faucet(address, marker);
-      setFundingWait(submittedWait(address, requestedAt, Date.now()));
-      if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
-    } catch (error) {
-      if (error instanceof FaucetRequestInProgressError) {
-        // This card read no marker before another surface's request started, and that
-        // request is still live: nothing was sent, so wait for its mint, as a remount would.
-        const running = error.marker;
-        setFundingWait(current =>
-          current !== null && current.address === address && current.requestedAt === requestedAt
-            ? { address, ...running }
-            : current
-        );
-        if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
-        return;
-      }
-      if (error instanceof FaucetOutcomeUnknownError) {
-        // The token request went out and was never answered. The faucet may have
-        // minted, and a retry would mint again - so keep the flagged marker and the
-        // wait: arrival resolves it, or the backstop gives the card back.
-        console.warn('[wallet-prompts] faucet request outcome unknown; waiting for the mint:', error);
+      return true;
+    };
+    // Resolves to the unresolved record storage refused the request over, one this card had not
+    // read (another surface flagged it since, or the read on mount failed): nothing was sent then.
+    const request = async (replaces: number | undefined): Promise<UnresolvedRequest | null> => {
+      // Snapshot the notes that already exist: only a note beyond this baseline
+      // (or a balance) counts as the mint landing.
+      const baselineNoteIds = fundingNoteIds;
+      // Identifies this request. It anchors only the wait while the request is unsent; once it
+      // goes out, the arrival window runs from its settle (see the backstop).
+      const requestedAt = Date.now();
+      const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
+      setFaucetStatusIndicator('loading');
+      setFaucetError(null);
+      // Installed before the request is awaited, while the account on screen is still the one
+      // asking: nothing has been awaited yet, or the check after the question confirmed it.
+      setFundingWait({ address, ...marker });
+      try {
+        // The request persists the marker, so a card that unmounts over it still
+        // resumes the wait, and flags it submitted before the token request goes out.
+        await faucet(address, marker, { replaces });
         setFundingWait(submittedWait(address, requestedAt, Date.now()));
         if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
-        return;
+      } catch (error) {
+        if (error instanceof FaucetRequestUnresolvedError) {
+          setFundingWait(current =>
+            current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
+          );
+          if (accountKeyRef.current !== address) return null;
+          setFaucetStatusIndicator('idle');
+          const record = { address, ...error.record };
+          setUnresolvedRequest(record);
+          return record;
+        }
+        if (error instanceof FaucetRequestInProgressError) {
+          // This card read no marker before another surface's request started, and that
+          // request is still live: nothing was sent, so wait for its mint, as a remount would.
+          const running = error.marker;
+          setFundingWait(current =>
+            current !== null && current.address === address && current.requestedAt === requestedAt
+              ? { address, ...running }
+              : current
+          );
+          if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+          return null;
+        }
+        if (error instanceof FaucetOutcomeUnknownError) {
+          // The token request went out and was never answered. The faucet may have
+          // minted, and a retry would mint again - so keep the flagged marker and the
+          // wait: arrival resolves it, or the backstop gives the card back.
+          console.warn('[wallet-prompts] faucet request outcome unknown; waiting for the mint:', error);
+          setFundingWait(submittedWait(address, requestedAt, Date.now()));
+          if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+          return null;
+        }
+        // The request failed, so its marker no longer describes an expected mint: clear
+        // it for WHATEVER account made the request…
+        clearOwnFundingMarker(address, requestedAt);
+        // …and drop that account's wait whoever is on screen, for the same reason.
+        setFundingWait(current => (current !== null && current.address === address ? null : current));
+        // …but only paint the failure if that account is still on screen.
+        if (accountKeyRef.current === address) {
+          setFaucetStatusIndicator('failure');
+          setFaucetError(error instanceof Error ? error.message : String(error));
+        }
+        console.error('[wallet-prompts] faucet request failed:', error);
       }
-      // The request failed, so its marker no longer describes an expected mint: clear
-      // it for WHATEVER account made the request…
-      clearOwnFundingMarker(address, requestedAt);
-      // …and drop that account's wait whoever is on screen, for the same reason.
-      setFundingWait(current => (current !== null && current.address === address ? null : current));
-      // …but only paint the failure if that account is still on screen.
-      if (accountKeyRef.current === address) {
-        setFaucetStatusIndicator('failure');
-        setFaucetError(error instanceof Error ? error.message : String(error));
-      }
-      console.error('[wallet-prompts] faucet request failed:', error);
-    }
+      return null;
+    };
+    if (unresolvedHere !== null && !(await confirmReplacing(unresolvedHere.requestedAt))) return;
+    const unread = await request(unresolvedHere?.requestedAt);
+    // Named on the card now, so asked about like any other; a second refusal waits for the next tap.
+    if (unread !== null && (await confirmReplacing(unread.requestedAt))) await request(unread.requestedAt);
   }, [account.publicKey, confirm, fundingNoteIds, fundingNotes, t, unresolvedHere]);
 
   // Resume the "Funding" wait after a remount, app restart, or switch back to

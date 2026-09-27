@@ -463,7 +463,21 @@ export class FaucetRequestInProgressError extends Error {
   }
 }
 
-async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): Promise<void> {
+/**
+ * A request refused because the account's stored request is unresolved and the caller did not
+ * name it as the one the user confirmed replacing; `record` is that request. Nothing was sent.
+ */
+export class FaucetRequestUnresolvedError extends Error {
+  readonly record: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>;
+
+  constructor({ requestedAt, baselineNoteIds }: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>) {
+    super('An earlier faucet request for this account is unresolved');
+    this.name = 'FaucetRequestUnresolvedError';
+    this.record = { requestedAt, baselineNoteIds };
+  }
+}
+
+async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, replaces?: number): Promise<void> {
   const controller = new AbortController();
   let submitted = false;
   // Set once the submitted flag is being stored: from then on the flag may land, and every
@@ -502,6 +516,9 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): 
         ) {
           throw new FaucetRequestInProgressError(stored);
         }
+        // The user is asked before a request replaces an unresolved one, but a surface that read
+        // storage before another surface flagged it never asked: only a confirmed replacement passes.
+        if (stored?.unresolved && replaces !== stored.requestedAt) throw new FaucetRequestUnresolvedError(stored);
         // A request its timeout already ended reported a safe failure and writes nothing: a
         // retry may have stored its own marker by now.
         if (controller.signal.aborted) throw controller.signal.reason;
@@ -582,9 +599,15 @@ export function getFaucetRequestSettledAt(address: string, requestedAt: number):
  * Requests test tokens for `address`, or joins the request already running for it.
  * Given a `marker`, the request persists it and flags it submitted before the token
  * request goes out, so a later open can tell a mint that may land from one that
- * never went out.
+ * never went out. A stored unresolved request is replaced only when `replaces` names
+ * its `requestedAt`, the request the user confirmed replacing; any other request is
+ * refused with `FaucetRequestUnresolvedError`.
  */
-export function faucet(address: string, marker?: FaucetFundingMarker): Promise<void> {
+export function faucet(
+  address: string,
+  marker?: FaucetFundingMarker,
+  { replaces }: { replaces?: number } = {}
+): Promise<void> {
   const existing = inFlightFaucetRequests.get(address);
   if (existing) return existing.request;
   const recordSettled = () => {
@@ -593,7 +616,7 @@ export function faucet(address: string, marker?: FaucetFundingMarker): Promise<v
   // Storage reads settle asynchronously, so a reader of the marker always finds
   // this request registered by the `set` below. A joiner's marker is ignored: the
   // request it joins already persists its own.
-  const request: Promise<void> = runFaucetRequest(address, marker)
+  const request: Promise<void> = runFaucetRequest(address, marker, replaces)
     .then(recordSettled, (error: unknown) => {
       if (error instanceof FaucetOutcomeUnknownError) recordSettled();
       throw error;

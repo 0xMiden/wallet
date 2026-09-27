@@ -17,6 +17,7 @@ import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
+  FaucetRequestUnresolvedError,
   type FaucetFundingMarker,
   WalletPromptStatus,
   WalletPromptType,
@@ -746,33 +747,61 @@ describe('wallet prompts', () => {
     });
   });
 
-  it("sends over an unresolved request, and the new request's marker replaces the record", async () => {
+  describe('over an unresolved request', () => {
     // Sent 30 s ago by this clock, yet already flagged unresolved by the surface whose wait ended.
-    await setFaucetFundingMarker('accountUnresolved', {
+    const unresolvedRecord = (): FaucetFundingMarker => ({
       requestedAt: Date.now() - 60_000,
       baselineNoteIds: ['note-1'],
       submitted: true,
       submittedAt: Date.now() - 30_000,
       unresolved: true
     });
-    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
-    const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
-    mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
-        seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
-        await beforeSubmit?.();
-        return { txId: '0xtx', noteId: '0xnote' };
-      }
-    );
 
-    await faucet('accountUnresolved', marker);
+    it.each([
+      ['a request that does not name it', () => undefined],
+      ['a request that names another record', (record: FaucetFundingMarker) => record.requestedAt - 1]
+    ])('refuses %s before any proof of work, and leaves the record', async (_case, replacing) => {
+      // A surface that read storage before another surface flagged the record never asked the user.
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
-    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
-    expect(seen).toEqual([marker]);
-    expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
-      ...marker,
-      submitted: true,
-      submittedAt: expect.any(Number)
+      const error = await faucet(
+        'accountUnresolved',
+        { requestedAt: Date.now(), baselineNoteIds: [] },
+        { replaces: replacing(record) }
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+      expect(error).toMatchObject({
+        record: { requestedAt: record.requestedAt, baselineNoteIds: record.baselineNoteIds }
+      });
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual(record);
+    });
+
+    it("sends once the request names the record, and the new request's marker replaces it", async () => {
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+      const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
+      mintFromMidenFaucetMock.mockImplementation(
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+          seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
+          await beforeSubmit?.();
+          return { txId: '0xtx', noteId: '0xnote' };
+        }
+      );
+
+      await faucet('accountUnresolved', marker, { replaces: record.requestedAt });
+
+      expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+      expect(seen).toEqual([marker]);
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+        ...marker,
+        submitted: true,
+        submittedAt: expect.any(Number)
+      });
     });
   });
 
