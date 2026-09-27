@@ -1305,7 +1305,8 @@ describe('HomePrompts', () => {
       });
     });
 
-    it('asks once over a sent request whose window ended with no surface to flag it, before anything is sent', async () => {
+    it('adopts an unflagged sent record the refusal names, and asks once before anything is sent', async () => {
+      // The refusal comes from this file's faucet double; the lock's real rule is pinned in wallet-prompts.test.ts.
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       let answer: (accepted: boolean) => void = () => {};
       mockConfirm.mockImplementationOnce(
