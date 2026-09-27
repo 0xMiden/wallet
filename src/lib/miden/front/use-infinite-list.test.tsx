@@ -106,44 +106,41 @@ describe('useInfiniteList', () => {
   });
 
   it('reports only the latest of two overlapping loads', async () => {
-    let firstReject: (reason: unknown) => void;
-    let secondResolve: (value: string[]) => void;
-    const firstPromise = new Promise<string[]>((_resolve, reject) => {
-      firstReject = reject;
-    });
-    const secondPromise = new Promise<string[]>(resolve => {
-      secondResolve = resolve;
-    });
+    const pending: { resolve: (value: string[]) => void; reject: (reason: unknown) => void }[] = [];
     const getCount = jest.fn().mockResolvedValue(6);
-    let callCount = 0;
-    const getItems = jest.fn().mockImplementation(async () => {
-      callCount += 1;
-      return callCount === 1 ? firstPromise : secondPromise;
-    });
+    const getItems = jest
+      .fn()
+      .mockImplementation(() => new Promise<string[]>((resolve, reject) => pending.push({ resolve, reject })));
     const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
-
-    // Start first load
-    act(() => {
-      result.current.loadItems();
-    });
-
-    // Start second load before first finishes
-    act(() => {
-      result.current.loadItems();
-    });
-
-    // Reject first load after second has started
-    act(() => {
-      firstReject!(new Error('first rejected'));
-    });
-
-    // Resolve second load
+    // The mount load is the first request; it lands before the two overlapping loads start.
+    await waitFor(() => expect(pending).toHaveLength(1));
     await act(async () => {
-      secondResolve!(['x', 'y', 'z']);
+      pending[0]!.resolve(['a']);
     });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // After second load settles, error should be undefined and isLoading false
+    let older: Promise<void> = Promise.resolve();
+    let newer: Promise<void> = Promise.resolve();
+    act(() => {
+      older = result.current.loadItems();
+      newer = result.current.loadItems();
+    });
+    await waitFor(() => expect(pending).toHaveLength(3));
+
+    // The older load fails while the newer one is still in flight.
+    await act(async () => {
+      pending[1]!.reject(new Error('older failed'));
+      await older;
+    });
+    expect(result.current.isLoading).toBe(true);
     expect(result.current.error).toBeUndefined();
+
+    await act(async () => {
+      pending[2]!.resolve(['b']);
+      await newer;
+    });
     expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.items).toEqual(['a', 'b']);
   });
 });

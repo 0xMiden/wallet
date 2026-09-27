@@ -14,6 +14,7 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
   const pageToLoad = useRef(0);
   const initialPageLoaded = useRef(false);
   const [hasMore, setHasMore] = useState(true);
+  // Numbers the loads, so only the most recently started one reports a failure and ends the loading state.
   const loadSeq = useRef(0);
 
   useEffect(() => {
