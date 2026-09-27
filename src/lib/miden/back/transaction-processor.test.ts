@@ -521,6 +521,10 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     await mod.startTransactionProcessing();
     await flushAsync();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    // Each of the two runs (the original pass and the kicked restart) creates
+    // and clears its own keepalive alarm.
+    expect(mockAlarmsCreate).toHaveBeenCalledTimes(2);
+    expect(mockAlarmsClear).toHaveBeenCalledTimes(2);
   });
 
   it('runs no extra pass when nothing kicks during the loop', async () => {
@@ -543,13 +547,30 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     await flushAsync();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
+
+  it('runs a third pass when a kick arrives during the restarted run too (#907)', async () => {
+    const mod = await import('./transaction-processor');
+    // Run 1's queue check kicks run 2 (the restart); run 2's own queue check
+    // kicks run 3 - the restart pass must honour a kick just as the first run does.
+    mockGetAllUncompletedTransactions
+      .mockImplementationOnce(async () => {
+        void mod.startTransactionProcessing();
+        return [];
+      })
+      .mockImplementationOnce(async () => {
+        void mod.startTransactionProcessing();
+        return [];
+      });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(3);
+  });
 });
 
-describe('startTransactionProcessing - module-init timeout drops its own kick (#907 follow-up)', () => {
-  it('does not let a kick recorded while waiting for module init cause a spurious extra pass later', async () => {
-    // Simulate the Vite SW build's async-init window: the export is not yet
-    // a function, so this run enters its 60s wait loop instead of the
-    // isProcessing check ever getting past `typeof ... !== 'function'`.
+describe('startTransactionProcessing - module-init timeout honours its own kick (#907 follow-up)', () => {
+  it('starts exactly one more run when a kick is recorded during a full init-timeout wait', async () => {
+    // Module unavailable for the whole first wait, so this run's 60s wait
+    // times out without ever finding safeGenerateTransactionsLoop.
     mockSafeGenerateTransactionsLoopFn = undefined;
     jest.useFakeTimers();
 
@@ -560,21 +581,22 @@ describe('startTransactionProcessing - module-init timeout drops its own kick (#
     // correctly hits the "already processing" branch instead of racing it.
     const kick = mod.startTransactionProcessing();
 
-    // Advance past the full 60s wait; safeGenerateTransactionsLoopFn never
-    // becomes available, so the first run gives up without ever looping.
-    await jest.advanceTimersByTimeAsync(61000);
+    // Advance through exactly the 60s wait: the module never becomes
+    // available, so the timeout branch fires and, seeing the recorded kick,
+    // starts a fresh run instead of dropping it.
+    await jest.advanceTimersByTimeAsync(60000);
     await firstRun;
     await kick;
-    jest.useRealTimers();
-
     expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
 
-    // Restore the loop function and run normally with an empty queue - the
-    // kick dropped above must not cause an extra pass here.
+    // The module becomes available once the restarted run's own wait begins;
+    // its next 500ms check finds it and proceeds to loop, with no further kick.
     mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
     mockGetAllUncompletedTransactions.mockResolvedValue([]);
-    await mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(600);
+    jest.useRealTimers();
     await flushAsync();
+
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
   });
 });

@@ -167,10 +167,13 @@ export async function startTransactionProcessing(): Promise<void> {
     if (typeof safeGenerateTransactionsLoop !== 'function') {
       console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
       isProcessing = false;
-      // A kick recorded during this wait belongs to this abandoned run, not
-      // whatever unrelated run eventually restarts processing; dropping it
-      // here (rather than replaying it) avoids a spurious extra pass later.
-      processingRequested = false;
+      // A kick during the wait asks for a newly queued transaction, so it gets one
+      // more run, the same as a kick during a loop pass. Bounded: each extra run
+      // needs a new kick.
+      if (processingRequested) {
+        processingRequested = false;
+        void startTransactionProcessing();
+      }
       return;
     }
     console.log('[TransactionProcessor] transactions module ready');
