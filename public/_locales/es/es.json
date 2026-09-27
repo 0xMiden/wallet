@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "Antes de revelar tus claves privadas",
   "hotKeyRevealWarningBody": "Cualquier persona que tenga estas claves puede controlar tus activos de Miden y EVM. Rotar tu clave diaria de Miden no cambia ni protege una clave de EVM que se haya filtrado.",
   "invalidUrl": "Introduce una URL válida que comience por http:// o https://",
+  "customGuardianUnreachable": "No se ha encontrado ningún Guardian en esta URL. Compruébala e inténtalo de nuevo.",
   "encryptedWalletFileDescription": "Introduce tu contraseña para acceder a tu archivo de monedero cifrado.",
   "encryptedWalletFileDescriptionHardware": "Desbloquea con tu código de acceso para acceder a tu archivo de monedero cifrado.",
   "encryptedWalletFileConfirmation": "No compartiré mi archivo de monedero cifrado con nadie, ni siquiera con Bread.",

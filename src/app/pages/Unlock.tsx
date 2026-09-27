@@ -10,7 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
 import type { BiometricAvailability } from 'lib/biometric';
-import { useLocalStorage, useMidenContext } from 'lib/miden/front';
+import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -37,7 +37,64 @@ const formatDuration = (ms: number) => {
   return `${checkTime(Math.floor(diff / 60))}:${checkTime(Math.floor(diff % 60))}`;
 };
 
-const getTimeLeft = (start: number, end: number) => formatDuration(start + end - Date.now());
+// The stored attempt count is failures plus one; each full three of it adds LOCK_TIME to the lockout.
+const lockLevelOf = (attempt: number) => LOCK_TIME * Math.floor(attempt / 3);
+
+const isLockedAt = (stamp: number, level: number, now: number) => now - stamp <= level;
+
+const msLeft = (stamp: number, level: number, now: number) => stamp + level - now;
+
+const getTimeLeft = (stamp: number, level: number) => formatDuration(msLeft(stamp, level, Date.now()));
+
+interface StoredLockout {
+  attempt: number;
+  timelock: number;
+  level: number;
+  locked: boolean;
+}
+
+// What this window's own writes of the guess record could not store; 0 where nothing is held back.
+interface LockoutFloor {
+  attempt: number;
+  timelock: number;
+}
+
+// Judged from storage, not a window's state: another window may have counted failures or armed a lockout
+// since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
+// The floor is merged in, so a window whose writes fail still judges from what it recorded itself.
+const readStoredLockout = (floor: LockoutFloor): StoredLockout => {
+  const attempt = Math.max(readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1), floor.attempt);
+  const timelock = Math.max(readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0), floor.timelock);
+  const level = lockLevelOf(attempt);
+  return { attempt, timelock, level, locked: isLockedAt(timelock, level, Date.now()) };
+};
+
+// A write that lands holds nothing back; one that fails keeps its value in the floor, so storage that
+// cannot persist never makes guessing free.
+const recordLockout = (floor: LockoutFloor, field: keyof LockoutFloor, value: number) => {
+  const key = field === 'attempt' ? MidenSharedStorageKey.PasswordAttempts : MidenSharedStorageKey.TimeLock;
+  floor[field] = writeLocalStorage(key, value) ? 0 : value;
+};
+
+/** Resets the stored guess record to no failures and no lockout, writing only a field that is not clear already. */
+export const retireLockoutRecord = () => {
+  if (readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1) !== 1) {
+    writeLocalStorage(MidenSharedStorageKey.PasswordAttempts, 1);
+  }
+  if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) !== 0) {
+    writeLocalStorage(MidenSharedStorageKey.TimeLock, 0);
+  }
+};
+
+/**
+ * Retires the guess record once this window's wallet is ready, whichever path unlocked it: a correct guess
+ * whose window went away mid-call then leaves no phantom failure or provisional stamp behind (#1192).
+ */
+export const useRetireLockoutOnReady = (ready: boolean) => {
+  useEffect(() => {
+    if (ready) retireLockoutRecord();
+  }, [ready]);
+};
 
 interface UnlockProps {
   openForgotPasswordInFullPage?: boolean;
@@ -50,13 +107,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
-  const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
+  const lockLevel = lockLevelOf(attempt);
 
   // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
   // re-created constantly, and a tick from before the render that armed a lockout still holds the
   // old `timelock` (0, or a stamp from an earlier lockout): read from its closure, it would clear the
   // fresh stamp and the lockout would never start. Arming writes this first; the tick reads it.
   const timelockRef = useRef(timelock);
+  // Empty while storage works; every read of the lockout merges it in (see readStoredLockout).
+  const floorRef = useRef<LockoutFloor>({ attempt: 0, timelock: 0 });
 
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
@@ -82,6 +141,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // which is a one-shot latch against Strict Mode double-running the mount effect and is never
   // released - reusing it here would make every later attempt a no-op.
   const unlockInFlightRef = useRef(false);
+  // The passcode path's share of the guard: the tick leaves a guess to its own catch or success, while a
+  // hardware attempt in flight leaves the tick as it was.
+  const guessInFlightRef = useRef(false);
   // The ref is the synchronous check-and-set; this is what the screen reads. Every path sets it
   // with the guard and clears it on every exit that does not navigate away, so the keypad, the
   // auto-submit and the password form all wait for the attempt in flight instead of starting one
@@ -179,6 +241,18 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
+  // Takes a stored lockout into this window, countdown included. It leaves the code alone: each caller
+  // clears it when it shows its result, so a failure's dots empty with its shake, not before.
+  const adoptLockout = useCallback(
+    (lockout: StoredLockout) => {
+      timelockRef.current = lockout.timelock;
+      setTimeLock(lockout.timelock);
+      setAttempt(lockout.attempt);
+      setTimeleft(getTimeLeft(lockout.timelock, lockout.level));
+    },
+    [setTimeLock, setAttempt]
+  );
+
   const [code, setCode] = useState('');
   // Extension-only: the vault is protected by a full password, not a passcode.
   const [password, setPassword] = useState('');
@@ -188,7 +262,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // the dots once.
   const [errorCount, setErrorCount] = useState(0);
 
-  const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
+  const isDisabled = useMemo(() => isLockedAt(timelock, lockLevel, Date.now()), [timelock, lockLevel]);
   // What the live region says while a lockout runs, captured whenever it is re-derived: when the
   // lockout starts, when this screen mounts, and on each biometric failure or retry during it.
   // Never on a clock tick (see `announcement`). Synchronous by design: an effect writing this into
@@ -197,7 +271,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // than a dependency the body ignores (which `yarn lint` rejects). `t` stays out, so its identity
   // cannot re-read the clock.
   const lockout = useMemo(
-    () => (isDisabled ? { leftMs: timelock + lockLevel - Date.now(), afterFailure: biometricError } : null),
+    () => (isDisabled ? { leftMs: msLeft(timelock, lockLevel, Date.now()), afterFailure: biometricError } : null),
     [isDisabled, biometricError, timelock, lockLevel]
   );
 
@@ -216,16 +290,45 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
-      if (isSubmitting || !beginUnlock()) return;
+      if (isSubmitting) return;
+      // The fast path: a window another one locked refuses at once, instead of sleeping 1-3s first.
+      const stored = readStoredLockout(floorRef.current);
+      if (stored.locked) {
+        adoptLockout(stored);
+        setCode('');
+        return;
+      }
+      if (!beginUnlock()) return;
+      guessInFlightRef.current = true;
       setIsSubmitting(true);
       setIsError(false);
       setBiometricError(false);
 
+      let provisionalStamp: number | null = null;
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
-        if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+        if (stored.attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+
+        // The final check and the record are one synchronous step right before unlock(), so another window
+        // checking while this guess is in flight finds it counted, and at the threshold locked out (#1192).
+        const preUnlock = readStoredLockout(floorRef.current);
+        if (preUnlock.locked) {
+          adoptLockout(preUnlock);
+          setCode('');
+          setIsSubmitting(false);
+          return;
+        }
+        // Not through this window's state: that would disable its own form while a correct guess at the
+        // threshold is still in flight. Success resets the count, which makes the provisional stamp inert.
+        recordLockout(floorRef.current, 'attempt', preUnlock.attempt + 1);
+        if (preUnlock.attempt >= LAST_ATTEMPT) {
+          provisionalStamp = Date.now();
+          recordLockout(floorRef.current, 'timelock', provisionalStamp);
+        }
+
         await unlock(passcode);
 
+        floorRef.current = { attempt: 0, timelock: 0 };
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
@@ -236,13 +339,12 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        if (attempt >= LAST_ATTEMPT) {
-          const stamp = Date.now();
-          timelockRef.current = stamp;
-          setTimeLock(stamp);
+        // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
+        // provisional stamp: a different one is another window's lockout (#1192).
+        if (provisionalStamp !== null && readStoredLockout(floorRef.current).timelock === provisionalStamp) {
+          recordLockout(floorRef.current, 'timelock', Date.now());
         }
-        setAttempt(attempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+        adoptLockout(readStoredLockout(floorRef.current));
 
         console.error(err);
 
@@ -252,10 +354,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         setCode('');
         setIsSubmitting(false);
       } finally {
+        guessInFlightRef.current = false;
         endUnlock();
       }
     },
-    [isSubmitting, unlock, attempt, setAttempt, setTimeLock, beginUnlock, endUnlock]
+    [isSubmitting, unlock, setAttempt, beginUnlock, endUnlock, adoptLockout]
   );
 
   useEffect(() => {
@@ -343,18 +446,30 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   useEffect(() => {
     const interval = setInterval(() => {
       const stamp = timelockRef.current;
-      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
-      if (stamp !== 0 && Date.now() - stamp > lockLevel) {
-        timelockRef.current = 0;
-        setTimeLock(0);
+      // This window's own attempt can be stale (level 0) while it armed from a stored count another
+      // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
+      const stored = readStoredLockout(floorRef.current);
+      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing. A guess in
+      // flight is left to its own catch or success: its provisional stamp is not a lockout (#1192).
+      if (!guessInFlightRef.current && stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
+        if (stored.timelock === stamp) {
+          // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
+          timelockRef.current = 0;
+          setTimeLock(0);
+        } else {
+          // Storage no longer holds this stamp: adopt it, or isDisabled stays frozen on an expired
+          // value with nothing left to trigger the re-render that would clear it (#1192).
+          adoptLockout(stored);
+          return;
+        }
       }
-      setTimeleft(getTimeLeft(stamp, lockLevel));
+      setTimeleft(getTimeLeft(stamp, stored.level));
     }, 1_000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [lockLevel, setTimeLock]);
+  }, [setTimeLock, adoptLockout]);
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {

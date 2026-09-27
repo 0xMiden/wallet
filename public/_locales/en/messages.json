@@ -2827,6 +2827,10 @@
     "message": "Enter a valid URL starting with http:// or https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "No Guardian answered at this URL. Check it and try again.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Enter your password to access your Encrypted Wallet File.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
