@@ -344,8 +344,10 @@ export type FaucetFundingMarker = {
   // When the token request went out, stored with the flag: a request held back for
   // minutes before sending is judged from here, not from when it was asked for.
   submittedAt?: number;
-  // The arrival window ended with the mint's outcome unknown: the card offers Fund
-  // again, but asks first.
+  // The arrival window ended with the mint's outcome unknown. The card asks from the derived
+  // state (sent and past its window); what the flag adds is surviving a clock stepped back,
+  // where a stamp in the future hides that state: a flagged record is kept and never read as
+  // live. A sent record the step reaches before it is flagged reads back flagged.
   unresolved?: true;
 };
 
