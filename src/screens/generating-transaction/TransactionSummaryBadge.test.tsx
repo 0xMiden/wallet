@@ -511,10 +511,10 @@ describe('the badge paints no activity hue of its own', () => {
     expect(source).toContain("fillForArrow: 'var(--tx-swap)'");
   });
 
-  // Colour literals live in one place: ARROW_INK, whose hex keys are the spellings TRANSACTION_COLORS
-  // hands the badge and whose values are fixed arrow inks. Anywhere else a hex is a mirrored hue, retired
-  // or current, in any case.
-  const HEX = /#[0-9a-f]{6}\b/gi;
+  // Hex colours live in one place: ARROW_INK, whose hex keys are the fill spellings a caller can pass
+  // (TRANSACTION_COLORS' and main.css's lowercase faucet rose) and whose values are fixed arrow inks.
+  // Anywhere else a hex is a mirrored hue, retired or current, in any case and any length.
+  const HEX = /#[0-9a-f]{3,8}\b/gi;
   const start = source.indexOf('export const ARROW_INK = {');
   const end = source.indexOf('} as const satisfies', start);
   const table = start === -1 || end === -1 ? '' : source.slice(start, end);
