@@ -106,6 +106,12 @@ jest.mock('lib/miden/front', () => {
   };
 });
 
+// The unlock step reads the account list to name what the file leaves out; the real
+// store module would pull the intercom client into a suite about the flow's markup.
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { accounts: never[] }) => unknown) => selector({ accounts: [] })
+}));
+
 jest.mock('screens/onboarding/common/CreatePassword', () => ({
   __esModule: true,
   PasswordStrengthIndicator: () => <div data-testid="password-strength" />

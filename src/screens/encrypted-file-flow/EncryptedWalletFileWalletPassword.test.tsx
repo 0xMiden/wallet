@@ -3,6 +3,8 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import type { WalletAccount } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import EncryptedWalletFileWalletPassword, {
   EncryptedWalletFileWalletPasswordProps
@@ -17,6 +19,10 @@ let mockIsMobile = false;
 // Backing store for the mocked `useLocalStorage` — seed keys per-test to drive
 // the attempt/timelock branches.
 let mockStore: Record<string, unknown> = {};
+// The store's account list, read by the step to name what the file leaves out.
+let mockAccounts: WalletAccount[] = [];
+// The active locale the step joins those names in.
+let mockLocale = 'en';
 
 const ATTEMPT_KEY = 'TridentSharedStorageKey.PasswordAttempts';
 const TIMELOCK_KEY = 'TridentSharedStorageKey.TimeLock';
@@ -25,8 +31,18 @@ const TIMELOCK_KEY = 'TridentSharedStorageKey.TimeLock';
 // Module mocks.
 // ---------------------------------------------------------------------------
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  // Echoes the one interpolated value this step passes, so the names are assertable.
+  useTranslation: () => ({
+    t: (key: string, options?: { accountNames?: string }) =>
+      options?.accountNames === undefined ? key : `${key}: ${options.accountNames}`
+  })
 }));
+
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { accounts: WalletAccount[] }) => unknown) => selector({ accounts: mockAccounts })
+}));
+
+jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => mockLocale }));
 
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
@@ -161,6 +177,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
     jest.clearAllMocks();
     mockStore = {};
     mockIsMobile = false;
+    mockAccounts = [];
+    mockLocale = 'en';
     mockHasHardwareProtector.mockResolvedValue(false);
     mockUnlock.mockResolvedValue(undefined);
     jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -450,5 +468,64 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(desc.textContent).toMatch(/1[01]:\d{2}/);
     expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeDisabled();
     expect(screen.getByTestId('action-button')).toBeDisabled();
+  });
+
+  describe('accounts the file leaves out (#1114)', () => {
+    const account = (name: string, type: WalletType, hdIndex: number): WalletAccount => ({
+      publicKey: `pk-${name}`,
+      name,
+      isPublic: type !== WalletType.Guardian,
+      type,
+      hdIndex
+    });
+
+    it('names every hot-key Guardian account the file leaves out, before the consent (#1114)', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Imported', WalletType.OnChain, -1),
+        account('Guardian one', WalletType.Guardian, -1),
+        account('Guardian two', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      const notice = screen.getByTestId('encrypted-file-excluded-accounts');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveTextContent('encryptedWalletFileExcludedTitle: Guardian one and Guardian two');
+      expect(notice).toHaveTextContent('encryptedWalletFileExcludedDesc');
+      expect(notice).not.toHaveTextContent('Imported');
+      // Read before the user consents to what the file holds.
+      expect(
+        notice.compareDocumentPosition(screen.getByRole('checkbox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it.each([
+      ['fr', 'Guardian one et Guardian two'],
+      // getCurrentLocale speaks en_GB; Intl rejects the underscore form outright.
+      ['en_GB', 'Guardian one and Guardian two']
+    ])('joins two names in the active locale, %s (#1114)', async (locale, joined) => {
+      mockLocale = locale;
+      mockAccounts = [
+        account('Guardian one', WalletType.Guardian, -1),
+        account('Guardian two', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      expect(screen.getByTestId('encrypted-file-excluded-accounts')).toHaveTextContent(
+        `encryptedWalletFileExcludedTitle: ${joined}`
+      );
+    });
+
+    it('shows no notice when every account is in the file, a seed-derived Guardian included (#1114)', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Seed Guardian', WalletType.Guardian, 0),
+        account('Imported', WalletType.OnChain, -1)
+      ];
+      await renderComp(makeProps());
+
+      expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('encrypted-file-excluded-accounts')).not.toBeInTheDocument();
+    });
   });
 });
