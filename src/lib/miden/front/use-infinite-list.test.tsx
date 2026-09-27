@@ -86,10 +86,14 @@ describe('useInfiniteList', () => {
     expect(result.current.error).toBeUndefined();
   });
 
-  it('a failed load leaves hasMore alone', async () => {
+  it('stops paging when a page fails, and a successful retry pages again', async () => {
     const failure = new Error('page failed');
-    const getCount = jest.fn().mockResolvedValueOnce(6).mockResolvedValueOnce(3);
-    const getItems = jest.fn().mockResolvedValueOnce(['a', 'b', 'c']).mockRejectedValueOnce(failure);
+    const getCount = jest.fn().mockResolvedValue(9);
+    const getItems = jest
+      .fn()
+      .mockResolvedValueOnce(['a', 'b', 'c'])
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(['d', 'e', 'f']);
     const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
     await waitFor(() => expect(result.current.items).toEqual(['a', 'b', 'c']));
     expect(result.current.hasMore).toBe(true);
@@ -98,6 +102,39 @@ describe('useInfiniteList', () => {
       await result.current.loadItems();
     });
     expect(result.current.error).toBe(failure);
+    expect(result.current.hasMore).toBe(false);
+
+    await act(async () => {
+      await result.current.loadItems();
+    });
+    expect(result.current.items).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
     expect(result.current.hasMore).toBe(true);
+  });
+
+  it('ignores a second load while one is running', async () => {
+    let resolveFirst: (value: string[]) => void = () => undefined;
+    const getCount = jest.fn().mockResolvedValue(9);
+    const getItems = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string[]>(resolve => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValue(['x']);
+    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
+    await waitFor(() => expect(getItems).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await result.current.loadItems();
+    });
+    expect(getItems).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst(['a', 'b', 'c']);
+    });
+    expect(result.current.items).toEqual(['a', 'b', 'c']);
+    expect(result.current.isLoading).toBe(false);
   });
 });
