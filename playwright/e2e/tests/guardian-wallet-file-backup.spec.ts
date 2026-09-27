@@ -1,4 +1,5 @@
 import { AuthSecretKey } from '@miden-sdk/miden-sdk';
+import { type Locator, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -48,6 +49,15 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
   }, testInfo) => {
     test.setTimeout(480_000);
 
+    const captureBothThemes = async (page: Page, target: Locator, size: string) => {
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), theme === 'dark');
+        await expect(target).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath(`wallet-file-excluded-${size}-${theme}.png`) });
+      }
+      await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    };
+
     let keyPairPayload = '';
     await steps.step('create_on_a_and_reveal_key_pair', async () => {
       guardianAddress = (await walletA.createGuardianWallet(A)).address;
@@ -76,32 +86,48 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
       await expect(notice).toContainText(`Not in this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
       await expect(notice).not.toContainText(IMPORTED_ACCOUNT_NAME);
 
-      const captureBothThemes = async (size: string) => {
-        for (const theme of ['light', 'dark']) {
-          await walletB.page.evaluate(
-            dark => document.documentElement.classList.toggle('dark', dark),
-            theme === 'dark'
-          );
-          await expect(notice).toBeVisible();
-          await walletB.page.screenshot({ path: testInfo.outputPath(`wallet-file-excluded-${size}-${theme}.png`) });
-        }
-        await walletB.page.evaluate(() => document.documentElement.classList.remove('dark'));
-      };
-      await captureBothThemes('default');
+      await captureBothThemes(walletB.page, notice, 'default');
 
-      // A small phone: the warning must not push the step's unlock control out of reach. On the
-      // extension that is the pinned Continue; the passcode pad mounts only in a Capacitor build
-      // without hardware protection, which this spec cannot run.
-      const defaultViewport = walletB.page.viewportSize();
-      await walletB.page.setViewportSize({ width: 360, height: 640 });
-      const consent = unlockStep.getByTestId('encrypted-file-wallet-password-consent');
-      await consent.scrollIntoViewIfNeeded();
-      // Actionability only (visible, stable, not covered): a real click would leave the
-      // consent ticked, and the export below clicks it again.
-      await consent.click({ trial: true });
-      await expect(unlockStep.getByTestId('encrypted-file-wallet-password-submit')).toBeInViewport();
-      await captureBothThemes('360x640');
-      if (defaultViewport) await walletB.page.setViewportSize(defaultViewport);
+      // popup.html closes any tab that is not a real action-popup view (src/popup.tsx: absent
+      // that, it calls openInFullPage() and window.close()). Report this tab as that view before
+      // any script runs, and give it the action popup's fixed size: this flow never opens full
+      // page (isPopupModeEnabled defaults true, nothing here calls openInFullPage), so the popup
+      // is what a user actually sees, not fullpage.html's 640px-minimum shell.
+      const popupPage = await walletB.page.context().newPage();
+      try {
+        await popupPage.addInitScript(() => {
+          const getViews = chrome.extension.getViews.bind(chrome.extension);
+          chrome.extension.getViews = fetchProperties =>
+            fetchProperties?.type === 'popup' ? [window] : getViews(fetchProperties);
+        });
+        await popupPage.setViewportSize({ width: 360, height: 600 });
+        await popupPage.goto(`chrome-extension://${walletB.extensionId}/popup.html#/settings/encrypted-wallet-file`, {
+          waitUntil: 'domcontentloaded'
+        });
+
+        const popupUnlockStep = popupPage
+          .getByTestId('encrypted-file-manager-flow')
+          .getByTestId('encrypted-file-wallet-password');
+        const popupNotice = popupUnlockStep.getByTestId('encrypted-file-excluded-accounts');
+        await expect(popupNotice).toContainText(`Not in this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
+
+        // The real popup shell has no fullpage.html-style min-width: assert it actually fits
+        // 360px rather than trusting the viewport size alone.
+        expect(await popupPage.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+        const consent = popupUnlockStep.getByTestId('encrypted-file-wallet-password-consent');
+        const submit = popupUnlockStep.getByTestId('encrypted-file-wallet-password-submit');
+        for (const target of [popupNotice, consent, submit]) {
+          const box = await target.boundingBox();
+          if (!box) throw new Error('popup layout assertion: element has no bounding box');
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(360);
+        }
+
+        await captureBothThemes(popupPage, popupNotice, 'popup');
+      } finally {
+        await popupPage.close();
+      }
     });
 
     await steps.step('export_writes_the_file', async () => {
@@ -121,6 +147,7 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
     walletA,
     steps
   }) => {
+    test.setTimeout(480_000);
     expect(backupCopy, 'runs after the export test in this file').not.toBe('');
 
     await steps.step('restore_into_a_fresh_wallet', async () => {
