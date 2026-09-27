@@ -5,24 +5,7 @@ import { render, screen } from '@testing-library/react';
 import { DappSwitcher } from './DappSwitcher';
 
 const mockSessionStates = [
-  {
-    session: {
-      id: 'session-1',
-      url: 'https://app.example/',
-      origin: 'https://app.example',
-      title: 'Example',
-      favicon: null,
-      status: 'active',
-      openedAt: 0
-    },
-    instance: null,
-    status: 'active',
-    origin: 'https://app.example',
-    originConfirmed: true,
-    isLoading: false,
-    isCold: false,
-    error: null
-  }
+  { session: { id: 'session-1', url: 'https://app.example/', origin: 'https://app.example', title: 'Example' } }
 ];
 
 jest.mock('app/providers/DappBrowserProvider', () => ({
@@ -32,14 +15,42 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('lib/dapp-browser/snapshot-store', () => ({ getSnapshot: () => undefined }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 
+// motion.div as a plain div that reports its `layout` mode.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          {
+            children,
+            layout,
+            initial,
+            animate,
+            exit,
+            transition,
+            ...rest
+          }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => (
+          <div ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </div>
+        )
+      )
+    }
+  };
+});
+
 describe('DappSwitcher', () => {
-  // A card is scaled by its `layout` animation when the grid's width changes (a rotation, split
-  // view). Framer counter-scales a radius or shadow only when it reads them from style, not from a class.
-  it("keeps the card's radius and shadow where the layout animation can correct them", () => {
+  // A bare `layout` scales a card whose size changes (the grid's width on a rotation or split view),
+  // drawing its corners, shadow and contents stretched for the spring; the reflow only needs to move it.
+  it('animates each card by position only, so a resize never scales it', () => {
     render(<DappSwitcher open onClose={jest.fn()} />);
 
-    const card = screen.getByRole('listitem');
-    expect(card).toHaveStyle({ borderRadius: '16px', boxShadow: '0 16px 48px rgba(0,0,0,0.4)' });
-    expect(card.className).not.toMatch(/rounded-2xl|shadow-\[/);
+    // Exact value: bare `layout` stringifies to 'true', so a not-'position' check alone proves nothing.
+    expect(screen.getByRole('listitem')).toHaveAttribute('data-layout', 'position');
   });
 });
