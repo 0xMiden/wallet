@@ -83,9 +83,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            // Clips sideways only: `truncate`'s `overflow: hidden` also cut descenders (the "p" of "Swap").
-            // Without `overflow: clip` (iOS 15) it falls back to hidden on a 20px line, which keeps them.
-            className="relative min-w-0 overflow-x-clip text-ellipsis whitespace-nowrap font-bold text-pill not-supports-[overflow:clip]:overflow-hidden not-supports-[overflow:clip]:leading-5 max-[359px]:text-badge"
+            // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+            className="relative truncate font-bold text-pill leading-5 max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}

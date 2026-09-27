@@ -173,14 +173,8 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
 
     expect(screen.getByText('Send')).toHaveClass('font-bold');
     // A label that still cannot fit ends in an ellipsis; the tab's aria-label keeps it whole.
-    // Not `truncate`: its `overflow: hidden` clips a fitting label's descenders.
-    expect(screen.getByText('Send')).toHaveClass('min-w-0', 'overflow-x-clip', 'text-ellipsis', 'whitespace-nowrap');
-    // Where `overflow: clip` is missing (iOS 15), hidden on a 20px line still ends in an ellipsis.
-    expect(screen.getByText('Send')).toHaveClass(
-      'not-supports-[overflow:clip]:overflow-hidden',
-      'not-supports-[overflow:clip]:leading-5'
-    );
-    expect(screen.getByText('Send')).not.toHaveClass('truncate');
+    // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+    expect(screen.getByText('Send')).toHaveClass('truncate', 'leading-5');
     expect(getTab('Send')).toHaveAttribute('aria-label', 'Send');
     expect(getTab('Receive')).not.toHaveTextContent('Receive');
   });
