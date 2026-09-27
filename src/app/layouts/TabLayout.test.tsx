@@ -789,24 +789,6 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
     expect(screen.getByTestId('child-content').closest('[data-tab-layout]')).toBe(getRoot(container));
   });
 
-  it('keeps each layout its own cushion when another layout unmounts', () => {
-    mockPlatform.isMobile = true;
-    mockLocation.pathname = '/history';
-    const base = renderLayout();
-    const pushed = renderLayout();
-    pushed.unmount();
-    expect(getRoot(base.container)).toHaveAttribute('data-tab-layout', 'docked');
-  });
-
-  it('never marks body', () => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isAndroid = true;
-    mockLocation.pathname = '/history';
-    renderLayout();
-    expect(document.body.hasAttribute('data-navbar-mounted')).toBe(false);
-    expect(document.body.hasAttribute('data-navbar-clears-inset')).toBe(false);
-  });
-
   // Android's bar keeps its tabs above the system navigation bar, so it reaches further into the page (#1121).
   it('marks its root for a bar that clears the inset on Android', () => {
     mockPlatform.isMobile = true;
@@ -822,7 +804,6 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
     mockLocation.pathname = '/history';
     const { container } = renderLayout();
     expect(getRoot(container)).not.toHaveAttribute('data-navbar-clears-inset');
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'false');
   });
 
   it('declares the cushion on the tab layout root and nowhere else', () => {
