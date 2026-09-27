@@ -35,12 +35,11 @@ export function useAssetFiatCurrencyPrice(slug: string) {
 /**
  * FiatCurrencyProvider - Syncs fiat currency from storage to Zustand and fetches rates
  *
- * No longer uses constate - just handles initial sync and rate fetching.
+ * No longer uses constate - just keeps the store on the stored currency and fetches rates.
  */
 export function FiatCurrencyProvider({ children }: { children: React.ReactNode }) {
   const setSelectedFiatCurrency = useWalletStore(s => s.setSelectedFiatCurrency);
   const setFiatRates = useWalletStore(s => s.setFiatRates);
-  const currencySyncDone = useRef(false);
   const ratesSyncDone = useRef(false);
 
   // Load from storage
@@ -52,12 +51,9 @@ export function FiatCurrencyProvider({ children }: { children: React.ReactNode }
     dedupingInterval: 30_000
   });
 
-  // Sync storage to Zustand once on mount
+  // The store follows storage, so it shows a selection only once storage has taken it.
   useEffect(() => {
-    if (!currencySyncDone.current && storedCurrency) {
-      currencySyncDone.current = true;
-      setSelectedFiatCurrency(storedCurrency);
-    }
+    setSelectedFiatCurrency(storedCurrency);
   }, [storedCurrency, setSelectedFiatCurrency]);
 
   // Sync fiat rates to Zustand once when first loaded
@@ -79,18 +75,15 @@ export function FiatCurrencyProvider({ children }: { children: React.ReactNode }
 export function useFiatCurrency() {
   const selectedFiatCurrency = useWalletStore(s => s.selectedFiatCurrency);
   const fiatRates = useWalletStore(s => s.fiatRates);
-  const setSelectedFiatCurrencyStore = useWalletStore(s => s.setSelectedFiatCurrency);
 
   // Storage setter for persistence
   const [, setStoredCurrency] = useStorage<FiatCurrencyOption>(FIAT_CURRENCY_STORAGE_KEY, FIAT_CURRENCIES[0]);
 
-  // Wrapper that updates both storage and Zustand
+  // Storage only: FiatCurrencyProvider copies what storage took into the store, so a failed write changes nothing
+  // (restoring a snapshot could undo a newer write). Rejects when the write fails.
   const setSelectedFiatCurrency = useCallback(
-    (currency: FiatCurrencyOption) => {
-      setSelectedFiatCurrencyStore(currency);
-      setStoredCurrency(currency);
-    },
-    [setSelectedFiatCurrencyStore, setStoredCurrency]
+    (currency: FiatCurrencyOption) => setStoredCurrency(currency),
+    [setStoredCurrency]
   );
 
   return {
