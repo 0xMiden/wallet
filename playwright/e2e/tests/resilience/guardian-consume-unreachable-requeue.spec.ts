@@ -37,6 +37,9 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *     there too, but none can fire under a refused connection: the 409 and 429 need an HTTP answer, and the prover
  *     arm needs the row at 'proving' and the unauthorized arm an executed transaction, both of which follow a
  *     guardian co-signature the refusal never lets through;
+ *   - no later sample of that row requeued at 'creating-proposal' again with a strictly larger `nextEligibleAt` while
+ *     the guardian still refuses: every requeue rewrites it, so without a larger one the loop never retried the row
+ *     during the outage, and the no-Failed check covered only its first refusal;
  *   - zero `networkFaultHits()`: the refusal reached no guardian request. The frontend's guardian sync counts too,
  *     so on its own this proves less than the requeue sample;
  *   - after `clearFaults()`, a drain that never finishes, a vault short of the mint, or anything but one Completed
@@ -50,13 +53,14 @@ const MINT_BASE_UNITS = 100_000_000_000n; // 1000 TST
 // From the claim trigger to the first requeue: the drain's reload and Accept All click, the loop picking the row,
 // its pre-flight sync and the refused proposal. Binds only when the consume never reaches the guardian.
 const FIRST_REQUEUE_TIMEOUT_MS = 120_000;
-// How long the outage is held after the first requeue: past the row's 60 s cooldown, so the loop retries it while
-// the guardian still refuses and the no-Failed check covers a retry, not only the first refusal.
+// The longest the outage is held after the first requeue, waiting for the loop to retry the row while the guardian
+// still refuses: the row's 60 s cooldown, one 5 s pass of the service worker's processing loop, the retry's pre-flight
+// sync and refused proposal, and slack. The hold ends at the sample that sees that retry's requeue.
 const OUTAGE_HOLD_MS = 90_000;
 // The requeue cooldown (60 s) plus one 5 s pass of the service worker's processing loop and 5 s of slack: the
 // longest a requeued row can wait after the guardian is back before the loop runs it again.
 const REQUEUE_COOLDOWN_SLACK_MS = 70_000;
-// The 5xx spec's claim budget, for the attempt that runs once the guardian answers.
+// The 5xx spec's landing budget, for the attempt that runs once the guardian answers.
 const LANDING_BUDGET_MS = 180_000;
 const CLAIM_DRAIN_BUDGET_MS = FIRST_REQUEUE_TIMEOUT_MS + OUTAGE_HOLD_MS + REQUEUE_COOLDOWN_SLACK_MS + LANDING_BUDGET_MS;
 const ROW_READ_ATTEMPTS = 10;
@@ -65,8 +69,11 @@ const isConsume = (row: TransactionRowSnapshot): boolean => row.type === 'consum
 const isFailed = (row: TransactionRowSnapshot): boolean => row.status === TxStatus.Failed;
 const isRequeuedAtProposal = (row: TransactionRowSnapshot): boolean =>
   isConsume(row) && row.status === TxStatus.Queued && row.stage === 'creating-proposal';
+// The shared description plus `nextEligibleAt`, which is what the retry proof compares.
+const describeRow = (row: TransactionRowSnapshot): string =>
+  `${describeTransactionRow(row)} nextEligibleAt=${row.nextEligibleAt ?? '-'}`;
 const describeRows = (rows: TransactionRowSnapshot[]): string =>
-  rows.length === 0 ? '(no rows)' : rows.map(describeTransactionRow).join('\n  ');
+  rows.length === 0 ? '(no rows)' : rows.map(describeRow).join('\n  ');
 
 // The claim drain reloads the page while it runs, and a read that straddles a reload loses its execution context.
 // Retried rather than skipped, so a window never passes on fewer samples than it took.
@@ -147,20 +154,36 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
           (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
         );
 
-        let requeuedAt: number | undefined;
+        let firstRequeue: { seenAt: number; id: string; nextEligibleAt: number } | undefined;
+        let retriedAt: number | undefined;
         let samples = 0;
         let rows: TransactionRowSnapshot[] = [];
         for (;;) {
           rows = await readRows(walletA.page);
           samples++;
           expectHeldWhileRefused(rows);
-          if (requeuedAt === undefined && rows.some(isRequeuedAtProposal)) requeuedAt = Date.now();
-          if (requeuedAt !== undefined && Date.now() - requeuedAt >= OUTAGE_HOLD_MS) break;
-          if (requeuedAt === undefined && Date.now() - armedAt >= FIRST_REQUEUE_TIMEOUT_MS) {
+          const requeued = rows.find(isRequeuedAtProposal);
+          if (requeued?.nextEligibleAt !== undefined) {
+            if (firstRequeue === undefined) {
+              firstRequeue = { seenAt: Date.now(), id: requeued.id, nextEligibleAt: requeued.nextEligibleAt };
+            } else if (requeued.id === firstRequeue.id && requeued.nextEligibleAt > firstRequeue.nextEligibleAt) {
+              retriedAt = Date.now();
+              break;
+            }
+          }
+          if (firstRequeue === undefined && Date.now() - armedAt >= FIRST_REQUEUE_TIMEOUT_MS) {
             throw new Error(
               `the consume was never seen back in the queue at 'creating-proposal' within ` +
                 `${FIRST_REQUEUE_TIMEOUT_MS}ms of the outage - the loop never ran it into the guardian, so the ` +
                 `checks above held on a row nobody attempted:\n  ${describeRows(rows)}`
+            );
+          }
+          if (firstRequeue !== undefined && Date.now() - firstRequeue.seenAt >= OUTAGE_HOLD_MS) {
+            throw new Error(
+              `the consume was not requeued again with a later nextEligibleAt than its first requeue ` +
+                `(${firstRequeue.nextEligibleAt}) within ${OUTAGE_HOLD_MS}ms while the guardian refused - the loop ` +
+                `never retried it during the outage, so the checks above held on its first refusal only:\n  ` +
+                describeRows(rows)
             );
           }
           // Sample spacing, matched to the processing loop's 5 s pass. Every sample asserts, so this spaces checks
@@ -176,14 +199,16 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
           'the guardian-A refusal must have refused at least one request - 0 hits means the fault never landed'
         ).toBeGreaterThanOrEqual(1);
 
+        const firstSeenAt = firstRequeue?.seenAt ?? armedAt;
         timeline.emit({
           category: 'blockchain_state',
           severity: 'info',
           message:
-            `[resilience] guardian consume held as one queued row for ${OUTAGE_HOLD_MS}ms past its first requeue ` +
-            `under a refused guardian, with no Failed row (${samples} samples, ${hits} refused requests)`,
+            `[resilience] guardian consume held as one queued row under a refused guardian and was retried and ` +
+            `requeued again during the outage, with no Failed row (${samples} samples, ${hits} refused requests)`,
           data: {
-            firstRequeueAfterMs: String((requeuedAt ?? armedAt) - armedAt),
+            firstRequeueAfterMs: String(firstSeenAt - armedAt),
+            secondRequeueAfterMs: String((retriedAt ?? firstSeenAt) - firstSeenAt),
             samples: String(samples),
             refusedRequests: String(hits),
             rows: describeRows(rows)
