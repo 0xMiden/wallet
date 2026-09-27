@@ -373,7 +373,10 @@ export async function resolveGuardianDrift(
     );
     return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
   }
-  if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
+  // A respelling of the stored pointer (host case, a default port, a trailing
+  // slash) is the same operator and must not cut its cooldown short.
+  const probedEndpoint = driftProbeEndpoint.get(accountPublicKey);
+  if (probedEndpoint === undefined || !sameGuardianEndpoint(probedEndpoint, storedEndpoint)) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts
     // the new endpoint on its own window — whereas clearing the run from here
@@ -628,10 +631,12 @@ export async function resolveGuardianDrift(
       // A window continues the run only if it is about the same endpoint and lands
       // inside the contiguity band — no sooner than the cooldown (realm churn
       // clears the in-memory one, so without this five popup opens in ten seconds
-      // would buy the accusation) and no later than the maximum gap.
+      // would buy the accusation) and no later than the maximum gap. The run keeps
+      // the raw spelling it was written with, so "the same endpoint" is compared as
+      // an endpoint, never as text.
       const continues =
         previous !== undefined &&
-        previous.endpoint === storedEndpoint &&
+        sameGuardianEndpoint(previous.endpoint, storedEndpoint) &&
         now - previous.lastAt >= DRIFT_PROBE_COOLDOWN_MS &&
         now - previous.lastAt <= SILENT_DRIFT_RUN_MAX_GAP_MS;
       // Too SOON is not a restart — the evidence stands, this observation simply
@@ -639,7 +644,7 @@ export async function resolveGuardianDrift(
       // restart erase a genuine run.
       if (
         previous !== undefined &&
-        previous.endpoint === storedEndpoint &&
+        sameGuardianEndpoint(previous.endpoint, storedEndpoint) &&
         now - previous.lastAt < DRIFT_PROBE_COOLDOWN_MS
       )
         return unchanged;
