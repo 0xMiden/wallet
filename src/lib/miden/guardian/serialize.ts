@@ -98,18 +98,27 @@ export function isGuardianRateLimited(err: unknown): boolean {
   return (err as { code?: unknown }).code === 'rate_limit_exceeded';
 }
 
+const isCooldownSecs = (raw: unknown): raw is number => typeof raw === 'number' && Number.isFinite(raw) && raw >= 0;
+
 /**
  * The guardian's requested cooldown for a rate-limited request, in seconds.
- * Reads `meta.retryAfterSecs` (and the snake_case wire spelling), returning
- * `undefined` when absent so callers can apply their own default.
+ * Prefers the error's own `retryAfterSecs()`: GuardianHttpError's reads the
+ * Retry-After header before the envelope, and the header can state the longer
+ * cooldown. Otherwise reads `meta.retryAfterSecs` (and the snake_case wire
+ * spelling), returning `undefined` when neither states one so callers can apply
+ * their own default.
  */
 export function guardianRetryAfterSec(err: unknown): number | undefined {
   if (!err || typeof err !== 'object') return undefined;
+  if ('retryAfterSecs' in err && typeof err.retryAfterSecs === 'function') {
+    const stated: unknown = err.retryAfterSecs();
+    if (isCooldownSecs(stated)) return stated;
+  }
   const meta = (err as { meta?: unknown }).meta;
   if (!meta || typeof meta !== 'object') return undefined;
   const raw =
     (meta as { retryAfterSecs?: unknown }).retryAfterSecs ?? (meta as { retry_after_secs?: unknown }).retry_after_secs;
-  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+  return isCooldownSecs(raw) ? raw : undefined;
 }
 
 // Backoff for re-registering an account on its guardian after a key/guardian
@@ -206,12 +215,14 @@ export async function withGuardianRateLimitRetry<T>(
     } catch (err) {
       if (attempt >= GUARDIAN_RETRY_MAX_ATTEMPTS || !isGuardianRateLimited(err)) throw err;
       const delayMs = guardianRegisterBackoffMs(err, attempt);
-      // Not shortened to fit: a retry inside the guardian's stated cooldown only
-      // earns another 429. `!== undefined` because 0 is a valid monotonic stamp.
-      if (opts.deadlineMs !== undefined && monotonicNowMs() + delayMs > opts.deadlineMs) {
+      // Judged against the guardian's stated cooldown, not the wait clamped to a
+      // minute, and not shortened to fit: a retry inside the cooldown only earns
+      // another 429. `!== undefined` because 0 is a valid monotonic stamp.
+      const cooldownMs = Math.max(delayMs, (guardianRetryAfterSec(err) ?? 0) * 1000);
+      if (opts.deadlineMs !== undefined && monotonicNowMs() + cooldownMs > opts.deadlineMs) {
         console.warn(
           `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); ` +
-            `the next wait of ${delayMs} ms would pass the deadline, giving up`
+            `the ${cooldownMs} ms cooldown would pass the deadline, giving up`
         );
         throw err;
       }

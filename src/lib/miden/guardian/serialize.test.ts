@@ -186,6 +186,22 @@ describe('guardianRetryAfterSec', () => {
     expect(guardianRetryAfterSec({ status: 429, meta: { retryAfterSecs: 0 } })).toBe(0);
   });
 
+  // GuardianHttpError.retryAfterSecs() reads the Retry-After header before the
+  // envelope, so a longer header cooldown must win over meta.
+  it("prefers the error's own retryAfterSecs() over meta", () => {
+    const err = { status: 429, meta: { retryAfterSecs: 1 }, retryAfterSecs: () => 30 };
+    expect(guardianRetryAfterSec(err)).toBe(30);
+  });
+
+  it('falls back to meta when retryAfterSecs() states nothing', () => {
+    const err = { status: 429, meta: { retryAfterSecs: 12 }, retryAfterSecs: () => undefined };
+    expect(guardianRetryAfterSec(err)).toBe(12);
+  });
+
+  it('ignores a retryAfterSecs that is not a function', () => {
+    expect(guardianRetryAfterSec({ status: 429, meta: { retryAfterSecs: 12 }, retryAfterSecs: 30 })).toBe(12);
+  });
+
   it.each([
     ['no meta', { status: 429 }],
     ['meta without the field', { status: 429, meta: { retryable: true } }],
@@ -333,6 +349,23 @@ describe('withGuardianRateLimitRetry (#906)', () => {
       const fn = jest.fn().mockRejectedValueOnce(rateLimited(60)).mockResolvedValueOnce('ok');
       await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 60_000 })).resolves.toBe('ok');
       expect(waits).toEqual([60_000]);
+    });
+
+    // The clamp shortens the wait, not the guardian's cooldown: a retry after a
+    // clamped 60 s wait would still land inside a 120 s cooldown.
+    it('gives up at once when the stated cooldown ends past the deadline, though the clamped wait fits', async () => {
+      let now = 1_000;
+      jest.spyOn(performance, 'now').mockImplementation(() => now);
+      const waits: number[] = [];
+      const sleepFn = async (ms: number) => {
+        waits.push(ms);
+        now += ms;
+      };
+      const error = rateLimited(120);
+      const fn = jest.fn().mockRejectedValue(error);
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 90_000 })).rejects.toBe(error);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(waits).toEqual([]);
     });
 
     it('treats a deadline of 0 as a deadline, since 0 is a valid monotonic stamp', async () => {
