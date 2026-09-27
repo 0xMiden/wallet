@@ -2827,6 +2827,10 @@
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "По этому URL-адресу не отвечает Guardian. Проверьте его и попробуйте ещё раз.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите пароль, чтобы получить доступ к зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

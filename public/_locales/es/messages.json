@@ -2827,6 +2827,10 @@
     "message": "Introduce una URL válida que comience por http:// o https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "No se ha encontrado ningún Guardian en esta URL. Compruébala e inténtalo de nuevo.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Introduce tu contraseña para acceder a tu archivo de monedero cifrado.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

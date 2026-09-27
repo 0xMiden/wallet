@@ -2827,6 +2827,10 @@
     "message": "http:// または https:// で始まる有効な URL を入力してください",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "このURLにはGuardianへの回答がありません。確認してから再度お試しください。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "暗号化されたウォレットファイルにアクセスするには、パスワードを入力してください。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
