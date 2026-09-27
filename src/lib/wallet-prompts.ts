@@ -522,17 +522,14 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
         }
         // The user is asked before a request replaces an unresolved one, but a surface that read
         // storage before another surface flagged it never asked: only a confirmed replacement passes.
-        // A sent request past its window is unresolved flagged or not, as the mount read treats it:
-        // the flag is best effort, and a surface whose read failed never saw the request.
+        // Every live record of another request was refused above, so another one read as sent (a
+        // flagged one always is) is past its window: unresolved flagged or not, as the mount read
+        // treats it, since the flag is best effort and a surface whose read failed never saw it.
         if (
           stored !== null &&
-          replaces !== stored.requestedAt &&
-          (stored.unresolved ||
-            (stored.submitted &&
-              !isFaucetFundingMarkerLive(stored, {
-                runningHere: getInFlightFaucetMarker(address)?.requestedAt === stored.requestedAt,
-                settledAt: getFaucetRequestSettledAt(address, stored.requestedAt)
-              })))
+          stored.requestedAt !== marker.requestedAt &&
+          stored.submitted &&
+          replaces !== stored.requestedAt
         ) {
           throw new FaucetRequestUnresolvedError(stored);
         }
