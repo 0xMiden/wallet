@@ -14,9 +14,9 @@ export interface FlowFooterProps {
   /** Names the footer for a caller's tests, so a page can find its own pinned row. */
   'data-slot'?: string;
   /**
-   * `false` opts a footer out of the bar's room, which matters only inside TabLayout (the room is
-   * real there: 4rem, more on Android). Outside TabLayout the footer already keeps the flat 16px
-   * margin either way (onboarding, before there is a wallet), so the prop makes no difference there.
+   * `false` opts a footer out of the bar's room, which matters only inside TabLayout, where that room
+   * is real. Outside TabLayout the footer already keeps the flat 16px margin either way (onboarding,
+   * before there is a wallet), so the prop makes no difference there.
    */
   navbarCushion?: boolean;
   children: React.ReactNode;
