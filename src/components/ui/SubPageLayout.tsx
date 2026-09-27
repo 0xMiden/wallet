@@ -49,7 +49,7 @@ interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   formId?: string;
   /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
   formRef?: React.RefObject<HTMLFormElement>;
-  /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
+  /** Passed to `FlowFooter` as `navbarCushion`: `false` drops the bar's room, which only TabLayout's pages have. */
   footerNavbarCushion?: boolean;
   /** Layout only, on the scrolling body: an extra inset on top of the 16px page margin. */
   bodyClassName?: string;
