@@ -36,7 +36,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
       for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
       return out;
     },
-    set: (items: Record<string, any>) => mockStorageSet(items),
+    set: (items: Record<string, unknown>) => mockStorageSet(items),
     remove: async (keys: string[]) => {
       for (const k of keys) delete memoryStore[k];
     }
