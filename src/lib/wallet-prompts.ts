@@ -357,11 +357,15 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   const requestedAt = Reflect.get(raw, 'requestedAt');
   const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
   if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  const storedSubmitted = Reflect.get(raw, 'submitted') !== undefined;
+  const storedUnresolved = Reflect.get(raw, 'unresolved') !== undefined;
   // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
   // a manual change) leaves a stamp in the future, which reads as "always
-  // fresh" and would wedge the wait past its own timeout. An unresolved marker is never
-  // live, so its stamp wedges nothing, and dropping it would drop the record.
-  if (requestedAt > Date.now() && Reflect.get(raw, 'unresolved') === undefined) return null;
+  // fresh" and would wedge the wait past its own timeout. An unsent marker is dropped.
+  // A sent one reads as unresolved, flagged or not: that is never live, so its stamp
+  // wedges nothing, and dropping it would let a second request go out unasked.
+  const stampedAhead = requestedAt > Date.now();
+  if (stampedAhead && !storedSubmitted && !storedUnresolved) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
   const marker: FaucetFundingMarker = {
     requestedAt,
@@ -369,10 +373,10 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   };
   // Any stored value reads as submitted: erring the other way would clear a marker
   // for a mint that could still land.
-  if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
+  if (storedSubmitted) marker.submitted = true;
   // Any stored value reads as unresolved: erring the other way would resubmit silently. Only
   // a sent request is left unresolved, so the flag also reads as sent.
-  if (Reflect.get(raw, 'unresolved') !== undefined) {
+  if (storedUnresolved || stampedAhead) {
     marker.submitted = true;
     marker.unresolved = true;
   }

@@ -941,6 +941,35 @@ describe('wallet prompts', () => {
     expect(await fetchFaucetFundingMarker('accountClockUnresolved')).toEqual(unresolved);
   });
 
+  it('reads a sent marker stamped in the future as unresolved, before any surface flagged it', async () => {
+    // Dropped, the request would read as never made, and the next tap would send again without asking.
+    const requestedAt = Date.now() + 60_000;
+    await setFaucetFundingMarker('accountClockSent', { requestedAt, baselineNoteIds: [], submitted: true });
+
+    expect(await fetchFaucetFundingMarker('accountClockSent')).toEqual({
+      requestedAt,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('refuses a request over a sent marker stamped in the future that does not name it', async () => {
+    await setFaucetFundingMarker('accountClockSent', {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true
+    });
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountClockSent', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+  });
+
   it('keeps when a flagged request went out, and ignores a send time it cannot trust', async () => {
     const submittedAt = Date.now() - 30_000;
     await setFaucetFundingMarker('accountSent', {
