@@ -121,7 +121,11 @@ describe('drainPendingClaims', () => {
   const options = { timeoutMs: 120_000, label: 'TestPage.claimAllNotes' };
 
   /** A driver over a scripted run of reads (the last one repeats) and a clock only sync and sleep move. */
-  function fakeDriver(reads: Array<PendingSample | Error>, clickLands = true) {
+  function fakeDriver(
+    reads: Array<PendingSample | Error>,
+    clickLands = true,
+    options?: { onLapThrow?: Error; clickThrow?: Error; openThrow?: Error }
+  ) {
     let now = 0;
     let next = 0;
     const calls = { samples: 0, clicks: 0, reopens: 0 };
@@ -129,16 +133,24 @@ describe('drainPendingClaims', () => {
       sample: async (): Promise<PendingSample> => {
         calls.samples++;
         const read = reads[Math.min(next++, reads.length - 1)];
+        if (read === undefined) throw new Error('fake driver ran out of reads');
         if (read instanceof Error) throw read;
-        return read as PendingSample;
+        return read;
       },
       clickAcceptAll: async () => {
         calls.clicks++;
+        if (options?.clickThrow) throw options.clickThrow;
         return clickLands;
       },
       openPending: async () => {
         calls.reopens++;
+        if (options?.openThrow) throw options.openThrow;
       },
+      onLap: options?.onLapThrow
+        ? async () => {
+            throw options.onLapThrow;
+          }
+        : undefined,
       sync: async () => {
         now += 3_500;
       },
@@ -228,5 +240,37 @@ describe('drainPendingClaims', () => {
 
     const fails = fakeDriver([claiming]);
     await expect(drainPendingClaims(fails.driver, { ...options, timeoutMs: 0 })).rejects.toThrow('after 0 lap(s)');
+  });
+
+  it('keeps draining when the diagnostics hook throws', async () => {
+    const { driver, calls } = fakeDriver([claiming, drained, drained], true, {
+      onLapThrow: new Error('onLap crashed')
+    });
+    await drainPendingClaims(driver, options);
+    expect(calls.samples).toBe(3);
+  });
+
+  it('treats a click that throws as no click', async () => {
+    const { driver } = fakeDriver([waiting, drained, drained], true, { clickThrow: new Error('click failed') });
+    const logs: string[] = [];
+    driver.log = (line: string) => logs.push(line);
+    await drainPendingClaims(driver, options);
+    expect(logs.some(line => line.includes('clickAcceptAll failed'))).toBe(true);
+  });
+
+  it('keeps draining when reopening the list throws', async () => {
+    const { driver, calls } = fakeDriver([elsewhere, drained, drained], true, {
+      openThrow: new Error('open failed')
+    });
+    await drainPendingClaims(driver, options);
+    expect(calls.samples).toBe(3);
+  });
+
+  it('logs why a read failed', async () => {
+    const { driver } = fakeDriver([drained, new Error('cdp eval failed'), drained, drained]);
+    const logs: string[] = [];
+    driver.log = (line: string) => logs.push(line);
+    await drainPendingClaims(driver, options);
+    expect(logs.some(line => line.includes('sample failed: cdp eval failed'))).toBe(true);
   });
 });

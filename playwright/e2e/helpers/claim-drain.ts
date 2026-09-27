@@ -80,11 +80,20 @@ const ZERO_SPACING_MS = 2_000;
 const CLICK_HEAD_START_MS = 8_000;
 const POLL_SPACING_MS = 3_000;
 
-async function readOrNull(driver: DrainDriver): Promise<PendingSample | null> {
+// A failed page step is a lap that learned nothing; the deadline bounds the drain.
+async function attempt<T>(
+  driver: DrainDriver,
+  label: string,
+  step: string,
+  run: () => Promise<T>,
+  fallback: T
+): Promise<T> {
   try {
-    return await driver.sample();
-  } catch {
-    return null;
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    driver.log?.(`[${label}] ${step} failed: ${message}`);
+    return fallback;
   }
 }
 
@@ -101,13 +110,13 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
   while (driver.now() < deadline) {
     laps++;
     await driver.sync();
-    await driver.onLap?.();
-    const sample = await readOrNull(driver);
+    await attempt(driver, label, 'onLap', () => driver.onLap?.() ?? Promise.resolve(), undefined);
+    const sample = await attempt(driver, label, 'sample', () => driver.sample(), null);
 
     if (sample && !sample.onPending) {
       stableZero = 0;
       driver.log?.(`[${label}] lap=${laps} off the Pending list; reopening it`);
-      await driver.openPending();
+      await attempt(driver, label, 'openPending', () => driver.openPending(), undefined);
       continue;
     }
     if (sample && isDrained(sample)) {
@@ -118,7 +127,10 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
       continue;
     }
     stableZero = 0;
-    if (sample?.acceptAll === 'idle' && (await driver.clickAcceptAll())) {
+    if (
+      sample?.acceptAll === 'idle' &&
+      (await attempt(driver, label, 'clickAcceptAll', () => driver.clickAcceptAll(), false))
+    ) {
       driver.log?.(`[${label}] lap=${laps} rows=${sample.rows} clicked Accept All`);
       await driver.sleep(CLICK_HEAD_START_MS);
       continue;
@@ -128,10 +140,10 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
 
   // The deadline is checked only at the top of a lap, so a list that drained during the last lap
   // arrives here short of its second read. Judge it on fresh reads, by the same two-read rule.
-  let last = await readOrNull(driver);
+  let last = await attempt(driver, label, 'sample', () => driver.sample(), null);
   if (last && isDrained(last)) {
     await driver.sleep(ZERO_SPACING_MS);
-    last = await readOrNull(driver);
+    last = await attempt(driver, label, 'sample', () => driver.sample(), null);
     if (last && isDrained(last)) return;
   }
   throw new Error(
