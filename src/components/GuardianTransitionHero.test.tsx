@@ -58,9 +58,8 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
     />
   );
 
-  // `text-ink`, not `text-text-muted`: the muted token is #ababab, which
-  // is 2.3:1 on this card in light mode. Both chips now carry ink that clears AA
-  // in both themes.
+  // `text-ink`, not `text-text-muted`: both chips carry the same ink, so they
+  // read as a pair.
   expect(screen.getByText('Current')).toHaveClass('text-ink');
   // Provider names come from the canonical brand mapping (#464).
   expect(screen.getByText('LambdaClass · EU-WEST')).toHaveClass('text-ink');
