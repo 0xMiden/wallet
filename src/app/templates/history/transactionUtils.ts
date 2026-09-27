@@ -119,7 +119,8 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
 
 /**
  * Whether the wallet received this entry. A settled receive carries the `RECEIVE` icon; a claim
- * still queued or processing has none yet, because its entry is built from the transaction row.
+ * still queued or processing has none, because the pending entries History builds do not copy the
+ * row's `displayIcon`, so it is recognised by its type.
  */
 export const isReceiveEntry = (
   entry: Pick<IHistoryEntry, 'transactionIcon'> & { txType?: IHistoryEntry['txType'] }
