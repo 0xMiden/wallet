@@ -256,6 +256,7 @@ describe('drainPendingClaims', () => {
     driver.log = (line: string) => logs.push(line);
     await drainPendingClaims(driver, options);
     expect(logs.some(line => line.includes('clickAcceptAll failed'))).toBe(true);
+    expect(logs.some(line => line.includes('clicked Accept All'))).toBe(false);
   });
 
   it('keeps draining when reopening the list throws', async () => {
