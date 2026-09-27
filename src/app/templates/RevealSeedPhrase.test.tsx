@@ -586,8 +586,8 @@ describe('RevealSeedPhrase', () => {
       mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
       await render();
 
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('hw-boom'));
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('pw-boom'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('hardware: hw-boom'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('password: pw-boom'));
     } finally {
       warn.mockRestore();
     }
