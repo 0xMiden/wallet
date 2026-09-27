@@ -12,7 +12,7 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
+import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
@@ -223,14 +223,13 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
-// The turn is a Web Lock, which the extension's popup, side panel, tabs and service worker
-// share, so a surface cannot put back a field another surface just changed.
+// The turn is a storage turn (`inStorageTurn`): the Web Lock the extension's popup, side panel,
+// tabs and service worker share, so a surface cannot put back a field another surface just
+// changed, or without Web Locks this realm's own chain.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-// (The type argument is what `navigator.locks.request` needs to hand back the record the
-// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
 function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
-  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
+  return inStorageTurn(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
@@ -379,13 +378,14 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
 }
 
 /**
- * Runs `operation` holding the funding-marker lock for `address`. Every read of the marker that
- * decides a write to it runs under this lock: navigator.locks is shared by the extension's popup,
- * side panel, tabs and service worker, so two surfaces can no longer both find no live marker and
- * both send.
+ * Runs `operation` holding the funding-marker lock for `address`, a storage turn (`inStorageTurn`).
+ * Every read of the marker that decides a write to it runs under this lock: navigator.locks is
+ * shared by the extension's popup, side panel, tabs and service worker, so two surfaces can no
+ * longer both find no live marker and both send. Without Web Locks it still returns a promise, so a
+ * caller's `.catch` sees any failure.
  */
 export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
-  return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
+  return inStorageTurn(`faucet-funding-marker:${address}`, operation);
 }
 
 export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
