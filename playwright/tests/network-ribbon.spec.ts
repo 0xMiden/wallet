@@ -11,7 +11,8 @@ import { expect, test } from '../fixtures/extension';
  * DrawerContent caps at 80vh, so the notice rows scroll and the CTA stays pinned inside the viewport.
  *
  * The ribbon lives in the tab bar, so this needs a wallet: import one through fullpage onboarding,
- * then open popup.html in a tab at the popup's size, where the app lays out as the popup.
+ * then open popup.html in a tab at the popup's size, reporting the tab as the popup view so the
+ * app keeps it and lays out as the popup.
  */
 
 const PASSWORD = 'Password123!';
@@ -52,6 +53,13 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
   // The extension fixture launches with no viewport (Playwright's 1280x720), and test.use({ viewport })
   // does not reach it.
   await page.setViewportSize({ width: 360, height: 600 });
+  // src/popup.tsx closes any popup.html that is not an action-popup view (and opens the full page
+  // instead), and a tab never is one. Report this tab as the popup so the popup's own entry renders.
+  await page.addInitScript(() => {
+    const getViews = chrome.extension.getViews.bind(chrome.extension);
+    chrome.extension.getViews = (properties?: chrome.extension.FetchProperties) =>
+      properties?.type === 'popup' ? [window] : getViews(properties);
+  });
   if (locale !== 'en') {
     // src/i18n.ts reads the saved 'locale' before the language detector.
     await page.addInitScript(value => localStorage.setItem('locale', value), locale);
@@ -75,16 +83,20 @@ test.describe('Network corner ribbon', () => {
     ['en', 'I understand'],
     ['de', 'Ich habe verstanden']
   ] as const) {
-    // FIXME(wallet#1092): the context dies in `openPopup` right after `importWallet` closes its
-    // page, so this never reaches its assertions. It is not a regression: `pr.yml` carries
-    // mock-e2e and its branch filter meant this spec never ran in CI on any of the 54 PRs that
-    // introduced it. The ribbon's placement and docked state stay covered by TabLayout.test.tsx
-    // and NetworkModeRibbon.test.tsx; what is unguarded until this is fixed is the real-popup
-    // layout measurement at 360x600.
-    test.fixme(`sits in the tab bar's corner and opens a sheet that fits a 360x600 popup (${locale})`, async ({
+    test(`sits in the tab bar's corner and opens a sheet that fits a 360x600 popup (${locale})`, async ({
       extensionContext,
       extensionId
     }) => {
+      // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
+      // (reveal-seed-phrase.spec.ts does the same): fresh_install loop 5s; importWallet's welcome
+      // 30s + notice 30s (wait, then click) + select-type 15s + seed-phrase 15s + create-password
+      // 10s + recovery-method 15s + confirmation-submit 30s + telemetry-consent 40s (wait, decline,
+      // detach) + open-wallet 30s = 215s; openPopup's two 30s waits = 60s; banner 10s +
+      // ribbon-in-corner 10s + sheet CTA 15s + CTA text 10s + aria-expanded-true 10s + poll
+      // ctaBottom 5s + poll lastRow 10s + sheet-closed 10s + aria-expanded-false 10s = 90s;
+      // total 370s.
+      test.setTimeout(390_000);
+
       // Start as a returning user: the one-time "Pin Bread" tooltip (fixed, z-9999, top-right) can
       // cover the popup at this width. The product marks it seen by removing `fresh_install`; wait
       // for the service worker to write the flag on install, then remove it, so neither ordering can
@@ -104,15 +116,30 @@ test.describe('Network corner ribbon', () => {
       // No banner tops the wallet any more.
       await expect(page.getByTestId('network-mode-banner')).toHaveCount(0);
 
-      // The ribbon is drawn inside the bar's corner, over the tabs, and inside the popup.
+      // The ribbon is drawn inside the bar's corner, over the tabs, and inside the popup. The word is
+      // a button on a band rotated -45deg, so its axis-aligned box overhangs the corner by design and
+      // the corner box clips it: check that the word's centre sits in the corner's 44px square (the
+      // floating bar's c = 44 in NetworkModeRibbon), that the ribbon is inside the clip, and that the
+      // clip covers the whole bar and matches its rounding.
       const ribbon = page.getByTestId('network-mode-ribbon');
       const nav = page.locator('[data-tabbar-footer] nav');
       const ribbonBox = (await ribbon.boundingBox())!;
       const navBox = (await nav.boundingBox())!;
-      expect(ribbonBox.x).toBeGreaterThanOrEqual(navBox.x);
-      expect(ribbonBox.x + ribbonBox.width).toBeLessThanOrEqual(Math.min(navBox.x + navBox.width, 360) + 0.5);
-      expect(ribbonBox.y).toBeGreaterThanOrEqual(navBox.y);
-      expect(ribbonBox.y + ribbonBox.height).toBeLessThanOrEqual(navBox.y + navBox.height + 0.5);
+      const navRight = navBox.x + navBox.width;
+      const navBottom = navBox.y + navBox.height;
+      expect(navRight).toBeLessThanOrEqual(360.5);
+      const wordCentre = { x: ribbonBox.x + ribbonBox.width / 2, y: ribbonBox.y + ribbonBox.height / 2 };
+      expect(wordCentre.x).toBeGreaterThan(navRight - 44);
+      expect(wordCentre.x).toBeLessThan(navRight);
+      expect(wordCentre.y).toBeGreaterThan(navBottom - 44);
+      expect(wordCentre.y).toBeLessThan(navBottom);
+      const corner = nav.locator('[data-slot="bottom-nav-corner"]');
+      await expect(corner.getByTestId('network-mode-ribbon')).toHaveCount(1);
+      expect(await corner.evaluate(el => getComputedStyle(el).overflow)).toMatch(/^(hidden|clip)$/);
+      const navRadius = await nav.evaluate(el => getComputedStyle(el).borderRadius);
+      expect(navRadius).not.toBe('0px');
+      expect(await corner.evaluate(el => getComputedStyle(el).borderRadius)).toBe(navRadius);
+      expect(await corner.boundingBox()).toEqual(navBox);
 
       // It takes no layout space: every tab is the same width, as without it. Settings is the last.
       const tabs = await nav.locator('button:not([data-testid="network-mode-ribbon"])').all();
