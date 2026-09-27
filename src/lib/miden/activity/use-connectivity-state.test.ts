@@ -55,9 +55,11 @@ import { CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, useConnectivityState } from './
 
 let storageSnapshot: ConnectivityStateSnapshot | null;
 let storedDismissedActivations: Partial<Record<ConnectivityCategory, number | null>>;
-const mockSetStoredDismissedActivations = jest.fn((next: unknown) =>
-  mockPutToStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, next)
-);
+// Every write of the record goes through the hook's storage turn; a regression to the unlocked useStorage setter fails
+// loudly instead of landing in the store.
+const mockSetStoredDismissedActivations = jest.fn(() => {
+  throw new Error('the hook must write through the dismissed-activations turn');
+});
 
 /** Build a fresh all-clear snapshot, optionally flipping some categories on. */
 function makeSnapshot(active: Partial<Record<ConnectivityCategory, boolean>> = {}): ConnectivityStateSnapshot {
@@ -356,7 +358,6 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 456 });
-      expect(mockFetchFromStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY);
       // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
@@ -381,8 +382,6 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 456 });
-      expect(mockFetchFromStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY);
-      // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
 
