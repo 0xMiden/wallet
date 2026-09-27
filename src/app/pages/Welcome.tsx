@@ -672,8 +672,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'import-from-seed':
+        // A staged file stays until a new credential replaces it: history can still return to its restore.
         setImportType(ImportType.SeedPhrase);
-        setWalletFilePayload(null);
         navigate('/#import-from-seed');
         break;
       case 'import-with-key':
@@ -1015,15 +1015,14 @@ const Welcome: FC = () => {
         else setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
+        // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says
+        // what starts a new import instead.
         setOnboardingType(OnboardingType.Import);
-        setImportType(null);
-        setWalletFilePayload(null);
         setStep(OnboardingStep.SelectImportType);
         break;
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
         setImportType(ImportType.SeedPhrase);
-        setWalletFilePayload(null);
         setStep(OnboardingStep.ImportFromSeed);
         // A pasted key must not survive a switch back to seed entry — the two
         // credentials are mutually exclusive.

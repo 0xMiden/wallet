@@ -3878,3 +3878,130 @@ describe('hot-key import flow', () => {
     expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
   });
 });
+
+// ===========================================================================
+// An import resumed by browser Back and Forward (#1115)
+// ===========================================================================
+
+// From the file's password step: the header back arrow twice, then seed entry picked at the import-type choice.
+const leaveFileForSeedEntry = async () => {
+  await stageFileRestore();
+  await setHash('#create-password');
+  await dispatch({ id: 'back' });
+  await setHash('#import-from-file');
+  await dispatch({ id: 'back' });
+  await setHash('#select-import-type');
+  await dispatch({ id: 'import-from-seed' });
+  await setHash('#import-from-seed');
+};
+
+describe('Welcome - a file restore resumed by browser history', () => {
+  it.each([
+    ['password', false, '#create-password', { id: 'create-password-submit', payload: { password: 'pw' } }, 'pw'],
+    ['passcode', true, '#setup-passcode', { id: 'setup-passcode-submit', payload: '654321' }, '654321']
+  ])(
+    'restores the file when Back reaches the import-type choice and Forward returns to the %s step',
+    async (_name, mobile, protectionHash, protect, password) => {
+      mockIsMobileFn.mockReturnValue(mobile);
+      await renderWelcome();
+      await stageFileRestore();
+      await setHash(protectionHash);
+      await setHash('#import-from-file');
+      await setHash('#select-import-type');
+      await setHash('#import-from-file');
+      await setHash(protectionHash);
+      await dispatch(protect);
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#confirmation');
+      await setHash('#confirmation');
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+        password,
+        'alpha beta gamma delta',
+        VERSION_TWO_PAYLOAD.accounts,
+        2,
+        VERSION_TWO_PAYLOAD.importedAccounts
+      );
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+    }
+  );
+
+  it('restores the file when a hardware-protected restore is resumed straight onto Confirmation', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await stageFileRestore();
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#confirmation');
+    await setHash('#confirmation');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      undefined,
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps the file when seed entry is picked at the import-type choice and Back returns to its password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'pw',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps the file when Back passes a seed entry visited before it and Forward returns', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-seed' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'back' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+    await setHash('#create-password');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'pw',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+});
