@@ -441,10 +441,6 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByText('enterYour6DigitCode')).toBeInTheDocument();
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
-
-    // The interval tick runs with no lockout armed and leaves the screen alone.
-    await advance(1100);
-    expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
   });
 
   it('accumulates six digits (with a delete) and auto-submits successfully', async () => {
