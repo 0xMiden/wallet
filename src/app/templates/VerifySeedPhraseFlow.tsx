@@ -175,9 +175,9 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const back = useCallback(() => {
     if (seedStatus && seedStatus !== 'stored') onExit();
     else if (step === 'auth') backToWarning();
-    else if (step === 'quiz' || (step === 'review' && words.length !== 12)) setStep('review');
+    else if (step === 'quiz') setStep('review');
     else onExit();
-  }, [seedStatus, step, words.length, backToWarning, onExit]);
+  }, [seedStatus, step, backToWarning, onExit]);
 
   useMobileBackHandler(() => {
     back();

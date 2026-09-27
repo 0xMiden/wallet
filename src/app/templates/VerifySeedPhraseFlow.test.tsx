@@ -185,12 +185,16 @@ describe('VerifySeedPhraseFlow', () => {
   const presentCopyLabel = () =>
     screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
 
-  // The handler the page registered last: the one hardware back would run now.
-  const hardwareBack = () =>
+  // The handler the page registered last: the one hardware back would run now. It must also consume
+  // the press, or it falls through to the next handler or the OS.
+  const hardwareBack = () => {
+    let consumed: boolean | void = undefined;
     act(() => {
       const calls = jest.mocked(useMobileBackHandler).mock.calls;
-      calls[calls.length - 1]![0]();
+      consumed = calls[calls.length - 1]![0]();
     });
+    expect(consumed).toBe(true);
+  };
 
   // #1042: hardware back does what the header back does on the step showing.
   it('hardware back on the warning leaves the flow', async () => {
@@ -214,6 +218,44 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByTestId('verify-seed-quiz')).toBeTruthy();
     hardwareBack();
     expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back leaves once the phrase is removed while the auth step shows', async () => {
+    const { rerender } = await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    mockSeedState.seedPhraseStatus = 'removed';
+    try {
+      rerender(<VerifySeedPhraseFlow />);
+      hardwareBack();
+      expect(mockGoBack).toHaveBeenCalledTimes(1);
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
+  });
+
+  it('hardware back while the reveal is pending returns to the warning, and the phrase it returns is dropped', async () => {
+    let resolveReveal: (v: string) => void = () => {};
+    mockRevealMnemonic.mockImplementation(
+      () =>
+        new Promise<string>(res => {
+          resolveReveal = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
+    hardwareBack();
+    await act(async () => {
+      resolveReveal(TWELVE);
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(screen.queryByTestId('verify-seed-review')).toBeNull();
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 

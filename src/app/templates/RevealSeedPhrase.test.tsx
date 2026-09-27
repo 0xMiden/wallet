@@ -762,12 +762,15 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // #1042: hardware back does what the header back does on the screen showing, through `leave`,
   // which also abandons an in-flight reveal; a plain history pop would skip it.
+  // The handler must also consume the press, or it falls through to the next handler or the OS.
   const hardwareBack = async () => {
     const calls = jest.mocked(useMobileBackHandler).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
+    let consumed: boolean | void = undefined;
     await act(async () => {
-      calls[calls.length - 1]![0]();
+      consumed = calls[calls.length - 1]![0]();
     });
+    expect(consumed).toBe(true);
   };
 
   it('hardware back on the warning leaves the page, as the header back does', async () => {
@@ -784,6 +787,24 @@ describe('RevealSeedPhrase', () => {
     await hardwareBack();
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockSetSecret).toHaveBeenCalledWith(null);
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back while the biometric reveal is pending leaves, and the phrase it returns is dropped', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finishReveal: (phrase: string) => void = () => undefined;
+    mockRevealMnemonic.mockReturnValue(
+      new Promise<string>(resolve => {
+        finishReveal = resolve;
+      })
+    );
+    const container = await renderAndView();
+    await hardwareBack();
+    await act(async () => {
+      finishReveal('alpha beta gamma delta');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
