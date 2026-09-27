@@ -208,6 +208,20 @@ jest.mock('lib/miden/guardian', () => ({
   MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
 }));
 
+// The rotation mints its hot key in the transaction layer (#904).
+const mockGenerateHotKey = jest.fn(async () => ({
+  ciphertext: 'new-cx',
+  publicKeyHex: '0xNEWHOT',
+  commitmentHex: '0xnewcommit'
+}));
+jest.mock('lib/secure-hot-key', () => ({
+  generateHotKey: () => mockGenerateHotKey()
+}));
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: async () => '0xnewcommit'
+}));
+
 // See the same block in transactions.guardian.test.ts: the pipeline re-checks hold
 // ownership before proving and before submit (#777), so the mock must own a hold.
 let currentHold: object | null = null;
@@ -2416,10 +2430,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 // single service object to assert on.
 const makeStructuralService = () => ({
   createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
-  createReplaceHotKeyProposal: jest.fn(async () => ({
-    proposal: { id: 'prop', nonce: 7 },
-    newHot: { publicKeyHex: '0xNEWHOT', ciphertext: new Uint8Array([0xab, 0xcd]) }
-  })),
+  createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   signProposal: jest.fn(async () => {}),
   signAndCreateTransactionRequest: jest.fn(async () => ({
@@ -2590,7 +2601,8 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
 
     // Persisted exactly once, with the freshly-minted key material, on BOTH flags.
     expect(sp.persistNewHotKey).toHaveBeenCalledTimes(1);
-    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', new Uint8Array([0xab, 0xcd]));
+    expect(sp.persistNewHotKey).toHaveBeenCalledWith('0xNEWHOT', 'new-cx');
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
 
     // Ordering: persist ran BEFORE signAndCreateTransactionRequest, which ran BEFORE the
     // leaf — the SAME relative order flag-on vs flag-off. The offscreen move does not

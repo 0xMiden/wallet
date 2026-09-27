@@ -13,8 +13,6 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import * as secureHotKey from 'lib/secure-hot-key';
-import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -32,6 +30,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -533,11 +532,10 @@ export class MultisigService {
   }
 
   /**
-   * Build a proposal that replaces this account's hot signer in-place. Mints a
-   * fresh hot key via the secureHotKey facade and constructs an `update_signers`
-   * proposal whose target list is `[newHotCommit, coldCommit]` (preserving the
-   * `[hot, cold]` ordering convention so getSignerDetailsFromAccount keeps
-   * working post-rotation).
+   * Build a proposal that replaces this account's hot signer in-place. Constructs an
+   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]`
+   * (preserving the `[hot, cold]` ordering convention so getSignerDetailsFromAccount
+   * keeps working post-rotation) from the commitment it is given.
    *
    * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
    * convenience wrappers (those compute different target lists). At execution
@@ -549,14 +547,17 @@ export class MultisigService {
    * the hot key cannot itself require the hot key (recovery-friendly). Default
    * threshold for update_signers is 1, so cold alone satisfies it.
    *
-   * Caller is responsible for persisting `newHot.ciphertext` BEFORE submitting
-   * the resulting tx (see initiateReplaceHotKeyTransaction).
+   * The caller mints the key and owns its persistence (see
+   * `generateGuardianTransaction`), so a retried call proposes the same key.
+   * Each call first runs `syncBeforeRotationBuild`, so a retry after a
+   * pending-delta 409 builds on the settled state.
    */
-  async createReplaceHotKeyProposal(account: Account): Promise<{ proposal: Proposal; newHot: GeneratedHotKey }> {
-    const newHot = await secureHotKey.generateHotKey();
+  async createReplaceHotKeyProposal(account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
     const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
-    const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
+    const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitRaw)];
+    // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
     const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async hold => {
@@ -623,7 +624,36 @@ export class MultisigService {
 
     const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
     console.log('Created replace-hot-key proposal:', proposal.id);
-    return { proposal, newHot };
+    return proposal;
+  }
+
+  /**
+   * Bring the local copy of this private account up to date before a rotation is
+   * built on it: the chain for a current reference block, then the guardian for the
+   * account state, which only the guardian holds. After a seed recovery the local
+   * copy is whatever was adopted at recovery, and the old device's last transaction
+   * may have settled since; a summary built on the older state is refused by the
+   * node (#904).
+   *
+   * The adopt keeps local state quietly when the guardian is behind local. It throws
+   * the SDK's "Refusing to overwrite local state" when the guardian's state has local's
+   * nonce but another commitment, or does not match the chain. Those two are answers,
+   * not failures, and must not escape: the transaction loop reads that refusal as a
+   * landed write and would mark a rotation that never submitted Completed.
+   */
+  private async syncBeforeRotationBuild(): Promise<void> {
+    await withWasmClientLock(async () => midenClientProxy.syncState(), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'replace-hot-key-sync'
+    });
+    await this.adoptGuardianStateOnce().catch((error: unknown) => {
+      if (!isGuardianCanonicalizationError(error)) throw error;
+      console.warn(
+        '[Guardian] replace-hot-key: guardian state refused (same nonce, other commitment; or not on chain); ' +
+          'building on local state',
+        error
+      );
+    });
   }
 
   /**

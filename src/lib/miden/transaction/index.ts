@@ -31,6 +31,8 @@ import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
+import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
+import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
@@ -127,9 +129,10 @@ export * from './retry';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
 // a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
-// Structural ops are deliberately EXCLUDED: `replace-hot-key` mints a hardware hot
-// key inside createReplaceHotKeyProposal BEFORE its proposal POST, so a requeue
-// re-mints and orphans another key every cycle; `switch-guardian` /
+// Structural ops are deliberately EXCLUDED: `replace-hot-key` mints its hardware
+// hot key before its proposal and persists it only once the proposal exists, so a
+// requeue after a 409 would mint and orphan another key every cycle; it waits the
+// conflict out in-process instead, with the one key. `switch-guardian` /
 // `update-procedure-threshold` create a proposal (and switch-guardian cold
 // co-signs) whose re-run can register a duplicate delta and push the commitment
 // past the guardian's expected single delta. Those fall through to cancelTransaction.
@@ -1177,10 +1180,10 @@ const generateTransactionWithProvider = async (
       // time — otherwise it would starve another account's queued tx.
       //
       // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): a
-      // replace-hot-key 409 escapes createReplaceHotKeyProposal AFTER the hardware
-      // hot key was minted, so requeueing would re-mint and orphan a key every
-      // cycle; switch-guardian / update-procedure-threshold re-runs can register a
-      // duplicate delta. They fall through to cancelTransaction — the user retries.
+      // replace-hot-key 409 that outlasts its in-process wait escapes after its key
+      // was minted but before it was persisted, so a requeue would mint another;
+      // switch-guardian / update-procedure-threshold re-runs can register a
+      // duplicate delta. They fall through to cancelTransaction - the user retries.
       if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
         console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
         await requeueTransactionForRetry(
@@ -2143,6 +2146,23 @@ const generateDirectSwitchGuardianTransaction = async (
 };
 
 /**
+ * The hot key a replace-hot-key row installs. Minted on the row's first run and, once
+ * persisted, read back from `extraInputs.newHotPublicKey` by any later run of the same
+ * row (a stale-state rebuild, or the requeue that follows a sign refused by a locked
+ * vault), so a run that starts after the persist never mints a second hardware key.
+ * `mintedKey` is set only when this call minted; the caller persists it once its
+ * proposal exists.
+ */
+const resolveRotationHotKey = async (
+  rTx: ReplaceHotKeyTransaction
+): Promise<{ commitmentHex: string; mintedKey?: GeneratedHotKey }> => {
+  const persisted = rTx.extraInputs?.newHotPublicKey;
+  if (persisted) return { commitmentHex: await commitmentFromPublicKeyHex(persisted) };
+  const mintedKey = await generateHotKey();
+  return { commitmentHex: mintedKey.commitmentHex, mintedKey };
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -2179,11 +2199,10 @@ const generateGuardianTransaction = async (
   // hot-bound path is the only one cached by guardian-manager; cold services
   // here are transient.
   //
-  // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta
-  // (a prior delta still canonicalizing) instead of failing the tx. It wraps
-  // only side-effect-free proposal creation — NOT replace-hot-key, whose
-  // createReplaceHotKeyProposal mints a fresh hardware hot key, so retrying it
-  // would orphan SE/StrongBox keys.
+  // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta (a
+  // prior delta still canonicalizing) instead of failing the tx. It wraps proposal
+  // creation only; replace-hot-key resolves its key outside it, so its retries
+  // propose the same key.
   let service: MultisigService;
 
   switch (transaction.type) {
@@ -2350,8 +2369,15 @@ const generateGuardianTransaction = async (
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
       });
-      // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
-      const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
+      // The key is resolved once, outside the retried call, so every attempt proposes
+      // the same one. After a seed recovery the 409 this waits out is usually the old
+      // device's last transaction still settling (#904).
+      const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createReplaceHotKeyProposal(sdkAccount, commitmentHex)
+      );
+      // An earlier run of this row already persisted and stamped the key.
+      if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {
         throw new Error('persistNewHotKey not implemented in this provider');
       }
@@ -2366,14 +2392,13 @@ const generateGuardianTransaction = async (
       // persist-before-submit design relies on this blob surviving for the
       // reconcile path — so reaping orphaned pending keys belongs in a dedicated
       // cleanup, not this hot path.
-      await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
+      await guardianProvider.persistNewHotKey(mintedKey.publicKeyHex, mintedKey.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
-      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: newHot.publicKeyHex };
+      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: mintedKey.publicKeyHex };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
       });
-      proposalResult = proposal;
       break;
     }
     case 'bridged-send': {
