@@ -92,11 +92,11 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     if (!session) return;
     hapticLight();
     // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
-    // has its own web implementation, so the same call is correct on
-    // desktop, the extension and every mobile webview — not just WKWebView
-    // under a secure context. Swallow errors — the UI closes either way so
-    // the user isn't left with a stuck sheet, and there is nowhere left on
-    // screen to report a failure once it has.
+    // writes through the native bridge on iOS and Android, and on desktop and
+    // the extension it calls `navigator.clipboard`, failing wherever that is
+    // missing, but as a rejection this catch sees rather than a synchronous
+    // throw. Swallow errors - the sheet closes either way, and there is
+    // nowhere left on screen to report a failure once it has.
     void Clipboard.write({ string: session.url }).catch(() => {});
     close();
   }, [session, close]);
