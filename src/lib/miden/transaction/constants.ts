@@ -259,9 +259,10 @@ export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'The transaction could not be completed because an asset it moves was not available in full — either the ' +
   'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
 
-// Shown ONLY for the proposal stages, which run before submit, so "not sent" and "funds are safe" hold.
+// Hedged: the proposal stages call the node as well as the guardian.
 export const GUARDIAN_UNREACHABLE_ERROR =
-  'The guardian could not be reached, so this transaction was not sent. Your funds are safe; try again once the guardian is back.';
+  'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
+  'try again in a moment.';
 
 function classifyTransactionError(
   error: unknown,
@@ -309,11 +310,6 @@ function classifyTransactionError(
   if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
-  // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
-  // pipeline requeues it, #779); this names the failure for the operations that still end on it.
-  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianUnreachableError(error)) {
-    return GUARDIAN_UNREACHABLE_ERROR;
-  }
   // Deterministic: the request itself is missing the conversion-info commitment,
   // so the same bytes will fail identically no matter how the balance moves.
   // Naming it stops the UI offering a Retry that cannot succeed — and stops it
@@ -325,6 +321,12 @@ function classifyTransactionError(
   // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
     return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  }
+  // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
+  // pipeline requeues it, #779); this names the failure for the operations that still end on it. After the fee and
+  // vault readings, which a guardian 5xx can carry and which name the cause more precisely.
+  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianUnreachableError(error)) {
+    return GUARDIAN_UNREACHABLE_ERROR;
   }
   return raw;
 }

@@ -11,7 +11,9 @@ import {
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
-  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_STUCK_ERROR
 } from './constants';
 
 // The real native-prover error captured in #487.
@@ -136,6 +138,38 @@ describe('resolveTransactionErrorMessage', () => {
       'TypeError: Failed to fetch'
     );
   });
+
+  it('hedges between the guardian and the network, since the proposal stages also call the node (#779)', () => {
+    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'creating-proposal')).toBe(
+      'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are ' +
+        'safe; try again in a moment.'
+    );
+  });
+
+  it('names a fee or vault failure a guardian 5xx carries rather than calling it unreachable (#779)', () => {
+    // A 5xx reads as unreachable, but the kernel's own code in its text is the more specific reading.
+    const feeCode = Object.assign(new Error('assertion failed with error code: 14712559985122731094'), {
+      status: 500
+    });
+    expect(resolveTransactionErrorMessage(feeCode, 'creating-proposal')).toBe(
+      TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR
+    );
+    const shortfall = Object.assign(
+      new Error('the amount of the asset in the vault is less than the amount to remove'),
+      { status: 502 }
+    );
+    expect(resolveTransactionErrorMessage(shortfall, 'signing-proposal')).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it.each(['creating-proposal', 'signing-proposal'] as const)(
+    'passes the reaper reasons through unchanged at %s, where every requeued row is reaped (#779)',
+    stage => {
+      // The reapers write these as bare strings; a copy edit adding "timed out" or "connection" would otherwise
+      // relabel every reaped row as a guardian outage.
+      expect(resolveTransactionErrorMessage(TRANSACTION_EXPIRED_ERROR, stage)).toBe(TRANSACTION_EXPIRED_ERROR);
+      expect(resolveTransactionErrorMessage(TRANSACTION_STUCK_ERROR, stage)).toBe(TRANSACTION_STUCK_ERROR);
+    }
+  );
 });
 describe('fee failures', () => {
   const vaultShortfall = new Error(
