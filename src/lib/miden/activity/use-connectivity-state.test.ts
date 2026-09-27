@@ -24,13 +24,16 @@ const mockFetchFromStorage = jest.fn(async (key: string) => {
   await Promise.resolve();
   return key in mockStoredValues ? mockStoredValues[key] : null;
 });
-const mockPutToStorage = jest.fn(async (key: string, value: unknown) => {
+const putToMockStore = async (key: string, value: unknown) => {
   await Promise.resolve();
   mockStoredValues[key] = value;
-});
+};
+const mockPutToStorage = jest.fn(putToMockStore);
 const mockIsExtension = jest.fn(() => false);
 
 jest.mock('../front/storage', () => ({
+  // The real turn: the Web Lock a test installs, or without one the storage module's in-realm chain.
+  inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   useStorage: (...args: unknown[]) => mockUseStorage(...args),
   fetchFromStorage: (key: string) => mockFetchFromStorage(key),
   putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
@@ -55,6 +58,7 @@ import { CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, useConnectivityState } from './
 
 let storageSnapshot: ConnectivityStateSnapshot | null;
 let storedDismissedActivations: Partial<Record<ConnectivityCategory, number | null>>;
+let locks: SharedEarnLocks;
 // Every write of the record goes through the hook's storage turn; a regression to the unlocked useStorage setter fails
 // loudly instead of landing in the store.
 const mockSetStoredDismissedActivations = jest.fn(() => {
@@ -76,11 +80,14 @@ const settle = () => act(async () => new Promise<void>(resolve => setTimeout(res
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsExtension.mockReturnValue(false);
+  // A test may replace the write path; clearAllMocks keeps implementations, so restore the store-backed one.
+  mockPutToStorage.mockImplementation(putToMockStore);
   storageSnapshot = null;
   storedDismissedActivations = {};
   for (const key of Object.keys(mockStoredValues)) delete mockStoredValues[key];
   // One lock manager for every hook instance, as navigator.locks is for the extension's pages.
-  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+  locks = new SharedEarnLocks();
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
   // Default: storage mirror is empty, so the hook falls back to the in-memory
   // machine. Individual tests override this before rendering.
   mockUseStorage.mockImplementation((key: string) =>
@@ -329,6 +336,9 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 123, node: 123 });
+      // Every window here shares one module, so its in-realm chain would serialize them too: pin that each turn took
+      // the Web Lock, which is what serializes separate extension windows.
+      expect(locks.requests.filter(name => name === 'turn:miden-connectivity-dismissed-activations')).toHaveLength(2);
 
       // The change event delivers the record to every window, the writer included.
       storedDismissedActivations = { network: 123, node: 123 };
@@ -381,6 +391,7 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ node: 789 });
+      expect(locks.requests).toContain('turn:miden-connectivity-dismissed-activations');
     });
 
     it('never replaces a newer stored dismissal with an older one', async () => {
@@ -420,10 +431,10 @@ describe('useConnectivityState', () => {
     });
   });
 
-  it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), and dismiss on an active category still hides it locally', async () => {
-    // No Web Locks at all: `navigator.locks.request(...)` throws synchronously rather than rejecting. Off-extension
-    // (the default here) `merged` comes from the in-process machine, so `markConnectivityIssue` below actually
-    // makes a category active for `dismiss` to act on.
+  it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), hides a dismissed category and stores its dismissal', async () => {
+    // No Web Locks at all: the turn runs on the storage module's in-realm chain. Off-extension (the default here)
+    // `merged` comes from the in-process machine, so `markConnectivityIssue` below actually makes a category active
+    // for `dismiss` to act on.
     Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
     storedDismissedActivations = { network: 123 };
 
@@ -434,5 +445,60 @@ describe('useConnectivityState', () => {
     act(() => result.current.dismiss('node'));
 
     expect(result.current.state.node.active).toBe(false);
+    await settle();
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      node: getConnectivityState().node.since
+    });
+  });
+
+  it('keeps both of two overlapping turns without Web Locks', async () => {
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+    const { result } = renderHook(() => useConnectivityState());
+    act(() => {
+      markConnectivityIssue('network');
+      markConnectivityIssue('node');
+    });
+
+    act(() => {
+      result.current.dismiss('network');
+      result.current.dismiss('node');
+    });
+    await settle();
+
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      network: getConnectivityState().network.since,
+      node: getConnectivityState().node.since
+    });
+  });
+
+  it('stores the next dismissal after a refused write without Web Locks', async () => {
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+    const { result } = renderHook(() => useConnectivityState());
+    act(() => {
+      markConnectivityIssue('network');
+      markConnectivityIssue('node');
+    });
+    // Only the dismissal record's first write is refused; the connectivity mirror writes through the same mock.
+    let refused = false;
+    mockPutToStorage.mockImplementation(async (key: string, value: unknown) => {
+      await Promise.resolve();
+      if (key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY && !refused) {
+        refused = true;
+        throw new Error('quota');
+      }
+      mockStoredValues[key] = value;
+    });
+
+    act(() => result.current.dismiss('network'));
+    await settle();
+    act(() => result.current.dismiss('node'));
+    await settle();
+
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      node: getConnectivityState().node.since
+    });
+    expect(mockPutToStorage.mock.calls.filter(([key]) => key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(
+      2
+    );
   });
 });
