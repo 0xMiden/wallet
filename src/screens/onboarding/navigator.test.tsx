@@ -487,19 +487,19 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'select-recovery-method', payload: WalletType.Guardian });
   });
 
-  it('ImportSelectRecoveryMethod: forwards isError and the submitted payload', () => {
+  it('ImportSelectRecoveryMethod: forwards error and the submitted payload', () => {
     const onAction = jest.fn();
-    renderFlow({ step: OnboardingStep.ImportSelectRecoveryMethod, guardianLookupError: true, onAction });
-    expect(mockCaptured['import-recovery'].isError).toBe(true);
+    renderFlow({ step: OnboardingStep.ImportSelectRecoveryMethod, guardianLookupFailure: 'boom', onAction });
+    expect(mockCaptured['import-recovery'].error).toBe('boom');
 
     const payload = { walletType: WalletType.Guardian, guardianEndpoint: 'https://g.example' };
     act(() => mockCaptured['import-recovery'].onSubmit(payload));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'import-select-recovery-method', payload });
   });
 
-  it('ImportSelectRecoveryMethod: isError is false by default', () => {
+  it('ImportSelectRecoveryMethod: error is null by default', () => {
     renderFlow({ step: OnboardingStep.ImportSelectRecoveryMethod });
-    expect(mockCaptured['import-recovery'].isError).toBe(false);
+    expect(mockCaptured['import-recovery'].error).toBeNull();
   });
 
   it('SelectTransactionType: submits with the private payload', () => {

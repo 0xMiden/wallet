@@ -13,15 +13,15 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -48,8 +48,8 @@ const RevealSeedPhrase: FC = () => {
     },
     [seedStatus]
   );
-  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
   const [secret, setSecret] = useSecretState();
+  const { copy, copied } = useClipboardCopy(secret ?? '');
   const [step, setStep] = useState<Step>('warning');
   // Every exit from this page goes through `leave`, never `goBack()` directly: it
   // bumps the generation, resets the step and the drawer, then pops through this
@@ -63,7 +63,7 @@ const RevealSeedPhrase: FC = () => {
   // store the mnemonic and swap the rendered branch to the word grid on a page the
   // user has already dismissed. Bumping the generation gives that in-flight promise
   // the same mismatch unmount already produces. Wrapped at the binding rather than
-  // at each call site: there are seven, and a list is one edit away from being six.
+  // at each call site: there are many, and a list is one edit away from missing one.
   const leave = useCallback(() => {
     secretGeneration.current += 1;
     setSecret(null);
@@ -354,6 +354,13 @@ const RevealSeedPhrase: FC = () => {
     </Drawer>
   );
 
+  // Hardware back runs the header callback for the screen showing (#1042), so it also goes through
+  // `leave` and abandons an in-flight reveal. A phrase is held only on the words screen.
+  useMobileBackHandler(() => {
+    (secret ? handleHide : leave)();
+    return true;
+  }, [secret, handleHide, leave]);
+
   if (seedStatus && seedStatus !== 'stored')
     return (
       // The same page the verify flow draws for this state, on the same frame.
@@ -455,16 +462,13 @@ const RevealSeedPhrase: FC = () => {
       >
         {isGuardReady && (
           <SubPageSection className="gap-3">
-            {/* Hidden field for copy */}
-            <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
-
             <SeedPhraseGrid words={words} />
 
-            {/* Copy is the shared Pill, like every other copy action in the wallet. */}
+            {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill
               className="self-start"
               icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
-              onClick={copy}
+              onClick={() => void copy()}
               data-testid="reveal-seed-copy"
             >
               <CopyLabel copied={copied} copiedLabel={t('copied')}>
