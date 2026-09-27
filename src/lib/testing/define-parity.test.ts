@@ -3,7 +3,7 @@ import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from 
 describe('defineSource', () => {
   it("returns the config's define object", () => {
     const source = "export default { plugins: [], define: { 'process.env.A': JSON.stringify(process.env.A ?? '') } };";
-    expect(defineSource(source)).toBe("{ 'process.env.A': JSON.stringify(process.env.A ?? '') }");
+    expect(defineSource(source)).toBe("'process.env.A': JSON.stringify(process.env.A ?? '')");
   });
 
   it('expands a spread from the const it names', () => {
@@ -82,16 +82,102 @@ describe('defineSource', () => {
     expect(() => defineSource('export default { define: { ...missing } };')).toThrow('missing');
   });
 
-  it('throws on an object that never closes', () => {
-    expect(() => defineSource("export default { define: { 'process.env.A': 'a'")).toThrow('unbalanced');
+  it('throws on a config that does not parse', () => {
+    expect(() => defineSource("export default { define: { 'process.env.A': 'a'")).toThrow('does not parse');
   });
 
-  it('throws on a trailing // comment that never closes the line', () => {
-    expect(() => defineSource('export default { define: { // x')).toThrow('unbalanced');
+  it.each([
+    ['a spread of a call', 'export default { define: { ...make() } };'],
+    ['a conditional spread', 'export default { define: { ...(c ? a : b) } };'],
+    ['a shorthand member', "const NODE_ENV = 'x';\nexport default { define: { NODE_ENV } };"],
+    ['a method member', 'export default { define: { m() { return 1; } } };']
+  ])('throws on %s, whose entries it cannot see', (_, source) => {
+    expect(() => defineSource(source)).toThrow('unsupported');
   });
 
-  it('throws on a /* comment that never closes', () => {
-    expect(() => defineSource('export default { define: { /* x')).toThrow('unbalanced');
+  it('throws on a spread of a const that is not a plain object literal', () => {
+    const source = [
+      "const shared = { 'process.env.B': JSON.stringify('x') } as const;",
+      'export default { define: { ...shared } };'
+    ].join('\n');
+    expect(() => defineSource(source)).toThrow('no const shared object in the config');
+  });
+
+  it('ignores a define block inside a comment above the live one', () => {
+    const source = [
+      "/* define: { 'process.env.X': JSON.stringify(process.env.X ?? '') } */",
+      'export default { define: {} };'
+    ].join('\n');
+    expect(defineSource(source)).not.toContain('process.env.X');
+  });
+
+  it('ignores a const inside a comment above the live one it spreads', () => {
+    const source = [
+      "/* const shared = { 'process.env.X': JSON.stringify(process.env.X ?? '') }; */",
+      'const shared = {};',
+      'export default { define: { ...shared } };'
+    ].join('\n');
+    expect(defineSource(source)).not.toContain('process.env.X');
+  });
+
+  it.each([
+    [
+      'the define object',
+      [
+        'export default {',
+        '  define: {',
+        "    'process.env.R': JSON.stringify(/[{']/.source),",
+        "    'process.env.S': JSON.stringify('s')",
+        '  },',
+        "  plugins: ['after-define']",
+        '};'
+      ]
+    ],
+    [
+      'the spread const',
+      [
+        "const shared = { 'process.env.R': JSON.stringify(/[{']/.source), 'process.env.S': JSON.stringify('s') };",
+        "export default { define: { ...shared }, plugins: ['after-define'] };"
+      ]
+    ]
+  ])('reads a regex literal inside %s as one token', (_, lines) => {
+    const defines = defineSource(lines.join('\n'));
+    expect(defines).toContain("'process.env.S'");
+    expect(defines).not.toContain('after-define');
+  });
+
+  it.each([
+    [
+      'the define object',
+      [
+        'export default {',
+        '  define: {',
+        "    'process.env.A': JSON.stringify(",
+        "      process.env.A ?? '' // 'process.env.B': JSON.stringify(process.env.B ?? '')",
+        '    ),',
+        "    'process.env.D': JSON.stringify(/* 'process.env.C': JSON.stringify('c') */ 'd')",
+        '  }',
+        '};'
+      ]
+    ],
+    [
+      'the spread const',
+      [
+        'const shared = {',
+        "  'process.env.A': JSON.stringify(",
+        "    process.env.A ?? '' // 'process.env.B': JSON.stringify(process.env.B ?? '')",
+        '  ),',
+        "  'process.env.D': JSON.stringify(/* 'process.env.C': JSON.stringify('c') */ 'd')",
+        '};',
+        'export default { define: { ...shared } };'
+      ]
+    ]
+  ])('drops a comment inside an entry of %s', (_, lines) => {
+    const defines = defineSource(lines.join('\n'));
+    expect(defines).toMatch(defineEntry('A', "process.env.A ?? ''"));
+    expect(defines).toContain("'process.env.D'");
+    expect(defines).not.toContain('process.env.B');
+    expect(defines).not.toContain('process.env.C');
   });
 
   it('throws when the config has more than one define object', () => {
