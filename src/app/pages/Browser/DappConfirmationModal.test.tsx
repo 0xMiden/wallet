@@ -282,7 +282,7 @@ describe('DappConfirmationModal origin', () => {
       />
     );
 
-    const shown = screen.getByTestId('dapp-confirmation-origin');
+    const shown = within(screen.getByRole('heading', { level: 2 })).getByTestId('dapp-confirmation-origin');
     expect(shown.textContent).toBe(LONG_ORIGIN);
     expectDomainInsideCard(within(shown).getByTestId('dapp-origin-domain'));
   });
@@ -301,34 +301,19 @@ describe('DappConfirmationModal origin', () => {
     expectDomainInsideCard(within(title).getByTestId('dapp-origin-domain'));
   });
 
-  it('shows the origin in the title when the name is only its hostname, as the injected provider sends', () => {
+  // The injected providers send only the page's hostname as the name, so any other name was forged
+  // by the page and must not become the title or the dialog's accessible name.
+  it('titles the dialog with the origin, never a name the dApp sent', () => {
     render(
       <DappConfirmationModal
-        request={buildRequest({
-          origin: LONG_ORIGIN,
-          appMeta: { name: 'login.secure.account-verify.wallet.example.co.uk' }
-        })}
+        request={buildRequest({ origin: 'https://evil.io', appMeta: { name: 'wallet.example.co.uk' } })}
         accountId={FULL_ACCOUNT_ID}
         onResolve={jest.fn()}
       />
     );
 
-    const title = screen.getByRole('heading', { level: 2 });
-    expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
-    expect(title).not.toHaveClass('truncate');
-  });
-
-  it('keeps a dApp-sent name in the title, truncated as before', () => {
-    render(
-      <DappConfirmationModal
-        request={buildRequest({ origin: LONG_ORIGIN, appMeta: { name: 'Example dApp' } })}
-        accountId={FULL_ACCOUNT_ID}
-        onResolve={jest.fn()}
-      />
-    );
-
-    const title = screen.getByRole('heading', { level: 2 });
-    expect(title).toHaveTextContent(/^Example dApp$/);
-    expect(title).toHaveClass('truncate');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('https://evil.io');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName(/evil\.io/);
+    expect(screen.getByRole('dialog')).not.toHaveAccessibleName(/example\.co\.uk/);
   });
 });

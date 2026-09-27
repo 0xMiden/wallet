@@ -20,7 +20,6 @@
 import React, { type FC, useEffect, useRef, useState } from 'react';
 
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
-import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -50,14 +49,6 @@ interface DappConfirmationModalProps {
   onResolve: (result: DAppConfirmationResult) => void;
 }
 
-const originHostname = (origin: string) => {
-  try {
-    return new URL(origin).hostname;
-  } catch {
-    return undefined;
-  }
-};
-
 export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request, accountId, onResolve }) => {
   const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs.
@@ -65,10 +56,6 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
   // privateData) renders the same detail-list body; only the prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
-  const sentName = request.appMeta?.name;
-  // The injected provider names every dApp by its page's hostname (injection-script.ts), which
-  // says nothing the origin does not, so it counts as no name.
-  const appName = sentName && sentName !== originHostname(request.origin) ? sentName : undefined;
   const transactionMessages = request.transactionMessages ?? [];
   const transactionAccountMatches =
     request.type !== 'transaction' ||
@@ -253,19 +240,10 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            {/* A missing name, or one that is only the origin's hostname, falls back to the origin,
-                shown like the line below so its registrable domain never truncates. */}
-            <h2
-              id="dapp-confirmation-title"
-              className={classNames('text-lg font-semibold text-ink', appName && 'truncate')}
-            >
-              {appName || <DappOrigin origin={request.origin} />}
+            {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
+            <h2 id="dapp-confirmation-title" className="text-lg font-semibold text-ink">
+              <DappOrigin origin={request.origin} data-testid="dapp-confirmation-origin" />
             </h2>
-            <DappOrigin
-              origin={request.origin}
-              className="text-sm text-text-muted"
-              data-testid="dapp-confirmation-origin"
-            />
           </div>
         </div>
 
