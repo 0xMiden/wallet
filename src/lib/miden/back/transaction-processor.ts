@@ -53,8 +53,6 @@ let isProcessing = false;
 // after the loop's last pass but before this run clears `isProcessing` would
 // otherwise be silently dropped, leaving a newly-queued tx stuck (#907).
 let processingRequested = false;
-// Set by an unlock that lands while a run is going; see resumeProcessingAfterUnlock.
-let unlockedDuringRun = false;
 
 /**
  * Sign callback that runs in the service worker.
@@ -144,22 +142,6 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 };
 
 /**
- * Resume the queue after the vault unlocks (#924). A claim that met a locked vault was requeued,
- * and once a run spends its pass budget on such claims nothing else restarts the processor for
- * them: auto-consume skips a note a queued claim covers, and the extension has no retry wake. So an
- * unlock starts a run, restarts the budget of one in progress, or, if that run is already past its
- * last pass, starts the next one when it ends. Only an unlock does this, so other kicks cannot keep
- * a run going while the vault stays locked.
- */
-export function resumeProcessingAfterUnlock(): void {
-  if (isProcessing) {
-    unlockedDuringRun = true;
-    return;
-  }
-  startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
-}
-
-/**
  * Start processing queued transactions in the service worker.
  * One run at a time: a call made while a run is in flight starts no loop of
  * its own but is recorded and honoured with one more run when this one ends
@@ -211,12 +193,7 @@ export async function startTransactionProcessing(): Promise<void> {
     // MAX_WAIT_BEFORE_CANCEL).
     const maxAttempts = 60;
 
-    while (true) {
-      if (unlockedDuringRun) {
-        unlockedDuringRun = false;
-        attempts = 0;
-      }
-      if (attempts >= maxAttempts) break;
+    while (attempts < maxAttempts) {
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
       const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultGuardianProvider);
@@ -243,10 +220,8 @@ export async function startTransactionProcessing(): Promise<void> {
     } catch {
       // Best effort.
     }
-    // A kick or an unlock that landed after the run's last look at the queue still gets its run.
-    if (processingRequested || unlockedDuringRun) {
+    if (processingRequested) {
       processingRequested = false;
-      unlockedDuringRun = false;
       void startTransactionProcessing();
     }
   }
