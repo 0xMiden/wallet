@@ -1,16 +1,19 @@
-// Offscreen document: runs the multi-threaded WASM prover.
+// Offscreen document: runs the wallet's WASM client, and proves in a worker of its own.
 //
 // Why this exists: the wallet's MV3 service worker can't spawn Web Workers,
 // so wasm-bindgen-rayon's `initThreadPool(n)` would fail there (or, worse,
 // silently spin up a 1-thread pool that pretends to be parallel). The
 // offscreen API exists for exactly this kind of "I need a real document
-// context for Workers / SAB" need. The SW creates this doc once, this doc
-// brings up the rayon pool over its hardware concurrency, then sits waiting
-// for prove requests via chrome.runtime.sendMessage.
+// context for Workers / SAB" need. The SW creates this doc once; this doc
+// brings up its client's rayon pool, and every LOCAL prove runs in its prove
+// worker (`prove-worker.ts`, #945), a second WASM instance with its own pool, so
+// the prove never blocks this document's thread, which the side panel and
+// popup share.
 //
 // Lifecycle: created lazily by the SW on first prove (see src/workers/sw
 // init). Not closed proactively — Chrome may reap it under memory pressure;
-// SW handles recreation. ~120-150 MB always-resident while the doc lives.
+// SW handles recreation. ~120-150 MB always-resident while the doc lives, plus
+// the prove worker's instance during a burst of local proves and 60 s after.
 //
 // Message protocol (chrome.runtime), two families sharing this one doc/channel:
 //   OFFSCREEN_PROVE (unchanged):
@@ -89,7 +92,7 @@ import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
-import { proveThreadCount } from './prove-worker-protocol';
+import { LOCAL_PROVER_DESCRIPTOR, proveThreadCount } from './prove-worker-protocol';
 
 const TAG = '[offscreen-prover]';
 
@@ -97,9 +100,9 @@ const TAG = '[offscreen-prover]';
 // module top, before any client is created or any write executes, so the
 // version-independent `isInOffscreenDocument()` recursion guard
 // (offscreen-prover.ts) can short-circuit `isOffscreenAvailable()` to false here.
-// That makes a non-guardian offscreen write prove LOCALLY in-realm (on this doc's
-// `useWorker:false` WASM) instead of trying to re-dispatch OFFSCREEN_PROVE to a
-// non-existent handler inside the doc — which would fail EVERY such write. It does
+// That keeps a non-guardian offscreen write from re-dispatching OFFSCREEN_PROVE to
+// the SW's own path, which cannot reach this doc from inside it and would fail
+// EVERY such write; its local prove goes to the prove worker instead (#945). It does
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
@@ -265,7 +268,8 @@ async function init() {
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
   await (sdk as any).getWasmOrThrow();
 
-  // Bring up the rayon thread pool inside THIS document's WASM instance.
+  // Bring up the rayon thread pool inside THIS document's WASM instance, which
+  // runs execute and every other client call; the prove worker starts its own.
   // Each context (SW, offscreen, popup, worker) has its own per-instance
   // global rayon pool — initialization in one doesn't propagate. SAB +
   // crossOriginIsolated are the prerequisites; the manifest's COOP/COEP
@@ -305,29 +309,6 @@ ensureInit()
   .catch(err => {
     console.error(`${TAG} init failed:`, err);
   });
-
-// One raw wasm-bindgen WebClient instance, reused across prove calls. The
-// SDK's export naming is treacherous: `WebClient` is the RAW wasm-bindgen
-// class, while `WasmWebClient` is the worker-shim JS wrapper. The raw class
-// is load-bearing here, for two reasons:
-//   1. The prove must run in THIS document's WASM instance — the one whose
-//      rayon pool init() just brought up. The wrapper forwards every method
-//      to its own method worker, a separate WASM instance whose pool this
-//      document never initialized.
-//   2. The wrapper's constructor implicitly INITs that worker via
-//      createClient(rpcUrl=undefined), which on 0.15 performs an eager RPC
-//      genesis fetch against the default endpoint. If that fails (wrong
-//      network version, offline), the wrapper's `ready` promise never
-//      settles and every method call awaits it forever — a silent hang.
-// We never call createClient(...) so this stays a "prover-only" client.
-// Proving with an explicit prover on an uninitialized client requires
-// web-sdk >= 0.15.0-alpha.6; older builds throw "Client not initialized"
-// (loud and immediate, never a hang).
-let prover: any = null;
-function getProver() {
-  if (!prover) prover = new (sdk as any).WebClient();
-  return prover;
-}
 
 // --- Reverse-IPC sign stub (issue #260, slice 5, design §2.4) ---------------
 //
@@ -483,9 +464,8 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage): voi
 
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
 //
-// Alongside the prover-only raw WebClient above, the offscreen doc now owns the
-// FULL MidenClientInterface singleton (design §3.4) — the same client the SW
-// used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
+// The offscreen doc owns the FULL MidenClientInterface singleton (design §3.4), the
+// same client the SW used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
 // and stream the (serialized) result back. Slice 1 wired `getAccount`; slice 3
 // extends the DISPATCH table with the remaining serialization-clean reads
 // (`syncState`, `exportNote`, `getInputNoteDetails`); slice 4 added
@@ -1250,21 +1230,19 @@ let clientPromise: Promise<MidenClientInterface> | null = null;
  * survivable, and dropping the reference alone would leave them switched off
  * for exactly the flows that were in flight — the ones that need them.
  *
- * The prove-only client goes too: `OFFSCREEN_PROVE` runs on its own raw
- * `WebClient` in this same WASM instance, so a trap that aborts the module
- * aborts that one as well, and it is memoized with no other reset path.
+ * The prove worker is left alone (#945): its WASM instance is separate, so a trap
+ * here does not abort it, and a prove held by an evicted flow is already cancelled
+ * through that hold.
  */
 onWasmClientPoisoned(() => {
   const poisoned = clientPromise;
-  const hadProver = prover !== null;
-  prover = null;
   clientPromise = null;
   // Synchronous, unlike `markPoisoned` below: the sign closure is created with
   // the client (not resolved from it), so the guard is armed before control ever
   // returns to an abandoned dispatch.
   if (currentSignLiveness) currentSignLiveness.poisoned = true;
   currentSignLiveness = null;
-  if (!poisoned && !hadProver) return;
+  if (!poisoned) return;
   console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
   // Marking needs the resolved instance, so it lands a microtask later than the
   // synchronous drop above. A create still in flight resolves to a client built
@@ -1277,15 +1255,14 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     // Created with two Slice-5 overrides vs. the SW's plain singleton:
     //   - `signCallback: offscreenSignViaSW` — the reverse-IPC keystore stub, so
     //     a write op's mid-execute signing reaches the SW-resident vault (§2).
-    //   - `useWorker: false` — REQUIRED (design §5.2). With the SDK worker shim
-    //     (`useWorker:true`, the browser default) the client would run every
-    //     method — including the write's local prove — in a method-worker with
-    //     its own UN-pooled WASM instance, so proving would be single-threaded
-    //     and the keystore callback would live in the worker (SDK: `lastAuthError`
-    //     "meaningful only with useWorker:false"). `false` pins the client to
-    //     THIS doc's main-thread WASM instance, whose rayon pool `init()` brought
-    //     up — so reads AND the write's prove run multi-threaded and the sign
-    //     callback is reachable.
+    //   - `useWorker: false` - REQUIRED (design §5.2). The SDK worker shim
+    //     (`useWorker:true`, the browser default) would move the whole client
+    //     into its method worker, where the keystore callbacks answer within a
+    //     hard 30 s (a sign waits on the user for as long as they take) and
+    //     `lastAuthError` reads null (SDK: "meaningful only with
+    //     useWorker:false"). `false` pins the client to THIS doc's WASM instance,
+    //     whose rayon pool `init()` brought up; local proving is the one step that
+    //     leaves it, for the prove worker (#945).
     // The endpoint override is awaited HERE, not only in `init()`: `create` reads
     // `getEffectiveRpcUrl()` / `getEffectiveProverUrl()` / `getEffectiveNoteTransportUrl()`
     // and bakes them into the client for its whole lifetime, so the load has to be
@@ -1557,22 +1534,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     (async () => {
       try {
         await ensureInit();
-        const wasmSdk = sdk as any;
-        const txResultBytes = b64ToBytes(msg.txResultB64 as string);
-        const txResult = wasmSdk.TransactionResult.deserialize(txResultBytes);
-        // SDK 0.14.6+: TransactionProver.deserialize is async (the "gpu"
-        // descriptor re-acquires a wgpu::Device, which is async). For "local"
-        // and "remote|..." descriptors the call is still effectively sync but
-        // returns a Promise — must be awaited.
-        const proverObj = msg.proverDescriptor
-          ? await wasmSdk.TransactionProver.deserialize(msg.proverDescriptor)
-          : wasmSdk.TransactionProver.newLocalProver();
-        const t = performance.now();
-        const proven = await getProver().proveTransaction(txResult, proverObj);
-        const ms = performance.now() - t;
-        console.log(`${TAG} prove duration_ms=${ms.toFixed(1)}`);
-        const provenBytes = proven.serialize() as Uint8Array;
-        sendResponse({ ok: true, provenB64: bytesToB64(provenBytes), durationMs: ms });
+        // Bytes straight to the prove worker (#945): no WASM call in this realm at
+        // all. Only a local descriptor is accepted; the one sender passes null.
+        const proverDescriptor: unknown = msg.proverDescriptor;
+        const { proven, durationMs } = await proveWorker.prove({
+          txResult: b64ToBytes(String(msg.txResultB64)),
+          proverDescriptor: typeof proverDescriptor === 'string' ? proverDescriptor : LOCAL_PROVER_DESCRIPTOR
+        });
+        console.log(`${TAG} prove duration_ms=${durationMs.toFixed(1)}`);
+        sendResponse({ ok: true, provenB64: bytesToB64(proven), durationMs });
       } catch (err) {
         console.error(`${TAG} prove failed:`, err);
         sendResponse({ ok: false, error: String((err as { message?: string })?.message ?? err) });

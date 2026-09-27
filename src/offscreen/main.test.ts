@@ -794,40 +794,48 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
     ...extra
   });
 
-  it('proves with a local prover when no descriptor is supplied (ok:true)', async () => {
+  it('forwards the decoded bytes to the prove worker as a local prove when no descriptor is supplied (#945)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     const ret = capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.deserializeTxResult).toHaveBeenCalledTimes(1);
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
-    expect(G.__off.deserializeProver).not.toHaveBeenCalled();
-    expect(G.__off.webClientCtorCount).toBe(1);
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
+      txResult: new Uint8Array([9, 8, 7]),
+      proverDescriptor: 'local'
+    });
+    // No WASM call in this realm at all: nothing deserialized, no prover, no client.
+    expect(G.__off.deserializeTxResult).not.toHaveBeenCalled();
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(G.__off.webClientCtorCount).toBe(0);
 
     expect(sendResponse).toHaveBeenCalledTimes(1);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
-    expect(typeof resp.durationMs).toBe('number');
-    // provenB64 round-trips the serialized [1,2,3] bytes.
+    expect(resp.durationMs).toBe(42);
     expect(Array.from(Buffer.from(resp.provenB64, 'base64'))).toEqual([1, 2, 3]);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('prove duration_ms='));
   });
 
-  it('deserializes the prover from the descriptor when one is supplied (ok:true)', async () => {
+  it('answers ok:false for a non-local descriptor, which the worker refuses to prove (#945)', async () => {
     await loadModule();
+    const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
+    mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('unsupported-prover', 'remote|http://x|5000'));
     const sendResponse = jest.fn();
-    const ret = capturedListener!(provReq({ proverDescriptor: 'remote|http://x|5000' }), {}, sendResponse);
-    expect(ret).toBe(true);
+    capturedListener!(provReq({ proverDescriptor: 'remote|http://x|5000' }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.deserializeProver).toHaveBeenCalledWith('remote|http://x|5000');
-    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toMatchObject({ proverDescriptor: 'remote|http://x|5000' });
+    expect(G.__off.deserializeProver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      ok: false,
+      error: 'Local prove failed in the prove worker (unsupported-prover)'
+    });
   });
 
-  it('reuses a single WebClient instance across successive prove calls', async () => {
+  it('proves successive requests through the one worker client, constructing no WebClient here', async () => {
     await loadModule();
     const r1 = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, r1);
@@ -838,15 +846,13 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
 
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
-    // getProver() cached the client → constructor ran exactly once.
-    expect(G.__off.webClientCtorCount).toBe(1);
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    expect(G.__off.webClientCtorCount).toBe(0);
   });
 
-  it('responds ok:false with the Error message when proving throws an Error', async () => {
+  it('responds ok:false with the Error message when the worker prove fails', async () => {
     await loadModule();
-    G.__off.proveTransaction = jest.fn(async () => {
-      throw new Error('WASM exploded');
-    });
+    mockProveTransport.prove.mockRejectedValueOnce(new Error('WASM exploded'));
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -857,11 +863,7 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
 
   it('responds ok:false with String(err) when the thrown value has no message', async () => {
     await loadModule();
-    // Throw a plain string — no `.message` property → falls back to String(err).
-    G.__off.proveTransaction = jest.fn(async () => {
-      // eslint-disable-next-line no-throw-literal
-      throw 'raw failure string';
-    });
+    mockProveTransport.prove.mockRejectedValueOnce('raw failure string');
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -872,7 +874,7 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
   it('chunk-encodes proven output larger than 0x8000 bytes', async () => {
     await loadModule();
     const big = new Uint8Array(0x9000).fill(0x42);
-    G.__off.proveTransaction = jest.fn(async () => ({ serialize: () => big }));
+    mockProveTransport.prove.mockResolvedValueOnce({ proven: big, durationMs: 1 });
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -4069,33 +4071,25 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     expect(G.__off.createOptions[1].useWorker).toBe(false);
   });
 
-  it('drops the memoized PROVE client too — it shares the WASM instance that trapped', async () => {
+  it('leaves the prove worker alone: an OFFSCREEN_PROVE after a poisoning still proves through it (#945)', async () => {
     await loadModule();
+    const request = { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') };
     const p1 = jest.fn();
-    capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
-      {},
-      p1
-    );
+    capturedListener!(request, {}, p1);
     await flush();
     expect(p1.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.webClientCtorCount).toBe(1);
 
     firePoisoned();
     await flush();
 
     const p2 = jest.fn();
-    capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
-      {},
-      p2
-    );
+    capturedListener!(request, {}, p2);
     await flush();
     expect(p2.mock.calls[0][0].ok).toBe(true);
-    // A second construction: the trapped prover was not handed out again. It has
-    // no other reset path — `OFFSCREEN_PROVE` runs outside the mutex, so it gets
-    // neither the watchdog nor the eviction that a CALL gets.
-    expect(G.__off.webClientCtorCount).toBe(2);
+    // The worker's WASM instance is separate, so a trap here does not abort it and
+    // this realm builds no prover of its own.
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    expect(G.__off.webClientCtorCount).toBe(0);
   });
 
   it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {

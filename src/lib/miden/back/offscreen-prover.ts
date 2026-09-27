@@ -91,8 +91,8 @@ export function isCriticalOpInFlight(): boolean {
  * Inside the offscreen document itself this returns false FIRST (via
  * {@link isInOffscreenDocument}): a doc cannot spawn a sub-doc, and re-dispatching
  * OFFSCREEN_PROVE from inside would deadlock (no in-doc handler), so an
- * offscreen-doc write must prove locally on its own `useWorker:false` WASM
- * (issue #260 flip-prep #4).
+ * offscreen-doc write proves locally in the doc's own prove worker
+ * (issue #260 flip-prep #4, #945).
  */
 export function isOffscreenAvailable(): boolean {
   if (isInOffscreenDocument()) return false;
