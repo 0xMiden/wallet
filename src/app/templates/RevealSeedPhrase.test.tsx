@@ -578,6 +578,21 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
+  // The failure line is the only evidence for this state, so it names what each read failed with.
+  it("names both reads' failures in the probe-failure log", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+      mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+      await render();
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('hw-boom'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('pw-boom'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   // A slow read is the common case on mobile (a native bridge call into a WebView the OS suspends
   // when backgrounded). Staying on the page adopts the first read's answer whenever it lands.
   it('adopts a slow answer that lands after the wait notice has appeared', async () => {

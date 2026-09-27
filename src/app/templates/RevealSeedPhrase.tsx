@@ -125,9 +125,13 @@ const RevealSeedPhrase: FC = () => {
       try {
         return !(await Vault.hasPasswordProtector());
       } catch (passwordError) {
-        // Carry both. The log is the only evidence for this state, and a bare rethrow
-        // could only ever name the complement's failure.
-        throw new Error('both protector reads failed', { cause: { hardwareError, passwordError } });
+        // Carry both, in the message too: the failure log prints the message and is the only
+        // evidence for this state, and a bare rethrow could only ever name the complement's failure.
+        const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
+        throw new Error(
+          `both protector reads failed (hardware: ${describe(hardwareError)}; password: ${describe(passwordError)})`,
+          { cause: { hardwareError, passwordError } }
+        );
       }
     }
   }, []);
