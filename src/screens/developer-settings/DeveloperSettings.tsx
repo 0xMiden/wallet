@@ -8,6 +8,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ReactComponent as OptionsIcon } from 'app/icons/v2/settings-2.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -115,6 +116,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
@@ -178,7 +180,15 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleSave = async () => {
     setSaving(true);
-    await applyEndpointOverride(form);
+    setSaveFailed(false);
+    try {
+      await applyEndpointOverride(form);
+    } catch (error) {
+      console.warn('[developer-settings] Could not save the endpoint override', error);
+      setSaving(false);
+      setSaveFailed(true);
+      return;
+    }
     // Every fuse conclusion was earned against the node this just stopped pointing at.
     // Mobile and desktop are exactly the realms that own the idle loop, so a fused
     // wallet repointed at a working RPC would otherwise probe once per 30 min — and the
@@ -209,7 +219,12 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // an in-progress sync/tx. Once a wallet exists, an override change here still
     // applies to this realm but requires an explicit reload to reach the SW,
     // unchanged from before this nudge existed.
-    if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
+    // The override is stored either way; a worker that missed the nudge reads it when it next starts.
+    if (isExtension() && noWalletYet) {
+      await reloadEndpointOverridesInSW().catch(error =>
+        console.warn('[developer-settings] Could not nudge the service worker to reload endpoints', error)
+      );
+    }
     setSaving(false);
     navigate('/');
   };
@@ -273,6 +288,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           />
         ) : (
           <>
+            <ErrorLine data-testid="dev-endpoints-save-error">
+              {saveFailed ? t('devEndpointSaveFailed') : null}
+            </ErrorLine>
             <Button
               className={actionButton}
               variant={ButtonVariant.Primary}

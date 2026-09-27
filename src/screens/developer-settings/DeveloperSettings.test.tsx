@@ -214,6 +214,58 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {
+    const {
+      __resetSyncFuseStateForTests,
+      isSyncFused,
+      noteSyncWatchdogEviction
+    } = require('lib/miden/front/sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
+    jest.spyOn(console, 'warn').mockImplementation();
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
+    expect(isSyncFused('idle-sync')).toBe(true);
+
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointSaveFailed');
+    expect(screen.getByTestId('dev-endpoints-save')).toHaveAttribute('data-loading', 'false');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(isSyncFused('idle-sync')).toBe(true);
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+    applyEndpointOverride.mockResolvedValue(undefined);
+  });
+
+  it('clears the error when a later save succeeds', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await screen.findByRole('alert');
+
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    applyEndpointOverride.mockResolvedValue(undefined);
+  });
+
+  it('still navigates home when the service-worker nudge fails after the endpoints were saved', async () => {
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Idle;
+    reloadEndpointOverridesInSW.mockRejectedValueOnce(new Error('sw unreachable'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    reloadEndpointOverridesInSW.mockResolvedValue(undefined);
+  });
+
   it('discards the sync fuse on save, since every conclusion in it was about the OLD node', async () => {
     // Mobile and desktop own the idle loop, and this is their only repoint affordance. A
     // fused wallet pointed at a working RPC would otherwise probe once per 30 min — the

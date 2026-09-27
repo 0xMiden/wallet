@@ -1058,6 +1058,7 @@
   "devEndpointReachable": "Host reachable",
   "devEndpointNoResponse": "No response",
   "devEndpointSaveContinue": "Save & continue",
+  "devEndpointSaveFailed": "These endpoints could not be saved. Try again.",
   "devEndpointResetDefaults": "Reset to defaults",
   "devEndpointResetAndReonboard": "Reset to defaults & re-onboard",
   "devEndpointsRow": "Network endpoints",
