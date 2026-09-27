@@ -47,6 +47,7 @@
 - [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
+- [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
 
 ## 1.16.2 (2026-09-24)
 
