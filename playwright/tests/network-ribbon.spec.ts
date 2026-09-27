@@ -136,10 +136,9 @@ test.describe('Network corner ribbon', () => {
       const corner = nav.locator('[data-slot="bottom-nav-corner"]');
       await expect(corner.getByTestId('network-mode-ribbon')).toHaveCount(1);
       expect(await corner.evaluate(el => getComputedStyle(el).overflow)).toMatch(/^(hidden|clip)$/);
-      expect(await corner.evaluate(el => getComputedStyle(el).borderRadius)).toBe(
-        await nav.evaluate(el => getComputedStyle(el).borderRadius)
-      );
-      expect(await nav.evaluate(el => getComputedStyle(el).borderRadius)).not.toBe('0px');
+      const navRadius = await nav.evaluate(el => getComputedStyle(el).borderRadius);
+      expect(navRadius).not.toBe('0px');
+      expect(await corner.evaluate(el => getComputedStyle(el).borderRadius)).toBe(navRadius);
       expect(await corner.boundingBox()).toEqual(navBox);
 
       // It takes no layout space: every tab is the same width, as without it. Settings is the last.
