@@ -32,9 +32,9 @@ const cardVariants = cva('rounded-2xl text-left', {
     },
     // Press feedback works on anything tappable, so it stays a variant: `Card` takes it from a
     // caller (HistoryView's rows). The focus ring and the disabled states do not - they only mean
-    // something on an element that can take focus, `CardButton` is the only thing here that is
-    // one, and `disabled:` matches `:disabled`, which a `div` never is. They live on CardButton
-    // directly rather than as a variant nothing else can ask for.
+    // something on an element that can take focus, and `disabled:` matches `:disabled`, which a
+    // `div` never is. They are FOCUSABLE_CLASSES, applied by the buttons themselves: CardButton,
+    // and ActivityRow when it opens something.
     pressable: {
       true: [
         'cursor-pointer transition-colors duration-150 ease-hover',
@@ -50,8 +50,9 @@ type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 /**
  * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
- * Exported so the test can iterate it rather than restating its lines, which is what let half of
- * it go unpinned when it moved off the cva variant.
+ * CardButton applies it, as does ActivityRow's button when a row opens something. Card.test.tsx's
+ * CardButton test names its ten classes outright and a second test counts them; only ActivityRow's
+ * tests iterate it, to check the row's button applies whatever it holds.
  */
 export const FOCUSABLE_CLASSES = [
   'select-none outline-none',
