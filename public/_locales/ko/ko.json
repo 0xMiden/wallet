@@ -616,6 +616,7 @@
   "newDeviceKey": "새로운 일상용 키",
   "replaceHotKeyDescription": "새로운 일상용 키를 생성하고 온체인에서 현재 키를 교체하십시오. 기기가 해킹당했다고 의심될 때 유용합니다.",
   "replaceHotKeyConfirmation": "이 작업은 복구(콜드) 키로 서명됩니다. 복구 문구는 필요하지 않으며, 자금과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
+  "replaceHotKeyConfirmationSeedRequired": "이 항목은 귀하의 복구(콜드) 키로 서명됩니다. 서명하기 위해 복구 문구를 입력하라는 메시지가 표시되며, 귀하의 자산과 계좌는 그대로 유지됩니다. 계속하시겠습니까?",
   "confirmReplaceHotKey": "회전 확인",
   "hotKeyRotationOverlayTitle": "일상용 키 교체",
   "hotKeyRotationOverlayBody": "일상용 키가 교체되고 있습니다. 이는 복구된 계정을 설정할 때 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
