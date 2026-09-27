@@ -7,6 +7,7 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
@@ -23,7 +24,7 @@ import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
-import { errorToMessage } from 'screens/onboarding/error-message';
+import { errorToMessage, isGuardianNotFound } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import {
   ImportType,
@@ -204,7 +205,9 @@ const Welcome: FC = () => {
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
-  const [guardianLookupError, setGuardianLookupError] = useState(false);
+  // The recovery-method screen's failure text, or null. It keeps its own copy because the page
+  // change that reaches that screen clears registrationError.
+  const [guardianLookupFailure, setGuardianLookupFailure] = useState<string | null>(null);
   /**
    * A registration failure to show on the confirmation screen.
    *
@@ -269,7 +272,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
-    setGuardianLookupError(false);
+    setGuardianLookupFailure(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
     setGuardianEndpoint(undefined);
@@ -678,7 +681,7 @@ const Welcome: FC = () => {
         break;
       case 'import-hot-key-submit':
         // A new key retires a Guardian lookup failure raised for the previous credential.
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
@@ -700,7 +703,7 @@ const Welcome: FC = () => {
         navigate('/#import-from-file');
         break;
       case 'import-wallet-file-submit':
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setOnboardingType(OnboardingType.Import);
         setImportType(ImportType.WalletFile);
         setWalletFilePayload(action.payload);
@@ -719,7 +722,7 @@ const Welcome: FC = () => {
         break;
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         setImportType(ImportType.SeedPhrase);
         setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
@@ -758,6 +761,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'retry-guardian-probe':
+        // A new detection run retires the lookup failure shown against the last one.
+        setGuardianLookupFailure(null);
         if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
@@ -769,7 +774,7 @@ const Welcome: FC = () => {
         setGuardianEndpoint(
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
-        setGuardianLookupError(false);
+        setGuardianLookupFailure(null);
         navigate('/#confirmation');
         break;
       case 'confirmation': {
@@ -811,13 +816,27 @@ const Welcome: FC = () => {
           // Surface it for every path; most used to show nothing. The Guardian import
           // branch below hands off to the recovery-method screen, which retires this
           // message on arrival, and the hardware-only branch adds its attempt count.
-          setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
+          const failure = errorToMessage(error) ?? t('smthWentWrong');
+          setRegistrationError(failure);
           if (
             onboardingType === OnboardingType.Import &&
             importType !== ImportType.WalletFile &&
             walletType === WalletType.Guardian
           ) {
-            setGuardianLookupError(true);
+            // The page change clears registrationError, so the screen gets its own copy of the reason.
+            let lookupFailure: string;
+            if (isGuardianNotFound(error)) {
+              // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
+              // copy suggests a public import, which a pasted key cannot use (the screen hides it).
+              lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
+            } else if (isLikelyNetworkError(error)) {
+              // A raw "Failed to fetch" / RPC timeout message is not translated; show the
+              // operator-unreachable notice instead.
+              lookupFailure = t('guardianUrlUnreachable');
+            } else {
+              lookupFailure = failure;
+            }
+            setGuardianLookupFailure(lookupFailure);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
@@ -1124,7 +1143,7 @@ const Welcome: FC = () => {
           isHardwareSecurityAvailable={isHardwareSecurityAvailable}
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
-          guardianLookupError={guardianLookupError}
+          guardianLookupFailure={guardianLookupFailure}
           recoveryError={registrationError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}

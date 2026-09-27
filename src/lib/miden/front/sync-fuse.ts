@@ -3,6 +3,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { canonicalGuardianEndpoint } from 'lib/settings/helpers';
 
 /**
  * The automatic WASM probes this realm runs on a timer, each identified by the same
@@ -41,7 +42,7 @@ export type SyncFuseKey =
  * freshly-repointed account quiet for the next half hour.
  */
 export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
-  `guardian-sync:${accountPublicKey}@${guardianEndpoint}`;
+  `guardian-sync:${accountPublicKey}@${canonicalGuardianEndpoint(guardianEndpoint)}`;
 
 interface FuseEntry {
   evictions: number;

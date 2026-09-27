@@ -1013,7 +1013,7 @@ export class Vault {
           });
         })().catch((err: unknown) => {
           if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
+          throw toPublicError(err);
         });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
@@ -1350,7 +1350,7 @@ export class Vault {
         .catch((err: unknown) => {
           if (isWasmClientPoisonedError(err)) throw err;
           if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
+          throw toPublicError(err);
         });
 
       const initialAccounts: WalletAccount[] = recovered.map(
@@ -2975,6 +2975,15 @@ function createDynamicStorageKey(id: StorageEntity) {
 
 function combineStorageKey(...parts: (string | number)[]) {
   return parts.join('_');
+}
+
+// Flattening to PublicError drops the class; keep the code so the UI can still tell not-found apart.
+function toPublicError(err: unknown): PublicError {
+  const publicError = new PublicError(err instanceof Error ? err.message : String(err));
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+    Object.assign(publicError, { code: err.code });
+  }
+  return publicError;
 }
 
 async function withError<T>(errMessage: string, factory: (doThrow: () => void) => Promise<T>) {

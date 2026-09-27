@@ -171,9 +171,18 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockFlowHandles.length = 0;
+  // clearAllMocks only clears call data, not a queued *Once implementation, so a
+  // test whose mockRejectedValueOnce/mockImplementationOnce never fires (e.g. it
+  // stops before the dispatch that would consume it) leaks that one-shot into
+  // the next test that calls the same mock. Reset these four explicitly and
+  // re-apply their default; mockBeginFlow is never given a one-shot.
+  mockRegisterWallet.mockReset();
+  mockRegisterWallet.mockResolvedValue(undefined);
+  mockPutToStorage.mockReset();
+  mockNavigate.mockReset();
+  mockClassifyError.mockReset();
   mockClassifyError.mockReturnValue('unknown');
   mockFetchFromStorage.mockResolvedValue(null);
-  mockRegisterWallet.mockResolvedValue(undefined);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
@@ -605,6 +614,83 @@ describe('ForgotPassword', () => {
     expect(captured.props?.recoveryError).toContain('register failed');
     expect(mockNavigate).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it('clears the spinner when reading the endpoint override fails (#1093)', async () => {
+    mockFetchFromStorage.mockRejectedValue(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // A read that fails aborts before anything destructive runs.
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('retries from the start after a failed restore (#1093)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('quota exceeded');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    const result = captured.backHandler!();
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    mockPutToStorage.mockResolvedValue(undefined);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+    // Retry restarts from the read, not from wherever the first attempt broke.
+    expect(mockFetchFromStorage).toHaveBeenCalledTimes(2);
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    mockClassifyError.mockImplementationOnce(() => {
+      throw new Error('classify failed');
+    });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    // React 18.2's act does not flush the queued updates when its callback
+    // rejects, so the rejection is caught inside the act scope.
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('classify failed');
+    });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('guardian not found');
+  });
+
+  it('leaves the spinner cleared when navigating on after a successful registration throws', async () => {
+    mockNavigate.mockImplementationOnce(() => {
+      throw new Error('navigation failed');
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('navigation failed');
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(captured.props?.isLoading).toBe(false);
   });
 
   // -------------------------------------------------------------------------

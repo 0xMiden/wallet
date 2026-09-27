@@ -462,6 +462,18 @@ describe('initiateSwitchGuardianTransaction', () => {
     expect(txStore).toHaveLength(1);
   });
 
+  // Host-case difference only - still the same operator, so still a duplicate.
+  it('treats a host-case variant of the in-flight target as the same rotation', async () => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    txStore.find(r => r.id === first)!.status = ITransactionStatus.GeneratingTransaction;
+
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://NEW.GUARDIAN', false, provider);
+
+    expect(second).toBe(first);
+    expect(txStore).toHaveLength(1);
+  });
+
   // Returning the in-flight id here would navigate the user to a rotation toward
   // an endpoint they did not choose and report it as the one they asked for —
   // nothing downstream ever corrects that, since the in-progress screen renders

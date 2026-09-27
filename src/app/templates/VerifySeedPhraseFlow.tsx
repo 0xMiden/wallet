@@ -13,7 +13,6 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -21,7 +20,7 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -51,7 +50,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
+  const { copy, copied } = useClipboardCopy(mnemonic ?? '');
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -171,10 +170,19 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     goBack();
   }, [abandonReveal]);
 
+  // The back action for the screen showing, used by every header and by hardware back (#1042), so
+  // the two cannot disagree. It follows the render branches below.
+  const back = useCallback(() => {
+    if (seedStatus && seedStatus !== 'stored') onExit();
+    else if (step === 'auth') backToWarning();
+    else if (step === 'quiz') setStep('review');
+    else onExit();
+  }, [seedStatus, step, backToWarning, onExit]);
+
   useMobileBackHandler(() => {
-    onExit();
+    back();
     return true;
-  }, [onExit]);
+  }, [back]);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') {
@@ -204,7 +212,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('recoveryPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-state"
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
@@ -219,7 +227,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('removeSeedPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="remove-seed-confirm"
         footer={
           <>
@@ -247,7 +255,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-warning"
         footer={
           <>
@@ -282,7 +290,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     // get the numpad; extension/desktop use a typed password.
     if (isMobile()) {
       return (
-        <SubPageLayout title={t('verifySeedPhrase')} onBack={backToWarning} data-testid="verify-seed-auth">
+        <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-auth">
           <SubPageSection title={t('enterYourPasscode')} description={t('verifySeedPhrasePasswordBody')} />
           <PasscodeEntry
             onSubmit={code => revealPhrase(code)}
@@ -298,7 +306,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={backToWarning}
+        onBack={back}
         data-testid="verify-seed-auth"
         footer={
           <Button
@@ -337,7 +345,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('recoveryPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-review"
         footer={
           <Button
@@ -351,15 +359,13 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
-
               <SeedPhraseGrid words={words} />
 
               {!remove && (
                 <Pill
                   className="mt-3 self-start"
                   icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
-                  onClick={copy}
+                  onClick={() => void copy()}
                   data-testid="verify-seed-copy"
                 >
                   <CopyLabel copied={copied} copiedLabel={t('copied')}>
@@ -375,7 +381,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   }
 
   return (
-    <SubPageLayout title={t('verifySeedPhrase')} onBack={() => setStep('review')} data-testid="verify-seed-quiz">
+    <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-quiz">
       <SubPageSection
         description={
           <>
