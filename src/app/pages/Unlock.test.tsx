@@ -77,11 +77,8 @@ jest.mock('lib/miden/front', () => {
       const setter = R.useCallback(
         (next: unknown) => {
           mockLsWrites.push([key, next]);
-          // Production writes storage synchronously and once; resolve here from the store's own
-          // current value so a functional update sees the same thing a real setState would.
-          const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(mockLsStore[key]) : next;
-          mockLsStore[key] = resolved;
-          setValue(resolved);
+          mockLsStore[key] = next;
+          setValue(next);
         },
         [key]
       );
