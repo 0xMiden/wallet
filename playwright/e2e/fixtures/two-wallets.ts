@@ -74,9 +74,10 @@ export interface GuardianFaultTestApi {
    */
   armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
   /**
-   * How many guardian requests the currently-armed guardian fault has faulted.
-   * Lets a spec prove the fault actually fired (0 hits ⇒ the fault never reached
-   * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
+   * How many requests the currently-armed guardian fault has faulted - only
+   * those matching its target, path and, when set, method. Lets a spec prove
+   * the fault actually reached a matching request (0 hits means it never did,
+   * not that the op behaved as hoped). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
   /**

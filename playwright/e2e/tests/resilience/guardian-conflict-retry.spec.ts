@@ -9,9 +9,11 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  * completes.
  *
  * A real guardian returns `409 conflict_pending_delta` while a prior delta is
- * still canonicalizing; it clears on its own moments later. The fault reproduces
- * that exact 409 envelope (so `isGuardianPendingConflict` recognizes it) and
- * self-clears after `count` hits, modelling the transient nature.
+ * still canonicalizing; it clears on its own moments later. The fault
+ * reproduces that exact 409 envelope (so `isGuardianPendingConflict` recognizes
+ * it), is scoped to POST so a GET landing in the same window is not misread as
+ * covering the send, and self-clears after `count` hits, modelling the
+ * transient nature.
  *
  * The guardian HTTP calls run in the extension service worker; this fault uses
  * the `context.route` seam (guardian-fault.ts), which is proven to reach them
@@ -67,8 +69,8 @@ test.describe('infra resilience — transient guardian conflict', () => {
     await steps.step(
       'send_survives_transient_guardian_conflict',
       async () => {
-        // The next few delta round-trips answer 409 conflict_pending_delta, then
-        // clear — exactly a guardian mid-canonicalization.
+        // The next few POSTs to A's delta path answer 409 conflict_pending_delta,
+        // then clear - exactly a guardian mid-canonicalization.
         walletA.armGuardianFault({
           target: 'A',
           path: 'delta',
@@ -96,14 +98,16 @@ test.describe('infra resilience — transient guardian conflict', () => {
         });
 
         // Falsifiability guard: the send only proves conflict-RETRY works if the
-        // conflict fault actually fired during it. Zero hits would mean the fault
-        // never reached the send's delta calls and the send simply succeeded
-        // normally — a false green. (The fault self-clears after `count`, so hits
+        // conflict fault actually fired during it. hits counts only a POST to A's
+        // delta path (decideGuardianFault's method scope); zero would mean the
+        // fault never reached the send's delta POSTs and the send simply succeeded
+        // normally - a false green. (The fault self-clears after `count`, so hits
         // caps there.)
         const hits = walletA.guardianFaultHits();
         expect(
           hits,
-          'the guardian conflict fault must have fired during the send — 0 hits means it never reached the co-signed op'
+          'the guardian conflict fault must have faulted a /delta POST during the send - 0 hits means it never ' +
+            'reached the co-signed op'
         ).toBeGreaterThanOrEqual(1);
 
         timeline.emit({

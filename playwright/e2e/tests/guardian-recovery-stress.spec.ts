@@ -377,10 +377,12 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
  * The rotation waits it out in-process (`withGuardianConflictRetry`, 12 attempts 5 s
  * apart), re-syncing and rebuilding each attempt with the one key it minted, so the gate
  * goes straight to completion: no failure surface, no Retry. Two armed 409s make the wait
- * span more than one retry. The fault answers the first two `/delta*` requests to A,
- * whatever their method, so the test logs those requests and asserts that both answered
- * ones were proposal POSTs; the rotation's are the only proposals B makes here. A pass
- * cannot come from a fault that never fired, or that another `/delta*` request absorbed.
+ * span more than one retry. The fault is scoped to POST on A's `/delta*` path and answers
+ * the first two matching requests; `guardianFaultHits() === 2` proves exactly that - two
+ * POSTs to A's delta endpoint were answered with the 409. What makes those POSTs the
+ * rotation's: B has no transaction of its own yet, and pending-note recovery's own
+ * `/delta*` traffic is a GET, so the rotation's proposal POSTs are the only POSTs B can
+ * make here.
  *
  * Distinct from the register-fault test above, which faults the post-submit `/configure`.
  */
@@ -445,8 +447,11 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
         // Scoped to POST: pending-note recovery's own `GET /delta/proposal` shares the
         // same path segment, and a path-only fault could spend its count on that GET
         // instead of the rotation's proposal POSTs (#904).
-        // Armed before the recovery, so the rotation's first two proposal POSTs, expected to
-        // be the first `/delta*` POSTs the recovered wallet makes, both answer the real 409.
+        // Armed before the recovery, so the rotation's first two proposal POSTs answer the
+        // real 409; `guardianFaultHits() === 2` below proves exactly two POSTs to A's delta
+        // path were answered, and B makes no other `/delta*` POST before its rotation
+        // completes (no transaction of its own yet, and pending-note recovery's own delta
+        // traffic is a GET), so those two can only be the rotation's.
         walletB.armGuardianFault({
           target: 'A',
           path: 'delta',

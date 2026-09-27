@@ -152,9 +152,11 @@ export type GuardianFaultAction =
   | { kind: 'fulfillConflictPendingDelta' };
 
 /**
- * Pure fault decision for a single request: does the armed policy match
- * this URL, and if so what should happen? Exported standalone (no
- * Playwright dependency at all) so target/path matching and the
+ * Pure fault decision for a single request: does the armed policy match this
+ * URL and method, and if so what should happen? A policy's `method`, when
+ * set, narrows the match to that HTTP method - a hit counts a request only
+ * when target, path and (if set) method all match. Exported standalone (no
+ * Playwright dependency at all) so target/path/method matching and the
  * `failFirstN`/`conflictPendingDelta` hit-counting are unit testable without
  * a browser.
  */
@@ -240,12 +242,12 @@ export async function applyGuardianFaultAction(
 
 /**
  * Installs a context-wide route handler that intercepts guardian HTTP calls
- * by target (A: :3000, B: :3001) and path segment, applying whichever
- * GuardianFaultPolicy is currently armed. Requests to any other origin
- * (node, prover, note-transport, ...) or that don't match the armed
- * policy's target/path pass through via `route.continue()`. Only one
- * policy can be armed at a time -- `arm()` replaces it and resets the
- * `failFirstN` hit counter.
+ * by target (A: :3000, B: :3001), path segment and, when a policy sets one,
+ * HTTP method, applying whichever GuardianFaultPolicy is currently armed.
+ * Requests to any other origin (node, prover, note-transport, ...) or that
+ * don't match the armed policy's target/path/method pass through via
+ * `route.continue()`. Only one policy can be armed at a time -- `arm()`
+ * replaces it and resets the `failFirstN`/`conflictPendingDelta` hit counter.
  */
 export function installGuardianFaults(context: BrowserContext, origins: GuardianOrigins): GuardianFaultControls {
   let policy: GuardianFaultPolicy | null = null;
