@@ -716,6 +716,70 @@ describe('createGuardianAccount', () => {
       expect(mockAlarmsCreate).not.toHaveBeenCalled();
       expect(mockAlarmsClear).not.toHaveBeenCalled();
     });
+
+    // Each re-check guards the step after it: an eviction seen there must stop the
+    // flow before that step runs, so every checkpoint is pinned on its own.
+    it.each([
+      ['before the account build', 'build'],
+      ['before guardian registration', 'registration'],
+      ['before the sync', 'sync'],
+      ['before the cold key insert', 'insert']
+    ] as const)('stops %s once the hold is evicted, skipping the %s', async (checkpoint, step) => {
+      const multisig = makeMultisig();
+      if (step !== 'build') multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const webClient = makeWebClient();
+      const poison = new WasmClientPoisonedError('watchdog', new Error(`evicted ${checkpoint}`));
+      const assertLive = (where?: string) => {
+        if (where === checkpoint) throw poison;
+      };
+
+      await expect(
+        createGuardianAccount(webClient as never, new Uint8Array(32), false, undefined, assertLive)
+      ).rejects.toBe(poison);
+      expect(multisigClientConfig.create).toHaveBeenCalledTimes(step === 'build' ? 0 : 1);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(step === 'build' || step === 'registration' ? 0 : 1);
+      expect(webClient.sync).toHaveBeenCalledTimes(step === 'insert' ? 1 : 0);
+      expect(webClient.keystore.insert).not.toHaveBeenCalled();
+    });
+
+    it('stops at the re-check after a pubkey wait once the hold is evicted', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const poison = new WasmClientPoisonedError('watchdog', new Error('evicted during a pubkey 429 wait'));
+      let evicted = false;
+      // Queued before the creation's 1 s wait, so it fires first at the same instant.
+      setTimeout(() => {
+        evicted = true;
+      }, 1000);
+      const assertLive = () => {
+        if (evicted) throw poison;
+      };
+
+      await Promise.all([
+        expect(
+          createGuardianAccount(makeWebClient() as never, new Uint8Array(32), false, undefined, assertLive)
+        ).rejects.toBe(poison),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps the extension service worker alive through a pubkey wait too', async () => {
+      mockIsExtension.mockReturnValue(true);
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited(60));
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockAlarmsCreate).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(mockAlarmsClear).toHaveBeenCalledWith(mockAlarmsCreate.mock.calls[0]?.[0]);
+    });
   });
 });
 
