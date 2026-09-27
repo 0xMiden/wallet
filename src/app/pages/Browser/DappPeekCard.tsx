@@ -275,9 +275,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       ref={rootRef}
       // Animate layout so cards reflow smoothly when siblings are added
       // or removed (e.g. park a new dApp → existing cards slide left to
-      // make room for the new frontmost card on the right). Its size is
-      // fixed (CARD_WIDTH x CARD_HEIGHT in style), so this only ever
-      // translates it: the button's class radius is never scaled.
+      // make room for the new frontmost card on the right).
       layout
       // When this card is the landing target of a shrink animation, skip
       // the entry animation entirely (`initial={false}` tells framer-
