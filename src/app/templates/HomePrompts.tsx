@@ -27,6 +27,7 @@ import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   faucetArrivalWindowStart,
+  clearFaucetFundingMarker,
   type FaucetFundingMarker,
   fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
@@ -37,7 +38,6 @@ import {
   getPendingNotesUsdTotal,
   isFaucetFundingMarkerLive,
   type PendingNoteValue,
-  setFaucetFundingMarker,
   useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
@@ -143,7 +143,7 @@ const submittedWait =
 const clearOwnFundingMarker = (address: string, requestedAt: number) =>
   withFaucetFundingMarkerLock(address, async () => {
     const stored = await fetchFaucetFundingMarker(address);
-    if (stored?.requestedAt === requestedAt) await setFaucetFundingMarker(address, null);
+    if (stored?.requestedAt === requestedAt) await clearFaucetFundingMarker(address);
   }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
 
 const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
@@ -622,7 +622,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         if (isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })) {
           setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
         } else {
-          await setFaucetFundingMarker(address, null).catch(error =>
+          await clearFaucetFundingMarker(address).catch(error =>
             console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
           );
         }
@@ -752,7 +752,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
         );
         if (sameRequest) {
-          await setFaucetFundingMarker(address, null).catch(error =>
+          await clearFaucetFundingMarker(address).catch(error =>
             console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
           );
         }

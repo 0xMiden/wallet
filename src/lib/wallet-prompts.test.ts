@@ -20,6 +20,7 @@ import {
   WalletPromptStatus,
   WalletPromptType,
   __resetInFlightFaucetRequestsForTest,
+  clearFaucetFundingMarker,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -750,7 +751,7 @@ describe('wallet prompts', () => {
       async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
         // This realm's timers were held back; meanwhile another surface found the marker
         // unflagged past the request timeout, cleared it and offered Fund again.
-        await setFaucetFundingMarker('accountFenced', null);
+        await clearFaucetFundingMarker('accountFenced');
         await beforeSubmit?.();
         sent = true;
         return { txId: '0xtx', noteId: '0xnote' };
@@ -781,7 +782,7 @@ describe('wallet prompts', () => {
           await new Promise<void>(resolve => {
             releaseClear = resolve;
           });
-          if (stored !== null && !stored.submitted) await setFaucetFundingMarker('accountClearing', null);
+          if (stored !== null && !stored.submitted) await clearFaucetFundingMarker('accountClearing');
         });
         await read;
         const flagging = beforeSubmit?.();
@@ -936,8 +937,20 @@ describe('wallet prompts', () => {
     expect(await fetchFaucetFundingMarker('accountA')).toEqual({ requestedAt: 1_000, baselineNoteIds: ['note-1'] });
     expect(await fetchFaucetFundingMarker('accountB')).toBeNull();
 
-    await setFaucetFundingMarker('accountA', null);
+    await clearFaucetFundingMarker('accountA');
     expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+  });
+
+  it('removes the storage key when the marker is cleared, rather than writing null', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
+    await setFaucetFundingMarker('accountClear', marker);
+
+    await clearFaucetFundingMarker('accountClear');
+
+    const provider = getStorageProvider();
+    const stored = await provider.get(['faucet_funding_v2:accountClear']);
+    expect('faucet_funding_v2:accountClear' in stored).toBe(false);
+    expect(await fetchFaucetFundingMarker('accountClear')).toBeNull();
   });
 
   it('ignores malformed funding markers', async () => {

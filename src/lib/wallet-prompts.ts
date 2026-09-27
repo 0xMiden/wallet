@@ -20,6 +20,7 @@ import { tokenQuote } from 'lib/miden/swap/tokens';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
 
 export enum WalletPromptType {
@@ -388,8 +389,13 @@ export function withFaucetFundingMarkerLock(address: string, operation: () => Pr
   return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
 }
 
-export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
+export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker): Promise<void> {
   await putToStorage(faucetFundingMarkerKey(address), marker);
+}
+
+// A cleared marker leaves no key behind, rather than a stored null.
+export async function clearFaucetFundingMarker(address: string): Promise<void> {
+  await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
 // 100 MIDEN in base units (6 decimals).

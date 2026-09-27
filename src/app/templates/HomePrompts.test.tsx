@@ -27,6 +27,7 @@ const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
 const mockFetchFaucetFundingMarker = jest.fn();
 const mockSetFaucetFundingMarker = jest.fn();
+const mockClearFaucetFundingMarker = jest.fn();
 // Backs the two marker mocks by default, so a later read sees what an earlier write
 // left behind, as storage would.
 const markerStore = new Map<string, unknown>();
@@ -119,6 +120,7 @@ jest.mock('lib/wallet-prompts', () => {
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
     fetchFaucetFundingMarker: (address: string) => mockFetchFaucetFundingMarker(address),
     setFaucetFundingMarker: (address: string, marker: unknown) => mockSetFaucetFundingMarker(address, marker),
+    clearFaucetFundingMarker: (address: string) => mockClearFaucetFundingMarker(address),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
@@ -212,10 +214,13 @@ describe('HomePrompts', () => {
     // clearAllMocks keeps a queued once-implementation, and an unused held read must not reach the next test.
     mockFetchFaucetFundingMarker.mockReset();
     mockSetFaucetFundingMarker.mockReset();
+    mockClearFaucetFundingMarker.mockReset();
     mockFetchFaucetFundingMarker.mockImplementation(async (address: string) => markerStore.get(address) ?? null);
     mockSetFaucetFundingMarker.mockImplementation(async (address: string, marker: unknown) => {
-      if (marker === null) markerStore.delete(address);
-      else markerStore.set(address, marker);
+      markerStore.set(address, marker);
+    });
+    mockClearFaucetFundingMarker.mockImplementation(async (address: string) => {
+      markerStore.delete(address);
     });
     mockGetInFlightFaucetRequest.mockReturnValue(null);
     mockGetInFlightFaucetMarker.mockReturnValue(null);
@@ -697,7 +702,7 @@ describe('HomePrompts', () => {
       />
     );
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
     await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
       timeout: 3500
     });
@@ -740,7 +745,7 @@ describe('HomePrompts', () => {
     expect(cardOnB).toHaveAttribute('data-title', 'faucetPromptTitle');
     // …consulting B's own marker, and never clearing A's still-in-flight one.
     await waitFor(() => expect(mockFetchFaucetFundingMarker).toHaveBeenCalledWith('accountB'));
-    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
 
     // Switching back resumes A's wait from A's own persisted marker.
     mockFetchFaucetFundingMarker.mockImplementation((address: string) =>
@@ -876,7 +881,7 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(11_000);
       });
       expect(faucetCard).not.toHaveAttribute('data-hero');
-      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+      expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
     } finally {
       jest.useRealTimers();
     }
@@ -909,7 +914,7 @@ describe('HomePrompts', () => {
     // distinguish a rate limit from an outage (#425).
     expect(faucetCard).toHaveTextContent('rate limited');
     // A failed request clears its pre-persisted marker so nothing resumes it.
-    await waitFor(() => expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null));
+    await waitFor(() => expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA'));
     fireEvent.click(card);
 
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
@@ -1288,7 +1293,7 @@ describe('HomePrompts', () => {
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       markerStore.set('accountA', { requestedAt: Date.now() - 170_000, baselineNoteIds: [], submitted: true });
-      mockSetFaucetFundingMarker.mockRejectedValue(new Error('storage unavailable'));
+      mockClearFaucetFundingMarker.mockRejectedValue(new Error('storage unavailable'));
 
       render(
         <HomePrompts
@@ -1412,7 +1417,7 @@ describe('HomePrompts', () => {
     expect(card).not.toHaveAttribute('data-status', 'failure');
     expect(card).toHaveAttribute('data-actionable', 'false');
     // ...and the flagged marker stays, so a remount keeps waiting too.
-    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
   });
 
   it('offers Fund when the marker cannot be read (#936)', async () => {
@@ -1481,7 +1486,7 @@ describe('HomePrompts', () => {
       expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding');
       expect(card).not.toHaveAttribute('data-status', 'failure');
       expect(card).toHaveAttribute('data-actionable', 'false');
-      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+      expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
 
       // The card waits through that request's arrival window (it went out 20s ago), past
       // an unsent request's own deadline, and gives Fund back once the window has passed.
@@ -1590,7 +1595,7 @@ describe('HomePrompts', () => {
     };
     // The card read the marker, cleared it, and only then did the other surface's write land.
     const expectClearedBefore = (sent: object) => {
-      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+      expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
       expect(markerStore.get('accountA')).toEqual(sent);
     };
     const anotherSurfaceSends = () => {
@@ -1705,7 +1710,7 @@ describe('HomePrompts', () => {
     );
     await act(async () => {});
 
-    await waitFor(() => expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null));
+    await waitFor(() => expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA'));
     const card = screen.getAllByTestId('prompt-card')[0]!;
     expect(card).not.toHaveAttribute('data-hero', 'faucetPromptFunding');
     expect(card).toHaveAttribute('data-actionable', 'true');
@@ -1732,7 +1737,7 @@ describe('HomePrompts', () => {
       expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-hero', 'faucetPromptFunding')
     );
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-actionable', 'false');
-    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
   });
 
   it('ends a wait for a request never flagged submitted once its request timeout has passed', async () => {
@@ -2001,7 +2006,7 @@ describe('HomePrompts', () => {
       const card = screen.getAllByTestId('prompt-card')[0]!;
       expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding');
       expect(card).toHaveAttribute('data-actionable', 'false');
-      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+      expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
     } finally {
       jest.useRealTimers();
     }
@@ -2029,7 +2034,7 @@ describe('HomePrompts', () => {
 
     expect(screen.getAllByTestId('prompt-card')[0]).toHaveAttribute('data-hero', 'faucetPromptFunding');
     expect(markerStore.get('accountA')).toEqual(marker);
-    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
   });
 
   it('keeps waiting past the window of a sent request that still runs here, since it has not settled', async () => {
@@ -2138,7 +2143,7 @@ describe('HomePrompts', () => {
 
       expect(screen.getAllByTestId('prompt-card')[0]).toHaveAttribute('data-hero', 'faucetPromptFunding');
       expect(markerStore.get('accountA')).toEqual(marker);
-      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+      expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
     } finally {
       jest.useRealTimers();
     }
@@ -2322,7 +2327,7 @@ describe('HomePrompts', () => {
     await waitFor(() =>
       expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-hero', 'faucetPromptFunding')
     );
-    expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    expect(mockClearFaucetFundingMarker).not.toHaveBeenCalledWith('accountA');
   });
 
   it('keeps waiting when a request a remounted card joined ends with an unknown outcome (#919)', async () => {
@@ -2495,7 +2500,7 @@ describe('HomePrompts', () => {
     });
 
     // The failed request clears A's persisted marker even though B was on screen.
-    await waitFor(() => expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null));
+    await waitFor(() => expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA'));
 
     // Switching back must show an actionable card: the request is over and the
     // marker was cleared. Re-arming the hero here strands the user in a Funding
