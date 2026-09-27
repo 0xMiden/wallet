@@ -850,6 +850,45 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
+  it('off-extension, a wake lap that requeues its row again comes back a beat past the new nextEligibleAt (#779)', async () => {
+    // The lap's re-arm replaces the wake its own requeue armed. Aimed at nextEligibleAt itself, it can fire on a clock
+    // still short of it, find the row excluded, and cost a wasted lap plus the re-arm minimum.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-relap';
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      const firstEligibleAt = Number(stored().nextEligibleAt);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+      // The first lap drove the row, and its refused connection requeued it again inside the lap.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(2);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      const secondEligibleAt = Number(stored().nextEligibleAt);
+      expect(secondEligibleAt).toBeGreaterThan(firstEligibleAt);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsAfterLap = loopRuns();
+      await jest.advanceTimersByTimeAsync(secondEligibleAt * 1000 + 500 - Date.now());
+      expect(loopRuns()).toBe(runsAfterLap);
+
+      await jest.advanceTimersByTimeAsync(500);
+      expect(loopRuns()).toBeGreaterThan(runsAfterLap);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
   it("off-extension, an older row driven by another row's wake signs under its own id (#779)", async () => {
     // The wake drives the whole queue with the provider its row was generated with, and generateTransaction wraps
     // that provider again for whichever row the loop picks. The vault looks a recovery authorization up by the id

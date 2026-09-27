@@ -677,7 +677,13 @@ function scheduleRequeueWake(
       // Come back when the row is next eligible — or at the reap boundary if
       // that comes first, since past it the row needs a drive to be reaped and
       // waiting out a long cooldown first would only delay that.
-      const waitMs = Math.max(Math.min((row.nextEligibleAt ?? 0) * 1000, reapsAt) - Date.now(), REQUEUE_WAKE_REARM_MS);
+      // A beat past `nextEligibleAt`, as `requeueWithWake` arms it: this re-arm
+      // replaces the wake a requeue inside the lap just set, and a timer aimed at
+      // the boundary itself can fire on a clock still short of it, wasting the lap.
+      const waitMs = Math.max(
+        Math.min((row.nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(),
+        REQUEUE_WAKE_REARM_MS
+      );
       scheduleRequeueWake(txId, waitMs, signCallback, guardianProvider, chainStartedAt);
     })();
   }, delayMs);
