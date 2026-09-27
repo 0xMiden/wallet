@@ -85,4 +85,65 @@ describe('useInfiniteList', () => {
     expect(result.current.items).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
     expect(result.current.error).toBeUndefined();
   });
+
+  it('a failed load leaves hasMore alone', async () => {
+    const failure = new Error('page failed');
+    const getCount = jest.fn().mockResolvedValueOnce(6).mockResolvedValueOnce(3).mockResolvedValueOnce(6);
+    const getItems = jest
+      .fn()
+      .mockResolvedValueOnce(['a', 'b', 'c'])
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(['d', 'e', 'f']);
+    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
+    await waitFor(() => expect(result.current.items).toEqual(['a', 'b', 'c']));
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => {
+      await result.current.loadItems();
+    });
+    expect(result.current.error).toBe(failure);
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  it('reports only the latest of two overlapping loads', async () => {
+    let firstReject: (reason: unknown) => void;
+    let secondResolve: (value: string[]) => void;
+    const firstPromise = new Promise<string[]>((_resolve, reject) => {
+      firstReject = reject;
+    });
+    const secondPromise = new Promise<string[]>(resolve => {
+      secondResolve = resolve;
+    });
+    const getCount = jest.fn().mockResolvedValue(6);
+    let callCount = 0;
+    const getItems = jest.fn().mockImplementation(async () => {
+      callCount += 1;
+      return callCount === 1 ? firstPromise : secondPromise;
+    });
+    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
+
+    // Start first load
+    act(() => {
+      result.current.loadItems();
+    });
+
+    // Start second load before first finishes
+    act(() => {
+      result.current.loadItems();
+    });
+
+    // Reject first load after second has started
+    act(() => {
+      firstReject!(new Error('first rejected'));
+    });
+
+    // Resolve second load
+    await act(async () => {
+      secondResolve!(['x', 'y', 'z']);
+    });
+
+    // After second load settles, error should be undefined and isLoading false
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isLoading).toBe(false);
+  });
 });
