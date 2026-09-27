@@ -245,8 +245,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('shows the Fast-route deposit on the Review rounded down, not half-up', async () => {
-    epochState.quoteEVMToMiden.mockResolvedValue(undefined);
     Object.assign(epochState, {
+      quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
       status: 'quoted',
       flow: 'evm-to-miden',
       quote: {
@@ -264,5 +264,12 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await settle();
 
     expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.65$/);
+    expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+  });
+
+  it('starts every case from an idle epoch store', () => {
+    expect(epochState).toMatchObject({ status: 'idle', flow: null, quote: null });
+    expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
+    expect(epochState.quoteEVMToMiden()).toBeUndefined();
   });
 });
