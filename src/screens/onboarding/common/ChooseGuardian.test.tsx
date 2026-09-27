@@ -128,9 +128,6 @@ jest.mock('./GuardianInfoDrawer', () => ({
 }));
 
 // eslint-disable-next-line import/first
-import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
-
-// eslint-disable-next-line import/first
 import { ChooseGuardianScreen, default as DefaultChooseGuardianScreen } from './ChooseGuardian';
 
 // ---------------------------------------------------------------------------
@@ -518,7 +515,7 @@ describe('ChooseGuardianScreen', () => {
 
     expect(mockSanitizeGuardianUrl).toHaveBeenCalledWith('https://custom.example.com/');
     expect(mockIsValidGuardianUrl).toHaveBeenCalledWith('https://custom.example.com');
-    expect(mockPing).toHaveBeenCalledWith('https://custom.example.com', USER_ENDPOINT_CHECK_TIMEOUT_MS);
+    expect(mockPing).toHaveBeenCalledWith('https://custom.example.com');
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({
         guardianId: 'custom',

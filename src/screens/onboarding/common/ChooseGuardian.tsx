@@ -13,7 +13,6 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
-import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
@@ -170,12 +169,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         return;
       }
       setCustomError(null);
-      // Refused here, before review and signing, unless a live Guardian answers the
-      // GET /pubkey ping the cards use (#1084). Checked once, so on the user-endpoint
-      // deadline rather than the repeating card probe's 5 s.
+      // Held to the bar a built-in card is (#1084): the same GET /pubkey ping, which
+      // only a live Guardian answers with a key commitment, before the URL can bind
+      // an account's recovery to it.
       const check = ++customCheck.current;
       setCheckingCustom(true);
-      void pingGuardianEndpointLatency(sanitized, USER_ENDPOINT_CHECK_TIMEOUT_MS).then(latency => {
+      void pingGuardianEndpointLatency(sanitized).then(latency => {
         if (check !== customCheck.current) return;
         setCheckingCustom(false);
         if (latency === null) {
