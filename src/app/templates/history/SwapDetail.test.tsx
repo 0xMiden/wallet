@@ -64,8 +64,8 @@ jest.mock('components/Button', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash, className }: { hash: string; className?: string }) => (
-    <span data-testid="hash-chip" className={className}>
+  default: ({ hash, className, stacked }: { hash: string; className?: string; stacked?: boolean }) => (
+    <span data-testid="hash-chip" className={className} data-stacked={String(Boolean(stacked))}>
       {hash}
     </span>
   )
@@ -366,6 +366,23 @@ describe('SwapDetail note rows', () => {
       expect(chip).toHaveClass('text-muted');
       expect(chip).not.toHaveClass('text-text-secondary-token');
     });
+  });
+
+  it('keeps each stacked fill and reclaim note-id chip to its own tap target', () => {
+    renderDetail({
+      settledTransactions: [consume()],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
+    });
+
+    const isNote = (chip: HTMLElement) => /^0xnote[19]$/.test(chip.textContent ?? '');
+    const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
+    expect(noteChips).toHaveLength(2);
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'true'));
+
+    // The faucet and transaction-hash chips sit alone in their rows.
+    const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !isNote(chip));
+    expect(rowChips.length).toBeGreaterThan(0);
+    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {

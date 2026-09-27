@@ -206,8 +206,9 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
 
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+      {/* 4px apart, with "show all" below: each chip keeps its own tap target (#1046). */}
       {visibleNoteIds.map(noteId => (
-        <HashChip key={noteId} hash={noteId} trimHash />
+        <HashChip key={noteId} hash={noteId} trimHash stacked />
       ))}
       {isCollapsed && (
         <button

@@ -236,7 +236,11 @@ jest.mock('../AddressChip', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
+  default: ({ hash, stacked }: { hash: string; stacked?: boolean }) => (
+    <span data-testid="hash-chip" data-stacked={String(Boolean(stacked))}>
+      {hash}
+    </span>
+  )
 }));
 
 jest.mock('components/ui/DetailCard', () => ({
@@ -1407,6 +1411,32 @@ describe('HistoryDetails', () => {
 
       expect(chips()).toEqual(noteIds);
       expect(screen.queryByTestId('history-consumed-notes-show-all')).toBeNull();
+    });
+
+    it('keeps each stacked note-id chip to its own tap target, while a lone row chip keeps the wide one', async () => {
+      const noteIds = Array.from({ length: 8 }, (_, i) => `note-${i}`);
+      setMockRow(consumeTx({ noteId: noteIds[0], noteIds }));
+      await renderAndLoad();
+
+      const list = () => screen.getByTestId('history-consumed-notes');
+      const stackedFlags = () =>
+        Array.from(list().querySelectorAll('[data-testid="hash-chip"]')).map(chip => chip.getAttribute('data-stacked'));
+      expect(stackedFlags()).toEqual(Array(5).fill('true'));
+      fireEvent.click(screen.getByTestId('history-consumed-notes-show-all'));
+      expect(stackedFlags()).toEqual(Array(8).fill('true'));
+
+      // The external-tx-id row renders a chip of its own, outside the list.
+      const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !list().contains(chip));
+      expect(rowChips.length).toBeGreaterThan(0);
+      rowChips.forEach(chip => expect(chip).toHaveAttribute('data-stacked', 'false'));
+    });
+
+    it('marks a one-note list stacked too', async () => {
+      setMockRow(consumeTx({ noteId: 'note-0', noteIds: ['note-0'] }));
+      await renderAndLoad();
+
+      const chip = screen.getByTestId('history-consumed-notes').querySelector('[data-testid="hash-chip"]');
+      expect(chip).toHaveAttribute('data-stacked', 'true');
     });
 
     it('shows no expand affordance at exactly the preview count', async () => {
