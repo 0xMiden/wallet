@@ -47,4 +47,42 @@ describe('useInfiniteList', () => {
     });
     expect(result.current.items).toEqual(['x', 'y']);
   });
+
+  it('settles with the error when the count fetch rejects on mount', async () => {
+    const failure = new Error('count failed');
+    const getCount = jest.fn().mockRejectedValue(failure);
+    const getItems = jest.fn().mockResolvedValue(['a']);
+    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
+
+    await waitFor(() => expect(result.current.error).toBe(failure));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.items).toEqual([]);
+    expect(getItems).not.toHaveBeenCalled();
+  });
+
+  it('keeps the loaded items and retries the same page when a later page fails', async () => {
+    const failure = new Error('page failed');
+    const getCount = jest.fn().mockResolvedValue(6);
+    const getItems = jest
+      .fn()
+      .mockResolvedValueOnce(['a', 'b', 'c'])
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(['d', 'e', 'f']);
+    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
+    await waitFor(() => expect(result.current.items).toEqual(['a', 'b', 'c']));
+
+    await act(async () => {
+      await result.current.loadItems();
+    });
+    expect(result.current.error).toBe(failure);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.items).toEqual(['a', 'b', 'c']);
+
+    await act(async () => {
+      await result.current.loadItems();
+    });
+    expect(getItems.mock.calls.map(call => call[1])).toEqual([0, 1, 1]);
+    expect(result.current.items).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    expect(result.current.error).toBeUndefined();
+  });
 });

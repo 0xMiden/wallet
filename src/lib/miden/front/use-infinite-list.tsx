@@ -9,6 +9,8 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
   const address = 'account.publicKey';
   const [items, setItems] = useState<Array<string>>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // The last load's failure, cleared when the next load starts; loadItems settles instead of rejecting.
+  const [error, setError] = useState<unknown>(undefined);
   const pageToLoad = useRef(0);
   const initialPageLoaded = useRef(false);
   const [hasMore, setHasMore] = useState(true);
@@ -23,12 +25,18 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
 
   const loadItems = useCallback(async () => {
     setIsLoading(true);
-    const count = await getCount(address);
-    const data = await getItems(address, pageToLoad.current);
-    pageToLoad.current = pageToLoad.current + 1;
-    setHasMore(items.length < count);
-    setItems(prevItems => [...prevItems, ...data]);
-    setIsLoading(false);
+    setError(undefined);
+    try {
+      const count = await getCount(address);
+      const data = await getItems(address, pageToLoad.current);
+      pageToLoad.current = pageToLoad.current + 1;
+      setHasMore(items.length < count);
+      setItems(prevItems => [...prevItems, ...data]);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setIsLoading(false);
+    }
   }, [address, getCount, getItems, items.length]);
 
   useEffect(() => {
@@ -45,6 +53,7 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
     items,
     hasMore,
     isLoading,
+    error,
     setItems,
     loadItems
   };
