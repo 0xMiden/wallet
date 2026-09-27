@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
+  IBridgedReceivePhase,
   IBridgeProvider,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -183,6 +184,19 @@ export const formatBridgeInAmount = (
   provider: IBridgeProvider | undefined
 ): string | undefined => (provider === 'epoch' ? formatBridgeOutputAmount(amount) : amount);
 
+/**
+ * What a bridge-in delivered, for every surface that shows it: once received, the amount the
+ * chain credited (already scaled to its faucet); before that, or while the credited amount is not
+ * known, the by-route quote.
+ */
+export const bridgeInDeliveredAmount = (
+  phase: IBridgedReceivePhase | undefined,
+  provider: IBridgeProvider | undefined,
+  outputAmount: string | undefined,
+  creditedAmount: string | undefined
+): string | undefined =>
+  (phase === 'received' ? creditedAmount : undefined) ?? formatBridgeInAmount(outputAmount, provider);
+
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
@@ -255,12 +269,14 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
-  // Once the note is consumed the row's own (destination-scaled) amount is the truth, never a
-  // quote; in flight, formatBridgeInAmount applies the same by-route rule as the source side.
+  // A tagged consume row is the credit itself, so it reads as received; a row with no quote shows its own amount.
   const outAmount =
-    entry.bridgeInPhase === 'received' || entry.txType === 'consume'
-      ? entry.amount?.toString()
-      : (formatBridgeInAmount(entry.bridgeInOutputAmount, entry.bridgeInProvider) ?? entry.amount?.toString());
+    bridgeInDeliveredAmount(
+      entry.txType === 'consume' ? 'received' : entry.bridgeInPhase,
+      entry.bridgeInProvider,
+      entry.bridgeInOutputAmount,
+      entry.amount
+    ) ?? entry.amount;
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

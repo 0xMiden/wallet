@@ -2687,18 +2687,19 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
+    // 10.6555 is where the two directions part: half-up would show 10.66.
     it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
       setMockRow({
         ...bridgedSendTx,
         extraInputs: {
           ...(bridgedSendTx.extraInputs as Record<string, unknown>),
-          outputAmount: '151.500000000000000001'
+          outputAmount: '10.6555'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+      expect(screen.getByText('10.65')).toBeInTheDocument();
+      expect(screen.queryByText('10.6555')).not.toBeInTheDocument();
     });
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
@@ -2765,18 +2766,19 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
+    // 10.6555 is where the two directions part: half-up would show 10.66.
     it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          sourceAmount: '151.500000000000000001'
+          sourceAmount: '10.6555'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+      expect(screen.getByText('10.65')).toBeInTheDocument();
+      expect(screen.queryByText('10.6555')).not.toBeInTheDocument();
     });
 
     it('shows a received Epoch bridge-in credited amount in full, the same as its list row', async () => {

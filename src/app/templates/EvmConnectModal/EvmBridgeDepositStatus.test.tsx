@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -21,6 +22,19 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
+}));
+
+// Never settles unless a case says so, so the cases that are not about the credited amount see no
+// late update.
+const mockGetTokenMetadata = jest.fn<Promise<AssetMetadata>, [string]>();
+jest.mock('lib/miden/metadata/utils', () => ({
+  getTokenMetadata: (faucetId: string) => mockGetTokenMetadata(faucetId)
+}));
+
+// Real base-unit scaling: the manual `lib/i18n/numbers` mock has no `formatBigInt`.
+jest.mock('lib/shared/format', () => ({
+  formatAmount: (amount: bigint, decimals: number) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
 }));
 
 jest.mock('components/ui/Spinner', () => ({
@@ -115,6 +129,7 @@ describe('EvmBridgeDepositStatus', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
+    mockGetTokenMetadata.mockReturnValue(new Promise(() => undefined));
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -214,5 +229,73 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.015 ETH → 0.015 ETH');
+  });
+
+  describe('delivered amount', () => {
+    const usdc: AssetMetadata = { decimals: 6, symbol: 'USDC', name: 'USD Coin' };
+    const quoted = makeInputs({ outputAmount: '150.12', outputSymbol: 'USDC' });
+    // The row amount is the expected amount until the note lands, then what was credited.
+    const rowAt = (phase: IBridgedReceivePhase): ITransaction => ({
+      ...makeRow({ ...quoted, phase }),
+      amount: 150123456n
+    });
+
+    it('shows the credited amount once the deposit is received, not the quote', async () => {
+      mockGetTokenMetadata.mockResolvedValue(usdc);
+      mockRowState = { row: rowAt('received'), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      await act(async () => {});
+
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.123456 USDC');
+      expect(mockGetTokenMetadata).toHaveBeenCalledWith('miden-usdc');
+    });
+
+    it('switches from the quote to the credited amount when the row is received on screen', async () => {
+      mockGetTokenMetadata.mockResolvedValue(usdc);
+      mockRowState = { row: rowAt('delivering'), loaded: true };
+      const { rerender } = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      await act(async () => {});
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.12 USDC');
+
+      mockRowState = { row: rowAt('received'), loaded: true };
+      rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      await act(async () => {});
+
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.123456 USDC');
+    });
+
+    it('keeps the quote until the faucet metadata resolves, then shows the credited amount', async () => {
+      let resolveMetadata: (metadata: AssetMetadata) => void = () => undefined;
+      mockGetTokenMetadata.mockReturnValue(
+        new Promise(resolve => {
+          resolveMetadata = resolve;
+        })
+      );
+      mockRowState = { row: rowAt('received'), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.12 USDC');
+
+      await act(async () => resolveMetadata(usdc));
+
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.123456 USDC');
+    });
+
+    it('keeps the quote when the faucet resolves only to the unknown-token placeholder', async () => {
+      mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true });
+      mockRowState = { row: rowAt('received'), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      await act(async () => {});
+
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.12 USDC');
+    });
+
+    it('keeps the quote when the faucet metadata cannot be read', async () => {
+      mockGetTokenMetadata.mockRejectedValue(new Error('storage unavailable'));
+      mockRowState = { row: rowAt('received'), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      await act(async () => {});
+
+      expect(screen.getByTestId('summary-badge')).toHaveTextContent('→ 150.12 USDC');
+    });
   });
 });

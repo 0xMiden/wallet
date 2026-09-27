@@ -1,14 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { formatBridgeInAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
+import {
+  bridgeInDeliveredAmount,
+  formatBridgeInAmount,
+  TRANSACTION_COLORS
+} from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { formatAmount } from 'lib/shared/format';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -23,6 +31,19 @@ interface EvmBridgeDepositStatusProps {
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ txId, onDone }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const faucetId = row?.faucetId;
+  // Kept per faucet: the row changes faucet when the note lands, and a late answer for the old one
+  // must never scale the new one's amount.
+  const [metadataByFaucet, setMetadataByFaucet] = useState<Record<string, AssetMetadata>>({});
+
+  useEffect(() => {
+    if (!faucetId) return;
+    getTokenMetadata(faucetId).then(
+      metadata => setMetadataByFaucet(previous => ({ ...previous, [faucetId]: metadata })),
+      // Unreadable metadata leaves the quote on screen.
+      () => undefined
+    );
+  }, [faucetId]);
 
   if (!loaded || !row)
     return (
@@ -33,6 +54,14 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
   const sourceLabel = `${formatBridgeInAmount(inputs.sourceAmount, inputs.provider)} ${inputs.sourceSymbol}`;
+  // Scaled the way History scales it, and withheld (the quote stays) until the faucet resolves or
+  // when its scale is unknown.
+  const metadata = faucetId ? metadataByFaucet[faucetId] : undefined;
+  const creditedAmount =
+    row.amount !== undefined && metadata !== undefined && hasKnownScale(metadata)
+      ? formatAmount(row.amount, metadata.decimals)
+      : undefined;
+  const deliveredAmount = bridgeInDeliveredAmount(inputs.phase, inputs.provider, inputs.outputAmount, creditedAmount);
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
@@ -63,7 +92,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             on a screen about money arriving. */}
         <TransactionSummaryBadge
           lhs={sourceLabel}
-          rhs={inputs.outputAmount ? `${inputs.outputAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
+          rhs={deliveredAmount ? `${deliveredAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
           fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />

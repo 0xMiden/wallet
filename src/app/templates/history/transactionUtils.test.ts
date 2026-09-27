@@ -9,6 +9,7 @@ import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeInDeliveredAmount,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -477,12 +478,31 @@ describe('formatBridgeOutputAmount', () => {
 });
 
 describe('formatBridgeInAmount', () => {
+  // 10.6555 is where the two directions part: half-up would show 10.66.
   it('rounds an Epoch quote down, never half-up', () => {
-    expect(formatBridgeInAmount('151.500000000000000001', 'epoch')).toBe('151.50');
+    expect(formatBridgeInAmount('10.6555', 'epoch')).toBe('10.65');
   });
 
   it('shows an Agglayer amount as entered', () => {
     expect(formatBridgeInAmount('0.015', 'agglayer')).toBe('0.015');
+  });
+});
+
+describe('bridgeInDeliveredAmount', () => {
+  it('shows the credited amount once received', () => {
+    expect(bridgeInDeliveredAmount('received', 'epoch', '150.12', '150.123456')).toBe('150.123456');
+  });
+
+  it('rounds an in-flight Epoch quote down, whatever the row amount', () => {
+    expect(bridgeInDeliveredAmount('delivering', 'epoch', '10.6555', '10.6555')).toBe('10.65');
+  });
+
+  it('shows an in-flight Slow-route quote as entered', () => {
+    expect(bridgeInDeliveredAmount('delivering', 'agglayer', '0.015', undefined)).toBe('0.015');
+  });
+
+  it('falls back to the quote when a received row has no credited amount', () => {
+    expect(bridgeInDeliveredAmount('received', 'epoch', '10.6555', undefined)).toBe('10.65');
   });
 });
 
@@ -634,6 +654,20 @@ describe('bridgeInRowDisplay', () => {
         })
       ).outAmount
     ).toBe('7');
+  });
+
+  it('rounds an in-flight Epoch quote down, never half-up', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount: '7',
+          bridgeInOutputAmount: '10.6555',
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount
+    ).toBe('10.65');
   });
 
   // Rows written before the fix carry the allocator's token `name` as a symbol,
