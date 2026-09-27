@@ -843,6 +843,39 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
+  it('an unreachable-looking failure from the offscreen leaf fails the row, never requeues it (#779)', async () => {
+    // The shipping path: flag ON, the leaf runs offscreen and its stamps never author `stage`, so a row that died
+    // there still reads 'sending'. A transport error at submit reads exactly like a silent guardian, and the send
+    // may already be on chain, so the stage gate is what keeps it Failed. Off the extension, so a requeue would also
+    // arm its wake.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(new Error('Failed to fetch'));
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unreachable-at-sending', row);
+
+      await generateTransaction(
+        buildTx('on-send-unreachable-at-sending', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unreachable-at-sending') as Record<string, unknown>;
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(stored.stage).toBe('sending');
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored.nextEligibleAt).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
   it('comes back after a row read that fails, instead of abandoning the row', async () => {
     // The wake decides whether to re-arm by reading its own row. That read is
     // the only thing standing between the row and being stranded, so a Dexie
