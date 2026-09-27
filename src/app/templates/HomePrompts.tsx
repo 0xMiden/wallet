@@ -1,5 +1,6 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { useTranslation } from 'react-i18next';
 
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
@@ -253,6 +254,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  // Latches a copy in flight so a second click while the write is still pending joins nothing and
+  // starts nothing - it is simply ignored until the first write settles, success or failure.
+  const copyInFlightRef = useRef(false);
   const isMounted = useIsMounted();
   const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
   const rotatingRef = useRef(false);
@@ -391,13 +395,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   }, [account.publicKey, bridgePromptPending, completePrompt, isLoaded]);
 
   const copyHotKeyError = useCallback(() => {
+    // A click while a write is already in flight joins nothing - it is dropped, so overlapping
+    // clicks can never run two writes at once or race each other's status update.
+    if (copyInFlightRef.current) return;
+    copyInFlightRef.current = true;
     const text = hotKeyError ?? 'Hot-key secure hardware unavailable';
-    // The write is owned by an async function: a bare `navigator.clipboard` dereference throws
-    // synchronously where the API is absent, and the `.catch` below - the only thing that reports
-    // a failure - would never have been attached to anything.
-    void (async () => {
-      await navigator.clipboard.writeText(text);
-    })()
+    Clipboard.write({ string: text })
       .then(() => {
         // The timer below is armed AFTER the awaited write, so the unmount cleanup has already run
         // and found nothing to clear by the time this continuation lands. Liveness has to be
@@ -410,7 +413,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       .catch(error => {
         console.error('[wallet-prompts] failed to copy hot-key error:', error);
         if (!isMounted()) return;
+        // A failure decays back to idle exactly like a success does, clearing any timer a
+        // just-finished earlier attempt left running so it can't erase this failure early.
         setCopyStatusIndicator('failure');
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopyStatusIndicator('idle'), 1500);
+      })
+      .finally(() => {
+        copyInFlightRef.current = false;
       });
   }, [hotKeyError, isMounted]);
 
