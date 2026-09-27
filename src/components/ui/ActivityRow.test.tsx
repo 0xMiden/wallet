@@ -13,7 +13,8 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // The row's projection must never SCALE: a full `layout` distorts the plain
 // rounded avatar and status dot, whose radius is a class Framer cannot read.
-// Surface the prop so a revert to bare `layout` fails here.
+// Surface the prop on both elements the row can be (a div, or a button when it
+// opens something) so a revert to bare `layout` on either fails here.
 // Spread the real module rather than listing exports: the row reaches
 // `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
 // hand-listed factory that misses one such export throws on every render.
@@ -69,8 +70,11 @@ describe('ActivityRow', () => {
     expect(ActivityRowDefault).toBe(ActivityRow);
   });
 
-  it('animates position only, so a size change cannot scale the round avatar into an oval', () => {
-    const { container } = renderRow();
+  it.each([
+    ['a plain row', {}],
+    ['a row that opens something', { onClick: jest.fn() }]
+  ])('animates position only, so a size change cannot scale the round avatar into an oval: %s', (_, props) => {
+    const { container } = renderRow(props);
 
     // Exact value on purpose, both here and on revert: bare `layout` is
     // `layout={true}` and stringifies to 'true', so a mock reading the wrong
@@ -364,6 +368,23 @@ describe('ActivityRow', () => {
       expect(document.activeElement).toBe(button);
       for (const classes of FOCUSABLE_CLASSES) {
         for (const name of classes.split(' ')) expect(button.className.split(/\s+/)).toContain(name);
+      }
+    });
+
+    // HistoryView passes the row through `Card asChild`, whose Slot merges Card's classes onto
+    // the row's own: the button must end up with both Card's press feedback and the focus ring.
+    it('keeps both the card press feedback and the focus ring when a pressable Card wraps it', () => {
+      render(
+        <Card asChild surface="outline" padding="row" pressable>
+          <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} onClick={jest.fn()} />
+        </Card>
+      );
+
+      const classNames = screen.getByRole('button').className.split(/\s+/);
+      expect(classNames).toContain('hover:bg-fill-pressed');
+      expect(classNames).toContain('active:bg-fill-pressed');
+      for (const classes of FOCUSABLE_CLASSES) {
+        for (const name of classes.split(' ')) expect(classNames).toContain(name);
       }
     });
 
