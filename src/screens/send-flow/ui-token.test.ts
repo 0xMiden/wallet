@@ -1,3 +1,4 @@
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
@@ -25,8 +26,10 @@ beforeEach(() => _resetNormalizedFaucetIdsForTest());
 
 describe('uiTokenFromBalance', () => {
   it('builds the complete token from a known-scale row', () => {
-    expect(uiTokenFromBalance(row('T1', { symbol: 'TKN', decimals: 4 }, 42), { TKN: { price: 3 } } as any)).toEqual({
-      id: 'T1',
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: { price: 3 } } as any)
+    ).toEqual({
+      id: MIDEN_USDC_FAUCET,
       name: 'TKN',
       decimals: 4,
       balance: 42,

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
@@ -15,7 +16,7 @@ const mockConfirm = jest.fn();
 const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => ({
   note: {
     id,
-    faucetId: 'faucet',
+    faucetId: MIDEN_USDC_FAUCET,
     amount: '1000000',
     senderAddress: id,
     isBeingClaimed: false,
@@ -73,9 +74,9 @@ jest.mock('lib/i18n/numbers', () => ({
   getAdaptiveDecimalPlaces: () => 3,
   usdFormatterFor: () => (value: number) => `$${value.toFixed(2)}`
 }));
-// Every fixture note is 1 TOK (1000000 at 6 decimals) and TOK is priced at $2, so the row's
-// total is $2 per LISTED transfer - the arithmetic the assertions below count on.
-const mockTokenPrices = { TOK: { price: 2, priceChange24h: 0 } };
+// Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
+// USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 } };
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
@@ -298,7 +299,7 @@ it('leads the row with what Accept All is about to accept, in both states', () =
 
 it('shows no total when any waiting transfer has no price, never a $1 figure for it', () => {
   mockState.items = mockItems.map((item, index) =>
-    index === 2 ? { ...item, note: { ...item.note, metadata: { ...item.note.metadata, symbol: 'OTHER' } } } : item
+    index === 2 ? { ...item, note: { ...item.note, faucetId: 'other-faucet' } } : item
   );
   render(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();

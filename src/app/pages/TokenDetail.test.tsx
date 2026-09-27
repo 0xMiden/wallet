@@ -211,9 +211,9 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// A realistic bech32 faucet id, long enough to exercise HashShortView's middle truncation
-// (default trimAfter 20) the way a real Miden faucet id does.
-const TOKEN_ID = 'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec_qr7qqq9wr6w';
+// A faucet the wallet prices (IETH, at ETH), and a realistic bech32 faucet id, long enough to
+// exercise HashShortView's middle truncation (default trimAfter 20) the way a real Miden faucet id does.
+const TOKEN_ID = TOKEN_IETH.faucetId;
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -519,7 +519,7 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        tokenPrices: { Unknown: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not

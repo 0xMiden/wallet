@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 
@@ -61,7 +61,7 @@ let tokenPrices: TokenPrices;
 function makeAsset(overrides: Partial<{ symbol: string; name: string; balance: number }> = {}): TokenBalanceData {
   const { symbol = 'BTC', name = 'Bitcoin', balance = 2 } = overrides;
   return {
-    tokenId: 'tok-1',
+    tokenId: TOKEN_IBTC.faucetId,
     tokenSlug: 'slug-1',
     metadata: { symbol, name } as TokenBalanceData['metadata'],
     balance,
@@ -240,7 +240,7 @@ describe('AssetRow', () => {
   describe('a token whose scale is unknown', () => {
     function unknownAsset(): TokenBalanceData {
       return {
-        tokenId: 'tok-unknown',
+        tokenId: TOKEN_IBTC.faucetId,
         tokenSlug: 'slug-unknown',
         metadata: {
           symbol: 'Unknown',
@@ -262,7 +262,7 @@ describe('AssetRow', () => {
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
       // Quoted, so the unknown scale is the only thing that can withhold the figure.
-      tokenPrices = { Unknown: priceInfo() };
+      tokenPrices = { BTC: priceInfo() };
       render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
 
       expect(screen.getByTestId('row-delta')).toBeInTheDocument();

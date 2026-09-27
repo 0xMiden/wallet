@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
@@ -126,7 +128,10 @@ jest.mock('lib/wallet-prompts', () => {
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => jest.requireActual('lib/agglayer/b2agg/constant').MIDEN_AGGLAYER_FAUCET_ID
+}));
 
 const mockInitiateReplaceHotKeyTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -155,8 +160,9 @@ const accountB = {
 const zeroBalance = [{ tokenId: 'token', balance: 0 }] as TokenBalanceData[];
 const fundedBalance = [{ tokenId: 'token', balance: 1 }] as TokenBalanceData[];
 // Must match the mocked useMidenFaucetId above — arrival only counts notes
-// minted by the native faucet.
-const NATIVE_FAUCET_ID = '0xnative';
+// minted by the native faucet. No native asset is priced (#1131), so the fixture's
+// native faucet borrows a priced faucet's id, quoted under ETH, to reach the dollar figures.
+const NATIVE_FAUCET_ID = MIDEN_AGGLAYER_FAUCET_ID;
 const pendingNotes: PendingNoteValue[] = [
   {
     id: 'note-1',
@@ -164,10 +170,20 @@ const pendingNotes: PendingNoteValue[] = [
     faucetId: NATIVE_FAUCET_ID,
     metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
   },
-  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
+  {
+    id: 'note-2',
+    amount: '2000000',
+    faucetId: MIDEN_USDC_FAUCET,
+    metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+  }
 ];
 const nonNativeNotes: PendingNoteValue[] = [
-  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
+  {
+    id: 'note-usdc-1',
+    amount: '2000000',
+    faucetId: MIDEN_USDC_FAUCET,
+    metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+  }
 ];
 // A note the feed has no price for: it must leave no dollar figure, never one at $1 a unit.
 const unquotedNote: PendingNoteValue = {
@@ -177,7 +193,7 @@ const unquotedNote: PendingNoteValue = {
   metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
 };
 const tokenPrices = {
-  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+  ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
 
