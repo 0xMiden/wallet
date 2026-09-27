@@ -197,7 +197,7 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
-    expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
+    expect(select).toHaveAttribute('data-footer', 'pt-4');
   });
 
   it('names no vault in the header when vaultId matches nothing', () => {

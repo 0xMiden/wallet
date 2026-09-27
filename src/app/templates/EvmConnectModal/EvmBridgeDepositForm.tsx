@@ -49,7 +49,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       network={DEFAULT_BRIDGE_NETWORK}
       outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
       title={title}
-      footerClassName="pt-4 pb-6"
+      footerClassName="pt-4"
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}
       onSelectNetwork={() => {}}

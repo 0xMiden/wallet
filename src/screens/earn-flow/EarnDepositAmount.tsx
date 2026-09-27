@@ -112,7 +112,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               // send and swap flows both name the same condition. `SelectAmount`
               // translates the key itself, so pass the key rather than the text.
               error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
-              footerClassName="pt-4 pb-6"
+              footerClassName="pt-4"
               onAmountChange={setAmount}
               onSelectToken={() => undefined}
               onConfirm={() => {
