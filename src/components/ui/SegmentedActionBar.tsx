@@ -1,10 +1,11 @@
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, useEffect, useRef } from 'react';
 
 import { motion } from 'framer-motion';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
-import { useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { tabBarSwap, useTabBarMotion, useTabIconPop, type TabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -25,11 +26,12 @@ interface SegmentProps {
   item: SegmentedActionBarItem;
   active: boolean;
   onSelect: (id: string) => void;
+  motionTokens: TabBarMotion;
+  swap: boolean;
 }
 
-const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
-  const motionTokens = useTabBarMotion();
-  const pop = useTabIconPop(active);
+const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap }) => {
+  const pop = useTabIconPop(active, swap);
 
   return (
     <HighlightItem
@@ -90,7 +92,18 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
 };
 
 export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
-  const motionTokens = useTabBarMotion();
+  const tabBarMotion = useTabBarMotion();
+  // TabLayout keeps the Home pane mounted, hidden, while another tab shows, and hands this bar its new
+  // segment only in the commit that shows it again. That commit takes the new state at once, as the
+  // carousel under it does: the pill sliding over from the segment you left, with every segment
+  // resizing, would read as a glitch. One decision here drives the pill, the segments and the label.
+  const shown = usePageActive();
+  const wasShown = useRef(shown);
+  const swap = shown && !wasShown.current;
+  useEffect(() => {
+    wasShown.current = shown;
+  }, [shown]);
+  const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
   // A tap on another segment buzzes once, here; a swipe between pages buzzes in HomeSwipeContainer,
   // which owns that gesture. A tap on the active segment is silent and changes nothing.
@@ -124,7 +137,14 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
         className={cn('inset-0', raisedBubbleClassName)}
       >
         {items.map(item => (
-          <Segment key={item.id} item={item} active={item.id === activeId} onSelect={handleSelect} />
+          <Segment
+            key={item.id}
+            item={item}
+            active={item.id === activeId}
+            onSelect={handleSelect}
+            motionTokens={motionTokens}
+            swap={swap}
+          />
         ))}
       </Highlight>
     </div>

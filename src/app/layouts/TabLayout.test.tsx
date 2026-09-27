@@ -165,19 +165,22 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => (
-    <div data-testid="action-bar" data-active={activeId} className={className}>
-      {items.map((it: any) => (
-        <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
-          {it.icon}
-          {it.label}
+  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
+    const shown = jest.requireActual('app/layouts/page-active').usePageActive();
+    return (
+      <div data-testid="action-bar" data-active={activeId} data-page-active={String(shown)} className={className}>
+        {items.map((it: any) => (
+          <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+            {it.icon}
+            {it.label}
+          </button>
+        ))}
+        <button data-testid="action-unknown" onClick={() => onChange('__nope__')}>
+          unknown
         </button>
-      ))}
-      <button data-testid="action-unknown" onClick={() => onChange('__nope__')}>
-        unknown
-      </button>
-    </div>
-  )
+      </div>
+    );
+  }
 }));
 
 // The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
@@ -993,6 +996,24 @@ describe('TabLayout — footer scaffolding', () => {
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
+  });
+
+  // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that
+  // shows it again; the pane context is how the bar tells that commit apart (#1068).
+  it('re-renders the hidden bar with the pane context, and shows it again with its new segment', () => {
+    mockLocation.pathname = '/send';
+    const { rerender } = renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'true');
+
+    mockLocation.pathname = '/history';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'false');
+
+    mockLocation.pathname = '/';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'overview');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-page-active', 'true');
   });
 });
 
