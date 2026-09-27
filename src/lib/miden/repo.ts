@@ -224,7 +224,11 @@ defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
-/** Non-negative safe integer: what the `initiatedAt` index can place a row by (#1007). */
+/**
+ * Non-negative safe integer: the spending-limit policy's rule for a transaction time it can judge (a
+ * matching row with any other refuses the assessment), stricter than the `initiatedAt` index, which
+ * places any number at or above 0 (#1007).
+ */
 function isPlaceableInitiatedAt(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
@@ -481,9 +485,8 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
         ? initiatedAt
         : Math.floor(Date.now() / 1000);
 
-  // An imported row takes a placeable `initiatedAt` (its own, else its completedAt, else now): without
-  // one the insert check would refuse the restore, and a restored row the index cannot place would
-  // keep the spending limit's readHistory on its whole-table read (#1007).
+  // An imported row takes an `initiatedAt` the insert check accepts (its own, else its completedAt, else
+  // now), or the check would refuse the whole restore (#1007).
   const placedAt = isPlaceableInitiatedAt(initiatedAt)
     ? initiatedAt
     : isPlaceableInitiatedAt(completedAt)
