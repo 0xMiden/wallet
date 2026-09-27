@@ -306,7 +306,8 @@ describe('EvmBridgeDepositScreen names the network', () => {
     renderScreen();
 
     expect(screen.getByTestId('set-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    // The same node on every step: a shell banner hidden on review would leave only the stub's own.
+    const banner = screen.getByTestId('network-mode-banner');
 
     fireEvent.click(screen.getByTestId('open-token-drawer'));
     await settle();
@@ -318,7 +319,7 @@ describe('EvmBridgeDepositScreen names the network', () => {
     await settle();
 
     expect(await screen.findByTestId('pick-slow')).toBeInTheDocument();
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBe(banner);
 
     fireEvent.click(screen.getByTestId('pick-slow'));
     await settle();
@@ -326,6 +327,6 @@ describe('EvmBridgeDepositScreen names the network', () => {
     await settle();
 
     expect(await screen.findByTestId('confirm-deposit')).toBeInTheDocument();
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBe(banner);
   });
 });
