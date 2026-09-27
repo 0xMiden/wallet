@@ -3,13 +3,13 @@
  *
  * Only the offscreen document installs one (its prove worker client), so every other
  * realm - the service worker, mobile, desktop, Firefox - finds none and keeps proving
- * exactly as before. Nothing here needs the DOM; the one extension call is
- * `recordProveTiming`'s guarded marker post (`prove-telemetry`'s `recordProveMarker`),
- * which every realm already imports, so the transaction code can still import this
- * module from any realm.
+ * exactly as before. Nothing here touches the DOM or `chrome.*`, so the transaction
+ * code can import it from any realm.
  */
+import { ProvenTransaction, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
+import { assertWasmHoldCurrent, type WasmLockHold, withWasmLockWatchdogPaused } from './miden-client';
+import { recordProveMarker, recordSdkProveStep } from './prove-telemetry';
 
 export type ProveWorkerErrorKind =
   | 'spawn-failed'
@@ -87,4 +87,44 @@ export function recordProveTiming(message: string): void {
   const line = `[prove-timing] ${message}`;
   console.log(line);
   recordProveMarker(line);
+}
+
+/**
+ * Prove `result` through the realm's transport under the caller's lock hold.
+ *
+ * The flow keeps the WASM mutex for the whole prove (the staged calls are not atomic
+ * per account, so yielding would let a queued write interleave), with the watchdog
+ * relaxed exactly as for an in-realm local prove. Eviction cancels the prove: the
+ * hold's `aborted` rejection stops the worker, so an abandoned flow can never go on
+ * to submit. Every throw here is pre-submit.
+ */
+export async function proveInWorker(
+  result: Pick<TransactionResult, 'serialize'>,
+  hold: WasmLockHold
+): Promise<ProvenTransaction> {
+  const transport = installed;
+  if (!transport) throw new Error('proveInWorker called in a realm with no local prove transport');
+  assertWasmHoldCurrent(hold, 'before the worker prove');
+  const txResult = result.serialize();
+  recordProveTiming('local-prove-window open');
+  const startedAt = performance.now();
+  let outcome: LocalProveResult;
+  try {
+    outcome = await withWasmLockWatchdogPaused(
+      () => transport.prove({ txResult, proverDescriptor: 'local' }, { cancel: hold.aborted }),
+      hold
+    );
+  } catch (error) {
+    // The SDK observer times `proveTransaction` on this realm's client, which no
+    // longer proves, so the #466 step timing is fed from here.
+    recordSdkProveStep({ durationMs: performance.now() - startedAt, failed: true });
+    throw error;
+  } finally {
+    recordProveTiming('local-prove-window close');
+  }
+  recordSdkProveStep({ durationMs: outcome.durationMs, failed: false });
+  // The watchdog and the realm trap listener can run during a worker prove, so the
+  // mutex may have moved on while it ran.
+  assertWasmHoldCurrent(hold, 'after the worker prove, before submit');
+  return ProvenTransaction.deserialize(outcome.proven);
 }

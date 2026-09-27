@@ -72,6 +72,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
+    },
+    // #945: a worker proof comes back as bytes and is rebuilt here for submitProven.
+    ProvenTransaction: {
+      deserialize: (bytes: Uint8Array) => g.__off.deserializeProof(bytes)
     }
   };
   // Single-threaded SDK builds simply don't export initThreadPool; model that
@@ -216,6 +220,12 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     }
   };
 });
+
+// `local-prove-transport` imports the lock module by its RELATIVE path, which jest
+// keys apart from the `lib/...` alias above (the root `__mocks__/lib/...` manual mock
+// is bound to the alias). Point the relative id at the same mock instance, so the
+// worker-prove helper sees this file's holds (#945).
+jest.mock('../lib/miden/sdk/miden-client', () => jest.requireMock('lib/miden/sdk/miden-client'));
 
 // The endpoint-override cache is module-scoped, i.e. PER REALM, so the offscreen
 // doc hydrates it itself at init and re-hydrates it on the SW's
@@ -409,6 +419,16 @@ function resetControl() {
     guardianProveFailureMessage: 'remote prover deadline expired',
     guardianSubmitted: false,
     guardianApplied: false,
+    deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
+    // #945: a worker proof is submitted through submitProven with the result it proves.
+    guardianSubmitProven: jest.fn(async (_proof: unknown, _result: unknown) => {
+      G.__off.guardianSubmitted = true;
+      return {
+        apply: jest.fn(async () => {
+          G.__off.guardianApplied = true;
+        })
+      };
+    }),
     guardianExecuteRequest: jest.fn(async (_accountId: string, _tr: unknown) => {
       const g2 = globalThis as any;
       return {
@@ -416,6 +436,8 @@ function resetControl() {
         id: { toHex: () => 'guardian-exec-hash' },
         prove: jest.fn(async (options?: any) => {
           g2.__off.guardianProveCalls.push(options);
+          // #945: no local prove may run on this document's thread.
+          if (options?.prover?.__local) throw new Error('in-realm prove reached');
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
             throw new Error(g2.__off.guardianProveFailureMessage);
@@ -485,6 +507,7 @@ function resetControl() {
         client: {
           transactions: {
             executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
+            submitProven: (proof: unknown, result: unknown) => G.__off.guardianSubmitProven(proof, result),
             // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
             list: (...a: any[]) => {
               (globalThis as any).__off.listBuilds.push(build);
@@ -3069,7 +3092,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
-  it('guardianPipeline: deserializes the co-signed request, runs execute→prove(local)→submit→apply, ships the serialized result', async () => {
+  it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     const trBytes = new Uint8Array([1, 2, 3, 4]);
@@ -3094,9 +3117,18 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const [acct, tr] = G.__off.guardianExecuteRequest.mock.calls[0];
     expect(acct).toBe('mtst1qguardian');
     expect(tr).toEqual({ __trFromBytes: [1, 2, 3, 4] });
-    // Non-delegated → proved with an explicit newLocalProver (no mobile branch).
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
-    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __local: true } }]);
+    // Non-delegated: prewarmed at entry, proved once in the worker from the exact
+    // serialized result, and never proved on this document's thread (#945).
+    expect(mockProveTransport.prewarm).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
+      txResult: new Uint8Array([55, 66, 77]),
+      proverDescriptor: 'local'
+    });
+    expect(G.__off.guardianProveCalls).toEqual([]);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
+    expect(G.__off.guardianSubmitProven).toHaveBeenCalledWith({ __proofFromBytes: [1, 2, 3] }, executed.result);
     // submit + apply both ran in-realm.
     expect(G.__off.guardianSubmitted).toBe(true);
     expect(G.__off.guardianApplied).toBe(true);
@@ -3144,37 +3176,25 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     // Nothing proved, nothing submitted, nothing applied.
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
     expect(G.__off.guardianSubmitted).toBe(false);
     expect(G.__off.guardianApplied).toBe(false);
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
-  it('guardianPipeline: stops before SUBMIT when the hold is evicted during the prove (#777)', async () => {
-    // The prove is the longest await in the pipeline — delegated over the network, or
-    // local under the relaxed ceiling — and the check after it is the last thing
-    // between an abandoned pipeline and an irreversible broadcast. Covered separately
-    // from the pre-prove check because each guard only answers for its own await.
+  it('guardianPipeline: stops before SUBMIT when the hold is evicted during the worker prove (#777, #945)', async () => {
+    // The prove is the longest await in the pipeline, and with the worker the
+    // watchdog can fire while it runs, so the check after it is the last thing
+    // between an abandoned pipeline and an irreversible broadcast.
     await loadModule();
     const miden: any = await import('lib/miden/sdk/miden-client');
     let releaseProve!: () => void;
-    const parkedProve = new Promise<void>(resolve => {
-      releaseProve = resolve;
-    });
-    // The prove lives inside the executeRequest handle, so it is parked by
-    // substituting the handle rather than by a top-level spy.
-    G.__off.guardianExecuteRequest = jest.fn(async () => ({
-      result: { serialize: () => new Uint8Array([55, 66, 77]) },
-      id: { toHex: () => 'guardian-exec-hash' },
-      prove: jest.fn(async () => {
-        await parkedProve;
-        return {
-          submit: jest.fn(async () => {
-            G.__off.guardianSubmitted = true;
-            return { apply: jest.fn(async () => void (G.__off.guardianApplied = true)) };
-          })
-        };
-      })
-    }));
+    mockProveTransport.prove.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          releaseProve = () => resolve({ proven: new Uint8Array([1]), durationMs: 1 });
+        })
+    );
 
     const sendResponse = jest.fn();
     capturedListener!(
@@ -3187,14 +3207,41 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       sendResponse
     );
     await flush();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
 
     miden.__evictHolder();
     releaseProve();
     await flush();
 
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
     expect(G.__off.guardianSubmitted).toBe(false);
     expect(G.__off.guardianApplied).toBe(false);
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
+  it('guardianPipeline: a worker failure fails the write before submit, as ProveWorkerError (#945)', async () => {
+    await loadModule();
+    const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
+    mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('crashed', 'RuntimeError: unreachable'));
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianProveCalls).toEqual([]);
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'ProveWorkerError',
+      error: 'Local prove failed in the prove worker (crashed)'
+    });
   });
 
   // #784: the co-signatures in the crossed request were bound to a summary that
@@ -3366,6 +3413,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // rejection the local fallback needs.
     expect(G.__off.guardianProveBounded).toBe(true);
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    // A delegated write neither starts nor uses the prove worker (#945).
+    expect(mockProveTransport.prewarm).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
     expect(G.__off.guardianApplied).toBe(true);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
@@ -3394,7 +3445,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('guardianPipeline (delegated): a remote prove failure re-proves locally with newLocalProver (matches inline fallback)', async () => {
+  it('guardianPipeline (delegated): a remote prove failure re-proves the same result in the prove worker', async () => {
     await loadModule();
     G.__off.guardianProveShouldFailOnce = true;
     const sendResponse = jest.fn();
@@ -3408,13 +3459,41 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    // First attempt: the explicit remote prover threw. Second: local newLocalProver.
-    expect(G.__off.guardianProveCalls[0]).toEqual({ prover: { __remote: true } });
-    expect(G.__off.guardianProveCalls[1]).toEqual({ prover: { __local: true } });
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
+    // First attempt: the explicit remote prover threw. Second: the worker, on the
+    // same executed result, submitted through submitProven (#945).
+    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __remote: true } }]);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
+      txResult: new Uint8Array([55, 66, 77]),
+      proverDescriptor: 'local'
+    });
+    const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
+    expect(G.__off.guardianSubmitProven).toHaveBeenCalledWith({ __proofFromBytes: [1, 2, 3] }, executed.result);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
     expect(G.__off.guardianApplied).toBe(true);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a worker failure on the fallback leg fails the write before submit (#945)', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    mockProveTransport.prove.mockRejectedValueOnce(new Error('worker gone'));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'worker gone' });
   });
 
   it('guardianPipeline (delegated): a transport-shaped prove failure reports a prover outage from THIS realm', async () => {
@@ -3569,19 +3648,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
     G.__off.guardianExecuteRequest = jest.fn(async () => {
       timeline.push('executeRequest');
-      return {
-        result: { serialize: () => new Uint8Array([55, 66, 77]) },
-        id: { toHex: () => 'h' },
-        prove: async () => {
-          timeline.push('prove');
-          return {
-            submit: async () => {
-              timeline.push('submit');
-              return { apply: async () => timeline.push('apply') };
-            }
-          };
-        }
-      };
+      return { result: { serialize: () => new Uint8Array([55, 66, 77]) }, id: { toHex: () => 'h' } };
+    });
+    mockProveTransport.prove.mockImplementationOnce(async () => {
+      timeline.push('worker prove');
+      return { proven: new Uint8Array([1]), durationMs: 1 };
+    });
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      timeline.push('submitProven');
+      return { apply: async () => timeline.push('apply') };
     });
 
     const sendResponse = jest.fn();
@@ -3603,9 +3678,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       'stage:executing|sw|op-gstage',
       'executeRequest',
       'stage:proving|sw|op-gstage',
-      'prove',
+      'worker prove',
       'stage:submitting|sw|op-gstage',
-      'submit',
+      'submitProven',
       'apply'
     ]);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);

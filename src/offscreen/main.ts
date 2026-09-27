@@ -66,14 +66,13 @@ import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransa
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { installLocalProveTransport } from 'lib/miden/sdk/local-prove-transport';
+import { installLocalProveTransport, proveInWorker } from 'lib/miden/sdk/local-prove-transport';
 import {
   type WasmLockHold,
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
   withWasmClientLock,
-  withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
@@ -902,12 +901,12 @@ const DISPATCH: Record<string, DispatchFn> = {
   // pre-built. The mid-execute keystore signature is fetched from the SW via the
   // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back.
   //
-  // Prover selection replicates the inline block EXACTLY, minus one branch: the
-  // mobile `newCallbackProver` case is OMITTED because the offscreen document is
+  // Prover selection replicates the inline block, minus one branch: the mobile
+  // `newCallbackProver` case is OMITTED because the offscreen document is
   // extension-only (no chrome.offscreen in mobile WebViews; mobile stays flag-off
-  // inline), so that branch is unreachable here — non-delegated proves with the
-  // pooled main-thread WASM `newLocalProver`, delegated proves remote (`prove({})`)
-  // with a local fallback on remote failure, identical to the SW path on extension.
+  // inline), so that branch is unreachable here. Delegated proves remote with a local
+  // fallback on remote failure, as the SW path does; every LOCAL prove, first attempt
+  // or fallback, runs in the prove worker and comes back through `submitProven` (#945).
   //
   // The three `postStageEvent` calls replicate `runGuardianPipeline`'s
   // `setStage('executing'|'proving'|'submitting')` at the SAME boundaries, so a
@@ -931,6 +930,8 @@ const DISPATCH: Record<string, DispatchFn> = {
     // successor's row.
     const { hold } = context;
     recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
+    // Overlaps the worker's WASM load and pool start with execute and its sign.
+    if (!delegateTransaction) proveWorker.prewarm();
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
     // #784: execute AT the proposal's anchored reference block, not this realm's
@@ -976,7 +977,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     // that already reached the network.
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
     postStageEvent(context, 'proving');
-    let provenTx;
+    const txResult: sdk.TransactionResult = executedTx.result;
+    // The delegated branch submits its own proof; a worker proof goes back through
+    // `submitProven` with the result it was made from.
+    let submit: () => Promise<sdk.TransactionSubmission>;
     // Reported from here as well as from the two inline copies, because on the
     // extension THIS is the copy that runs: every guardian leaf type is offscreen
     // routable and the flag defaults on, so instrumenting only the inline path
@@ -984,15 +988,12 @@ const DISPATCH: Record<string, DispatchFn> = {
     // almost everyone uses.
     const proveStartedAt = performance.now();
     if (!delegateTransaction) {
-      recordProveTiming('guardianPipeline proving with local prover');
-      // Local proving is deliberately unbounded — pause this realm's lock
-      // watchdog for its duration, like proveWithFallback's local attempts
-      // (#775). The delegated attempt stays on the clock.
+      recordProveTiming('guardianPipeline proving in the prove worker');
+      // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
+      // this hold, and an eviction cancels the worker (#775, #945).
       try {
-        provenTx = await withWasmLockWatchdogPaused(
-          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-          hold
-        );
+        const proof = await proveInWorker(txResult, hold);
+        submit = () => client.client.transactions.submitProven(proof, txResult);
         reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
       } catch (proveError) {
         reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
@@ -1020,10 +1021,11 @@ const DISPATCH: Record<string, DispatchFn> = {
         // expires BEFORE any submit and the local re-prove cannot broadcast twice.
         const delegatedProver = remoteProver();
         recordProveTiming(`guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`);
-        provenTx = await withDelegatedProveTimeout(
+        const provenTx = await withDelegatedProveTimeout(
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        submit = () => provenTx.submit();
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
         clearConnectivityIssue('prover');
       } catch (proveError) {
@@ -1048,10 +1050,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         try {
-          provenTx = await withWasmLockWatchdogPaused(
-            () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-            hold
-          );
+          const proof = await proveInWorker(txResult, hold);
+          submit = () => client.client.transactions.submitProven(proof, txResult);
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
@@ -1065,7 +1065,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // Still pre-submit: nothing has been broadcast at this point.
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
     postStageEvent(context, 'submitting');
-    const submittedTx = await provenTx.submit();
+    const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     await submittedTx.apply();
     recordProveTiming('guardianPipeline apply returned');
