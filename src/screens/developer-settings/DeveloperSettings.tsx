@@ -273,7 +273,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
-  const actionButton = 'flex-1 max-w-none';
+  const actionButton = 'max-w-none';
 
   return (
     <SubPageLayout

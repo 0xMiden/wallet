@@ -39,10 +39,9 @@ interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   /** Right side of the header row, e.g. an orange text action. */
   headerActions?: React.ReactNode;
   /**
-   * The page's actions, pinned under the body, 10px apart. In a `row`, buttons take
-   * `flex-1 max-w-none` so a pair splits the row evenly and a single one spans it. In a `stack`,
-   * every child keeps its own height (a `flex-1` there is discarded), so a button takes just
-   * `max-w-none` to span the width.
+   * The page's actions, pinned under the body, 10px apart. In a `row`, children split the width
+   * with `flex-1 max-w-none`, so a pair shares it evenly and a single one spans it. In a `stack`,
+   * every child keeps its own height whatever flex it carries.
    */
   footer?: React.ReactNode;
   /** `stack` puts the footer's children one above the other, for labels too long to share a row. */
