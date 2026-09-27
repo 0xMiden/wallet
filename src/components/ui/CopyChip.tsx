@@ -45,7 +45,7 @@ export const CopyChip: React.FC<CopyChipProps> = ({
       <Pill
         size={size}
         tone="neutral"
-        // Fills the Pill's own glyph box; the morph is the one every copy control shares.
+        // Fills the Pill's own glyph box; the morph is the one CopyButton also shows.
         icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
         onClick={() => void copy()}
         className={className}
