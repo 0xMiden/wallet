@@ -264,6 +264,18 @@ describe('effective-endpoints resolver', () => {
       await expect(m.loadEndpointOverrides()).resolves.toBeUndefined();
       expect(m.getActiveOverride()).toBeNull();
     });
+
+    // The SW and offscreen realms re-read after a Save; a failed re-read must not drop them to
+    // build defaults under a wallet that runs on the saved endpoints.
+    it('keeps a loaded override when a later read fails', async () => {
+      const m = loadModule();
+      const saved = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      await m.applyEndpointOverride(saved);
+
+      mockThrows = true;
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toBe(saved);
+    });
   });
 
   // Developer Settings tells the user a rejected write was not saved, so the session must not

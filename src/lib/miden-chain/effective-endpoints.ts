@@ -205,12 +205,13 @@ export async function loadEndpointOverrides(): Promise<void> {
     const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
     overrideCache = isEndpointOverride(raw) ? raw : null;
   } catch {
-    overrideCache = null;
+    // A failed read keeps what this realm had loaded.
   }
 }
 
-// Both write before they touch the cache: a rejected write must leave the session on the endpoints
-// that are actually stored, or it runs on ones a restart would drop.
+// No rejected storage call moves the cache. Both writes store before they touch it, so a rejected
+// write leaves the session on the endpoints that are actually stored, not ones a restart would drop;
+// a rejected read in loadEndpointOverrides keeps what the realm had loaded (null on its first load).
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
   overrideCache = override;
