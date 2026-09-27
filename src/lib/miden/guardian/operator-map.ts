@@ -20,7 +20,7 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { getBuiltInGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 
@@ -41,12 +41,13 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
 /**
  * One operator's key commitment, or `undefined` if it did not answer in time.
  *
- * `registerGuardianOrigin` first: on mobile, guardian traffic reaches the
- * network only through the `CapacitorHttp` CORS bypass, and that interceptor
- * routes registered origins only. The built-ins are pre-seeded, so this matters
- * for the custom / self-hosted endpoint — which is exactly the endpoint the
- * drift reconciler and the manual-URL apply below hand to this function, so
- * without it those two paths report every custom operator unreachable on mobile.
+ * `probeGuardianOrigin` first: on mobile, guardian traffic reaches the network
+ * only through the `CapacitorHttp` CORS bypass, and that interceptor routes
+ * registered origins only. The built-ins are pre-seeded, so this matters for the
+ * custom / self-hosted endpoint the drift reconciler and the manual-URL apply
+ * below hand to this function: without it those two paths report every custom
+ * operator unreachable on mobile. The probe keeps the origin routed only when the
+ * endpoint answers with a key, so a URL that is not a Guardian is not left routed.
  *
  * A non-string commitment is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
@@ -65,8 +66,8 @@ async function fetchOperatorCommitment(
   endpoint: string,
   timeoutMs: number = ENDPOINT_CHECK_TIMEOUT_MS
 ): Promise<string | undefined> {
-  registerGuardianOrigin(endpoint);
-  return new Promise<string | undefined>((resolve, reject) => {
+  const settleProbe = probeGuardianOrigin(endpoint);
+  const answer = new Promise<string | undefined>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)), timeoutMs);
     new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
       value => {
@@ -85,6 +86,16 @@ async function fetchOperatorCommitment(
       }
     );
   });
+  return answer.then(
+    commitment => {
+      settleProbe(Boolean(commitment));
+      return commitment;
+    },
+    (error: unknown) => {
+      settleProbe(false);
+      throw error;
+    }
+  );
 }
 
 /** What one probe round of the built-in operators established. */

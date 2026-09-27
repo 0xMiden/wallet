@@ -15,7 +15,7 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
 
 /**
  * Per-ping deadline. Short on purpose: this verdict disables an operator's card
@@ -35,9 +35,9 @@ export async function pingGuardianEndpointLatency(
   endpoint: string,
   timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
 ): Promise<number | null> {
-  // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
-  // so a custom/overridden endpoint also routes through native HTTP.
-  registerGuardianOrigin(endpoint);
+  // On mobile the origin routes through native HTTP while the ping is out, and stays routed if a Guardian answers.
+  const settleProbe = probeGuardianOrigin(endpoint);
+  let latency: number | null = null;
   const startedAt = performance.now();
   try {
     const result = await new Promise<{ commitment?: string }>((resolve, reject) => {
@@ -60,8 +60,11 @@ export async function pingGuardianEndpointLatency(
     // endpoint, for the same reason. Fails toward "offline", which is what every
     // other non-guardian response already reports.
     const isGuardian = typeof result?.commitment === 'string' && result.commitment.length > 0;
-    return isGuardian ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
+    if (isGuardian) latency = Math.max(0, Math.round(performance.now() - startedAt));
   } catch {
-    return null;
+    // Offline, whatever the cause: `latency` stays null.
+  } finally {
+    settleProbe(latency !== null);
   }
+  return latency;
 }

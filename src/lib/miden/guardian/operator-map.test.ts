@@ -68,8 +68,20 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveGuardianUrl: () => mockGuardianUrlOverride
 }));
 
+// The native-HTTP probe each `GET /pubkey` takes: the endpoints probed, and each probe's verdict.
+// The first settle decides, as in native-http.
+const mockProbedEndpoints: string[] = [];
+const mockProbeVerdicts: [string, boolean][] = [];
 jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: jest.fn()
+  probeGuardianOrigin: (endpoint: string) => {
+    mockProbedEndpoints.push(endpoint);
+    let settled = false;
+    return (isGuardian: boolean) => {
+      if (settled) return;
+      settled = true;
+      mockProbeVerdicts.push([endpoint, isGuardian]);
+    };
+  }
 }));
 
 afterEach(() => {
@@ -398,29 +410,60 @@ describe('verifyEndpointMatchesCommitment', () => {
   });
 });
 
-// On mobile, guardian traffic reaches the network only through the CapacitorHttp
-// CORS bypass, and that interceptor routes REGISTERED origins only. The built-ins
-// are pre-seeded, so this is what makes a custom / self-hosted endpoint work —
-// and the custom endpoint is exactly what the drift reconciler and the
-// manual-URL apply hand to these probes.
-describe('mobile CORS-bypass registration', () => {
-  const { registerGuardianOrigin } = jest.requireMock('lib/miden/guardian/native-http');
+// On mobile, guardian traffic reaches the network only through the CapacitorHttp CORS bypass, and
+// the drift reconciler and the manual-URL apply hand these probes a custom endpoint. Each request
+// routes its origin while it is out, and keeps it routed only for an endpoint that answers with a key.
+describe('mobile native-HTTP probe', () => {
+  beforeEach(() => {
+    mockProbedEndpoints.length = 0;
+    mockProbeVerdicts.length = 0;
+  });
 
-  beforeEach(() => registerGuardianOrigin.mockClear());
-
-  it('registers the probed origin from checkEndpointCommitment', async () => {
+  it('takes a probe of the endpoint from checkEndpointCommitment', async () => {
     await checkEndpointCommitment('https://custom.guardian.test', 'aaa');
-    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://custom.guardian.test');
+    expect(mockProbedEndpoints).toEqual(['https://custom.guardian.test']);
   });
 
-  it('registers the probed origin from verifyEndpointMatchesCommitment', async () => {
+  it('takes a probe of the endpoint from verifyEndpointMatchesCommitment', async () => {
     await verifyEndpointMatchesCommitment('https://custom.guardian.test', 'aaa');
-    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://custom.guardian.test');
+    expect(mockProbedEndpoints).toEqual(['https://custom.guardian.test']);
   });
 
-  it('registers every built-in origin it probes from buildOperatorKeyMap', async () => {
+  it('takes a probe of every built-in it asks from buildOperatorKeyMap', async () => {
     await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
-    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://guardian.openzeppelin.com');
-    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://miden-guardian.lambdaclass.com');
+    expect(mockProbedEndpoints).toEqual(
+      expect.arrayContaining(['https://guardian.openzeppelin.com', 'https://miden-guardian.lambdaclass.com'])
+    );
+  });
+
+  it('keeps the origin routed once the endpoint answers with a key, even another operator key', async () => {
+    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', 'bbb')).resolves.toBe('mismatch');
+    expect(mockProbeVerdicts).toEqual([['https://guardian.openzeppelin.com', true]]);
+  });
+
+  it('releases the origin when the endpoint answers without a key', async () => {
+    await expect(checkEndpointCommitment('https://not-a-guardian.test', 'aaa')).resolves.toBe('unreachable');
+    expect(mockProbeVerdicts).toEqual([['https://not-a-guardian.test', false]]);
+  });
+
+  it('releases the origin when the request rejects', async () => {
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
+      throw new Error('network unreachable');
+    });
+
+    await expect(checkEndpointCommitment('https://custom.guardian.test', 'aaa')).resolves.toBe('unreachable');
+    expect(mockProbeVerdicts).toEqual([['https://custom.guardian.test', false]]);
+  });
+
+  it('releases the origin when the request outlives the deadline', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
+
+    const verdict = checkEndpointCommitment('https://hung.guardian', 'aaa');
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(await verdict).toBe('unreachable');
+    expect(mockProbeVerdicts).toEqual([['https://hung.guardian', false]]);
+    jest.useRealTimers();
   });
 });

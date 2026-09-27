@@ -19,14 +19,27 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 }));
 let lastConstructedUrl: string | undefined;
 
-const mockRegisterGuardianOrigin = jest.fn();
+// The native-HTTP probe each ping takes: the endpoints probed, and each probe's verdict. The first
+// settle decides, as in native-http.
+const mockProbedEndpoints: string[] = [];
+const mockProbeVerdicts: [string, boolean][] = [];
 jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: (...args: unknown[]) => mockRegisterGuardianOrigin(...args)
+  probeGuardianOrigin: (endpoint: string) => {
+    mockProbedEndpoints.push(endpoint);
+    let settled = false;
+    return (isGuardian: boolean) => {
+      if (settled) return;
+      settled = true;
+      mockProbeVerdicts.push([endpoint, isGuardian]);
+    };
+  }
 }));
 
 beforeEach(() => {
   jest.clearAllMocks();
   lastConstructedUrl = undefined;
+  mockProbedEndpoints.length = 0;
+  mockProbeVerdicts.length = 0;
 });
 
 describe('pingGuardianEndpointLatency', () => {
@@ -36,8 +49,6 @@ describe('pingGuardianEndpointLatency', () => {
     await expect(pingGuardianEndpointLatency('https://g.example.com')).resolves.toEqual(expect.any(Number));
     expect(lastConstructedUrl).toBe('https://g.example.com');
     expect(mockGetPubkey).toHaveBeenCalledWith('https://g.example.com', 'ecdsa');
-    // Registered for the mobile native-HTTP CORS bypass before pinging.
-    expect(mockRegisterGuardianOrigin).toHaveBeenCalledWith('https://g.example.com');
   });
 
   it('reports offline when the request rejects (connection refused / 5xx)', async () => {
@@ -103,5 +114,61 @@ describe('pingGuardianEndpointLatency', () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  // On mobile a custom endpoint reaches the network only through the native-HTTP bypass: its origin
+  // is routed before the request goes out, and stays routed only when a Guardian answers.
+  it('routes the origin before the request goes out, and keeps it once a Guardian answers', async () => {
+    let probedBeforeRequest = false;
+    mockGetPubkey.mockImplementationOnce(async () => {
+      probedBeforeRequest = mockProbedEndpoints.includes('https://g.example.com');
+      return { commitment: '0xAAA' };
+    });
+
+    await expect(pingGuardianEndpointLatency('https://g.example.com')).resolves.toEqual(expect.any(Number));
+
+    expect(probedBeforeRequest).toBe(true);
+    expect(mockProbeVerdicts).toEqual([['https://g.example.com', true]]);
+  });
+
+  it('releases the origin when the endpoint answers without a key', async () => {
+    mockGetPubkey.mockResolvedValueOnce({ commitment: '' });
+
+    await expect(pingGuardianEndpointLatency('https://weird.example.com')).resolves.toBeNull();
+
+    expect(mockProbeVerdicts).toEqual([['https://weird.example.com', false]]);
+  });
+
+  it('releases the origin when the request rejects', async () => {
+    mockGetPubkey.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    await expect(pingGuardianEndpointLatency('https://down.example.com')).resolves.toBeNull();
+
+    expect(mockProbeVerdicts).toEqual([['https://down.example.com', false]]);
+  });
+
+  it('releases the origin when the request outlives the deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetPubkey.mockReturnValueOnce(new Promise(() => undefined));
+
+      const ping = pingGuardianEndpointLatency('https://slow.example.com', 1_000);
+      jest.advanceTimersByTime(1_001);
+      await expect(ping).resolves.toBeNull();
+
+      expect(mockProbeVerdicts).toEqual([['https://slow.example.com', false]]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('releases the origin when the Guardian client throws before any request goes out', async () => {
+    mockGetPubkey.mockImplementationOnce(() => {
+      throw new TypeError('Invalid URL');
+    });
+
+    await expect(pingGuardianEndpointLatency('https://bad.example.com')).resolves.toBeNull();
+
+    expect(mockProbeVerdicts).toEqual([['https://bad.example.com', false]]);
   });
 });
