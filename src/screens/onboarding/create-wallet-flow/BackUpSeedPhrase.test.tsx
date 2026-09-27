@@ -90,18 +90,12 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// The copy goes through @capacitor/clipboard (its own web implementation makes the same call right
-// on every surface), so that is the boundary to assert. `navigator.clipboard` is still stubbed
-// because jsdom exposes none and unrelated code may reach for it.
-const mockWriteText = jest.fn();
+// The copy goes through useClipboardCopy, which writes through @capacitor/clipboard, so that is the boundary to
+// assert.
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
-Object.defineProperty(navigator, 'clipboard', {
-  value: { writeText: mockWriteText },
-  configurable: true
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,8 +133,7 @@ const dispatchCopy = ({
 };
 
 beforeEach(() => {
-  mockWriteText.mockClear();
-  // Both clipboard mocks are module-level, so a call-count assertion reads every
+  // The clipboard mock is module-level, so a call-count assertion reads every
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
 });

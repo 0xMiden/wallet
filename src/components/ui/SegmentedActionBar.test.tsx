@@ -2,7 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { springs, tabBarMotion } from 'lib/animation';
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarMotion, tabBarSwap } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 import SegmentedActionBarDefault, { SegmentedActionBar, SegmentedActionBarItem } from './SegmentedActionBar';
@@ -257,6 +258,75 @@ describe('SegmentedActionBar — motion', () => {
 
     rerender(<SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />);
     expect(iconOf(getTab('Receive'))).toHaveAttribute('data-pop', 'rest');
+  });
+});
+
+// TabLayout keeps the Home pane mounted, hidden, while another tab shows, and hands the bar its new
+// active segment only in the commit that shows it again (#1068).
+describe('SegmentedActionBar - shown again after its pane was hidden', () => {
+  const bar = (shown: boolean, activeId: string) => (
+    <TabActiveContext.Provider value={shown}>
+      <SegmentedActionBar items={items} activeId={activeId} onChange={jest.fn()} />
+    </TabActiveContext.Provider>
+  );
+
+  it('takes its new state at once: no slide, no resize, no fade, no pop', () => {
+    const { rerender } = render(bar(true, 'send'));
+    rerender(bar(false, 'send'));
+    rerender(bar(true, 'receive'));
+
+    const receive = getTab('Receive');
+    expect(JSON.parse(pillIn(receive)!.getAttribute('data-transition')!)).toEqual(tabBarSwap);
+    for (const label of ['Send', 'Receive', 'Swap']) {
+      expect(JSON.parse(getTab(label).getAttribute('data-transition')!)).toEqual(tabBarSwap);
+    }
+    expect(JSON.parse(screen.getByText('Receive').getAttribute('data-transition')!)).toEqual(tabBarSwap);
+    expect(iconOf(receive)).toHaveAttribute('data-pop', 'rest');
+    expect(JSON.parse(iconOf(receive).getAttribute('data-transition')!).layout).toEqual(tabBarSwap);
+    expect(JSON.parse(getTab('Swap').getAttribute('data-while-tap')!)).toEqual({
+      scale: 0.92,
+      transition: springs.snappy
+    });
+  });
+
+  it('animates the next change while it stays shown', () => {
+    const { rerender } = render(bar(true, 'send'));
+    rerender(bar(false, 'send'));
+    rerender(bar(true, 'receive'));
+    rerender(bar(true, 'swap'));
+
+    const swap = getTab('Swap');
+    expect(JSON.parse(pillIn(swap)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(JSON.parse(swap.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(JSON.parse(screen.getByText('Swap').getAttribute('data-transition')!)).toEqual(tabBarMotion.label);
+    expect(iconOf(swap)).toHaveAttribute('data-pop', 'pop');
+    expect(JSON.parse(iconOf(swap).getAttribute('data-transition')!).layout).toEqual(springs.tabSwitch);
+  });
+
+  // A slide page closing back onto Home (TokenDetail to Send, Earn's withdraw Done to Overview) only
+  // flips PageActiveContext, not the tab itself: HomeSwipeContainer's carousel animates that reveal, so
+  // the bar must too, instead of reading it as a swap (#1068 design review).
+  it('animates normally when a slide page closes back onto Home with a different segment', () => {
+    const { rerender } = render(
+      <PageActiveContext.Provider value={true}>
+        <SegmentedActionBar items={items} activeId="send" onChange={jest.fn()} />
+      </PageActiveContext.Provider>
+    );
+    rerender(
+      <PageActiveContext.Provider value={false}>
+        <SegmentedActionBar items={items} activeId="send" onChange={jest.fn()} />
+      </PageActiveContext.Provider>
+    );
+    rerender(
+      <PageActiveContext.Provider value={true}>
+        <SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />
+      </PageActiveContext.Provider>
+    );
+
+    const receive = getTab('Receive');
+    expect(JSON.parse(pillIn(receive)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(JSON.parse(receive.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(iconOf(receive)).toHaveAttribute('data-pop', 'pop');
   });
 });
 

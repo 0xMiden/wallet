@@ -52,6 +52,12 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
 
+  // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
+  // re-created constantly, and a tick from before the render that armed a lockout still holds the
+  // old `timelock` (0, or a stamp from an earlier lockout): read from its closure, it would clear the
+  // fresh stamp and the lockout would never start. Arming writes this first; the tick reads it.
+  const timelockRef = useRef(timelock);
+
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
   // Fallback UI: passcode numpad on mobile, password form on extension/desktop
@@ -198,8 +204,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // A failure from before or during a lockout is not what the screen means once the lockout ends:
   // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
   // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
-  // transition, not on the interval's tick: that branch is also true every second when nothing is
-  // locked, and `timelock` outlives its lockout (no success path resets it). No errorCount bump, so
+  // transition, not on the interval's tick: `timelock` outlives its lockout (no success path resets
+  // it), so the tick clears a stale stamp once with no lockout on screen. No errorCount bump, so
   // nothing shakes. The mount run is a no-op: both flags start false.
   useEffect(() => {
     if (!isDisabled) {
@@ -230,7 +236,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
+        if (attempt >= LAST_ATTEMPT) {
+          const stamp = Date.now();
+          timelockRef.current = stamp;
+          setTimeLock(stamp);
+        }
         setAttempt(attempt + 1);
         setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
 
@@ -332,16 +342,19 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (Date.now() - timelock > lockLevel) {
+      const stamp = timelockRef.current;
+      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
+      if (stamp !== 0 && Date.now() - stamp > lockLevel) {
+        timelockRef.current = 0;
         setTimeLock(0);
       }
-      setTimeleft(getTimeLeft(timelock, lockLevel));
+      setTimeleft(getTimeLeft(stamp, lockLevel));
     }, 1_000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [timelock, lockLevel, setTimeLock]);
+  }, [lockLevel, setTimeLock]);
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {

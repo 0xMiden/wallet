@@ -91,12 +91,10 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   const handleCopyLink = useCallback(() => {
     if (!session) return;
     hapticLight();
-    // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
-    // has its own web implementation, so the same call is correct on
-    // desktop, the extension and every mobile webview, not just WKWebView
-    // under a secure context. A failure is logged, not shown: the sheet closes
-    // either way so the user isn't left with a stuck sheet, and there is
-    // nowhere left on screen to report it once it has.
+    // The same `@capacitor/clipboard` write as `useClipboardCopy` (whose doc says what backs it on
+    // each surface); every failure arrives as a rejection this catch sees, never a synchronous
+    // throw. It is logged, not shown: the sheet closes either way and there is nowhere left on
+    // screen to report it.
     void Clipboard.write({ string: session.url }).catch(error => console.error('[clipboard] failed to copy:', error));
     close();
   }, [session, close]);

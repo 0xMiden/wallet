@@ -42,7 +42,7 @@ const Glyph: React.FC<{ copied: boolean; checkClassName?: string }> = ({ copied,
  * The copy glyph that morphs into a check after a copy and back once the feedback window ends
  * (`copyMotion.icon`: scale, a small turn and a blur crossfade on the `tabSwitch` spring). The
  * outgoing glyph pops out of layout (`mode="popLayout"`), so the two overlap in one box instead of
- * pushing the label beside them. Decorative: the copy control announces the state itself.
+ * staying in flow beside each other. Decorative: the copy control announces the state itself.
  */
 export const AnimatedCopyIcon: React.FC<AnimatedCopyIconProps> = ({
   copied,
