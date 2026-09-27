@@ -1167,6 +1167,85 @@ describe('HomePrompts', () => {
       expect(mockFaucet).not.toHaveBeenCalled();
       expect(markerStore.get('accountA')).toEqual(unresolvedMarker);
     });
+
+    it.each([
+      ['past its arrival window', 10 * 60_000],
+      ['still inside its arrival window', 90_000]
+    ])('settles a sent request %s whose funds landed while no card watched', async (_case, age) => {
+      // Stateful prompt storage: completing the prompt re-renders the card as terminal, as it does in the app.
+      mockUseWalletPromptStorage.mockImplementation(() => {
+        const [faucetByAccount, setFaucetByAccount] = React.useState<Record<string, WalletPromptStatus>>({
+          accountA: WalletPromptStatus.Pending
+        });
+        const setFaucetStatus = React.useCallback((address: string, status: WalletPromptStatus) => {
+          mockSetFaucetStatus(address, status);
+          setFaucetByAccount(current => ({ ...current, [address]: status }));
+        }, []);
+        const base = React.useMemo(() => makePromptState(), []);
+        return React.useMemo(
+          () => ({ ...base, setFaucetStatus, storage: { ...base.storage, faucetByAccount } }),
+          [base, faucetByAccount, setFaucetStatus]
+        );
+      });
+      markerStore.set('accountA', { requestedAt: Date.now() - age, baselineNoteIds: [], submitted: true });
+      const renderAt = (nativeBalance: number) => (
+        <HomePrompts
+          account={account}
+          balances={[{ tokenId: NATIVE_FAUCET_ID, balance: nativeBalance }] as TokenBalanceData[]}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={tokenPrices}
+        />
+      );
+      try {
+        // Reopened after the mint landed and was consumed while the app was closed: the prompt completes
+        // before the card's own read of the marker settles.
+        mockBaseFee = 0;
+        const { rerender } = render(renderAt(100));
+        await act(async () => {});
+        await act(async () => {});
+        expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+        expect(markerStore.has('accountA')).toBe(false);
+
+        // Spent to nothing on a fee-charging chain, the prompt re-arms with no earlier request to name.
+        mockBaseFee = 10000;
+        rerender(renderAt(0));
+        await act(async () => {});
+        await act(async () => {});
+        expect(faucetCard()).not.toHaveTextContent('faucetPromptUnresolvedBody');
+        expect(faucetCard()).toHaveTextContent('insufficientFeeAsset');
+      } finally {
+        mockBaseFee = 0;
+      }
+    });
+
+    it.each([
+      ['not sent yet, which another surface may still be sending', { requestedAt: Date.now() - 5_000 }, false],
+      ['still running here', { requestedAt: Date.now() - 10 * 60_000, submitted: true }, true]
+    ])('leaves the marker of a request %s, whatever the balance', async (_case, stamp, runningHere) => {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({ storage: { faucetByAccount: { accountA: WalletPromptStatus.Completed } } })
+      );
+      if (runningHere) mockGetInFlightFaucetRequest.mockReturnValue(new Promise(() => undefined));
+      const marker = { ...stamp, baselineNoteIds: [] };
+      markerStore.set('accountA', marker);
+
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={tokenPrices}
+        />
+      );
+      await act(async () => {});
+      await act(async () => {});
+
+      expect(markerStore.get('accountA')).toEqual(marker);
+    });
   });
 
   it('shows a failure state and allows the faucet request to be retried by tapping again', async () => {

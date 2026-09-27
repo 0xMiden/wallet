@@ -693,6 +693,22 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     isLoaded
   ]);
 
+  // A balance is a sent request's funds arriving (the rule below), and they can land while no card
+  // watches: the app closed, the mint consumed, and the prompt completed on reopen before the read
+  // above settled. Its marker is settled then, whatever the prompt's status, or a later fee-broke
+  // re-arm would read it back as a request that may still arrive. A request still running here owns
+  // its marker, and an unsent one that is still live may be going out from another surface.
+  useEffect(() => {
+    if (!isLoaded || balancesLoading || !hasBalance || awaitingFaucetFunds) return;
+    const address = account.publicKey;
+    withFaucetFundingMarkerLock(address, async () => {
+      const marker = await fetchFaucetFundingMarker(address);
+      if (marker === null || getInFlightFaucetRequest(address) !== null) return;
+      if (!marker.submitted && isFaucetFundingMarkerLive(marker, { runningHere: false, settledAt: null })) return;
+      await clearFaucetFundingMarker(address);
+    }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
+  }, [account.publicKey, awaitingFaucetFunds, balancesLoading, hasBalance, isLoaded]);
+
   // Funds arrived — a NEW claimable note from the native MIDEN faucet (the
   // request only ever mints native), or a balance (the card only exists on a
   // zero-balance account, so any balance is new): swap the "Funding" hero for
