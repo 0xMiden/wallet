@@ -25,8 +25,10 @@ export type { GuardianOption };
 
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  // Highlight (and default-skip) the option matching this endpoint — used by
-  // GuardianSettings to mark the user's currently-active guardian.
+  // The account's current Guardian, passed by RotateGuardian. The listed operator matching it is
+  // pre-selected and badged as current; an endpoint no listed operator matches (a custom Guardian)
+  // pre-selects nothing, so Continue waits for a pick or a custom URL. While it is set, an offline
+  // pre-selection is never replaced by the first online operator.
   currentEndpoint?: string;
   title?: string;
   description?: string;
@@ -95,17 +97,17 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const availability = useGuardianAvailability(endpoints);
   const isOfflineEndpoint = (endpoint: string) => availability[endpoint] === 'offline';
 
-  // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
+  // In the switch context (RotateGuardian passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
-  // switch — never nudge them onto another operator by default. In the create
-  // flow (no `currentEndpoint`) default to the first provider.
+  // switch, never nudging them onto another operator by default. An account on a
+  // custom Guardian has no listed operator to pre-select, so nothing is (#1083).
+  // In the create flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
       // Compared as endpoints: a stored endpoint can differ from the option's literal
       // by host case, an explicit default port, or trailing slash (RotateGuardian
       // compares them the same way).
-      const current = options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint));
-      if (current) return current.id;
+      return options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint))?.id ?? '';
     }
     return options[0]?.id ?? '';
   }, [currentEndpoint, options]);
@@ -130,13 +132,17 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   //   operator is down. Picking a replacement for the user would nudge them
   //   onto an operator by default, which the pre-selection rule exists to
   //   prevent.
+  // - An explicit pick that goes offline: NOTHING in either flow. The user chose
+  //   that operator (a card the user activates counts even when the default or
+  //   the fallback already highlighted it); the card's offline badge says why it
+  //   is not selected, and another operator is never substituted for it (#1083).
   const intended = options.find(o => o.id === intendedId);
   const effectiveSelectedId =
     intendedId === NO_GUARDIAN_ID
       ? NO_GUARDIAN_ID
       : intended && !isOfflineEndpoint(intended.endpoint)
         ? intended.id
-        : currentEndpoint
+        : currentEndpoint || pickedId !== null
           ? ''
           : (options.find(o => !isOfflineEndpoint(o.endpoint))?.id ?? '');
 
@@ -149,8 +155,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   // Continue has something to submit: a custom URL (validated on tap), the
   // no-guardian sentinel, or a provider not reported offline. It is dead when
-  // every provider is offline, or in the switch flow when the operator the
-  // account is on is offline and nothing else is picked; each card says why.
+  // every provider is offline, when the user's own pick is offline, or in the
+  // switch flow when the current operator is offline or is not a listed
+  // provider and nothing else is picked; the offline card explains itself,
+  // only where one is offline.
   const canContinue = isCustom || effectiveSelectedId !== '';
 
   const handleContinue = () => {
@@ -255,6 +263,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         items={items}
         value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
         onChange={handleSelect}
+        onReselect={handleSelect}
         aria-label={title ?? t('chooseYourGuardian')}
       />
 

@@ -93,9 +93,9 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     hapticLight();
     // The same `@capacitor/clipboard` write as `useClipboardCopy` (whose doc says what backs it on
     // each surface); every failure arrives as a rejection this catch sees, never a synchronous
-    // throw. Swallow it - the sheet closes either way and there is nowhere left on screen to
-    // report it.
-    void Clipboard.write({ string: session.url }).catch(() => {});
+    // throw. It is logged, not shown: the sheet closes either way and there is nowhere left on
+    // screen to report it.
+    void Clipboard.write({ string: session.url }).catch(error => console.error('[clipboard] failed to copy:', error));
     close();
   }, [session, close]);
 

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { clearClipboard } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -49,6 +49,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockImportAccount.mockResolvedValue('mtst1imported');
   mockUpdateCurrentAccount.mockResolvedValue(undefined);
+  jest.mocked(clearClipboard).mockResolvedValue(true);
 });
 
 it('renders an accessible private-key import form', () => {
@@ -146,12 +147,44 @@ it('ignores a second submission while the first import is pending', async () => 
   await waitFor(() => expect(mockUpdateCurrentAccount).toHaveBeenCalledWith('mtst1imported'));
 });
 
-it('clears the clipboard when a secret is pasted', () => {
+it('clears the clipboard when a secret is pasted, and shows no warning when the wipe works', async () => {
+  render(<ImportAccount />);
+
+  // `act` flushes the resolved wipe's state update before this asserts, so a warning that was
+  // never rendered because nothing waited for the microtask cannot pass for a successful wipe.
+  await act(async () => {
+    fireEvent.paste(screen.getByLabelText('privateKey'));
+  });
+
+  expect(clearClipboard).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument();
+});
+
+it('shows a warning notice when a pasted key could not be removed from the clipboard', async () => {
+  jest.mocked(clearClipboard).mockResolvedValue(false);
   render(<ImportAccount />);
 
   fireEvent.paste(screen.getByLabelText('privateKey'));
 
-  expect(clearClipboard).toHaveBeenCalledTimes(1);
+  // `role="alert"` is what makes a screen reader announce it unprompted; a plain
+  // `findByTestId` would still pass with Notice's default `note` role.
+  const warning = await screen.findByRole('alert');
+  expect(warning).toHaveAttribute('data-testid', 'import-account-clipboard-warning');
+  expect(warning).toHaveTextContent('privateKeyClipboardNotCleared');
+});
+
+it('hides an earlier warning once a later paste clears the clipboard', async () => {
+  jest.mocked(clearClipboard).mockResolvedValue(false);
+  render(<ImportAccount />);
+  const field = screen.getByLabelText('privateKey');
+
+  fireEvent.paste(field);
+  await screen.findByTestId('import-account-clipboard-warning');
+
+  jest.mocked(clearClipboard).mockResolvedValue(true);
+  fireEvent.paste(field);
+
+  await waitFor(() => expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument());
 });
 
 it('shows an import failure without navigating or logging the secret', async () => {
