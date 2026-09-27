@@ -3,7 +3,6 @@ import React from 'react';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guardian/discover';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
@@ -155,7 +154,7 @@ describe('ImportRecoveryMethodScreen', () => {
   });
 
   it('shows the not-found error only when error is set, not dirty, and Guardian is selected', () => {
-    renderScreen({ error: GUARDIAN_ACCOUNT_NOT_FOUND });
+    renderScreen({ error: 'guardianAccountNotFound' });
 
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
   });
@@ -174,7 +173,7 @@ describe('ImportRecoveryMethodScreen', () => {
   });
 
   it('clears the error once the user interacts (dirty), e.g. picking a preset', () => {
-    renderScreen({ error: GUARDIAN_ACCOUNT_NOT_FOUND });
+    renderScreen({ error: 'guardianAccountNotFound' });
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
 
     // Selecting a preset updates the endpoint, activates that preset, and marks
@@ -532,7 +531,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
   });
 
   it('still surfaces the post-register not-found error alongside a detected guardian', () => {
-    renderScreen({ probe: detected(), error: GUARDIAN_ACCOUNT_NOT_FOUND });
+    renderScreen({ probe: detected(), error: 'guardianAccountNotFound' });
 
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
   });

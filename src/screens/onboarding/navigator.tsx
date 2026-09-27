@@ -51,7 +51,7 @@ export interface OnboardingFlowProps {
   isHardwareSecurityAvailable?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
-  /** The last Guardian lookup failure's reason: `null` none, `GUARDIAN_ACCOUNT_NOT_FOUND` not-found, else its text. */
+  /** The last Guardian lookup failure's display text, or `null`. */
   guardianLookupFailure?: string | null;
   /** Registration/recovery failure text to surface on the confirmation step (#630). */
   recoveryError?: string | null;

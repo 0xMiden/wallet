@@ -12,7 +12,6 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
@@ -207,9 +206,8 @@ const Welcome: FC = () => {
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
-  // null: no failure. GUARDIAN_ACCOUNT_NOT_FOUND: the operator's definite "no account here" answer.
-  // Anything else: the failure's own text, for a screen that can't fall back to the confirmation
-  // screen's registrationError (the page change that reaches it clears that state).
+  // The recovery-method screen's failure text, or null. It keeps its own copy because the page
+  // change that reaches that screen clears registrationError.
   const [guardianLookupFailure, setGuardianLookupFailure] = useState<string | null>(null);
   /**
    * A registration failure to show on the confirmation screen.
@@ -827,10 +825,9 @@ const Welcome: FC = () => {
             // The page change clears registrationError, so the screen gets its own copy of the reason.
             let lookupFailure: string;
             if (isGuardianNotFound(error)) {
-              // A key-pair import already carries its own translated "no account here" text
-              // (importHotKeyNoAccount); the sentinel would send it to a screen that hides the
-              // public-import option this key can still use.
-              lookupFailure = keyPairPayload ? failure : GUARDIAN_ACCOUNT_NOT_FOUND;
+              // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
+              // copy suggests a public import, which a pasted key cannot use (the screen hides it).
+              lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
             } else if (!isWasmClientPoisonedError(error) && isLikelyNetworkError(error)) {
               // A raw "Failed to fetch" / RPC timeout message is not translated; show the
               // operator-unreachable notice instead. isWasmClientPoisonedError is checked first: a

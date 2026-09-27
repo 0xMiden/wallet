@@ -1568,7 +1568,7 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockFlowProps.current.guardianLookupFailure).toBe(GUARDIAN_ACCOUNT_NOT_FOUND);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianAccountNotFound');
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockFlowProps.current.isLoading).toBe(false);
   });
@@ -3826,7 +3826,7 @@ describe('hot-key import flow', () => {
     );
   });
 
-  it('names the key, not the public-import sentinel, when a key-pair import finds no Guardian account', async () => {
+  it('names the key when a key-pair import finds no Guardian account', async () => {
     mockRegisterWalletFromHotKey.mockRejectedValue(
       Object.assign(new Error('importHotKeyNoAccount'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
     );
