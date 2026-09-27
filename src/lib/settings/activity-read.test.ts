@@ -1,7 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { localStorageCleared } from 'lib/local-storage-cleared';
-
 import {
   getActivityReadState,
   isActivityRead,
@@ -202,18 +200,6 @@ describe('several windows (#1106)', () => {
 
     expect(result.current).toEqual({ seenBefore: NOW_S + 5, ids: {} });
     expect(isActivityRead(result.current, 'tx:a', NOW_S + 10)).toBe(false);
-  });
-
-  it('forgets its copy when this window clears storage itself', () => {
-    getActivityReadState();
-    markActivityRead('tx:a', NOW_S + 100);
-    localStorage.clear();
-    localStorageCleared();
-    jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 60_000);
-
-    const state = getActivityReadState();
-    expect(state.seenBefore).toBe(NOW_S + 60);
-    expect(isActivityRead(state, 'tx:a', NOW_S + 100)).toBe(false);
   });
 
   it('keeps its copy when another window writes a value it cannot read', () => {

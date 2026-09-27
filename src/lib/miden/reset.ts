@@ -1,4 +1,3 @@
-import { localStorageCleared } from 'lib/local-storage-cleared';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
@@ -30,7 +29,6 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
   } else if (isDesktop()) {
     // On desktop, use localStorage
     localStorage.clear();
-    localStorageCleared();
   } else if (isExtension()) {
     // On extension, use browser.storage.local.clear()
     const browser = await import('webextension-polyfill');
@@ -89,6 +87,5 @@ export async function resetStorageDestructive() {
 
 export function clearClientStorage() {
   localStorage.clear();
-  localStorageCleared();
   sessionStorage.clear();
 }

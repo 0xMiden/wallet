@@ -64,7 +64,6 @@ jest.mock(
   { virtual: true }
 );
 
-import { onLocalStorageCleared } from 'lib/local-storage-cleared';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
@@ -180,31 +179,5 @@ describe('clearClientStorage', () => {
     // Both localStorage.clear() and sessionStorage.clear() share the prototype
     expect(localSpy).toHaveBeenCalledTimes(2);
     localSpy.mockRestore();
-  });
-});
-
-describe('announcing a localStorage clear', () => {
-  const cleared = jest.fn();
-  let unsubscribe: () => void;
-  beforeEach(() => {
-    unsubscribe = onLocalStorageCleared(cleared);
-  });
-  afterEach(() => unsubscribe());
-
-  it('announces clearClientStorage once', () => {
-    clearClientStorage();
-    expect(cleared).toHaveBeenCalledTimes(1);
-  });
-
-  it('announces the desktop clear on clearStorage once', async () => {
-    (isDesktop as jest.Mock).mockReturnValue(true);
-    await clearStorage();
-    expect(cleared).toHaveBeenCalledTimes(1);
-  });
-
-  it('announces the desktop clear on resetStorageDestructive once', async () => {
-    (isDesktop as jest.Mock).mockReturnValue(true);
-    await resetStorageDestructive();
-    expect(cleared).toHaveBeenCalledTimes(1);
   });
 });

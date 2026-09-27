@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
 import { createListenerSet } from 'lib/listener-set';
-import { onLocalStorageCleared } from 'lib/local-storage-cleared';
 
 import { ACTIVITY_READ_MAX_IDS, ACTIVITY_READ_STORAGE_KEY } from './constants';
 
@@ -93,9 +92,6 @@ if (typeof window !== 'undefined') {
     notify();
   });
 }
-
-// A clear in this document (a reset) fires no storage event here; reset.ts announces it instead.
-onLocalStorageCleared(forget);
 
 function parse(raw: string | null): ActivityReadState | undefined {
   if (!raw) return undefined;
