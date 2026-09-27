@@ -1614,7 +1614,7 @@ describe('MidenClientInterface', () => {
 
     it('resolves with the adopted account when the pasted key is the current hot key, in any case or prefix', async () => {
       const stubAccount = {};
-      const getSignerDetailsFromAccount = jest.fn().mockResolvedValueOnce({ commitment: '0xAABB' });
+      const getSignerDetailsFromAccount = jest.fn().mockResolvedValueOnce({ commitment: 'AABB' });
       setup(getSignerDetailsFromAccount);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
@@ -1631,7 +1631,7 @@ describe('MidenClientInterface', () => {
       const getSignerDetailsFromAccount = jest
         .fn()
         .mockResolvedValueOnce({ commitment: 'ffff' })
-        .mockResolvedValueOnce({ commitment: '0xAABB' });
+        .mockResolvedValueOnce({ commitment: 'AABB' });
       setup(getSignerDetailsFromAccount);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');

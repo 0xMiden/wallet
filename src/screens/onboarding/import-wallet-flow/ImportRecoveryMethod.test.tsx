@@ -162,7 +162,7 @@ describe('ImportRecoveryMethodScreen', () => {
   it('does not show the error when error is unset', () => {
     renderScreen();
 
-    expect(screen.queryByText('guardianAccountNotFound')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('shows the real reason when the failure is not a not-found', () => {
