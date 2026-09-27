@@ -22,6 +22,7 @@ import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
+  PROVER_PROCEDURE_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from './constants';
@@ -3808,24 +3809,35 @@ describe('generateTransaction — Guardian routing', () => {
     warnSpy.mockRestore();
   });
 
-  it('Guardian consume: a fee failure a guardian 500 carries at creating-proposal fails at once (#779)', async () => {
+  it.each([
+    [
+      'a fee failure',
+      `assertion failed with error code: ${ERR_FEE_CONVERSION_INFO_MISSING_CODE}`,
+      TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR
+    ],
+    // The native-prover text captured in #487.
+    [
+      'a prover procedure mismatch',
+      'MidenNativeProver: prover rejected the transaction: failed to execute transaction kernel program: ' +
+        'procedure with root digest 0x8bf4fec02765083b9280422f01a814de8f2a53564797969fac2f608197727b22 could not be found',
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    ]
+  ])('Guardian consume: %s in a guardian 500 at creating-proposal fails at once (#779)', async (_, raw, message) => {
     // The same request fails the same way on every retry, so a requeue would only retry it until it expired and then
-    // report the expiry instead of the fee.
+    // report the expiry instead of the cause.
     jest.useFakeTimers();
     try {
-      const txId = 'consume-guardian-500-fee';
+      const txId = 'consume-guardian-500-deterministic';
       txStore.push({
         id: txId,
         type: 'consume',
         accountId: 'guardian-acc',
         status: ITransactionStatus.Queued,
-        noteId: 'note-500-fee'
+        noteId: 'note-500'
       });
       const multisigService = {
         createConsumeNotesProposal: jest.fn(async () => {
-          throw Object.assign(new Error(`assertion failed with error code: ${ERR_FEE_CONVERSION_INFO_MISSING_CODE}`), {
-            status: 500
-          });
+          throw Object.assign(new Error(raw), { status: 500 });
         }),
         signAndCreateTransactionRequest: jest.fn(),
         sync: jest.fn(async () => {})
@@ -3842,7 +3854,7 @@ describe('generateTransaction — Guardian routing', () => {
           id: txId,
           type: 'consume',
           accountId: 'guardian-acc',
-          noteId: 'note-500-fee',
+          noteId: 'note-500',
           delegateTransaction: false
         } as never,
         jest.fn(async () => new Uint8Array([1])),
@@ -3854,7 +3866,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.error).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+      expect(row.error).toBe(message);
       expect(row.nextEligibleAt).toBeUndefined();
     } finally {
       jest.useRealTimers();
