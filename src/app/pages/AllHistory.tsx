@@ -88,12 +88,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     [t]
   );
   // The filter a link names (the home prompt, a received-transfer notification), read once per render.
-  // `TabLayout` keeps this page mounted under another tab, whose location is not this page's, so off
-  // screen it keeps the value it last read on screen. Set during render, both frames are right at once.
-  const locationFilter = filterFromSearch(locationSearch, filters);
-  const [heldFilter, setHeldFilter] = useState(locationFilter);
-  if (pageActive && heldFilter !== locationFilter) setHeldFilter(locationFilter);
-  const linkedFilter = pageActive ? locationFilter : heldFilter;
+  const linkedFilter = filterFromSearch(locationSearch, filters);
   const [filter, setFilter] = useState<ActivityFilter>('all');
   // A link's filter also becomes the kept choice, as a pick does, so it shows again after the user goes
   // to Groups and back, when the location no longer names it. Putting it on screen from the link's
