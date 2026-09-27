@@ -119,7 +119,7 @@ export function useGuardianPings(endpoints: readonly string[]): Record<string, G
 
       // The rejection arm is not dead code insurance for a documented
       // never-throws contract: `pingGuardianEndpointLatency` calls
-      // `registerGuardianOrigin` OUTSIDE its own try, so the contract currently
+      // `probeGuardianOrigin` OUTSIDE its own try, so the contract currently
       // holds only because that helper swallows its own URL-parse failure. A
       // hostile or malformed endpoint reads as offline rather than becoming an
       // unhandled rejection per endpoint per round.
