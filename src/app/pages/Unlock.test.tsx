@@ -73,14 +73,11 @@ jest.mock('lib/miden/front', () => {
       const setter = R.useCallback(
         (next: unknown) => {
           mockLsWrites.push([key, next]);
-          // Production writes storage synchronously in setValue; mirror that for a plain value so a
-          // read right after this call (another window, or this tick) sees it before React re-renders.
-          if (typeof next !== 'function') mockLsStore[key] = next;
-          setValue((prev: unknown) => {
-            const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(prev) : next;
-            mockLsStore[key] = resolved;
-            return resolved;
-          });
+          // Production writes storage synchronously and once; resolve here from the store's own
+          // current value so a functional update sees the same thing a real setState would.
+          const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(mockLsStore[key]) : next;
+          mockLsStore[key] = resolved;
+          setValue(resolved);
         },
         [key]
       );
@@ -375,7 +372,98 @@ describe('Unlock — extension password form', () => {
     await advance(1100);
 
     expect(mockLsStore.TimeLock).toBe(BASE);
-    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([]);
+    // Adopting the newer stamp is itself a write (storage already holds it, so nothing is erased);
+    // what must never happen is a clear-to-0 write.
+    expect(mockLsWrites.filter(([key, value]) => key === 'TimeLock' && value === 0)).toEqual([]);
+  });
+
+  // Before #1192 the tick always wrote 0 and re-rendered; adopting a stale stamp instead of clearing
+  // it must not leave this window frozen disabled once storage moves on without it.
+  it('adopts what storage holds once its own stamp is gone, instead of freezing disabled (#1192)', async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100); // outlast the post-lockout sleep so a refused guess never reaches unlock()
+
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(container.querySelector('#unlock-password')).toBeDisabled();
+
+    // Another window succeeds, resetting the stored count and clearing the stamp this one adopted.
+    mockLsStore.PasswordAttempts = 1;
+    mockLsStore.TimeLock = 0;
+    await advance(1100);
+
+    expect(container.querySelector('#unlock-password')).not.toBeDisabled();
+    expect(screen.queryByText(/unlockPasswordErrorDelay/)).not.toBeInTheDocument();
+  });
+
+  it('adopts a fresh lockout another window armed once its own stamp is gone, and shows its countdown (#1192)', async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100);
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+
+    // Another window's own failure re-arms a fresh, later stamp before this window's adopted one
+    // (attempt stays 6, so the two-minute level is unchanged) expires.
+    const NEW_STAMP = BASE + 90_000;
+    mockLsStore.TimeLock = NEW_STAMP;
+
+    // Past the ORIGINAL stamp's own two-minute level, so this window's tick notices storage moved on.
+    await advance(120_000);
+
+    expect(mockLsStore.TimeLock).toBe(NEW_STAMP); // adopted, not erased
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(container.querySelector('#unlock-password')).toBeDisabled();
+
+    // One more tick lets the newly-adopted stamp's own countdown catch up.
+    await advance(1000);
+    expect(screen.getByTestId('unlock-error')).not.toHaveTextContent('00:00');
+  });
+
+  // submitPasscode reads storage once, before the 1-3s post-lockout sleep; without a re-check just
+  // before unlock(), a lockout another window armed during that sleep is never seen (#1192).
+  it('re-checks storage after the post-lockout sleep, refusing a guess a fresh lockout armed meanwhile (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
+    jest.spyOn(Math, 'random').mockReturnValue(0.25); // the post-lockout sleep -> exactly 1500ms
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(1200); // past the interval's own 1s tick, still inside this window's 1500ms sleep
+
+    // Another window fails independently and arms a lockout while this one is still sleeping.
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = Date.now();
+
+    await advance(400); // the remaining sleep, then the post-sleep re-check
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+  });
+
+  // The catch must count from the live stored total, not the value read before the sleep, or a
+  // failure another window recorded meanwhile is overwritten back to the stale count (#1192).
+  it('does not lose a failure another window recorded during the post-lockout sleep (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(200);
+
+    // Window B fails independently while this window is still sleeping.
+    mockLsStore.PasswordAttempts = 5;
+
+    await advance(1200); // the remaining sleep, this window's own rejection, and the 300ms error delay
+
+    expect(mockLsStore.PasswordAttempts).toBe(6);
   });
 
   // The same clear reaches this arm: the password form's error line derives from the same isError

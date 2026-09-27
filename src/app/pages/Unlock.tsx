@@ -238,6 +238,22 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
         if (storedAttempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+
+        // Another window may have armed a lockout while this one slept; re-check before spending the
+        // guess, or two close submits could both reach unlock() (#1192).
+        const preUnlockAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
+        const preUnlockTimelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
+        const preUnlockLockLevel = LOCK_TIME * Math.floor(preUnlockAttempt / 3);
+        if (Date.now() - preUnlockTimelock <= preUnlockLockLevel) {
+          timelockRef.current = preUnlockTimelock;
+          setTimeLock(preUnlockTimelock);
+          setAttempt(preUnlockAttempt);
+          setTimeleft(getTimeLeft(preUnlockTimelock, preUnlockLockLevel));
+          setCode('');
+          setIsSubmitting(false);
+          return;
+        }
+
         await unlock(passcode);
 
         setAttempt(1);
@@ -250,13 +266,16 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        if (storedAttempt >= LAST_ATTEMPT) {
+        // A failure another window recorded while this one slept must not be overwritten by the
+        // pre-sleep count; arm and count from the live stored total instead (#1192).
+        const currentAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
+        if (currentAttempt >= LAST_ATTEMPT) {
           const stamp = Date.now();
           timelockRef.current = stamp;
           setTimeLock(stamp);
         }
-        setAttempt(storedAttempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((storedAttempt + 1) / 3)));
+        setAttempt(currentAttempt + 1);
+        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((currentAttempt + 1) / 3)));
 
         console.error(err);
 
@@ -359,12 +378,22 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       const stamp = timelockRef.current;
       // This window's own attempt can be stale (level 0) while it armed from a stored count another
       // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
-      const level = LOCK_TIME * Math.floor(readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1) / 3);
+      const storedAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
+      const level = LOCK_TIME * Math.floor(storedAttempt / 3);
       // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
       if (stamp !== 0 && Date.now() - stamp > level) {
-        timelockRef.current = 0;
-        // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
-        if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) === stamp) setTimeLock(0);
+        const storedTimeLock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
+        if (storedTimeLock === stamp) {
+          // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
+          timelockRef.current = 0;
+          setTimeLock(0);
+        } else {
+          // Storage no longer holds this stamp: adopt it, or isDisabled stays frozen on an expired
+          // value with nothing left to trigger the re-render that would clear it (#1192).
+          timelockRef.current = storedTimeLock;
+          setTimeLock(storedTimeLock);
+          setAttempt(storedAttempt);
+        }
       }
       setTimeleft(getTimeLeft(stamp, level));
     }, 1_000);
@@ -372,7 +401,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     return () => {
       clearInterval(interval);
     };
-  }, [setTimeLock]);
+  }, [setTimeLock, setAttempt]);
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
