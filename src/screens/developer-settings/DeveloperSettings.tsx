@@ -277,7 +277,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
-  const actionButton = 'flex-1 max-w-none';
+  // Not `flex-1`: in the stacked footer that sizes the height from a zero basis and squashes the button.
+  const actionButton = 'max-w-none';
 
   return (
     <SubPageLayout
@@ -370,7 +371,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         />
       </SubPageSection>
 
-      <SubPageSection title={t('options')} icon={<OptionsIcon />}>
+      <SubPageSection title={t('options')} icon={<OptionsIcon fill="currentColor" />}>
         <ListGroup surface="plain">
           <ListRow
             title={t('devAllowNoGuardian')}

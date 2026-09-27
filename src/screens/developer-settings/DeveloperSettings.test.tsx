@@ -699,6 +699,14 @@ describe('DeveloperSettings', () => {
     expect(screen.getByRole('heading', { name: 'options' })).toHaveClass('text-title-section', 'text-ink');
   });
 
+  // settings-2.svg's path has no fill and its root says `fill="none"`, so without a fill the glyph
+  // draws nothing and the section shows an empty circle.
+  it('draws the Options glyph in the text colour', () => {
+    render(<DeveloperSettings />);
+    const header = screen.getByRole('heading', { name: 'options' }).parentElement!;
+    expect(header.querySelector('[data-slot="icon"] svg')).toHaveAttribute('fill', 'currentColor');
+  });
+
   it('makes the read-only reset destructive, since it wipes the wallet', () => {
     render(<DeveloperSettings readOnly />);
     expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-variant', 'destructive');
