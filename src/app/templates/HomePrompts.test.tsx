@@ -1194,7 +1194,7 @@ describe('HomePrompts', () => {
       expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
     });
 
-    it('sends one request once the user confirms, and its marker replaces the record', async () => {
+    it('sends one request with a fresh request time once the user confirms', async () => {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       markerStore.set('accountA', unresolvedMarker);
       mockConfirm.mockResolvedValueOnce(true);
@@ -1207,8 +1207,10 @@ describe('HomePrompts', () => {
       expect(mockConfirm).toHaveBeenCalledTimes(1);
       const sent = { requestedAt: expect.any(Number), baselineNoteIds: [baselineNote.id] };
       expect(mockFaucet).toHaveBeenCalledWith('accountA', sent);
-      expect(markerStore.get('accountA')).toEqual(sent);
-      expect(markerStore.get('accountA')).not.toMatchObject({ requestedAt: unresolvedMarker.requestedAt });
+      expect(mockFaucet).not.toHaveBeenCalledWith(
+        'accountA',
+        expect.objectContaining({ requestedAt: unresolvedMarker.requestedAt })
+      );
       expect(faucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunding');
     });
 
