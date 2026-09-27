@@ -4,6 +4,7 @@ import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
+import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 import { IS_LOCALNET } from '../config/environments';
 import { dismissTelemetryConsent } from './telemetry-consent';
@@ -2196,8 +2197,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // dedicated /pending-notes page it replaced is gone. navigateTo() is a full goto, so the app
     // re-boots; wait for the rehydrated store (the route is `onlyReady`-gated on it) instead of
     // another fixed 3s.
-    // Mirrors ACTIVITY_PENDING_PATH (src/app/pages/activity-paths.ts); the E2E harness does not import from src.
-    await this.navigateTo('/history?filter=pending&view=list');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     await this.waitForStoreReady(3_000);
   }
 

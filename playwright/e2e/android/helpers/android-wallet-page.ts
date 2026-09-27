@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
@@ -242,8 +243,7 @@ export class AndroidWalletPage implements WalletPage {
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
     // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    // Mirrors ACTIVITY_PENDING_PATH (src/app/pages/activity-paths.ts); the E2E harness does not import from src.
-    await this.navigateTo('/history?filter=pending&view=list');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     await sleep(3_000);
 
     await this.pollForCondition(
