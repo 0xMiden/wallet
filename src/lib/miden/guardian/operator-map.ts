@@ -273,7 +273,7 @@ export async function checkEndpointCommitment(
  * cold-starting but perfectly correct self-hosted operator report as the WRONG
  * operator — the harshest possible reading of "slow".
  */
-const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
+export const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
 
 /**
  * Verify a specific endpoint's operator key matches the on-chain commitment,
