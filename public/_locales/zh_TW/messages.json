@@ -2747,6 +2747,10 @@
     "message": "此操作將使用您的恢復（冷）金鑰進行簽署。此過程無需輸入恢復短語，您的資金與帳戶狀態將保持不變。繼續嗎？",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "此操作將使用您的恢復（冷）金鑰進行簽署。系統將要求您輸入恢復短語以完成簽署，您的資金與帳戶將保持不變。要繼續嗎？",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "確認旋轉方向",
     "englishSource": "Confirm rotation"
