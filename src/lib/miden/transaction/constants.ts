@@ -264,6 +264,18 @@ export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
   'try again in a moment.';
 
+/**
+ * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
+ * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
+ * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ */
+export function isGuardianOutage(error: unknown): boolean {
+  if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
+  const raw = formatRawTransactionError(error);
+  return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
+}
+
 function classifyTransactionError(
   error: unknown,
   raw: string,
@@ -323,9 +335,8 @@ function classifyTransactionError(
     return TRANSACTION_VAULT_SHORTFALL_ERROR;
   }
   // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
-  // pipeline requeues it, #779); this names the failure for the operations that still end on it. After the fee and
-  // vault readings, which a guardian 5xx can carry and which name the cause more precisely.
-  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianUnreachableError(error)) {
+  // pipeline requeues it, #779); this names the failure for the operations that still end on it.
+  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianOutage(error)) {
     return GUARDIAN_UNREACHABLE_ERROR;
   }
   return raw;

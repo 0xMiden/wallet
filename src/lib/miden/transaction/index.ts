@@ -56,7 +56,7 @@ import {
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, TRANSACTION_EXPIRED_ERROR } from './constants';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, isGuardianOutage, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   isGuardianCanonicalizationError,
@@ -276,9 +276,9 @@ const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
 // temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
 const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
-// Cooldown (seconds) for a tx requeued because `isGuardianUnreachableError` reads the guardian as down (#779): a
-// transport failure with no HTTP response (refused, DNS, TLS, a timeout), any 5xx, or a 2xx whose body does not parse
-// as JSON. A connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
+// Cooldown (seconds) for a tx requeued because `isGuardianOutage` reads the guardian as down (#779): a transport
+// failure with no HTTP response (refused, DNS, TLS, a timeout), a 5xx, or a 2xx whose body does not parse as JSON. A
+// connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
@@ -1304,10 +1304,10 @@ const generateTransactionWithProvider = async (
         return;
       }
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
-      // also call, is down rather than refusing. Same pre-submit stage gate as the 429 arm above, so a retry cannot
-      // double-spend (#779).
+      // also call, is down rather than refusing. A kernel failure a 5xx carries is not an outage and fails at once.
+      // Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend (#779).
       if (
-        isGuardianUnreachableError(error) &&
+        isGuardianOutage(error) &&
         GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
         (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
       ) {
