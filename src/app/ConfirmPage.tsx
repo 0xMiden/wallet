@@ -135,7 +135,7 @@ const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = (
       'border border-gray-100 rounded-2xl mb-4'
     )}
   >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" />
+    <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
     <div className="flex min-w-0 flex-col">
       <DappOrigin origin={origin} className="font-semibold" data-testid="confirm-request-origin" />
       {children}
