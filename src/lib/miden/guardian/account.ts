@@ -10,7 +10,6 @@ import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
-import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
@@ -26,16 +25,17 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
  * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
  * network's default guardian.
  *
- * The global-key fallback is retained BY DESIGN as a frozen, read-only,
- * never-written last resort (#408 stage 3). The unlock-time backfill stamps a
+ * The global-key fallback is retained BY DESIGN as a frozen, read-only fallback
+ * (#408 stage 3): nothing writes the key. The unlock-time backfill stamps a
  * per-account endpoint on every legacy account it can resolve on-chain, but a
  * legacy account on a custom/self-hosted/rotated guardian that the backfill
- * cannot identify has this key as its only pointer — removing the fallback
- * would strand it. Do NOT delete this read; full removal of the key needs a
- * "re-enter your guardian URL" user flow (out of scope). The key is no longer
- * written anywhere in the codebase — grep for writers to confirm.
+ * cannot identify has this key as its only pointer, so a wallet that is only
+ * ever unlocked keeps it. It is dropped once a wallet setup succeeds
+ * (`dropLegacyGuardianUrl`) and by a full reset; see `GUARDIAN_URL_STORAGE_KEY`.
+ * Do NOT delete this read; removing the key from a wallet that is only ever
+ * unlocked needs a "re-enter your guardian URL" user flow (out of scope).
  */
-export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+export async function resolveGuardianEndpoint(account: { guardianEndpoint?: string }): Promise<string> {
   return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
 }
 

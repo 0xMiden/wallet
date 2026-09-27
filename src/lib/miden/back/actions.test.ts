@@ -191,9 +191,9 @@ jest.mock('./dapp', () => ({
   waitForTransaction: jest.fn()
 }));
 
-// `clear` is what the failed-restore undo calls through clearStorage; without it
+// The failed-restore undo reaches `storage.local.remove` through clearStorage; without it
 // the undo throws inside a finally and masks the failure it was undoing.
-const mockStorageClear = jest.fn().mockResolvedValue(undefined);
+const mockStorageRemove = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('webextension-polyfill', () => {
   // One object behind both views: consumers read `default ?? module`, and a test
@@ -201,8 +201,9 @@ jest.mock('webextension-polyfill', () => {
   const storage = {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true }),
-      // `clear` is what the failed-restore undo reaches through clearStorage.
-      clear: (...args: unknown[]) => mockStorageClear(...args)
+      // A storage reset lists the keys (`get(null)`) and removes all but the kept ones, so the
+      // failed-restore undo reaches `remove` through clearStorage.
+      remove: (...args: unknown[]) => mockStorageRemove(...args)
     }
   };
   const runtime = { onMessage: { addListener: jest.fn() } };
@@ -239,7 +240,7 @@ describe('actions', () => {
     // Steered per-test with mockRejectedValueOnce, so it resets where the others
     // do: an unconsumed one-shot would otherwise run a later test's undo down the
     // failure arm while its name claims the successful one.
-    mockStorageClear.mockReset().mockResolvedValue(undefined);
+    mockStorageRemove.mockReset().mockResolvedValue(undefined);
     mockInited.mockClear();
     mockLocked.mockClear();
     mockUnlocked.mockClear();
@@ -664,6 +665,53 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: spawned.insertKeySink });
     });
 
+    it('drops the legacy guardian URL once the new wallet is published (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+
+      await registerNewWallet(0 as any, 'pw');
+
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
+    it('keeps the legacy guardian URL when the setup fails after its spawn, so a Retry finds it (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce({
+        ...mockVault,
+        fetchSettings: jest.fn(async () => {
+          throw new Error('settings unreadable');
+        })
+      });
+
+      await expect(registerNewWallet(0 as any, 'pw')).rejects.toThrow('settings unreadable');
+
+      expect(mockStorageRemove).not.toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
+    it('still reports a published wallet as set up when dropping the legacy URL fails (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+      mockStorageRemove.mockRejectedValueOnce(new Error('storage down'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await expect(registerNewWallet(0 as any, 'pw')).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy guardian URL'), expect.any(Error));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('drops the legacy guardian URL once a hot-key import is published, and keeps it when the import fails (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockRejectedValueOnce(new Error('import failed'));
+      await expect(registerWalletFromHotKey('pw', 'hot:evm')).rejects.toThrow('import failed');
+      expect(mockStorageRemove).not.toHaveBeenCalledWith(['guardian_url_setting']);
+
+      Vault.spawnFromHotKey.mockResolvedValueOnce(mockVault);
+      await registerWalletFromHotKey('pw', 'hot:evm');
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
     it('an import whose spawn fails leaves the realm sink as the store has it (#878)', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.spawnFromMidenClient.mockRejectedValueOnce(new Error('restore failed'));
@@ -783,14 +831,14 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(provisionalVault);
 
-      mockStorageClear.mockClear();
+      mockStorageRemove.mockClear();
 
       await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
       expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
       expect(mockUnlocked).not.toHaveBeenCalled();
       // The spawn RESOLVED, so its own undo cannot fire: without this one the
       // profile keeps a complete, unlockable vault while the UI reports failure.
-      expect(mockStorageClear).toHaveBeenCalled();
+      expect(mockStorageRemove).toHaveBeenCalled();
     });
 
     it('does not let a failed undo replace the failure it was undoing', async () => {
@@ -802,7 +850,7 @@ describe('actions', () => {
         isOwnMnemonic: jest.fn(),
         retire: jest.fn()
       });
-      mockStorageClear.mockRejectedValueOnce(new Error('storage unavailable'));
+      mockStorageRemove.mockRejectedValueOnce(new Error('storage unavailable'));
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       // The undo runs in a finally, so an unguarded throw there would surface the
@@ -810,8 +858,64 @@ describe('actions', () => {
       await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
       // Prove the undo was actually attempted: without this the assertion above is
       // equally satisfied by a run in which it never fired.
-      expect(mockStorageClear).toHaveBeenCalled();
+      expect(mockStorageRemove).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
+    });
+
+    it('keeps the legacy guardian URL and the endpoint override through a failed restore undo (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockResolvedValueOnce({
+        fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+        fetchSettings: jest.fn(),
+        getCurrentAccount: jest.fn(),
+        isOwnMnemonic: jest.fn(),
+        retire: jest.fn()
+      });
+      const { get } = jest.requireMock('webextension-polyfill').default.storage.local;
+      get.mockImplementation(async (keys: unknown) =>
+        keys === null
+          ? { DAppEnabled: true, guardian_url_setting: 'https://legacy.example', endpoint_overrides: '{}' }
+          : { DAppEnabled: true }
+      );
+      try {
+        await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+        const removed = mockStorageRemove.mock.calls.flatMap(call => call[0] as string[]);
+        expect(removed).toContain('DAppEnabled');
+        expect(removed).not.toContain('guardian_url_setting');
+        expect(removed).not.toContain('endpoint_overrides');
+      } finally {
+        get.mockReset().mockResolvedValue({ DAppEnabled: true });
+      }
+    });
+
+    it('drops the legacy guardian URL once the restored wallet is published (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVault);
+      const order: string[] = [];
+      mockUnlocked.mockImplementationOnce(() => order.push('published'));
+      mockStorageRemove.mockImplementationOnce(async (removed: string[]) => {
+        order.push(...removed);
+      });
+
+      await registerImportedWallet('password', 'mnemonic', [], 2, []);
+
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+      expect(order).toEqual(['published', 'guardian_url_setting']);
+    });
+
+    it('still reports a published restore as set up when dropping the legacy URL fails (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVault);
+      mockStorageRemove.mockRejectedValueOnce(new Error('storage down'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy guardian URL'), expect.any(Error));
+        // The only removal is the drop: a published restore is never undone.
+        expect(mockStorageRemove).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 
