@@ -526,6 +526,20 @@ describe('onPermissionChange', () => {
 
     stop();
   });
+
+  it('drops a check that answers after stop, and polls no more (#174)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb);
+    // The first check is in flight when the provider disconnects.
+    stop();
+    resolveWith(permA);
+    await flush();
+    expect(cb).not.toHaveBeenCalled();
+    const requestsAfterStop = postSpy.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(postSpy.mock.calls.length).toBe(requestsAfterStop);
+  });
 });
 
 // ── assertResponse (direct) ────────────────────────────────────────

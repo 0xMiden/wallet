@@ -67,19 +67,25 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
 export function onPermissionChange(callback: (permission: MidenDAppCurrentPermission) => void) {
   let t: any;
   let currentPerm: MidenDAppCurrentPermission = null;
+  // The clear function cannot cancel a check already awaiting its answer, so a
+  // disconnect would otherwise be undone by that answer repopulating the window object (#174).
+  let stopped = false;
   const check = async () => {
     try {
       const perm = await getCurrentPermission();
-      if (!permissionsAreEqual(perm, currentPerm)) {
+      if (!stopped && !permissionsAreEqual(perm, currentPerm)) {
         callback(perm);
         currentPerm = perm;
       }
     } catch {}
 
-    t = setTimeout(check, 10_000);
+    if (!stopped) t = setTimeout(check, 10_000);
   };
   check();
-  return () => clearTimeout(t);
+  return () => {
+    stopped = true;
+    clearTimeout(t);
+  };
 }
 
 export async function getCurrentPermission() {
