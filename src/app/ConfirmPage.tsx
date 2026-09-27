@@ -14,6 +14,7 @@ import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { Spinner } from 'components/ui/Spinner';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -29,7 +30,6 @@ import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
@@ -137,11 +137,9 @@ const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = (
       'border border-gray-100 rounded-2xl mb-4'
     )}
   >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" />
-    <div className="flex flex-col">
-      <Name className="font-semibold" data-testid="confirm-request-origin">
-        {origin}
-      </Name>
+    <Icon name={IconName.Globe} fill="currentColor" size="md" className="shrink-0" />
+    <div className="flex min-w-0 flex-col">
+      <DappOrigin origin={origin} className="font-semibold" data-testid="confirm-request-origin" />
       {children}
     </div>
   </div>
