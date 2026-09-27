@@ -949,9 +949,10 @@ describe('Unlock — mobile passcode numpad', () => {
     (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
 
   // The stub's setter is stable, so the interval is not re-created on every render as it is in the
-  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run
-  // by hand, after the catch arms and before React commits (#1079). The stored stamp is 0, or an
-  // expired one from an earlier lockout, which only reading the live stamp survives.
+  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run by
+  // hand once the rejection has re-stamped the lockout, before React commits (#1079). The guess still
+  // holds its guard there, so the tick only sets the countdown: 01:00 from the live stamp, 00:00 from
+  // the one in its closure (0, or an expired stamp from an earlier lockout).
   it.each([
     ['0', 0],
     ['an expired stamp', BASE - 10 * 60_000]
@@ -965,8 +966,6 @@ describe('Unlock — mobile passcode numpad', () => {
     type(container, '111111');
     await act(async () => {
       await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
-      await Promise.resolve();
-      await Promise.resolve(); // the catch has armed; React has not committed
       staleTick();
     });
     await advance(450);
@@ -1003,6 +1002,60 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(mockLsStore.TimeLock).toBe(BASE + 1150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
     expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  // The fast path adopts another window's lockout without taking the guard, so the tick from before it
+  // judges the adopted stamp there: by its closure's level (0) it would clear that stamp, and from its
+  // closure's stamp (0) or level it would count down 00:00 (#1192).
+  it("keeps another window's lockout the fast path adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fifth failure, after this window mounted, armed the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires and the fast path adopts; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
+  });
+
+  // The re-check after the post-lockout sleep refuses without a rejection, so its finally releases the
+  // guard at once, before React commits the lockout it adopted: the same tick judges there (#1192).
+  it("keeps another window's lockout the post-sleep re-check adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fourth failure left 5 after this window mounted, and that lockout has run out and
+    // been cleared, so this guess passes the fast path and sleeps.
+    mockLsStore.PasswordAttempts = 5;
+
+    type(container, '111111');
+    await advance(700); // the auto-submit fired at 150ms and the sleep runs to 1150ms, so what follows lands in it
+    // That window's fifth failure lands during the sleep and arms the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(450); // the sleep ends and the re-check refuses; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
   });
 
   it('writes nothing to storage while no lockout is armed', async () => {
