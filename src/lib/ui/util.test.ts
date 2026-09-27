@@ -26,7 +26,7 @@ describe('ui utilities', () => {
 
     try {
       await expect(clearClipboard()).resolves.toBe(false);
-      expect(logged).toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
     } finally {
       logged.mockRestore();
     }
