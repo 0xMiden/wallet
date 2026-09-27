@@ -145,7 +145,8 @@ export const INJECTION_SCRIPT = `
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
-  // The wallet's own fields are the only state, so a listener that throws after they are set cannot freeze the watch.
+  // The wallet's own fields are the only state, so a throw after they are set cannot freeze the watch. Such a throw
+  // comes from a mobile listener; desktop's _emit isolates its listeners.
   function watchPermission(wallet) {
     stopPermissionWatch();
     let stopped = false;

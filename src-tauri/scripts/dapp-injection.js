@@ -139,7 +139,8 @@
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
-  // The wallet's own fields are the only state, so a listener that throws after they are set cannot freeze the watch.
+  // The wallet's own fields are the only state, so a throw after they are set cannot freeze the watch. Such a throw
+  // comes from a mobile listener; desktop's _emit isolates its listeners.
   function watchPermission(wallet) {
     stopPermissionWatch();
     let stopped = false;
@@ -314,10 +315,19 @@
         // A disconnect() while the request was pending ends this connection too: nothing is set and no watch starts.
         if (disconnectCount !== disconnects) throw new Error('The wallet was disconnected while connecting');
 
+        // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
+        // leaves the provider, and any watch already running, as it was.
+        let publicKey;
+        try {
+          publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        } catch (e) {
+          throw new Error('Invalid publicKey in wallet response');
+        }
+
         // Set public properties matching MidenWindowObject
         this.address = res.accountId;
         this.network = network;
-        this.publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        this.publicKey = publicKey;
         this.permission = {
           rpc: res.network,
           address: res.accountId,

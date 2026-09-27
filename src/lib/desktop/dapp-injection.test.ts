@@ -155,30 +155,38 @@ describe('account switch (#174)', () => {
     expect(h.win.midenWallet.address).toBe('0xdef');
   });
 
-  it('a throwing accountChange listener hears a switch once, and the switch back still lands', async () => {
+  // Desktop's _emit isolates each listener, so the one registered after a throwing listener hears every emission.
+  it('a repeated poll for the same account emits once, and a switch back lands, to every listener', async () => {
     const h = await connected();
     const listener = jest.fn(() => {
       throw new Error('listener failed');
     });
+    const after = jest.fn();
     h.win.midenWallet.on('accountChange', listener);
+    h.win.midenWallet.on('accountChange', after);
     const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
     await answerPoll(h, next);
     await answerPoll(h, next);
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
     await answerPoll(h, { ...PERM, publicKey: btoa('abc') });
     expect(h.win.midenWallet.address).toBe('0xabc');
     expect(listener).toHaveBeenCalledTimes(2);
+    expect(after).toHaveBeenCalledTimes(2);
   });
 
-  it('a throwing accountChange listener hears two null polls once', async () => {
+  it('a repeated null poll emits once, to every listener', async () => {
     const h = await connected();
     const listener = jest.fn(() => {
       throw new Error('listener failed');
     });
+    const after = jest.fn();
     h.win.midenWallet.on('accountChange', listener);
+    h.win.midenWallet.on('accountChange', after);
     await answerPoll(h, null);
     await answerPoll(h, null);
     expect(listener.mock.calls).toEqual([[null]]);
+    expect(after.mock.calls).toEqual([[null]]);
   });
 
   it('stops on disconnect, and a poll answered after disconnect changes nothing', async () => {
@@ -263,6 +271,22 @@ describe('account switch (#174)', () => {
     await again;
     jest.advanceTimersByTime(10000);
     expect(h.polls()).toHaveLength(1);
+  });
+
+  it('a connect whose key cannot be decoded changes nothing, and the first watch still drives', async () => {
+    const h = await connected();
+    const spy = jest.fn();
+    h.win.midenWallet.on('accountChange', spy);
+    const again = h.win.midenWallet.connect('ALL', 'devnet', ['balance']);
+    h.answer(h.last().reqId, { ...CONNECT, accountId: '0xdef', publicKey: '%%%' });
+    await expect(again).rejects.toThrow('Invalid publicKey in wallet response');
+    expect(h.win.midenWallet).toMatchObject({ address: '0xabc', network: 'testnet', permission: { address: '0xabc' } });
+    expect(Array.from(h.win.midenWallet.publicKey ?? [])).toEqual([97, 98, 99]);
+    expect(spy).not.toHaveBeenCalled();
+    const polls = h.polls().length;
+    await answerPoll(h, { ...PERM, address: '0xdef', publicKey: btoa('def') });
+    expect(h.polls()).toHaveLength(polls + 1);
+    expect(h.win.midenWallet.address).toBe('0xdef');
   });
 
   it('a listener that disconnects from the connect emission leaves no poll', async () => {
