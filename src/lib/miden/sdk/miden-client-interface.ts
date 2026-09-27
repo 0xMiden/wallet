@@ -1678,9 +1678,13 @@ export class MidenClientInterface {
    * `requestedAmount` of `requestedFaucetId` (partial fills emit a
    * remainder PSWAP note for the unfilled amount).
    *
-   * TODO: offscreen-prover path not wired up — pswapCreate has no
-   * `buildExecuteArgs` builder yet, so this always proves inline via
-   * `withProverFallback`. Add the offscreen path if swap proving is slow.
+   * A delegated attempt proves remotely. A local attempt proves in the prove
+   * worker where the realm has a local prove transport (the offscreen document,
+   * #945), and otherwise inside the SDK's all-in-one submit with the realm's local
+   * prover (native on mobile); the service worker's `proveLocallyViaOffscreen`
+   * path has no PSWAP builder. A delegated attempt that fails before
+   * `markSubmitting()` falls back to a local one through `proveWithFallback`;
+   * nothing falls back once it has run.
    */
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
