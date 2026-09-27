@@ -2843,6 +2843,19 @@
     "message": "Je ne partagerai mon fichier de portefeuille crypté avec personne, pas même avec Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Non restauré à partir de ce fichier : $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Les comptes importés avec des clés privées ne peuvent pas être restaurés à partir d’un fichier de portefeuille, et un portefeuille restauré à partir de ce fichier ne peut pas les ajouter. Ils sont restaurés sous la forme d’un portefeuille distinct, configuré avec l’importation des clés privées ainsi que leurs clés quotidiennes Miden et leurs clés privées EVM. Conservez ces clés en lieu sûr : affichez-les dans Paramètres → Clés → Afficher la clé privée après avoir sélectionné ce compte.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+  },
   "enterPasswordToEncrypt": {
     "message": "Saisissez un mot de passe pour crypter le fichier de votre portefeuille.",
     "englishSource": "Enter a password to encrypt your wallet file."

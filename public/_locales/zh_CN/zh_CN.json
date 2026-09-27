@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "请输入密码以访问您的加密钱包文件。",
   "encryptedWalletFileDescriptionHardware": "请使用密码解锁，以访问您的加密钱包文件。",
   "encryptedWalletFileConfirmation": "我不会将我的加密钱包文件分享给任何人，包括Bread。",
+  "encryptedWalletFileExcludedTitle": "未从该文件恢复：$accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian 使用私钥导入的账户无法从钱包文件中恢复，且从该文件恢复的钱包也无法添加这些账户。这些账户将作为独立的钱包恢复，通过“导入私钥”功能并配置其 Miden 日常私钥和 EVM 私钥进行设置。请妥善保管这些私钥：在“设置”→“密钥”→“显示私钥”中选中相应账户后，方可查看这些私钥。",
   "enterPasswordToEncrypt": "请输入密码以对您的钱包文件进行加密。",
   "encryptedWalletFileJsonOnly": "请选择 .JSON 钱包文件。",
   "encryptedWalletFileReadFailed": "无法读取钱包文件。请重新选择。",

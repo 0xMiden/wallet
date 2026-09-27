@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "Geben Sie Ihr Passwort ein, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
   "encryptedWalletFileDescriptionHardware": "Entsperren Sie das Gerät mit Ihrem Passcode, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
   "encryptedWalletFileConfirmation": "Ich werde meine verschlüsselte Wallet-Datei an niemanden weitergeben, auch nicht an Bread.",
+  "encryptedWalletFileExcludedTitle": "Nicht aus dieser Datei wiederhergestellt: $accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian Konten, die mit privaten Schlüsseln importiert wurden, können nicht aus einer Wallet-Datei wiederhergestellt werden, und eine aus dieser Datei wiederhergestellte Wallet kann sie nicht hinzufügen. Sie werden als separate Wallet wiederhergestellt, die mit den importierten privaten Schlüsseln sowie deren täglichen Miden- und EVM-Schlüsseln eingerichtet wird. Bewahren Sie diese Schlüssel sicher auf: Zeigen Sie sie unter „Einstellungen“ → „Schlüssel“ → „Privaten Schlüssel anzeigen“ an, nachdem Sie das entsprechende Konto ausgewählt haben.",
   "enterPasswordToEncrypt": "Geben Sie ein Passwort ein, um Ihre Wallet-Datei zu verschlüsseln.",
   "encryptedWalletFileJsonOnly": "Wähle eine .JSON-Wallet-Datei aus.",
   "encryptedWalletFileReadFailed": "Die Wallet-Datei konnte nicht gelesen werden. Wähle sie erneut aus.",

@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "Introduce tu contraseña para acceder a tu archivo de monedero cifrado.",
   "encryptedWalletFileDescriptionHardware": "Desbloquea con tu código de acceso para acceder a tu archivo de monedero cifrado.",
   "encryptedWalletFileConfirmation": "No compartiré mi archivo de monedero cifrado con nadie, ni siquiera con Bread.",
+  "encryptedWalletFileExcludedTitle": "No se ha restaurado desde este archivo: $accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Configuración» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
   "enterPasswordToEncrypt": "Introduce una contraseña para cifrar el archivo de tu monedero.",
   "encryptedWalletFileJsonOnly": "Elige un archivo de cartera .JSON.",
   "encryptedWalletFileReadFailed": "No se pudo leer el archivo de cartera. Vuelve a elegirlo.",

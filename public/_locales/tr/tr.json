@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "Şifrelenmiş Cüzdan Dosyanıza erişmek için şifrenizi girin.",
   "encryptedWalletFileDescriptionHardware": "Şifrelenmiş Cüzdan Dosyanıza erişmek için şifrenizle kilidi açın.",
   "encryptedWalletFileConfirmation": "Şifrelenmiş Cüzdan Dosyamı, Bread dahil olmak üzere kimseyle paylaşmayacağım.",
+  "encryptedWalletFileExcludedTitle": "Bu dosyadan geri yüklenmedi: $accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian Özel anahtarlarla içe aktarılan hesaplar bir cüzdan dosyasından geri yüklenemez ve bu dosyadan geri yüklenen bir cüzdan da bunları ekleyemez. Bu hesaplar, \"Özel anahtarları içe aktar\" seçeneği ile her gün Miden ve EVM özel anahtarları kullanılarak kurulan ayrı bir cüzdan olarak geri yüklenir. Bu anahtarları güvenli bir yerde saklayın: Ayarlar → Anahtarlar → Özel Anahtarı Göster seçeneğinden o hesabı seçerek anahtarları görüntüleyin.",
   "enterPasswordToEncrypt": "Cüzdan dosyanızı şifrelemek için bir şifre girin.",
   "encryptedWalletFileJsonOnly": ".JSON cüzdan dosyası seçin.",
   "encryptedWalletFileReadFailed": "Cüzdan dosyası okunamadı. Dosyayı yeniden seçin.",
