@@ -116,14 +116,16 @@ describe('account switch (#174)', () => {
 
   it('takes a switched account before emitting it', async () => {
     const h = await connected();
-    const seen: unknown[] = [];
+    const seen: unknown[][] = [];
     h.win.midenWallet.on('accountChange', p =>
       seen.push([p, h.win.midenWallet.address, Array.from(h.win.midenWallet.publicKey ?? [])])
     );
     const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
     await answerPoll(h, next);
-    expect(seen).toEqual([[next, '0xdef', [100, 101, 102]]]);
-    expect(h.win.midenWallet.permission).toEqual(next);
+    const taken = { ...next, publicKey: new Uint8Array([100, 101, 102]) };
+    expect(seen).toEqual([[taken, '0xdef', [100, 101, 102]]]);
+    expect(h.win.midenWallet.permission).toEqual(taken);
+    expect(seen[0]![0]).toBe(h.win.midenWallet.permission);
   });
 
   it('clears on null and emits it, keeps polling, and emits the grant again on the switch back', async () => {

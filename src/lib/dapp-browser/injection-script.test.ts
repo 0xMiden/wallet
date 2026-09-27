@@ -593,7 +593,8 @@ describe('connect', () => {
       rpc: 'rpc.devnet',
       address: '0xdeadbeef',
       privateDataPermission: 'ALL',
-      allowedPrivateData: ['x']
+      allowedPrivateData: ['x'],
+      publicKey: new Uint8Array([97, 98, 99])
     });
     expect(win.midenWallet.address).toBe('0xdeadbeef');
     expect(win.midenWallet.network).toBe('devnet'); // the *arg*, not res.network
@@ -849,14 +850,16 @@ describe('account switch (#174)', () => {
 
   it('takes a switched account before emitting it', async () => {
     const win = await connectedOnTestnet();
-    const seen: unknown[] = [];
+    const seen: unknown[][] = [];
     win.midenWallet.on('accountChange', (p: unknown) =>
       seen.push([p, win.midenWallet.address, Array.from(win.midenWallet.publicKey)])
     );
     const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
     await answerPoll(win, next);
-    expect(seen).toEqual([[next, '0xdef', [100, 101, 102]]]);
-    expect(win.midenWallet.permission).toEqual(next);
+    const taken = { ...next, publicKey: new Uint8Array([100, 101, 102]) };
+    expect(seen).toEqual([[taken, '0xdef', [100, 101, 102]]]);
+    expect(win.midenWallet.permission).toEqual(taken);
+    expect(seen[0]![0]).toBe(win.midenWallet.permission);
   });
 
   it('clears on null and emits it, keeps polling, and emits the grant again on the switch back', async () => {

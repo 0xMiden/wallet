@@ -289,8 +289,8 @@ describe('MidenWindowObject', () => {
 
       it('takes the new account before listeners hear of it', async () => {
         const { obj, fire } = await connectCapturing();
-        const seen: unknown[] = [];
-        obj.on('accountChange', () => seen.push([obj.address, obj.publicKey, obj.permission]));
+        const seen: unknown[][] = [];
+        obj.on('accountChange', (p: unknown) => seen.push([p, obj.address, obj.publicKey, obj.permission]));
         const next = {
           rpc: 'rpc',
           address: 'mtst1qnext',
@@ -299,7 +299,10 @@ describe('MidenWindowObject', () => {
           publicKey: btoa('xyz')
         };
         fire(next);
-        expect(seen).toEqual([['mtst1qnext', new Uint8Array([120, 121, 122]), next]]);
+        const key = new Uint8Array([120, 121, 122]);
+        const taken = { ...next, publicKey: key };
+        expect(seen).toEqual([[taken, 'mtst1qnext', key, taken]]);
+        expect(seen[0]![0]).toBe(obj.permission);
       });
 
       it('clears the account when the new one has not granted this origin, and emits null', async () => {

@@ -216,7 +216,8 @@ export const INJECTION_SCRIPT = `
         rpc: res.network,
         address: res.accountId,
         privateDataPermission: res.privateDataPermission,
-        allowedPrivateData: res.allowedPrivateData
+        allowedPrivateData: res.allowedPrivateData,
+        publicKey: decodedPublicKey
       };
       this.address = res.accountId;
       this.network = network;
@@ -239,8 +240,9 @@ export const INJECTION_SCRIPT = `
       this.emit('disconnect');
     }
 
-    // Fields follow the new account before listeners hear of it; null clears them. A key that
-    // cannot be decoded throws before anything changes.
+    // Fields follow the new account before listeners hear of it; null clears them. The permission
+    // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+    // anything changes.
     _applyPermission(perm) {
       if (perm === null) {
         this.address = undefined;
@@ -250,10 +252,11 @@ export const INJECTION_SCRIPT = `
         return;
       }
       const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
-      this.permission = perm;
+      const permission = { ...perm, publicKey };
+      this.permission = permission;
       this.address = perm.address;
       this.publicKey = publicKey;
-      this.emit('accountChange', perm);
+      this.emit('accountChange', permission);
     }
 
     async requestSend(transaction) {

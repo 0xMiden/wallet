@@ -37,7 +37,7 @@ import { GuardianInfo } from 'lib/shared/types';
 export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implements MidenWallet {
   address?: string | undefined;
   publicKey?: Uint8Array | undefined;
-  permission?: MidenDAppPermission | undefined;
+  permission?: (NonNullable<MidenDAppPermission> & { publicKey?: Uint8Array }) | undefined;
   appName?: string | undefined;
   network?: WalletAdapterNetwork | undefined;
   private clearAccountChangeInterval?: () => void | undefined;
@@ -141,9 +141,9 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
 
   // An account switch arrives here (#174). A permission for the account already held changes
   // nothing, so the check right after connect does not echo it. The fields follow a new account
-  // before listeners hear of it, and null (no grant from that account) clears them. A malformed
-  // key throws before anything changes; onPermissionChange has recorded it and does not retry it,
-  // as the same key would fail again.
+  // before listeners hear of it, and null (no grant from that account) clears them. The permission
+  // carries the decoded key, the shape connect gives. A malformed key throws before anything
+  // changes; onPermissionChange has recorded it and does not retry it, as the same key would fail again.
   private applyPermission(perm: MidenDAppCurrentPermission) {
     if (perm?.address === this.address) return;
     if (perm === null) {
@@ -153,12 +153,12 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
       this.emit('accountChange', null);
       return;
     }
-    let publicKey: Uint8Array | undefined;
-    if (perm.publicKey) publicKey = b64ToU8(perm.publicKey);
-    this.permission = perm;
+    const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
+    const permission = { ...perm, publicKey };
+    this.permission = permission;
     this.address = perm.address;
     this.publicKey = publicKey;
-    this.emit('accountChange', perm);
+    this.emit('accountChange', permission);
   }
 
   /**

@@ -346,8 +346,9 @@
         return res;
       }
 
-      // Fields follow the new account before listeners hear of it; null clears them. A key that
-      // cannot be decoded throws before anything changes.
+      // Fields follow the new account before listeners hear of it; null clears them. The permission
+      // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+      // anything changes.
       _applyPermission(perm) {
         if (perm === null) {
           this.address = undefined;
@@ -357,10 +358,11 @@
           return;
         }
         const publicKey = perm.publicKey ? base64ToUint8Array(perm.publicKey) : undefined;
-        this.permission = perm;
+        const permission = { ...perm, publicKey };
+        this.permission = permission;
         this.address = perm.address;
         this.publicKey = publicKey;
-        this._emit('accountChange', perm);
+        this._emit('accountChange', permission);
       }
 
       async requestSend(transaction) {
