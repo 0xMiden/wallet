@@ -71,14 +71,22 @@ function sameState(a: ActivityReadState, b: ActivityReadState): boolean {
   return keys.length === Object.keys(b.ids).length && keys.every(id => b.ids[id] === a.ids[id]);
 }
 
+function forget() {
+  cached = undefined;
+  notify();
+}
+
 // Every extension window (popup, side panel, full-page tab) keeps its own cache over one shared
 // localStorage value, so each merges the others' writes as they land. A removal or a clear (a
-// wallet reset) drops the cache instead, and the next read takes the device's value again.
+// wallet reset) drops the cache instead, and the next read takes the device's value again. A value
+// that does not parse is ignored: this window keeps its copy, and its next mark writes over it.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
     if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
+    if (event.newValue === null) return forget();
     const incoming = parse(event.newValue);
-    const next = incoming && cached ? merge(cached, incoming) : undefined;
+    if (!incoming) return;
+    const next = cached ? merge(cached, incoming) : undefined;
     if (next && cached && sameState(next, cached)) return;
     cached = next;
     notify();
