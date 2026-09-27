@@ -486,7 +486,7 @@ describe('useConnectivityState', () => {
         refused = true;
         throw new Error('quota');
       }
-      mockStoredValues[key] = value;
+      return putToMockStore(key, value);
     });
 
     act(() => result.current.dismiss('network'));
