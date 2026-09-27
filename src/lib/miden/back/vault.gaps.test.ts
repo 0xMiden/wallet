@@ -460,10 +460,8 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
 
       const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
       expect(vault).toBeInstanceOf(Vault);
-      // The retained frozen fallback: recovery used the pre-wipe global key even
-      // though it was never restored to storage. This guards against over-deletion
-      // of the recovery fallback (a custom-guardian recovery must not silently
-      // bind to the network default).
+      // Recovery used the frozen legacy key, which the wipe keeps. This guards against over-deletion
+      // of the recovery fallback (a custom-guardian recovery must not silently bind to the network default).
       expect(recoveredWithEndpoint).toBe('https://my-guardian.example');
       expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
     } finally {
