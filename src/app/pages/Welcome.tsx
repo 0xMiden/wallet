@@ -7,11 +7,13 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -823,7 +825,18 @@ const Welcome: FC = () => {
             walletType === WalletType.Guardian
           ) {
             // The page change clears registrationError, so the screen gets its own copy of the reason.
-            setGuardianLookupFailure(isGuardianNotFound(error) ? GUARDIAN_ACCOUNT_NOT_FOUND : failure);
+            let lookupFailure: string;
+            if (isGuardianNotFound(error)) {
+              lookupFailure = GUARDIAN_ACCOUNT_NOT_FOUND;
+            } else if (!isWasmClientPoisonedError(error) && isLikelyNetworkError(error)) {
+              // A raw "Failed to fetch" / RPC timeout message is not translated; show the
+              // operator-unreachable notice instead. isWasmClientPoisonedError is checked first: a
+              // poisoned client keeps its own message even if its text happens to mention a fetch failure.
+              lookupFailure = t('guardianUrlUnreachable');
+            } else {
+              lookupFailure = failure;
+            }
+            setGuardianLookupFailure(lookupFailure);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode

@@ -1574,6 +1574,42 @@ describe('Welcome — confirmation / register', () => {
   });
 
   it("carries a non-not-found lookup failure's own message", async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('This key is no longer active for the account.'));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('This key is no longer active for the account.');
+  });
+
+  it('maps a network failure to the guardianUrlUnreachable notice', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('Failed to fetch'));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
+  });
+
+  it('maps an RPC timeout to the guardianUrlUnreachable notice', async () => {
     mockRegisterWallet.mockRejectedValue(new Error('RPC "recoverGuardianByKey" timed out after 30000ms'));
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
@@ -1588,7 +1624,7 @@ describe('Welcome — confirmation / register', () => {
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
-    expect(mockFlowProps.current.guardianLookupFailure).toBe('RPC "recoverGuardianByKey" timed out after 30000ms');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
   });
 
   it('falls back to translated copy on the recovery-method screen when a lookup failure carries no text', async () => {
