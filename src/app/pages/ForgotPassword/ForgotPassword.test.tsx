@@ -649,6 +649,73 @@ describe('ForgotPassword', () => {
     expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * On desktop, `clearClientStorage()` is `localStorage.clear()` and desktop's
+   * key-value store lives there too, so a Retry's own read of the override
+   * key comes back null: the first attempt's wipe already took it. Without a
+   * kept value the retry restores nothing and the account is recovered on the
+   * custom network while the next launch resolves the build-default endpoint.
+   */
+  it('restores the override on Retry after the wipe took it (#1093)', async () => {
+    const override = { rpcUrl: 'https://custom.example.com' };
+    mockFetchFromStorage.mockResolvedValueOnce(override).mockResolvedValue(null);
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded')).mockResolvedValue(undefined);
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockPutToStorage).toHaveBeenCalledTimes(2);
+    // The second read is null; the restored value is the one kept from the first.
+    expect(mockPutToStorage).toHaveBeenNthCalledWith(2, 'endpoint_overrides', override);
+    const secondClear = mockClearClientStorage.mock.invocationCallOrder[1]!;
+    const secondPut = mockPutToStorage.mock.invocationCallOrder[1]!;
+    const registerOrders = mockRegisterWallet.mock.invocationCallOrder;
+    expect(secondClear).toBeLessThan(secondPut);
+    expect(secondPut).toBeLessThan(registerOrders[registerOrders.length - 1]!);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the override on Retry when registerWallet fails after a successful restore (#1093)', async () => {
+    const override = { rpcUrl: 'https://custom.example.com' };
+    mockFetchFromStorage.mockResolvedValueOnce(override).mockResolvedValue(null);
+    mockRegisterWallet.mockRejectedValueOnce(new Error('register failed'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockPutToStorage).toHaveBeenCalledTimes(2);
+    expect(mockPutToStorage).toHaveBeenNthCalledWith(2, 'endpoint_overrides', override);
+    const secondClear = mockClearClientStorage.mock.invocationCallOrder[1]!;
+    const secondPut = mockPutToStorage.mock.invocationCallOrder[1]!;
+    const registerOrders = mockRegisterWallet.mock.invocationCallOrder;
+    expect(secondClear).toBeLessThan(secondPut);
+    expect(secondPut).toBeLessThan(registerOrders[registerOrders.length - 1]!);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not restore across retries when neither read finds an override (#1093)', async () => {
+    // Nothing was ever kept, so the fallback must not invent a value: both
+    // attempts skip the restore exactly like the single-attempt case.
+    mockFetchFromStorage.mockResolvedValue(null);
+    mockRegisterWallet.mockRejectedValueOnce(new Error('register failed'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockFetchFromStorage).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // onAction — back branches
   // -------------------------------------------------------------------------

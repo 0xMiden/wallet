@@ -52,6 +52,12 @@ const ForgotPassword: FC = () => {
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
 
+  // The first non-null endpoint-override read across this attempt's retries.
+  // A failed restore can leave the key permanently null on desktop (the wipe
+  // already took it), so a later attempt's own null read is not "nothing to
+  // restore" but the same loss recurring (#1093).
+  const preservedEndpointOverride = useRef<unknown>(null);
+
   // Telemetry for the `recover` flow — regaining access to an EXISTING wallet
   // from its seed phrase. The other half of this screen (wipe and create a
   // fresh wallet) is not a recovery, so it never opens a flow and every
@@ -129,9 +135,13 @@ const ForgotPassword: FC = () => {
       // value it just read.
       try {
         const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
+        if (endpointOverrides != null && preservedEndpointOverride.current === null) {
+          preservedEndpointOverride.current = endpointOverrides;
+        }
+        const overrideToRestore = endpointOverrides ?? preservedEndpointOverride.current;
         clearClientStorage();
-        if (endpointOverrides != null) {
-          await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, endpointOverrides);
+        if (overrideToRestore != null) {
+          await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, overrideToRestore);
         }
         // Resolve the probed guardian endpoint (import path only) and thread it
         // explicitly into registerWallet (stage 1 of #408) rather than writing the
@@ -154,6 +164,7 @@ const ForgotPassword: FC = () => {
           onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
           guardianEndpoint
         );
+        preservedEndpointOverride.current = null;
         return 'ok';
       } catch (e) {
         // The override read (before the wipe), the wipe, the override
@@ -184,6 +195,7 @@ const ForgotPassword: FC = () => {
       switch (action.id) {
         case 'create-wallet':
           discardGuardianProbe();
+          preservedEndpointOverride.current = null;
           setSeedPhrase(generateMnemonic().split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
@@ -193,6 +205,7 @@ const ForgotPassword: FC = () => {
           // the entry point of the `recover` flow.
           flowRef.current?.cancel();
           flowRef.current = beginFlow('recover');
+          preservedEndpointOverride.current = null;
           // Recovery is seed-phrase only — jump straight to the seed entry screen.
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromSeed);
@@ -290,6 +303,7 @@ const ForgotPassword: FC = () => {
           } else if (step === OnboardingStep.ImportFromSeed) {
             // Back to the reset screen's own welcome step — out of the recovery.
             settleRecoverFlow(handle => handle.cancel());
+            preservedEndpointOverride.current = null;
             setStep(OnboardingStep.Welcome);
           }
           break;
