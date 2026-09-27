@@ -43,12 +43,22 @@ const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
 
+// Indirection so a test can simulate the Vite SW build's async-init window
+// (`safeGenerateTransactionsLoop` not yet a function) by setting this to
+// `undefined`, then restore it. A getter on the mock (below) reads this on
+// every access, matching the live-binding property read the compiled source
+// does at each `typeof safeGenerateTransactionsLoop` check.
+let mockSafeGenerateTransactionsLoopFn: ((...args: unknown[]) => unknown) | undefined = (...args: unknown[]) =>
+  mockSafeGenerateTransactionsLoop(...args);
+
 // transaction-processor.ts imports directly from lib/miden/transaction
 // (not the activity/index re-export) to avoid a circular init deadlock in the
 // Vite SW bundle. Mock the same path so the real transactions.ts (which pulls
 // in lib/store → real intercom) isn't loaded.
 jest.mock('lib/miden/transaction', () => ({
-  safeGenerateTransactionsLoop: (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args),
+  get safeGenerateTransactionsLoop() {
+    return mockSafeGenerateTransactionsLoopFn;
+  },
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
 }));
@@ -83,6 +93,7 @@ jest.mock('./defaults', () => ({
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
@@ -115,8 +126,8 @@ describe('startTransactionProcessing — happy path', () => {
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 
-  it('dedupes concurrent calls via the isProcessing flag', async () => {
-    // Make the loop wait long enough that a second caller arrives
+  it('runs one loop at a time and honours calls made during it with one more pass', async () => {
+    // Make the loop wait long enough that more callers arrive
     // while the first is still in flight.
     let release: () => void = () => undefined;
     const gate = new Promise<void>(resolve => {
@@ -130,14 +141,19 @@ describe('startTransactionProcessing — happy path', () => {
     const mod = await import('./transaction-processor');
     const first = mod.startTransactionProcessing();
     // Let the first call progress through its getBrowser / alarms
-    // setup and reach the awaited loop before issuing the second.
+    // setup and reach the awaited loop before issuing the others.
     await flushAsync();
-    // Second call should no-op (isProcessing is true).
+    // Calls during the run start no loop of their own; they are recorded
+    // once and honoured with one more pass when the run ends (#907).
+    await mod.startTransactionProcessing();
+    await mod.startTransactionProcessing();
     await mod.startTransactionProcessing();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
 
     release();
     await first;
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -496,5 +512,83 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     await promise;
     jest.useRealTimers();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs one more pass when a kick arrives while the loop is finishing (#907)', async () => {
+    const mod = await import('./transaction-processor');
+    // The kick lands inside the queue check that ends the loop's only pass,
+    // i.e. after the last safeGenerateTransactionsLoop call but before this
+    // run clears isProcessing - exactly the window issue #907 loses.
+    mockGetAllUncompletedTransactions.mockImplementationOnce(async () => {
+      void mod.startTransactionProcessing();
+      return [];
+    });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    // Each of the two runs (the original pass and the kicked restart) creates
+    // and clears its own keepalive alarm.
+    expect(mockAlarmsCreate).toHaveBeenCalledTimes(2);
+    expect(mockAlarmsClear).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs no extra pass when nothing kicks during the loop', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a third pass when a kick arrives during the restarted run too (#907)', async () => {
+    const mod = await import('./transaction-processor');
+    // Run 1's queue check kicks run 2 (the restart); run 2's own queue check
+    // kicks run 3 - the restart pass must honour a kick just as the first run does.
+    mockGetAllUncompletedTransactions
+      .mockImplementationOnce(async () => {
+        void mod.startTransactionProcessing();
+        return [];
+      })
+      .mockImplementationOnce(async () => {
+        void mod.startTransactionProcessing();
+        return [];
+      });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('startTransactionProcessing - module-init timeout honours its own kick (#907 follow-up)', () => {
+  it('starts exactly one more run when a kick is recorded during a full init-timeout wait', async () => {
+    // Module unavailable for the whole first wait, so this run's 60s wait
+    // times out without ever finding safeGenerateTransactionsLoop.
+    mockSafeGenerateTransactionsLoopFn = undefined;
+    jest.useFakeTimers();
+
+    const mod = await import('./transaction-processor');
+    const firstRun = mod.startTransactionProcessing();
+    // The synchronous prefix of the call above (the isProcessing check, then
+    // setting it true) has already run by this point, so the kick below
+    // correctly hits the "already processing" branch instead of racing it.
+    const kick = mod.startTransactionProcessing();
+
+    // Advance through exactly the 60s wait: the module never becomes
+    // available, so the timeout branch fires and, seeing the recorded kick,
+    // starts a fresh run instead of dropping it.
+    await jest.advanceTimersByTimeAsync(60000);
+    await firstRun;
+    await kick;
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+
+    // The module becomes available once the restarted run's own wait begins;
+    // its next 500ms check finds it and proceeds to loop, with no further kick.
+    mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    await jest.advanceTimersByTimeAsync(600);
+    jest.useRealTimers();
+    await flushAsync();
+
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
   });
 });
