@@ -561,58 +561,61 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async hold => {
-      const webClient = (await getMidenClient()).client;
-      // An eviction ABANDONS this callback rather than cancelling it, so every
-      // WASM call after a parking await needs the ownership re-check — the build,
-      // the request construction, and the summary execution can each park on the
-      // network, and past an eviction the mutex (and the client) belong to a
-      // successor. All three transitions are pre-sign/pre-submit: stopping costs
-      // the user a retry and nothing else.
-      assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
-      const { request, salt } = await buildUpdateSignersTransactionRequest(
-        webClient,
-        targetThreshold,
-        targetSignerCommitments,
-        // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
-        // builder commits fee conversion info into the auth args, and without it
-        // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
-        // supplies it from its own cached lookup, but this call site drives the low-level
-        // builder directly (it needs the request AND salt back to build the proposal by
-        // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
-        // bare string as hex, and the wallet's native asset id is bech32.
-        {
-          signatureScheme: 'ecdsa',
-          midenRpcEndpoint: getEffectiveRpcUrl()
+    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        // An eviction ABANDONS this callback rather than cancelling it, so every
+        // WASM call after a parking await needs the ownership re-check - the build,
+        // the request construction, and the summary execution can each park on the
+        // network, and past an eviction the mutex (and the client) belong to a
+        // successor. All three transitions are pre-sign/pre-submit: stopping costs
+        // the user a retry and nothing else.
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
+        const { request, salt } = await buildUpdateSignersTransactionRequest(
+          webClient,
+          targetThreshold,
+          targetSignerCommitments,
+          // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
+          // builder commits fee conversion info into the auth args, and without it
+          // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
+          // supplies it from its own cached lookup, but this call site drives the low-level
+          // builder directly (it needs the request AND salt back to build the proposal by
+          // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
+          // bare string as hex, and the wallet's native asset id is bech32.
+          {
+            signatureScheme: 'ecdsa',
+            midenRpcEndpoint: getEffectiveRpcUrl()
+          }
+        );
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
+        // Since protocol 0.16 the signed summary binds the reference block
+        // commitment, so it only reproduces when re-executed at that same block.
+        // The anchor names that block; without shipping it on the proposal, a
+        // cosigner or the executor re-executes at whatever height it happens to
+        // be synced to and derives a different summary, so the collected
+        // signatures no longer verify.
+        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
+        // The live anchor's only job is to be serialized onto the proposal; once
+        // the wire form exists, release the WASM object (it holds a partial
+        // blockchain) instead of leaving it to the finalizer - the same
+        // serialize-then-free every multisig-client proposal creator does (#784).
+        try {
+          // Inside the try on purpose: summary/salt/anchor are borrows of the
+          // client's RefCell, so touching them past an eviction IS the double
+          // borrow - but the anchor release must still run on this throw
+          // (freeChainAnchor swallows a disposed-object failure).
+          assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
+          return {
+            summaryBase64: u8ToB64(summary.serialize()),
+            saltHex: salt.toHex(),
+            chainAnchor: chainAnchorToBase64(anchor)
+          };
+        } finally {
+          freeChainAnchor(anchor);
         }
-      );
-      assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-      // Since protocol 0.16 the signed summary binds the reference block
-      // commitment, so it only reproduces when re-executed at that same block.
-      // The anchor names that block; without shipping it on the proposal, a
-      // cosigner or the executor re-executes at whatever height it happens to
-      // be synced to and derives a different summary, so the collected
-      // signatures no longer verify.
-      const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
-      // The live anchor's only job is to be serialized onto the proposal; once
-      // the wire form exists, release the WASM object (it holds a partial
-      // blockchain) instead of leaving it to the finalizer — the same
-      // serialize-then-free every multisig-client proposal creator does (#784).
-      try {
-        // Inside the try on purpose: summary/salt/anchor are borrows of the
-        // client's RefCell, so touching them past an eviction IS the double
-        // borrow — but the anchor release must still run on this throw
-        // (freeChainAnchor swallows a disposed-object failure).
-        assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-        return {
-          summaryBase64: u8ToB64(summary.serialize()),
-          saltHex: salt.toHex(),
-          chainAnchor: chainAnchorToBase64(anchor)
-        };
-      } finally {
-        freeChainAnchor(anchor);
-      }
-    });
+      },
+      { label: 'replace-hot-key-build' }
+    );
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,

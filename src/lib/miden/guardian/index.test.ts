@@ -1378,10 +1378,13 @@ describe('MultisigService', () => {
       const builtAt = mockBuildUpdateSignersTransactionRequest.mock.invocationCallOrder[0]!;
       expect(chainSyncedAt).toBeLessThan(adoptedAt);
       expect(adoptedAt).toBeLessThan(builtAt);
-      // Both refresh holds are pure-sync holds on the sync ceiling (#777).
-      expect(wasmLockOptionsSeen.slice(0, 2)).toEqual([
+      // Both refresh holds are pure-sync holds on the sync ceiling (#777); the build
+      // hold that follows names itself but stays on the default watchdog ceiling,
+      // since it continues past the sync into a build and an execute.
+      expect(wasmLockOptionsSeen.slice(0, 3)).toEqual([
         { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'replace-hot-key-sync' },
-        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' },
+        { label: 'replace-hot-key-build' }
       ]);
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
         expect.anything(),
