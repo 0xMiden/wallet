@@ -6,11 +6,10 @@ import * as path from 'path';
 
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { PASSWORD } from '../helpers/wallet-page';
 
 // Primary guardian operator for the selected network (E2E_NETWORK).
 const A = getEnvironmentConfig().guardianUrl;
-// recoverGuardianFromHotKey onboards with the harness password (wallet-page.ts PASSWORD).
-const WALLET_PASSWORD = 'Test1234!';
 const FILE_PASSWORD = 'Backup1234!';
 const RESTORED_PASSWORD = 'Restored1234!';
 const IMPORTED_ACCOUNT_NAME = 'Imported signer';
@@ -83,7 +82,7 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
         .getByTestId('encrypted-file-manager-flow')
         .getByTestId('encrypted-file-wallet-password');
       const notice = unlockStep.getByTestId('encrypted-file-excluded-accounts');
-      await expect(notice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`, { timeout: 60_000 });
+      await expect(notice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`);
       await expect(notice).not.toContainText(IMPORTED_ACCOUNT_NAME);
 
       await captureBothThemes(walletB.page, notice, 'default');
@@ -109,9 +108,7 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
           .getByTestId('encrypted-file-manager-flow')
           .getByTestId('encrypted-file-wallet-password');
         const popupNotice = popupUnlockStep.getByTestId('encrypted-file-excluded-accounts');
-        await expect(popupNotice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`, {
-          timeout: 60_000
-        });
+        await expect(popupNotice).toContainText(`Not restored from this file: ${GUARDIAN_ACCOUNT_NAME}`);
 
         // The real popup shell has no fullpage.html-style min-width: assert it actually fits
         // 360px rather than trusting the viewport size alone.
@@ -140,7 +137,7 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
     await steps.step('export_writes_the_file', async () => {
       // Waits for "Exported!": before #1114 this wallet stopped at "Export Failed".
       const backupPath = await walletB.exportEncryptedWalletFile({
-        walletPassword: WALLET_PASSWORD,
+        walletPassword: PASSWORD,
         filePassword: FILE_PASSWORD,
         fileName: 'hot-key-guardian-backup'
       });
@@ -178,7 +175,6 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
       });
       // The file's database still holds the Guardian's SDK row; no account may come of it.
       expect(accounts).toEqual([{ publicKey: importedAccountId, type: 'on-chain' }]);
-      expect(accounts.map(account => account.publicKey)).not.toContain(guardianAddress);
     });
   });
 });
