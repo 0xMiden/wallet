@@ -147,9 +147,13 @@ export async function setupNotificationTapListener(): Promise<void> {
           }
         }
 
+        // A notification keeps the path of the build that posted it, so a received transfer goes
+        // where today's build sends it.
+        const to = extra.type === 'note_received' ? ACTIVITY_PENDING_PATH : extra.navigateTo;
+
         // Small delay to ensure app is ready after closing webview
         setTimeout(() => {
-          navigate(extra.navigateTo);
+          navigate(to);
         }, 200);
       }
     });

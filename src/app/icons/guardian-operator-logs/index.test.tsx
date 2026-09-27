@@ -31,6 +31,21 @@ describe('GUARDIAN_LOGOS', () => {
     expect(svgs[1]).toHaveClass('hidden', 'dark:block', 'h-12');
   });
 
+  // Both roots are in the DOM whatever the theme, so an id spread onto both is a duplicate; the name
+  // goes to both so whichever root is visible carries it.
+  it('puts a caller id on one root only, and the accessible name on both', () => {
+    const oz = GUARDIAN_LOGOS['open-zeppelin']!;
+    const { container } = render(<oz.Logo id="oz-logo" aria-label="OpenZeppelin" className="h-12" />);
+
+    expect(container.querySelectorAll('#oz-logo')).toHaveLength(1);
+    const svgs = container.querySelectorAll('svg');
+    expect(svgs[0]).toHaveAttribute('id', 'oz-logo');
+    for (const svg of svgs) {
+      expect(svg).toHaveAttribute('aria-label', 'OpenZeppelin');
+      expect(svg).toHaveClass('h-12');
+    }
+  });
+
   it('gives Gateway and Kodax a mark cut from their wordmarks, and Lambda Class none', () => {
     expect(GUARDIAN_LOGOS.gateway!.Mark).toBeDefined();
     expect(GUARDIAN_LOGOS.kodax!.Mark).toBeDefined();
