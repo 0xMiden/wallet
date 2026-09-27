@@ -124,6 +124,11 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
           expect(box.x + box.width).toBeLessThanOrEqual(360);
         }
 
+        // Continue is pinned by SubPageLayout's FlowFooter, so it is always in viewport; the
+        // consent row is what a longer notice pushes below the fold.
+        await expect(popupNotice).toBeInViewport({ ratio: 1 });
+        await expect(consent).toBeInViewport({ ratio: 1 });
+
         await captureBothThemes(popupPage, popupNotice, 'popup');
       } finally {
         await popupPage.close();

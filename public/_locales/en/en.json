@@ -640,7 +640,7 @@
   "encryptedWalletFileDescriptionHardware": "Unlock with your passcode to access your Encrypted Wallet File.",
   "encryptedWalletFileConfirmation": "I will not share my Encrypted Wallet File with anyone, including Bread.",
   "encryptedWalletFileExcludedTitle": "Not in this file: $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian accounts imported with private keys are restored by importing their Miden everyday and EVM private keys again, not from a wallet file. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected.",
+  "encryptedWalletFileExcludedDesc": "Guardian accounts imported with private keys are not in wallet files, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected.",
   "enterPasswordToEncrypt": "Enter a password to encrypt your wallet file.",
   "encryptedWalletFileJsonOnly": "Choose a .JSON wallet file.",
   "encryptedWalletFileReadFailed": "The wallet file could not be read. Choose it again.",
