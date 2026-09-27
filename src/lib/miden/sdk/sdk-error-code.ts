@@ -195,6 +195,26 @@ export function isTransactionDiscardedError(err: unknown): boolean {
 }
 
 /**
+ * True when the node refused a transaction because the account state it was
+ * built on is no longer the account's current state:
+ *
+ *   "... initial account commitment 0x... does not match the current commitment 0x... for account 0x..."
+ *
+ * The node answers this at admission, so the refused transaction never entered
+ * the mempool. A recovered Guardian device meets it when it built on state it
+ * adopted before the old device's last transaction settled (#904).
+ *
+ * Same rules as `isApplyAfterSubmitError`: both phrases must come from ONE error
+ * in the chain, and a lock-recovery eviction is never a node verdict.
+ */
+export function isStaleInitialCommitmentError(error: unknown): boolean {
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(part =>
+    /initial account commitment[\s\S]*does not match the current commitment/i.test(part)
+  );
+}
+
+/**
  * True when importing a public account failed because the node has no such
  * account, as opposed to the node being unreachable.
  *
