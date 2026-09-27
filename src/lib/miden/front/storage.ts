@@ -7,6 +7,7 @@ import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
+/** The setter rejects when the write fails, so a caller that does not await it must catch. */
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
   const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
     suspense: true,
@@ -37,6 +38,7 @@ function isUpdater<T>(val: SetStateAction<T>): val is (prev: T) => T {
   return typeof val === 'function';
 }
 
+/** A failed write is swallowed, and the component keeps its value. */
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
   const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
     suspense: true,
