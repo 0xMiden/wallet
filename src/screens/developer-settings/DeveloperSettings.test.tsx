@@ -179,6 +179,15 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   activeOverride = null;
   jest.clearAllMocks();
+  // clearAllMocks keeps queued once-values, so one a failing test never used would reach the next.
+  for (const service of [
+    applyEndpointOverride,
+    clearEndpointOverride,
+    resetStorageDestructive,
+    reloadEndpointOverridesInSW
+  ]) {
+    service.mockReset().mockResolvedValue(undefined);
+  }
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
@@ -237,7 +246,6 @@ describe('DeveloperSettings', () => {
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
-    applyEndpointOverride.mockResolvedValue(undefined);
   });
 
   it('clears the error as soon as a later save starts, and navigates home once it succeeds', async () => {
