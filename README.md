@@ -69,7 +69,7 @@ cd miden-wallet
 yarn install
 ```
 
-Builds read the usage-data and crash-reporting keys only from the shell environment, never from `.env`. Set `APTABASE_APP_KEY` and `SENTRY_DSN` on a release build's own command line or in the release job's environment, or it ships with both off; a shell-wide `export` would carry them into every later dev and E2E build. Leave `APTABASE_HOST` unset unless the key is a self-hosted (`A-SH-*`) or development (`A-DEV-*`) one. See `.env.example`.
+A release build needs the usage-data and crash-reporting keys; `.env.example` says where to set them and which to leave unset.
 
 ### Browser Extension
 
