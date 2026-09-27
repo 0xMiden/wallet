@@ -52,7 +52,7 @@ import { Buffer } from 'buffer';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { KeyDerivation } from 'lib/shared/types';
 
 /** One operator that answered the probe with at least one account. */
@@ -348,7 +348,7 @@ function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
   }
   return options.endpoints.map(raw => {
     const endpoint = sanitizeGuardianUrl(raw);
-    return { endpoint, option: known.find(option => sanitizeGuardianUrl(option.endpoint) === endpoint) };
+    return { endpoint, option: known.find(option => sameGuardianEndpoint(option.endpoint, endpoint)) };
   });
 }
 

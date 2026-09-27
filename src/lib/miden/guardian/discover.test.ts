@@ -413,6 +413,14 @@ describe('discoverGuardianForSeed', () => {
     expect(custom.best?.option).toBeUndefined();
   });
 
+  it('resolves a host-case spelling of a known operator to it', async () => {
+    const hostCase = LAMBDA.toUpperCase();
+    mockBackend.set(hostCase, { accounts: ['acct-1'], nonces: { 'acct-1': 1n } });
+
+    const known = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [hostCase] });
+    expect(known.best?.option?.id).toBe('lambda-class');
+  });
+
   it('classifies a slow operator as a timeout without failing the probe', async () => {
     mockBackend.set(OZ, { accounts: ['acct-slow'], delayMs: 60 });
     mockBackend.set(GATEWAY, { accounts: ['acct-fast'], nonces: { 'acct-fast': 1n } });

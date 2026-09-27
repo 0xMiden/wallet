@@ -48,7 +48,11 @@ const mockIsValidGuardianUrl = jest.fn();
 const mockSanitizeGuardianUrl = jest.fn();
 jest.mock('lib/settings/helpers', () => ({
   isValidGuardianUrl: (...args: unknown[]) => mockIsValidGuardianUrl(...args),
-  sanitizeGuardianUrl: (...args: unknown[]) => mockSanitizeGuardianUrl(...args)
+  sanitizeGuardianUrl: (...args: unknown[]) => mockSanitizeGuardianUrl(...args),
+  // The real comparator, so a host-case difference is meaningful - the other
+  // two mocks above stay canned since nothing here exercises their real rules.
+  sameGuardianEndpoint: (...args: [string, string]) =>
+    jest.requireActual('lib/settings/helpers').sameGuardianEndpoint(...args)
 }));
 
 // `cn` — deterministic class joiner so selected/badge class assertions are
@@ -389,6 +393,15 @@ describe('ChooseGuardianScreen', () => {
   // RotateGuardian compares the two sanitized for the same reason.
   it('recognizes the current provider when the stored endpoint has a trailing slash', () => {
     const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
+    expect(screen.getByText('currentLabel')).toBeInTheDocument();
+  });
+
+  it('recognizes the current provider when the stored endpoint differs in host case', () => {
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint.toUpperCase()} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
     expect(isHighlighted(gwBtn!)).toBe(true);

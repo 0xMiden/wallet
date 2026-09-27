@@ -47,6 +47,8 @@
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
+- [FIX][all] A Guardian endpoint written with different host capitals or an explicit default port (:443) is recognised as the same Guardian: the picker and the import screen mark it as that Guardian, Guardian Settings and the rotation and history screens name it as that operator, rotating to it is refused as unchanged, and dApps are told its Guardian provider instead of "custom" (#1085).
+- [FIX][all] Resetting or recovering a wallet from the forgot-password screen no longer hangs on the confirmation spinner when a storage step fails, before or after local data is cleared: the error shows and Retry works (#1093).
 - [FIX][extension] A connectivity banner dismissed in one window (popup, side panel or a tab) stays dismissed when another window dismisses a different banner at the same time (#1158).
 - [FIX][all] Copying the recovery phrase, from Settings or from the phrase check, now uses the native clipboard on iOS and Android, like address and hash copies, and a second tap while Copied is showing copies again instead of being ignored (#1049).
 - [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
@@ -57,6 +59,7 @@
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
 - [FIX][all] A token is valued in USD only when its faucet is one the wallet knows stands for a quoted asset (the swap registry's IETH and IBTC, the Earn USDC, the Agglayer-bridged ETH): a faucet that merely names itself ETH, BTC or USDC shows no dollar figure and no longer counts toward a spending limit (#1131).
+- [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 
 ## 1.16.2 (2026-09-24)
 

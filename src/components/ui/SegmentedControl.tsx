@@ -3,9 +3,10 @@ import React, { KeyboardEvent, useEffect, useRef } from 'react';
 import { cva } from 'class-variance-authority';
 import { motion, useReducedMotion } from 'framer-motion';
 
+import { useTabShownAgain } from 'app/layouts/page-active';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
-import { useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -104,6 +105,7 @@ interface SegmentProps<T extends string> {
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
   onSelect: (id: T) => void;
+  swap: boolean;
 }
 
 /**
@@ -111,9 +113,9 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, onSelect }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
-  const pop = useTabIconPop(active);
+  const pop = useTabIconPop(active, swap);
 
   return (
     <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 items-center justify-center">
@@ -126,7 +128,8 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
-        className={segment({ size, layout, active })}
+        // Shown again, the new selection's colours land at once instead of cross-fading.
+        className={cn(segment({ size, layout, active }), swap && 'transition-none')}
       >
         <motion.span
           data-pop={pop.phase}
@@ -169,6 +172,9 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   const motionTokens = useTabBarMotion();
   const reduceMotion = useReducedMotion();
+  // A pane shown again (Activity's filter, set by a link while the tab was hidden) takes its new value
+  // at once: no slide, no pop, no smooth scroll.
+  const swap = useTabShownAgain();
   const rowRef = useRef<HTMLDivElement>(null);
   const selectedIndex = items.findIndex(item => item.id === value);
   // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
@@ -202,11 +208,11 @@ export function SegmentedControl<T extends string>({
     const node = rowRef.current?.children[selectedIndex];
     if (!(node instanceof HTMLElement)) return;
     node.scrollIntoView({
-      behavior: reduceMotion ? 'auto' : 'smooth',
+      behavior: reduceMotion || swap ? 'auto' : 'smooth',
       block: 'nearest',
       inline: 'nearest'
     });
-  }, [layout, selectedIndex, reduceMotion]);
+  }, [layout, selectedIndex, reduceMotion, swap]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const enabled = items.map((item, index) => ({ item, index })).filter(({ item }) => !item.disabled);
@@ -260,7 +266,7 @@ export function SegmentedControl<T extends string>({
         value={value}
         click={false}
         exitDelay={0}
-        transition={motionTokens.highlight}
+        transition={swap ? tabBarSwap : motionTokens.highlight}
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
@@ -275,6 +281,7 @@ export function SegmentedControl<T extends string>({
             size={size}
             layout={layout}
             onSelect={select}
+            swap={swap}
           />
         ))}
       </Highlight>

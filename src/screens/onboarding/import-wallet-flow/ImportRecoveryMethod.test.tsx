@@ -66,6 +66,7 @@ jest.mock('components/ui/Pill', () => ({
 // Endpoint the component seeds `endpointInput` with (OpenZeppelin on the
 // test network pinned above.
 const DEFAULT_ENDPOINT = GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!;
+const GATEWAY_ENDPOINT = GUARDIAN_OPTIONS.find(option => option.id === 'gateway')!.endpoint.get(DEFAULT_NETWORK)!;
 
 const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecoveryMethodScreen>> = {}) => {
   const onSubmit = jest.fn();
@@ -140,6 +141,17 @@ describe('ImportRecoveryMethodScreen', () => {
 
     // The default endpoint is a valid https URL, so Continue is enabled.
     expect(continueButton()).toBeEnabled();
+  });
+
+  it('highlights a preset matching a host-case spelling of its endpoint', () => {
+    renderScreen();
+
+    fireEvent.click(customToggle());
+    fireEvent.change(guardianInput(), { target: { value: GATEWAY_ENDPOINT.toUpperCase() } });
+    fireEvent.click(customToggle());
+
+    expect(gatewayPreset()).toHaveAttribute('aria-checked', 'true');
+    expect(ozPreset()).toHaveAttribute('aria-checked', 'false');
   });
 
   it('submits the Guardian wallet type with the sanitized default endpoint', () => {
