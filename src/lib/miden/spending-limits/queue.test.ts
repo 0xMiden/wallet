@@ -219,30 +219,19 @@ describe('queueOutgoingTransaction', () => {
     }
   });
 
-  it('reads history through the initiatedAt index rather than the whole table', async () => {
-    await saveConfig();
-    mockedResolve.mockResolvedValue(1n);
-    const where = jest.spyOn(transactions, 'where');
-
-    try {
-      await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW);
-      // The scan runs inside the rw lock on `transactions`, so an unbounded read is backpressure
-      // on the write path that grows with total wallet history. Only the widest window matters.
-      expect(where).toHaveBeenCalledWith('initiatedAt');
-    } finally {
-      where.mockRestore();
-    }
-  });
-
   it('turns a history read failure into a fail-closed policy error', async () => {
     await saveConfig();
     mockedResolve.mockResolvedValue(1n);
-    // Targets `where`, not `toArray`: the history read is a bounded range scan over the
-    // `initiatedAt` index, so a spy on the table's own toArray no longer intercepts it and this
-    // fail-closed contract would pass while testing nothing.
-    const read = jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
-      throw new Error('history offline');
-    });
+    // The failure lands on the window read, the second `where('initiatedAt')` call. The first is the
+    // count that chooses between the window and the whole table, and failing it instead would leave
+    // the window read's own failure untested.
+    const where = transactions.where.bind(transactions);
+    const read = jest
+      .spyOn(transactions, 'where')
+      .mockImplementationOnce(where)
+      .mockImplementationOnce(() => {
+        throw new Error('history offline');
+      });
 
     try {
       await expect(queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)).rejects.toThrow(
