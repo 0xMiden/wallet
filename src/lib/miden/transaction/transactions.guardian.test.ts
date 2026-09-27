@@ -18,6 +18,7 @@ import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-e
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { GUARDIAN_UNREACHABLE_ERROR } from './constants';
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -3856,6 +3857,8 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
+    expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    expect(row.rawError).toContain('Failed to fetch');
     expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
     expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();

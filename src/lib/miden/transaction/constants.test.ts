@@ -2,6 +2,7 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  GUARDIAN_UNREACHABLE_ERROR,
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -118,6 +119,21 @@ describe('resolveTransactionErrorMessage', () => {
   it('passes through an unrelated failure raw', () => {
     expect(resolveTransactionErrorMessage(new Error('insufficient balance'), 'sending')).toBe(
       'Error: insufficient balance'
+    );
+  });
+
+  it('names an unreachable guardian before submit in plain language (#779)', () => {
+    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'creating-proposal')).toBe(
+      GUARDIAN_UNREACHABLE_ERROR
+    );
+    expect(
+      resolveTransactionErrorMessage(Object.assign(new Error('Bad Gateway'), { status: 502 }), 'signing-proposal')
+    ).toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('leaves an unreachable-looking failure at any other stage raw (#779)', () => {
+    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'sending')).toBe(
+      'TypeError: Failed to fetch'
     );
   });
 });
