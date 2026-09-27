@@ -87,14 +87,14 @@ export function useConnectivityState(): {
     return subscribeConnectivityState(setMemorySnapshot);
   }, []);
 
+  // Merge: storage wins for any category it knows about (it reflects the
+  // SW's authoritative view in the extension), memory fills the rest. In
+  // the non-extension case storage is just a mirror of the same in-process
+  // state machine, so the two agree by construction.
   useEffect(() => {
     setDismissedActivations(storedDismissedActivations);
   }, [storedDismissedActivations]);
 
-  // On the extension a stored snapshot replaces the in-memory one whole, and memory
-  // is used only while storage holds none. Off the extension only the in-process
-  // snapshot is read, for the same reason: storage there only updates on a hook
-  // read (mount), never live (#1177).
   const merged: ConnectivityStateSnapshot = isExtension() ? (storageSnapshot ?? memorySnapshot) : memorySnapshot;
   const mergedRef = useRef(merged);
   mergedRef.current = merged;

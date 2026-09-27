@@ -29,12 +29,10 @@
  *     intercom round-trip.
  *
  *   - Mobile/desktop: there is no SW. The state machine lives in the React
- *     app's process and is accessed via the same hook. The mirror is still a
- *     direct `putToStorage` to the storage adapter (in-memory or Capacitor
- *     Preferences shim, see lib/platform/storage-adapter), but the hook's
- *     cache only picks it up when a hook read runs (on mount), never live
- *     (#1177) - so the hook reads the in-process snapshot instead
- *     (use-connectivity-state.ts:98).
+ *     app's process and is accessed via the same hook. The mirror still
+ *     writes to the storage adapter (which on mobile/desktop is an
+ *     in-memory or Capacitor Preferences shim — see lib/platform/storage-adapter),
+ *     so the same `useStorage` consumer works uniformly across platforms.
  *
  * SINGLE WRITER (issue #260). `current` is module-scoped, i.e. PER REALM, and
  * `notify()` writes the WHOLE snapshot to one shared storage key. On the
