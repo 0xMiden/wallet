@@ -2827,6 +2827,10 @@
     "message": "Введіть дійсну URL-адресу, що починається з http:// або https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "За цією URL-адресою не відповідає жоден сервер Guardian. Перевірте її та спробуйте ще раз.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

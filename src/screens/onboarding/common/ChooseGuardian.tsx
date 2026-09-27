@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +12,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
+import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
@@ -64,6 +65,21 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const [isCustom, setIsCustom] = useState(false);
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
+  const [checkingCustom, setCheckingCustom] = useState(false);
+  // Numbers the custom-URL checks. Editing the URL, leaving custom mode or unmounting
+  // advances it, so a verdict that lands later belongs to a URL no longer on screen
+  // and is dropped instead of submitting it.
+  const customCheck = useRef(0);
+  const abandonCustomCheck = () => {
+    customCheck.current++;
+    setCheckingCustom(false);
+  };
+  useEffect(
+    () => () => {
+      customCheck.current++;
+    },
+    []
+  );
 
   // Providers that run a Guardian on the active network, resolved to their
   // endpoint on it.
@@ -128,6 +144,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const handleSelect = (id: string) => {
     setPickedId(id);
     setIsCustom(false);
+    abandonCustomCheck();
   };
 
   // Continue has something to submit: a custom URL (validated on tap), the
@@ -145,13 +162,27 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     // account instead. No caller passes both affordances today, which is what
     // makes this a latent trap rather than a live bug: one prop combination away.
     if (isCustom) {
+      if (checkingCustom) return;
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
         setCustomError(t('invalidUrl'));
         return;
       }
       setCustomError(null);
-      onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
+      // Held to the bar a built-in card is (#1084): the same GET /pubkey ping, which
+      // only a live Guardian answers with a key commitment, before the URL can bind
+      // an account's recovery to it.
+      const check = ++customCheck.current;
+      setCheckingCustom(true);
+      void pingGuardianEndpointLatency(sanitized).then(latency => {
+        if (check !== customCheck.current) return;
+        setCheckingCustom(false);
+        if (latency === null) {
+          setCustomError(t('customGuardianUnreachable'));
+          return;
+        }
+        onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
+      });
       return;
     }
     if (effectiveSelectedId === NO_GUARDIAN_ID) {
@@ -233,6 +264,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             onClick={() => {
               setIsCustom(prev => !prev);
               setCustomError(null);
+              abandonCustomCheck();
             }}
             // A disclosure control: it shows and hides the field below.
             aria-expanded={isCustom}
@@ -261,6 +293,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
               onChange={event => {
                 setCustomUrl(event.target.value);
                 if (customError) setCustomError(null);
+                abandonCustomCheck();
               }}
             />
           )}
@@ -282,6 +315,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         title={submitLabel ?? t('continue')}
         onClick={handleContinue}
         disabled={!canContinue}
+        isLoading={checkingCustom}
       />
     </>
   );
