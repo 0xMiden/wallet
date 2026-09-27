@@ -4,11 +4,14 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  ANSWERING_GUARDIAN_FAULT_ACTION_KINDS,
   LOCAL_GUARDIAN_ORIGINS,
+  SELF_CLEARING_GUARDIAN_FAULT_MODES,
   applyGuardianFaultAction,
   decideGuardianFault,
   pathOf,
   targetOf,
+  type GuardianFaultAction,
   type GuardianFaultPolicy,
   type GuardianRouteLike
 } from './guardian-fault';
@@ -199,14 +202,28 @@ describe('decideGuardianFault', () => {
     const third = decideGuardianFault(CONFIGURE_A, policy, second.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(third).toEqual({ action: { kind: 'continue' }, hits: 2 });
   });
+
+  it('every self-clearing mode fails count matching requests, then lets the next through', () => {
+    for (const mode of SELF_CLEARING_GUARDIAN_FAULT_MODES) {
+      const policy: GuardianFaultPolicy = { target: 'A', path: 'configure', mode, count: 2 };
+      const first = decideGuardianFault(CONFIGURE_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+      const second = decideGuardianFault(CONFIGURE_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
+      const third = decideGuardianFault(CONFIGURE_A, policy, second.hits, LOCAL_GUARDIAN_ORIGINS);
+      expect({ mode, passed: [first, second, third].map(d => d.action.kind === 'continue'), hits: third.hits }).toEqual(
+        { mode, passed: [false, false, true], hits: 2 }
+      );
+    }
+  });
 });
 
 // ── applyGuardianFaultAction (fake Route, no browser) ───────────────────────
 
+type FulfillCall = Parameters<GuardianRouteLike['fulfill']>[0];
+
 function makeFakeRoute(url: string): GuardianRouteLike & {
   continueCalls: number;
   abortCalls: string[];
-  fulfillCalls: Array<{ status: number; body: string }>;
+  fulfillCalls: FulfillCall[];
 } {
   return {
     continueCalls: 0,
@@ -221,7 +238,7 @@ function makeFakeRoute(url: string): GuardianRouteLike & {
     async abort(errorCode?: string) {
       this.abortCalls.push(errorCode ?? '');
     },
-    async fulfill(response: { status: number; body: string }) {
+    async fulfill(response: FulfillCall) {
       this.fulfillCalls.push(response);
     }
   };
@@ -267,6 +284,7 @@ describe('applyGuardianFaultAction', () => {
     expect(route.fulfillCalls.length).toBe(1);
     const call = route.fulfillCalls[0]!;
     expect(call.status).toBe(409);
+    expect(call.contentType).toBe('application/json');
     // Shaped like GuardianHttpError's parsed envelope (@openzeppelin/guardian-client's
     // parseGuardianErrorBody): a { code, message, meta.retryable } JSON body, not a
     // plain string like fulfill500's -- this is what makes isGuardianPendingConflict
@@ -301,14 +319,19 @@ describe('applyGuardianFaultAction', () => {
     expect(route.continueCalls).toBe(0);
   });
 
-  for (const kind of ['abort', 'fulfill500', 'fulfillConflictPendingDelta'] as const) {
-    it(`${kind} action never reaches passThrough`, async () => {
+  const actionOf = (kind: GuardianFaultAction['kind']): GuardianFaultAction =>
+    kind === 'delay' ? { kind, delayMs: 0 } : { kind };
+
+  for (const kind of ANSWERING_GUARDIAN_FAULT_ACTION_KINDS) {
+    it(`${kind} action answers the request itself and never reaches passThrough`, async () => {
       const route = makeFakeRoute(DELTA_A);
       let passedThrough = 0;
-      await applyGuardianFaultAction(route, { kind }, async () => {
+      await applyGuardianFaultAction(route, actionOf(kind), async () => {
         passedThrough++;
       });
       expect(passedThrough).toBe(0);
+      expect(route.continueCalls).toBe(0);
+      expect(route.abortCalls.length + route.fulfillCalls.length).toBe(1);
     });
   }
 
@@ -317,11 +340,13 @@ describe('applyGuardianFaultAction', () => {
     await applyGuardianFaultAction(route, { kind: 'fulfillRateLimited' });
     expect(route.fulfillCalls).toHaveLength(1);
     const call = route.fulfillCalls[0]!;
-    expect(call.status).toBe(429);
-    expect(JSON.parse(call.body)).toEqual({
-      code: 'rate_limit_exceeded',
-      message: expect.any(String),
-      meta: { retryable: true, retry_after_secs: 1 }
+    // The guardian states one cooldown on both channels the client reads: the
+    // Retry-After header first, then the envelope's retry_after_secs.
+    expect({ ...call, body: JSON.parse(call.body) }).toEqual({
+      status: 429,
+      contentType: 'application/json',
+      headers: { 'Retry-After': '3' },
+      body: { code: 'rate_limit_exceeded', message: expect.any(String), meta: { retryable: true, retry_after_secs: 3 } }
     });
     expect(route.continueCalls).toBe(0);
   });

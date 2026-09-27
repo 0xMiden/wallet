@@ -161,6 +161,12 @@ export interface NetworkFaultControls {
    */
   guardianFaultHits(): number;
   /**
+   * When each of those guardian hits arrived (`Date.now()`, in hit order), so a
+   * spec can assert the wallet's wait between faulted retries, not just their
+   * count. Reset with `guardianFaultHits`.
+   */
+  guardianFaultHitTimes(): number[];
+  /**
    * How many requests the armed NETWORK policies have faulted since they were
    * armed, summed across the set. Same purpose as `guardianFaultHits`, and it
    * matters most for the `hang` mode: a spec that arms a hang and then asserts
@@ -323,6 +329,7 @@ export function installNetworkFaults(
   let networkHits: number[] = [];
   let guardianPolicy: GuardianFaultPolicy | null = null;
   let guardianHits = 0;
+  let guardianHitTimes: number[] = [];
   let guardianLedger: GuardianCommitmentLedger | null = null;
 
   context.route('**/*', async (route: Route) => {
@@ -336,6 +343,7 @@ export function installNetworkFaults(
     }
 
     const guardian = decideGuardianFault(url, guardianPolicy, guardianHits, origins.guardian);
+    if (guardian.hits > guardianHits) guardianHitTimes.push(Date.now());
     guardianHits = guardian.hits;
     const ledger = guardianLedger;
     const read = ledger ? guardianCommitmentReadOf(route.request().method(), url, origins.guardian) : null;
@@ -354,9 +362,13 @@ export function installNetworkFaults(
     armGuardian(policy) {
       guardianPolicy = policy;
       guardianHits = 0;
+      guardianHitTimes = [];
     },
     guardianFaultHits() {
       return guardianHits;
+    },
+    guardianFaultHitTimes() {
+      return [...guardianHitTimes];
     },
     networkFaultHits() {
       return networkHits.reduce((total, hits) => total + hits, 0);
@@ -369,6 +381,7 @@ export function installNetworkFaults(
       networkHits = [];
       guardianPolicy = null;
       guardianHits = 0;
+      guardianHitTimes = [];
     }
   };
 }

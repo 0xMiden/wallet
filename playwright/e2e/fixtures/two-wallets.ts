@@ -79,6 +79,8 @@ export interface GuardianFaultTestApi {
    * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /** When each of those hits arrived. See `NetworkFaultControls.guardianFaultHitTimes`. */
+  guardianFaultHitTimes(): number[];
   /**
    * How many requests the currently-armed NETWORK faults have injected into,
    * across both seams (context.route and the in-realm fetch wrapper). Arming is
@@ -649,6 +651,7 @@ async function launchWalletInstance(
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
       networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
