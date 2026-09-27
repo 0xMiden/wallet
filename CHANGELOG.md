@@ -66,7 +66,7 @@
 - [FIX][all] Going Back and then Forward inside an import no longer drops part of it: a wallet file restore resumed that way restores the file, imported accounts included, instead of importing only its recovery phrase, and a resumed recovery phrase or private key import still offers the Guardian it detected instead of the manual picker (#1115).
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
-- [FIX][all] A spending limit counts every stored transaction that can hold spend: one whose start time is missing or unreadable is judged by the limit's safety check instead of being skipped, a restored wallet gives such rows a usable time, and no new transaction can be saved without one (#1007).
+- [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 
 ## 1.16.2 (2026-09-24)
 

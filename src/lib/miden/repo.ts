@@ -443,8 +443,9 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   const status = Reflect.get(tx, 'status');
   const initiatedAt = Reflect.get(tx, 'initiatedAt');
   const completedAt = Reflect.get(tx, 'completedAt');
-  // `initiatedAt` is the spending-limit window's index: a row the index cannot place is invisible
-  // to that read, so an imported one takes a usable stamp - its completedAt, else now (#1007).
+  // An imported row takes a placeable `initiatedAt` (its own, else its completedAt, else now): without
+  // one the insert check would refuse the restore, and a restored row the index cannot place would
+  // keep the spending limit's readHistory on its whole-table read (#1007).
   const placedAt = isValidTimestamp(initiatedAt)
     ? initiatedAt
     : isValidTimestamp(completedAt)

@@ -548,10 +548,11 @@ describe('miden repo export/import', () => {
     expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
 
-  // `initiatedAt` is the spending-limit window's index, so an imported row that
-  // cannot be placed in it is invisible to that read. A dump is free to carry
-  // anything under that key; only a non-negative safe integer is usable, and
-  // everything else falls back the same way a missing `completedAt` does above.
+  // A dump is free to carry anything under `initiatedAt`, and only a non-negative
+  // safe integer is placeable: without one the insert check would refuse the
+  // restore, and a restored row the index cannot place would keep the spending
+  // limit's readHistory on its whole-table read. Anything else falls back to the
+  // row's completedAt, else the current time.
   it.each([
     ['missing', undefined, 1_700_000_100, 1_700_000_100],
     ['NaN (null after JSON)', Number.NaN, 1_700_000_100, 1_700_000_100],
