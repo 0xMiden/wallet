@@ -513,21 +513,32 @@ describe('the badge paints no activity hue of its own', () => {
 
   // Hex colours live in one place: ARROW_INK, whose hex keys are the fill spellings a caller can pass
   // (TRANSACTION_COLORS' and main.css's lowercase faucet rose) and whose values are fixed arrow inks.
-  // Anywhere else a hex is a mirrored hue, retired or current, in any case and any length.
-  const HEX = /#[0-9a-f]{3,8}\b/gi;
+  // Anywhere else a hex is a mirrored hue, retired or current, in any case and any CSS length. Comments
+  // are dropped first, since an issue cited as #1074 reads as a hex; the lookbehind keeps a URL's `//`.
+  const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
+  const hexIn = (text: string) => text.replace(/\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm, '').match(HEX) ?? [];
   const start = source.indexOf('export const ARROW_INK = {');
   const end = source.indexOf('} as const satisfies', start);
   const table = start === -1 || end === -1 ? '' : source.slice(start, end);
 
   it('holds no hex colour outside the arrow-ink table', () => {
     expect(table).not.toBe('');
-    expect(source.replace(table, '').match(HEX)).toBeNull();
+    expect(hexIn(source.replace(table, ''))).toEqual([]);
+  });
+
+  it('reads a hex in code, and not an issue cited in a comment', () => {
+    const fixture = [
+      '// see #1074',
+      '/** (#775) */',
+      "const ink = '#91acc1'; // #1234",
+      "const ns = 'http://www.w3.org/2000/svg', hue = '#abc';",
+      "const id = '#12345';"
+    ].join('\n');
+    expect(hexIn(fixture)).toEqual(['#91acc1', '#abc']);
   });
 
   it('keeps only the allowed fill spellings and inks in the arrow-ink table', () => {
-    expect([...new Set(table.match(HEX))].sort()).toEqual(
-      ['#191919', '#777487', '#BA839F', '#ba839f', '#ffffff'].sort()
-    );
+    expect([...new Set(hexIn(table))].sort()).toEqual(['#191919', '#777487', '#BA839F', '#ba839f', '#ffffff'].sort());
   });
 });
 
