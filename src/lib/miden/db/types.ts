@@ -1239,9 +1239,10 @@ export class SwitchGuardianTransaction implements ITransaction {
 /**
  * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
  * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is filled in during
- * `generateGuardianTransaction` once the new key is minted, and consumed by
- * `completeReplaceHotKeyTransaction` to swap the WalletAccount pointer.
+ * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * `generateGuardianTransaction` once the minted key is persisted (a later run of
+ * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
+ * the WalletAccount pointer.
  */
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;

@@ -2827,6 +2827,10 @@
     "message": "http:// または https:// で始まる有効な URL を入力してください",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "このURLにはGuardianへの回答がありません。確認してから再度お試しください。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "暗号化されたウォレットファイルにアクセスするには、パスワードを入力してください。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -5249,6 +5253,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "このウォレットのロック解除方法の確認に、通常より時間がかかっています。再試行するには、戻ってこのページを再度開いてください。",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",
