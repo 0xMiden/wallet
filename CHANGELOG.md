@@ -43,11 +43,13 @@
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
+- [FIX][extension] A connectivity banner dismissed in one window (popup, side panel or a tab) stays dismissed when another window dismisses a different banner at the same time (#1158).
 - [FIX][all] Copying the recovery phrase, from Settings or from the phrase check, now uses the native clipboard on iOS and Android, like address and hash copies, and a second tap while Copied is showing copies again instead of being ignored (#1049).
 - [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
+- [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
 
 ## 1.16.2 (2026-09-24)
 
