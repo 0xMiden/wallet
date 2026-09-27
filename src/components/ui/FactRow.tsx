@@ -6,7 +6,7 @@ export interface IconCircleProps {
   children: React.ReactNode;
   /** `md` (default) the 32px disc with a 16px glyph; `sm` a 20px disc whose glyph keeps its own size. */
   size?: 'md' | 'sm';
-  /** Tone and colour: a tint class replaces the default `fill` disc, a text colour its `ink` glyph. */
+  /** Tone and colour: a tint class replaces the disc's default `fill`, a text colour the glyph's. */
   className?: string;
 }
 

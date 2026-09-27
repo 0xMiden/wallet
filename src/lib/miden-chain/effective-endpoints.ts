@@ -205,7 +205,7 @@ export async function loadEndpointOverrides(): Promise<void> {
     const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
     overrideCache = isEndpointOverride(raw) ? raw : null;
   } catch {
-    // A failed read keeps what this realm had loaded.
+    // Deliberate: see the comment above applyEndpointOverride.
   }
 }
 

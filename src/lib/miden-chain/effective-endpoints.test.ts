@@ -265,8 +265,8 @@ describe('effective-endpoints resolver', () => {
       expect(m.getActiveOverride()).toBeNull();
     });
 
-    // The SW and offscreen realms re-read after a Save; a failed re-read must not drop them to
-    // build defaults under a wallet that runs on the saved endpoints.
+    // The SW and offscreen realms re-read after a Save; when that read fails, the realm keeps the
+    // override it had instead of falling back to build defaults.
     it('keeps a loaded override when a later read fails', async () => {
       const m = loadModule();
       const saved = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);

@@ -115,7 +115,6 @@ describe('SubPageLayout', () => {
         <p>content</p>
       </SubPageLayout>
     );
-    // In a column a row-style `flex-1` would size a button from a zero basis and squash it to its label.
     expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col', '[&>*]:flex-none');
 
     rerender(
