@@ -400,13 +400,8 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
   });
 
-  // A stored endpoint can differ from the option's literal by host case; the
-  // module mock above passes `sameGuardianEndpoint` through to the real
-  // comparator so this is a meaningful check, not a canned one.
   it('recognizes the current provider when the stored endpoint differs in host case', () => {
-    const { container } = render(
-      <ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint.replace('https://', 'HTTPS://').toUpperCase()} />
-    );
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint.toUpperCase()} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
     expect(isHighlighted(gwBtn!)).toBe(true);

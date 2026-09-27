@@ -30,8 +30,9 @@ const RotateGuardian: FC = () => {
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
       // Compared as endpoints, not exact strings: the picker hands over a normalized
       // custom URL but a built-in option's endpoint is a literal, and `currentEndpoint`
-      // comes from storage or a default, so a host-case, port, or trailing-slash
-      // difference alone must not read as a real change and persist a second spelling.
+      // comes from storage or a default, so a host-case, explicit-default-port, or
+      // trailing-slash difference alone must not read as a real change and persist a
+      // second spelling.
       if (sameGuardianEndpoint(guardianEndpoint, currentEndpoint ?? '')) {
         setError(t('guardianEndpointUnchanged'));
         return;

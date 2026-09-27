@@ -86,7 +86,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
       // Compared as endpoints: a stored endpoint can differ from the option's literal
-      // by host case, port, or trailing slash (RotateGuardian compares them the same way).
+      // by host case, an explicit default port, or trailing slash (RotateGuardian
+      // compares them the same way).
       const current = options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint));
       if (current) return current.id;
     }

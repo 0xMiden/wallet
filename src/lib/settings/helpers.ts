@@ -262,11 +262,13 @@ export function isValidGuardianUrl(value: string): boolean {
 }
 
 /**
- * Normalize a Guardian endpoint for storage and comparison: trim surrounding
- * whitespace and strip any trailing slashes, so `https://g.example.com/` and
- * `https://g.example.com` are treated as the same endpoint. Apply this to any
- * user-entered Guardian URL before persisting or comparing it. For deeper
- * comparisons (host case, default ports, path case), use `sameGuardianEndpoint`.
+ * Normalize a Guardian endpoint for storage: trim surrounding whitespace and
+ * strip any trailing slashes. This is the form persisted and sent, not a
+ * comparison: `sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b)` still misses
+ * two spellings of the same endpoint that differ in host case or an explicit
+ * default port, and it does not tell a different path spelled with a different
+ * case (a different endpoint) from one that only looks different. Compare
+ * endpoints with `sameGuardianEndpoint`.
  */
 export function sanitizeGuardianUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
@@ -288,7 +290,13 @@ function canonicalGuardianEndpoint(raw: string): string {
   const trimmed = sanitizeGuardianUrl(raw);
   try {
     const url = new URL(trimmed);
-    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+    // Userinfo and the fragment are kept, not dropped: `GuardianHttpClient` sends
+    // every request to `${baseUrl}${path}`, so a fragment swallows the path the
+    // client appends, and credentials in the URL make `fetch` throw - a spelling
+    // carrying either is not the working endpoint, so it must not canonicalize to
+    // the same string as one without it.
+    const credentials = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : '';
+    return `${url.protocol}//${credentials}${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}${url.hash}`;
   } catch {
     return trimmed.toLowerCase();
   }
