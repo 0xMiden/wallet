@@ -52,9 +52,12 @@
  *     reconcile handler, update-procedure-threshold to Failed.
  */
 
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { WalletType } from 'screens/onboarding/types';
+
 import { generateTransaction } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
+import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
@@ -2617,6 +2620,40 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
         : inline.__executeRequest.mock.invocationCallOrder[0]
     )!;
     expect(signOrder).toBeLessThan(leafOrder);
+  });
+});
+
+describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
+  it('a superseded-commitment refusal crossing the offscreen bus is rebuilt once with the same key', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline
+      .mockRejectedValueOnce(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
+            'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+      )
+      .mockResolvedValueOnce(makeResult());
+    const tx = new ReplaceHotKeyTransaction('guardian-acc', false);
+    const { service } = arrangeStructural(tx.id, { type: 'replace-hot-key', extraInputs: {} });
+    const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
+    const rotationProvider: GuardianAccountProvider = {
+      getAccounts: async () => [
+        { publicKey: 'guardian-acc', name: 'Guardian', isPublic: false, type: WalletType.Guardian, hdIndex: 0 }
+      ],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey
+    };
+
+    await generateTransaction(tx, signCallback, false, rotationProvider);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(2);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.createReplaceHotKeyProposal).toHaveBeenCalledTimes(2);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+    expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+    expect(mockComplete.replaceHotKey).toHaveBeenCalledTimes(1);
   });
 });
 

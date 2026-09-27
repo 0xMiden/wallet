@@ -52,6 +52,15 @@ const APPLY_AFTER_SUBMIT_ERROR_MESSAGE =
   'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
   '`Client::apply_transaction_update`. Do NOT resubmit the same transaction.';
 
+/**
+ * The node's admission refusal of a transaction built on a superseded account
+ * state. The two phrases the classifier keys on are the ones #904 and
+ * `guardian/account.ts` quote; the wording around them is illustrative.
+ */
+const STALE_INITIAL_COMMITMENT_REFUSAL =
+  'failed to submit proven transaction: transaction conflicts with current mempool state: initial account ' +
+  'commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333';
+
 const txStore: Array<Record<string, unknown>> = [];
 const putToStorage = jest.fn(async (..._args: unknown[]) => {});
 
@@ -5223,6 +5232,109 @@ describe('generateTransaction — Guardian routing', () => {
     expect(createProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
     expect(persistNewHotKey).not.toHaveBeenCalled();
     expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+  });
+
+  it('Guardian replace-hot-key: a node refusal of a superseded commitment is rebuilt once with the same key (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      const { tx, row, coldService, client, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValueOnce(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      // The refused candidate was retracted before the rebuild.
+      expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+      // One key: minted and persisted by the first run, read back by the rebuild.
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+      expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith('new-hot-pub');
+      expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual(['0xnewcommit', '0xnewcommit']);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: a second superseded-commitment refusal fails the row (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      const { tx, row, coldService, client, persistNewHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValue(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.nextEligibleAt).toBeUndefined();
+      expect(createProposal).toHaveBeenCalledTimes(2);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      expect(coldService.abandonCandidate).toHaveBeenCalledTimes(2);
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian update-procedure-threshold: a superseded-commitment refusal is not rebuilt (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const client = makeClientApi(makeResult());
+      client.transactions.submitProven.mockRejectedValue(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
+          id: 'prop-upt',
+          nonce: 9
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+        client
+      });
+      const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+      txStore.push({ ...tx });
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(txStore.find(r => r.id === tx.id)?.status).toBe(ITransactionStatus.Failed);
+      expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian replace-hot-key: stamps the endpoint it runs under before a proposal failure', async () => {

@@ -115,6 +115,7 @@ import {
   errorMessageParts,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
+  isStaleInitialCommitmentError,
   isTransactionDiscardedError
 } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -1031,7 +1032,7 @@ const generateTransactionWithProvider = async (
       // bech32 address (dApp) or the composite publicKey (in-wallet); both must take
       // the SAME per-account chain, else concurrent deltas stall canonicalization.
       await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () =>
-        generateGuardianTransaction(transaction, signCallback, guardianProvider)
+        generateGuardianTransactionOnFreshState(transaction, signCallback, guardianProvider)
       );
     } catch (error) {
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
@@ -2143,6 +2144,45 @@ const generateDirectSwitchGuardianTransaction = async (
 
   await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
   await setTransactionStage(transaction.id, 'complete');
+};
+
+// One rebuild. A first refusal comes from state adopted before the old device's last
+// transaction settled, or from that transaction settling between a build's state read
+// and its proposal; a second means the guardian itself is behind the chain, which no
+// rebuild fixes.
+const ROTATION_STALE_STATE_ATTEMPTS = 2;
+
+/**
+ * `generateGuardianTransaction`, rebuilding a replace-hot-key rotation once when the
+ * node refused it for a superseded initial account commitment (#904). The refusal is
+ * an admission verdict, the submit catch has already abandoned the refused candidate
+ * (its 409 is then waited out by the rebuild's own proposal retry), and the rebuild
+ * proposes the key the first run persisted (`resolveRotationHotKey`), so even a
+ * misread refusal of a rotation that did land rebuilds to the same signer set.
+ */
+const generateGuardianTransactionOnFreshState = async (
+  transaction: ITransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+      return;
+    } catch (error) {
+      if (
+        transaction.type !== 'replace-hot-key' ||
+        attempt >= ROTATION_STALE_STATE_ATTEMPTS ||
+        !isStaleInitialCommitmentError(error)
+      ) {
+        throw error;
+      }
+      console.warn(
+        `[Guardian] replace-hot-key refused as built on superseded account state (attempt ${attempt}/` +
+          `${ROTATION_STALE_STATE_ATTEMPTS}); rebuilding on fresh state with the same key: ${describeError(error)}`
+      );
+    }
+  }
 };
 
 /**
