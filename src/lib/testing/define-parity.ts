@@ -102,6 +102,6 @@ export function defineSource(configSource: string): string {
   if (defineSites.length > 1) throw new Error('the config has more than one define object');
   const block = objectAfter(configSource, /\bdefine:\s*\{/, 'define');
   return block.replace(/\.\.\.([A-Za-z_$][\w$]*)(?=\s*[,}])/g, (_, name: string) =>
-    objectAfter(configSource, new RegExp(`\\bconst\\s+${name}\\s*=\\s*\\{`), `const ${name}`)
+    objectAfter(configSource, new RegExp(`\\bconst\\s+${escapeRegExp(name)}\\s*(?::[^=]+)?=\\s*\\{`), `const ${name}`)
   );
 }

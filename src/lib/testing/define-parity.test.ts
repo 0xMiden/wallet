@@ -16,6 +16,15 @@ describe('defineSource', () => {
     expect(defines).toContain("'process.browser': 'true'");
   });
 
+  it('expands a spread from a typed const', () => {
+    const source = [
+      "const shared: Record<string, string> = { 'process.env.B': JSON.stringify('x') };",
+      "export default { define: { ...shared, 'process.browser': 'true' } };"
+    ].join('\n');
+    const defines = defineSource(source);
+    expect(occurrences(defines, "'process.env.B':")).toBe(1);
+  });
+
   it('leaves out an object the define block does not spread', () => {
     const source = [
       "const shared = { 'process.env.B': JSON.stringify('x') };",
