@@ -14,6 +14,8 @@ import { WalletAccount } from 'lib/shared/types';
 import { registerGuardianOrigin } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
+import type { AssertLive } from '../sdk/miden-client-interface';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account.
@@ -295,12 +297,17 @@ export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
  *   derivation. Account ID is a content hash that includes the guardian pubkey
  *   baked into storage, so the import flow passes the effective default
  *   guardian endpoint to reproduce the ID the account originally had.
+ * @param assertLive - The caller's WASM lock hold re-check. The creation runs
+ *   inside that hold and its 429 waits park there; an evicted flow is abandoned,
+ *   not cancelled, so every WASM call and guardian write after a parking await
+ *   runs it first, and the poison error it throws leaves here unwrapped.
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
   coldSeed?: Uint8Array,
   skipRegistration: boolean = false,
-  guardianEndpointOverride?: string
+  guardianEndpointOverride?: string,
+  assertLive: AssertLive = () => {}
 ): Promise<CreatedGuardianAccount> {
   if (!coldSeed) {
     coldSeed = crypto.getRandomValues(new Uint8Array(32));
@@ -340,10 +347,12 @@ export async function createGuardianAccount(
     // behind a shared egress IP (NAT, VPN) share; a 429 is waited out within
     // GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, one deadline for both calls (#906).
     const rateLimitDeadline = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
+    const afterWait = () => assertLive('after a guardian 429 wait');
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
       () => client.guardianClient.getPubkey('ecdsa'),
-      { deadlineMs: rateLimitDeadline }
+      { deadlineMs: rateLimitDeadline, afterWait }
     );
+    assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(
@@ -381,8 +390,13 @@ export async function createGuardianAccount(
     );
 
     if (!skipRegistration) {
-      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), { deadlineMs: rateLimitDeadline });
+      assertLive('before guardian registration');
+      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), {
+        deadlineMs: rateLimitDeadline,
+        afterWait
+      });
     }
+    assertLive('before the sync');
     await webClient.sync();
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
@@ -390,6 +404,7 @@ export async function createGuardianAccount(
     // vault key and stores it at accAuthSecretKeyStrgKey(coldPublicKey).
     // Hot is intentionally NOT inserted here — vault.ts persists the
     // returned hot ciphertext separately under its own envelope.
+    assertLive('before the cold key insert');
     await webClient.keystore.insert(multisig.account.id(), coldSk);
 
     console.log('Guardian account created:', multisig.account.id().toString());
@@ -405,6 +420,9 @@ export async function createGuardianAccount(
       guardianEndpoint
     };
   } catch (e) {
+    // The lock's kill classifiers read the poison error's identity; wrapped, an
+    // abandoned flow would read as a flat failure.
+    if (isWasmClientPoisonedError(e)) throw e;
     console.error('Error creating Guardian account:', e);
     // Preserve the original cause so callers can distinguish guardian-unreachable
     // from node/registration/WASM failures.

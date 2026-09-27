@@ -7,7 +7,7 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
-import { WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
   assertGuardianKeyCommitment,
@@ -627,6 +627,35 @@ describe('createGuardianAccount', () => {
         'Failed to create Guardian account'
       );
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    // The creation runs inside a WASM lock hold and its waits park there; an
+    // eviction abandons the flow rather than cancelling it, so the flow must stop
+    // at its next re-check and surface the poison error unwrapped.
+    it('stops at the re-check after a wait once the hold is evicted, with the poison error itself', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited());
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const webClient = makeWebClient();
+      const poison = new WasmClientPoisonedError('watchdog', new Error('evicted during a 429 wait'));
+      let evicted = false;
+      // Queued before the creation's 1 s wait, so it fires first at the same instant.
+      setTimeout(() => {
+        evicted = true;
+      }, 1000);
+      const assertLive = () => {
+        if (evicted) throw poison;
+      };
+
+      await Promise.all([
+        expect(
+          createGuardianAccount(webClient as never, new Uint8Array(32), false, undefined, assertLive)
+        ).rejects.toBe(poison),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(webClient.sync).not.toHaveBeenCalled();
+      expect(webClient.keystore.insert).not.toHaveBeenCalled();
     });
   });
 });

@@ -65,7 +65,8 @@ const GUARDIAN_KEYS_FIXTURE = {
 const mockCreateGuardianMidenWallet = jest.fn(
   async (
     _seed: Uint8Array,
-    _guardianEndpoint?: string
+    _guardianEndpoint?: string,
+    _assertLive?: (step?: string) => void
   ): Promise<{ accountId: string; keys: typeof GUARDIAN_KEYS_FIXTURE; guardianEndpoint?: string }> => ({
     accountId: 'guardian-acc-1',
     keys: GUARDIAN_KEYS_FIXTURE
@@ -3001,7 +3002,8 @@ describe('Vault hardware branches', () => {
     );
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://picked-guardian.example'
+      'https://picked-guardian.example',
+      expect.any(Function)
     );
   });
 
@@ -3078,8 +3080,50 @@ describe('Vault hardware branches', () => {
     // global key — the regression stage 1 would otherwise introduce.
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://resolved-from-sibling.example'
+      'https://resolved-from-sibling.example',
+      expect.any(Function)
     );
+  });
+
+  // Guardian creation waits out guardian 429s inside the hold, and an evicted
+  // flow is abandoned, not cancelled: the hold hands the creation a re-check
+  // bound to itself, live while it owns the mutex and poisoned once it does not.
+  describe('Guardian creation re-checks its own hold (#906)', () => {
+    const recordAssertLive = () => {
+      const outcomes: unknown[] = [];
+      const probe = (assertLive: ((step?: string) => void) | undefined) => {
+        try {
+          assertLive?.('probe');
+          outcomes.push('live');
+        } catch (error) {
+          outcomes.push(error);
+        }
+      };
+      mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async (_seed, _endpoint, assertLive) => {
+        probe(assertLive);
+        revokeWasmHold();
+        probe(assertLive);
+        return { accountId: 'guardian-acc-1', keys: GUARDIAN_KEYS_FIXTURE };
+      });
+      return outcomes;
+    };
+
+    it('in Vault.spawn', async () => {
+      const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const outcomes = recordAssertLive();
+      await Vault.spawn(WalletType.Guardian, 'pw-guardian-hold', VALID_MNEMONIC, false);
+      expect(outcomes[0]).toBe('live');
+      expect(outcomes[1]).toBeInstanceOf(WasmClientPoisonedError);
+    });
+
+    it('in createHDAccount', async () => {
+      const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const vlt = await Vault.spawn(WalletType.OnChain, 'pw-guardian-hd-hold');
+      const outcomes = recordAssertLive();
+      await vlt.createHDAccount(WalletType.Guardian, 'Guardian 1');
+      expect(outcomes[0]).toBe('live');
+      expect(outcomes[1]).toBeInstanceOf(WasmClientPoisonedError);
+    });
   });
 
   it('createHDAccount supports WalletType.OffChain (derivation index 1)', async () => {

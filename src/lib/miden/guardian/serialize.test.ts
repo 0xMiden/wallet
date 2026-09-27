@@ -285,6 +285,22 @@ describe('withGuardianRateLimitRetry (#906)', () => {
     expect(waits).toEqual([60_000]);
   });
 
+  it('stops before its next call when afterWait throws', async () => {
+    const { waits, sleepFn } = recordingSleep();
+    const abandoned = new Error('abandoned');
+    const fn = jest.fn().mockRejectedValueOnce(rateLimited(3)).mockResolvedValueOnce('ok');
+    const afterWait = () => {
+      throw abandoned;
+    };
+    const settled = await withGuardianRateLimitRetry(fn, { sleepFn, afterWait }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(waits).toEqual([3000]);
+    expect(settled).toBe(abandoned);
+  });
+
   it('retries an error recognised only by its rate_limit_exceeded code', async () => {
     const { sleepFn } = recordingSleep();
     const fn = jest

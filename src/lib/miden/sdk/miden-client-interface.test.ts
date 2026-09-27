@@ -1366,7 +1366,8 @@ describe('MidenClientInterface', () => {
         fakeMidenClient,
         expect.any(Uint8Array),
         false,
-        'https://picked-guardian.example'
+        'https://picked-guardian.example',
+        expect.any(Function)
       );
       expect(result).toEqual({ accountId: 'guardian-id', keys });
     });

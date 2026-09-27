@@ -202,11 +202,13 @@ export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: C
  * last 429 is rethrown unchanged, so callers still see the guardian's own error.
  * A caller holding a lock bounds the waits with `deadlineMs`, an absolute time on
  * `monotonicNowMs()`: a wait that would end past it is not started, and the 429
- * is rethrown as at the attempt limit.
+ * is rethrown as at the attempt limit. It also passes `afterWait`, run after each
+ * wait and before the next call, to re-check it still owns that lock: whatever
+ * `afterWait` throws ends the retry, unwrapped.
  */
 export async function withGuardianRateLimitRetry<T>(
   fn: () => Promise<T>,
-  opts: { deadlineMs?: number; sleepFn?: (ms: number) => Promise<void> } = {}
+  opts: { deadlineMs?: number; sleepFn?: (ms: number) => Promise<void>; afterWait?: () => void } = {}
 ): Promise<T> {
   const wait = opts.sleepFn ?? sleep;
   for (let attempt = 1; ; attempt++) {
@@ -230,6 +232,7 @@ export async function withGuardianRateLimitRetry<T>(
         `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); retrying in ${delayMs} ms`
       );
       await wait(delayMs);
+      opts.afterWait?.();
     }
   }
 }
