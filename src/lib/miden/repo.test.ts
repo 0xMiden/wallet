@@ -1,4 +1,4 @@
-import Dexie from 'dexie';
+import Dexie, { DBCore, Middleware } from 'dexie';
 
 import { ITransaction, ITransactionStatus } from './db/types';
 import {
@@ -848,5 +848,54 @@ describe('writing a transaction row', () => {
   it('writes a row with a non-negative safe-integer initiatedAt', async () => {
     await transactions.add({ id: 'hook-4', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 } as never);
     await expect(transactions.get('hook-4')).resolves.toMatchObject({ initiatedAt: 1_700_000_000 });
+  });
+
+  it('refuses the same row in a database built by createSchemaFor', async () => {
+    const name = `insert-check-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = createSchemaFor(name);
+
+    await expect(isolated.table(Table.Transactions).add({ id: 'hook-5', accountId: 'a', status: 0 })).rejects.toThrow(
+      /initiatedAt/
+    );
+    isolated.close();
+    await Dexie.delete(name);
+  });
+
+  it('issues one getMany for the row a modify replaces, and none for the insert check', async () => {
+    await transactions.add({ id: 'hook-6', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 } as never);
+    let reads = 0;
+    // Level 1 sits below Dexie's hooks middleware (level 2), which issues a hook's read of the rows a
+    // put replaces, and above the transaction cache (level -1) that would answer that read.
+    const counter: Middleware<DBCore> = {
+      stack: 'dbcore',
+      name: 'get-many-counter',
+      level: 1,
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== Table.Transactions) return table;
+          return {
+            ...table,
+            getMany: req => {
+              reads += 1;
+              return table.getMany(req);
+            }
+          };
+        }
+      })
+    };
+    db.close();
+    db.use(counter);
+    await db.open();
+    try {
+      await transactions.where({ id: 'hook-6' }).modify({ status: ITransactionStatus.Completed });
+      expect(reads).toBe(1);
+    } finally {
+      db.unuse(counter);
+      db.close();
+      await db.open();
+    }
+    await expect(transactions.get('hook-6')).resolves.toMatchObject({ status: ITransactionStatus.Completed });
   });
 });

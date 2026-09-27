@@ -189,20 +189,40 @@ function defineSchema(target: Dexie): void {
   target.version(1.9).stores({
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
+
+  // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
+  // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
+  // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
+  target.use({
+    stack: 'dbcore',
+    name: 'TransactionInitiatedAtCheck',
+    create: down => ({
+      ...down,
+      table: name => {
+        const table = down.table(name);
+        if (name !== Table.Transactions) return table;
+        return {
+          ...table,
+          mutate: req => {
+            if (req.type === 'add') {
+              const rows: readonly ITransaction[] = req.values;
+              const unplaceable = rows.find(row => !isValidTimestamp(row.initiatedAt));
+              if (unplaceable !== undefined) {
+                throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
+              }
+            }
+            return table.mutate(req);
+          }
+        };
+      }
+    })
+  });
 }
 
 export const db = new Dexie('TridentMain');
 defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
-
-// Every insert goes through here. A row whose `initiatedAt` the index cannot place is invisible
-// to the spending-limit window read, so none is written (#1007).
-transactions.hook('creating', (_primaryKey, row) => {
-  if (!isValidTimestamp(row.initiatedAt)) {
-    throw new Error(`transaction ${row.id} has an unplaceable initiatedAt`);
-  }
-});
 
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
 
