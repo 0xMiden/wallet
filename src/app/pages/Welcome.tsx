@@ -12,7 +12,6 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
-import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -830,10 +829,9 @@ const Welcome: FC = () => {
               // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
               // copy suggests a public import, which a pasted key cannot use (the screen hides it).
               lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
-            } else if (!isWasmClientPoisonedError(error) && isLikelyNetworkError(error)) {
+            } else if (isLikelyNetworkError(error)) {
               // A raw "Failed to fetch" / RPC timeout message is not translated; show the
-              // operator-unreachable notice instead. isWasmClientPoisonedError is checked first: a
-              // poisoned client keeps its own message even if its text happens to mention a fetch failure.
+              // operator-unreachable notice instead.
               lookupFailure = t('guardianUrlUnreachable');
             } else {
               lookupFailure = failure;
