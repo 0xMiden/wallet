@@ -46,6 +46,19 @@ it('writes the given text and flips copied true, then false after the feedback w
   expect(result.current.copied).toBe(false);
 });
 
+it('leaves copied false and arms no timer when the write is refused', async () => {
+  jest.useFakeTimers();
+  mockWrite.mockRejectedValueOnce(new Error('refused'));
+  const { result } = renderHook(() => useClipboardCopy('0xabc123'));
+
+  await act(async () => {
+    await result.current.copy();
+  });
+
+  expect(result.current.copied).toBe(false);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
 it('does not arm the revert timer for a write that resolves after unmount', async () => {
   // React 18 silently no-ops a `setState` call on an unmounted fiber (no console warning to
   // assert on), so the guard's real, testable effect is the SIDE EFFECT it must not run: arming

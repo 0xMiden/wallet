@@ -2,8 +2,9 @@
 import React from 'react';
 
 import { Address, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -92,12 +93,22 @@ jest.mock('app/ErrorBoundary', () => ({
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
-jest.mock('app/pages/Unlock', () => ({
-  __esModule: true,
-  default: ({ openForgotPasswordInFullPage }: any) => (
-    <div data-testid="unlock" data-full-page={String(openForgotPasswordInFullPage)} />
-  )
-}));
+const mockRetireLockoutRecord = jest.fn();
+jest.mock('app/pages/Unlock', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: ({ openForgotPasswordInFullPage }: any) => (
+      <div data-testid="unlock" data-full-page={String(openForgotPasswordInFullPage)} />
+    ),
+    retireLockoutRecord: () => mockRetireLockoutRecord(),
+    // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
+    useRetireLockoutOnReady: (ready: boolean) =>
+      R.useEffect(() => {
+        if (ready) mockRetireLockoutRecord();
+      }, [ready])
+  };
+});
 jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
@@ -195,10 +206,6 @@ jest.mock('./atoms/Alert', () => ({
       </button>
     </div>
   )
-}));
-jest.mock('./atoms/Name', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <span data-testid="name">{children}</span>
 }));
 jest.mock('./icons/v2', () => ({
   Icon: ({ name }: any) => <span data-testid="icon" data-name={name} />,
@@ -338,6 +345,21 @@ describe('ConfirmPage gate', () => {
     expect(banner.compareDocumentPosition(screen.getByTestId('content-container'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+  });
+
+  // The confirm window renders its own Unlock and never mounts PageRouter, so it retires the guess record
+  // itself once the wallet is ready (#1192).
+  it('retires the guess record once the wallet is ready', () => {
+    setPayload({ type: 'assets', ...baseFields() });
+    render(<ConfirmPage />);
+    expect(mockRetireLockoutRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the guess record alone while the wallet is not ready', () => {
+    ctx.ready = false;
+    setPayload({ type: 'assets', ...baseFields() });
+    render(<ConfirmPage />);
+    expect(mockRetireLockoutRecord).not.toHaveBeenCalled();
   });
 });
 
@@ -1030,6 +1052,28 @@ describe('consumableNotes payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppConsumableNotes).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+describe('request origin banner', () => {
+  const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
+
+  it('keeps the registrable domain of a long origin out of the truncating part', () => {
+    setPayload({
+      type: 'importPrivateNote',
+      ...baseFields(LONG_ORIGIN),
+      sourcePublicKey: 's',
+      note: 'noteblob',
+      preview: {}
+    });
+    const { container } = render(<ConfirmPage />);
+
+    const shown = screen.getByTestId('confirm-request-origin');
+    expect(shown.textContent).toBe(LONG_ORIGIN);
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 });
 

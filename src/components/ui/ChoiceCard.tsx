@@ -36,6 +36,8 @@ export interface ChoiceCardGroupProps<T extends string = string> {
   value: T | null;
   /** Called once per real change: never for a tap on the option that is already chosen. */
   onChange: (id: T) => void;
+  /** Called instead of `onChange` when a tap or key activates the option that is already chosen. */
+  onReselect?: (id: T) => void;
   'aria-label'?: string;
   'aria-labelledby'?: string;
   /** Layout only (margins). */
@@ -160,6 +162,7 @@ export function ChoiceCardGroup<T extends string>({
   items,
   value,
   onChange,
+  onReselect,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   className,
@@ -176,7 +179,10 @@ export function ChoiceCardGroup<T extends string>({
   const focusIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex(item => !item.disabled);
 
   const select = (id: T) => {
-    if (id === value) return;
+    if (id === value) {
+      onReselect?.(id);
+      return;
+    }
     hapticSelection();
     onChange(id);
   };

@@ -5,7 +5,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DecryptedWalletFile, VersionTwoDecryptedWalletFile } from 'lib/miden/backup-file';
-import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  type GuardianProbeState,
+  NO_GUARDIAN_ID,
+  OnboardingStep,
+  OnboardingType,
+  WalletType
+} from 'screens/onboarding/types';
 
 import Welcome from './Welcome';
 
@@ -97,10 +104,15 @@ const mockProbeStart = jest.fn();
 // The real hook is { state, start, startWithKey, reset }; the key path is what
 // the seed-less Guardian import uses, so the stub carries it too.
 const mockProbeStartWithKey = jest.fn();
-const mockProbeReset = jest.fn();
+// What the hook would report. A reset, like a newer run, supersedes every earlier run, so its result never lands.
+const mockProbe: { state: GuardianProbeState; runs: number } = { state: { status: 'idle' }, runs: 0 };
+const mockProbeReset = jest.fn(() => {
+  mockProbe.runs += 1;
+  mockProbe.state = { status: 'idle' };
+});
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
   useGuardianProbe: () => ({
-    state: { status: 'idle' },
+    state: mockProbe.state,
     start: mockProbeStart,
     startWithKey: mockProbeStartWithKey,
     reset: mockProbeReset
@@ -226,6 +238,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 const READY = 2;
 const IDLE = 0;
+const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
 const IMPORTED_ACCOUNT_BACKUP = {
   accountId: 'account-id',
   publicKeyCommitment: 'a1b2',
@@ -368,6 +381,8 @@ beforeEach(() => {
   mockRegisterWalletFromHotKey.mockResolvedValue(undefined);
   mockProbeStart.mockResolvedValue(undefined);
   mockProbeStartWithKey.mockResolvedValue(undefined);
+  mockProbe.state = { status: 'idle' };
+  mockProbe.runs = 0;
   mockPutToStorage.mockResolvedValue(undefined);
   mockSeedWalletPrompt.mockResolvedValue(undefined);
   mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
@@ -568,7 +583,7 @@ describe('Welcome — hash → step routing', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await setHash('#confirmation');
     expect(currentStep()).toBe(OnboardingStep.Confirmation);
-    // Back from Confirmation is offered only to a file restore (importType WalletFile).
+    // Back from Confirmation is offered only to a file restore (a walletFilePayload still held).
     expect(mockFlowProps.current.canGoBack).toBe(false);
 
     // register() checks for a staged file before anything else, so a kept payload would restore it here.
@@ -723,7 +738,7 @@ describe('Welcome — hash → step routing', () => {
     );
   });
 
-  // A Guardian import whose lookup fails at Confirmation raises guardianLookupError for that seed.
+  // A Guardian import whose lookup fails at Confirmation raises guardianLookupFailure for that seed.
   const failGuardianImport = async () => {
     mockRegisterWallet.mockRejectedValueOnce(new Error('no guardian for this seed'));
     await dispatch({ id: 'select-import-type' });
@@ -736,7 +751,7 @@ describe('Welcome — hash → step routing', () => {
     });
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('no guardian for this seed');
   };
 
   it('does not show an abandoned import its lookup failure after a return to Welcome', async () => {
@@ -744,7 +759,14 @@ describe('Welcome — hash → step routing', () => {
     await renderWelcome();
     await failGuardianImport();
     await setHash('');
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
+  });
+
+  it('a re-run of guardian detection retires the lookup failure', async () => {
+    await renderWelcome();
+    await failGuardianImport();
+    await dispatch({ id: 'retry-guardian-probe' });
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
   });
 
   it('a pasted key retires the lookup failure of the seed before it', async () => {
@@ -752,7 +774,7 @@ describe('Welcome — hash → step routing', () => {
     await renderWelcome();
     await failGuardianImport();
     await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
   });
 
   it.each([['the select-import-type action', () => dispatch({ id: 'select-import-type' })]])(
@@ -1309,7 +1331,7 @@ describe('Welcome — create-password-submit', () => {
   it('seed-phrase import routes to recovery-method selection', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' }); // onboardingType = Import
-    await dispatch({ id: 'import-from-seed' }); // importType = SeedPhrase
+    await dispatch({ id: 'import-from-seed' });
     mockNavigate.mockClear();
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
@@ -1475,7 +1497,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockFlowProps.current.recoveryError).toBe('file restore failed');
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
     expect(mockNavigate).not.toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(currentStep()).toBe(OnboardingStep.Confirmation);
 
@@ -1552,10 +1574,12 @@ describe('Welcome — confirmation / register', () => {
   });
 
   it('surfaces a guardian lookup failure on the recovery-method screen (import)', async () => {
-    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    mockRegisterWallet.mockRejectedValue(
+      Object.assign(new Error('guardian not found'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
+    );
     await renderWelcome();
     await dispatch({ id: 'select-import-type' }); // onboardingType = Import
-    await dispatch({ id: 'import-from-seed' }); // importType = SeedPhrase
+    await dispatch({ id: 'import-from-seed' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
@@ -1565,9 +1589,81 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianAccountNotFound');
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockFlowProps.current.isLoading).toBe(false);
+  });
+
+  it("carries a non-not-found lookup failure's own message", async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('This key is no longer active for the account.'));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('This key is no longer active for the account.');
+  });
+
+  it('maps a network failure to the guardianUrlUnreachable notice', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('Failed to fetch'));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
+  });
+
+  it('maps an RPC timeout to the guardianUrlUnreachable notice', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('RPC "recoverGuardianByKey" timed out after 30000ms'));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
+  });
+
+  it('falls back to translated copy on the recovery-method screen when a lookup failure carries no text', async () => {
+    mockRegisterWallet.mockRejectedValue({});
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('smthWentWrong');
   });
 
   it('does not greet the next confirmation visit with an earlier failure', async () => {
@@ -1629,7 +1725,7 @@ describe('Welcome — confirmation / register', () => {
     });
 
     // The failure is the lookup of the method and seed the user confirmed, so it raises the flag and hands off.
-    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardian not found');
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
   });
 
@@ -1646,13 +1742,13 @@ describe('Welcome — confirmation / register', () => {
     });
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardian not found');
 
     // A mistyped seed: back to seed entry, and the corrected one submitted before any lookup for it.
     await setHash('#import-from-seed');
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'ee ff gg hh' });
 
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
   });
 
   it('lets a back press that lands as the lookup fails leave Confirmation', async () => {
@@ -1694,7 +1790,7 @@ describe('Welcome — confirmation / register', () => {
 
     expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
-    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardian not found');
   });
 
   it('drops a guardian choice whose hardware check answers after the user confirmed a passcode instead', async () => {
@@ -2183,7 +2279,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockFlowProps.current.isLoading).toBe(false);
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
     // navigation home never happened because register threw.
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
     // ...and the user is told why.
@@ -3667,7 +3763,6 @@ describe('the onboarding step table has no dead entries', () => {
 // Seed-less Guardian import: the hot-key paste flow.
 // ---------------------------------------------------------------------------
 describe('hot-key import flow', () => {
-  const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
   const ENDPOINT = 'https://guardian.example.com';
 
   it('routes the import-with-key link to the key screen and renders it', async () => {
@@ -3728,6 +3823,27 @@ describe('hot-key import flow', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
   });
 
+  it('names the key when a key-pair import finds no Guardian account', async () => {
+    mockRegisterWalletFromHotKey.mockRejectedValue(
+      Object.assign(new Error('importHotKeyNoAccount'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
+    );
+    await renderWelcome();
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw-1', enableBiometric: false } });
+    await setHash('#import-select-recovery-method');
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: ENDPOINT }
+    });
+    await setHash('#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('importHotKeyNoAccount');
+  });
+
   it('backs out of the key screen to seed entry, and re-entering seed entry drops the pasted key', async () => {
     await renderWelcome();
     await setHash('#import-from-key');
@@ -3773,5 +3889,312 @@ describe('hot-key import flow', () => {
 
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// An import resumed by browser Back and Forward (#1115)
+// ===========================================================================
+
+// From the file's password step: the header back arrow twice, then seed entry picked at the import-type choice.
+const leaveFileForSeedEntry = async () => {
+  await stageFileRestore();
+  await setHash('#create-password');
+  await dispatch({ id: 'back' });
+  await setHash('#import-from-file');
+  await dispatch({ id: 'back' });
+  await setHash('#select-import-type');
+  await dispatch({ id: 'import-from-seed' });
+  await setHash('#import-from-seed');
+};
+
+describe('Welcome - a file restore resumed by browser history', () => {
+  it.each([
+    ['password', false, '#create-password', { id: 'create-password-submit', payload: { password: 'pw' } }, 'pw'],
+    ['passcode', true, '#setup-passcode', { id: 'setup-passcode-submit', payload: '654321' }, '654321']
+  ])(
+    'restores the file when Back reaches the import-type choice and Forward returns to the %s step',
+    async (_name, mobile, protectionHash, protect, password) => {
+      mockIsMobileFn.mockReturnValue(mobile);
+      await renderWelcome();
+      await stageFileRestore();
+      await setHash(protectionHash);
+      await setHash('#import-from-file');
+      await setHash('#select-import-type');
+      await setHash('#import-from-file');
+      await setHash(protectionHash);
+      await dispatch(protect);
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#confirmation');
+      await setHash('#confirmation');
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+        password,
+        'alpha beta gamma delta',
+        VERSION_TWO_PAYLOAD.accounts,
+        2,
+        VERSION_TWO_PAYLOAD.importedAccounts
+      );
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+    }
+  );
+
+  it('restores the file when a hardware-protected restore is resumed straight onto Confirmation', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await stageFileRestore();
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#confirmation');
+    await setHash('#confirmation');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      undefined,
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps the file when seed entry is picked at the import-type choice and Back returns to its password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'pw',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('keeps the file when Back passes a seed entry visited before it and Forward returns', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-seed' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'back' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+    await setHash('#create-password');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'pw',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      2,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+});
+
+describe('Welcome - a file restore is the file it holds', () => {
+  it('sends a seed typed after leaving a file to the recovery method when Back returns to the file password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+  });
+
+  it('imports a key pasted after leaving a file as a key, through the recovery method', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await dispatch({ id: 'import-with-key' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    await setHash('#import-select-recovery-method');
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await setHash('#confirmation');
+    expect(mockFlowProps.current.canGoBack).toBe(false);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWalletFromHotKey).toHaveBeenCalledWith('pw', HOT_KEY_HEX, 'https://g');
+    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+  });
+
+  it('does not resume a file restore left for Welcome when Forward returns to its password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await stageFileRestore();
+    await setHash('#create-password');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+  });
+});
+
+describe('Welcome - Guardian discovery across browser history', () => {
+  const OPERATOR = 'https://detected.example';
+  const OTHER_HOT_KEY_HEX = 'ef'.repeat(32) + ':' + '34'.repeat(32);
+  const DETECTED: GuardianProbeState = {
+    status: 'done',
+    result: {
+      best: { endpoint: OPERATOR, accountIds: ['acct-1'], hdIndices: [0], nonce: 1n },
+      matches: [{ endpoint: OPERATOR, accountIds: ['acct-1'], hdIndices: [0], nonce: 1n }],
+      probedEndpoints: [OPERATOR],
+      failures: []
+    }
+  };
+
+  // A start opens a run as the hook does; `land` publishes that run's result unless a reset or a later run came first.
+  let land: (state: GuardianProbeState) => void = () => undefined;
+  const openRun = async () => {
+    mockProbe.runs += 1;
+    const run = mockProbe.runs;
+    mockProbe.state = { status: 'probing' };
+    land = state => {
+      if (mockProbe.runs === run) mockProbe.state = state;
+    };
+    return undefined;
+  };
+
+  beforeEach(() => {
+    land = () => undefined;
+    mockIsMobileFn.mockReturnValue(false);
+    mockProbeStart.mockImplementation(openRun);
+    mockProbeStartWithKey.mockImplementation(openRun);
+  });
+
+  const enterSeed = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+  };
+  const enterKey = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-with-key' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+  };
+  const continueToRecoveryMethod = async () => {
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+  };
+
+  it.each([
+    ['seed', '#import-from-seed', enterSeed],
+    ['key', '#import-from-key', enterKey]
+  ])('still offers the detected Guardian after Back to the %s entry and Forward', async (_name, entryHash, enter) => {
+    await renderWelcome();
+    await enter();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash(entryHash);
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockFlowProps.current.guardianProbe).toEqual(DETECTED);
+  });
+
+  it('shows a discovery that finishes after Back and Forward', async () => {
+    await renderWelcome();
+    await enterSeed();
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#create-password');
+    land(DETECTED);
+    await continueToRecoveryMethod();
+
+    expect(mockFlowProps.current.guardianProbe).toEqual(DETECTED);
+  });
+
+  it('shows a different seed entered after Back its own discovery, not the last one', async () => {
+    await renderWelcome();
+    await enterSeed();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'ee ff gg hh' });
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockProbeStart).toHaveBeenLastCalledWith(['ee', 'ff', 'gg', 'hh']);
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'probing' });
+  });
+
+  it('shows a different key entered after Back its own discovery, not the last one', async () => {
+    await renderWelcome();
+    await enterKey();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: OTHER_HOT_KEY_HEX });
+    await setHash('#create-password');
+    await continueToRecoveryMethod();
+
+    expect(mockProbeStartWithKey).toHaveBeenLastCalledWith('ef'.repeat(32));
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'probing' });
+  });
+
+  it('ends the discovery of a seed left for a wallet file', async () => {
+    await renderWelcome();
+    await enterSeed();
+    land(DETECTED);
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+
+    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
   });
 });

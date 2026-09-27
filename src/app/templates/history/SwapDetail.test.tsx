@@ -64,8 +64,8 @@ jest.mock('components/Button', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash, className }: { hash: string; className?: string }) => (
-    <span data-testid="hash-chip" className={className}>
+  default: ({ hash, className, compactHitArea }: { hash: string; className?: string; compactHitArea?: boolean }) => (
+    <span data-testid="hash-chip" className={className} data-compact-hit-area={String(Boolean(compactHitArea))}>
       {hash}
     </span>
   )
@@ -366,6 +366,35 @@ describe('SwapDetail note rows', () => {
       expect(chip).toHaveClass('text-muted');
       expect(chip).not.toHaveClass('text-text-secondary-token');
     });
+  });
+
+  it('keeps each chip of a two-note fill or reclaim row to its own tap target', () => {
+    renderDetail({
+      settledTransactions: [consume({ noteIds: ['0xnote1', '0xnote2'] })],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9', '0xnote10'] })]
+    });
+
+    const isNote = (chip: HTMLElement) => /^0xnote(1|2|9|10)$/.test(chip.textContent ?? '');
+    const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
+    expect(noteChips).toHaveLength(4);
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'true'));
+
+    // The faucet and transaction-hash chips sit alone in their rows.
+    const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !isNote(chip));
+    expect(rowChips.length).toBeGreaterThan(0);
+    rowChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'false'));
+  });
+
+  it('leaves a one-note fill or reclaim row its taller hit area, since it has no neighbour to protect', () => {
+    renderDetail({
+      settledTransactions: [consume()],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
+    });
+
+    const isNote = (chip: HTMLElement) => /^0xnote[19]$/.test(chip.textContent ?? '');
+    const noteChips = screen.getAllByTestId('hash-chip').filter(isNote);
+    expect(noteChips).toHaveLength(2);
+    noteChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'false'));
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {

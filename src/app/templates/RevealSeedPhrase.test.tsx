@@ -1,8 +1,10 @@
 import React from 'react';
 
+import { App } from '@capacitor/app';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
 
 import RevealSeedPhrase from './RevealSeedPhrase';
@@ -27,8 +29,7 @@ const mockHapticLight = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
-const mockCopy = jest.fn();
-let mockCopied = false;
+const mockClipboardWrite = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -142,12 +143,30 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isAndroid: () => true
 }));
 
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: mockCopied })
+// Hardware back runs through the real hook and registry; only the native listener is stubbed, so a
+// test presses the handler the page registered under its deps (#1042).
+let mockBackButton: (() => void) | undefined;
+jest.mock('@capacitor/app', () => ({
+  App: {
+    addListener: jest.fn((event: string, callback: () => void) => {
+      if (event === 'backButton') mockBackButton = callback;
+      return Promise.resolve({ remove: jest.fn() });
+    }),
+    minimizeApp: jest.fn()
+  }
+}));
+
+// On mobile the words wait for the screenshot guard, whose native plugin jsdom never answers.
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: () => true
+}));
+
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 // The warning's Close and back go through useBackWithFallback, which reads live
@@ -170,8 +189,10 @@ describe('RevealSeedPhrase', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    mockIsMobile = true;
+    await initMobileBackHandler();
   });
 
   afterAll(() => {
@@ -184,7 +205,7 @@ describe('RevealSeedPhrase', () => {
     mockHasPasswordProtector.mockResolvedValue(false);
     mockSecret = null;
     mockSeedStatus = 'stored';
-    mockCopied = false;
+    mockClipboardWrite.mockResolvedValue(undefined);
     mockIsMobile = false;
     mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -399,9 +420,9 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
-  // Retry must survive its own click. Clearing the error at the START of a probe
-  // unmounted the block the button lives in, so a read that HANGS rather than
-  // rejecting left a disabled View, no Retry and only Close.
+  // Retry must survive its own click: a read that HANGS rather than rejecting used to leave a
+  // disabled View, no Retry and only Close. The error now stays on screen with a disabled, loading
+  // Retry for the first 5 s; past the deadline the wait notice takes over (see 'swaps the error...').
   it('keeps the error and the Retry on screen while a retry is still in flight', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
@@ -435,10 +456,8 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
   });
 
-  // The generation bump invalidates the WRITE; this pins that the cleanup also owns the
-  // TIMER. Leaving the page mid-probe otherwise leaves a live handle and a closure
-  // holding the read - on exactly the hanging case the bound exists for, where the
-  // settle path that would clear it never runs.
+  // Leaving the page mid-probe must not leave the deadline armed: on the hanging read the bound exists
+  // for, the settle path that would clear it never runs.
   it('clears the probe deadline when the page is left mid-probe', async () => {
     jest.useFakeTimers();
     try {
@@ -460,10 +479,8 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // The deadline is the one failure with no other evidence - no rejection, no stack, no
-  // network error - so the log is its only trace. It used to be the one cause that did
-  // not emit one, while the comment claimed it did.
-  it('logs when the probe deadline is what raised the banner', async () => {
+  // A hang has no other evidence (no rejection, no stack), so the log is its only trace.
+  it('logs once when the probe deadline passes', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -476,9 +493,7 @@ describe('RevealSeedPhrase', () => {
         jest.advanceTimersByTime(6000);
       });
 
-      // "waiting", not "failed": the read may still answer, and calling it a failure is
-      // what made the common slow-mobile case report an error that never happened.
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('still waiting'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('still waiting after 5000ms'));
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
@@ -486,71 +501,42 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // The deadline releases the button WITHOUT settling the read, so a second probe can be
-  // started while the first is outstanding. The first one's late settle must not disarm
-  // the second one's deadline - that would leave the live probe unbounded and put the
-  // page back in the dead end the bound exists to remove.
-  it('keeps the live deadline when a superseded probe settles late', async () => {
+  // Past the deadline the page keeps its one probe in flight and offers no Retry, so no two probes on
+  // one page ever overlap; the notice's way to retry is leaving and reopening the page.
+  it('shows the wait notice, not an error, when a probe hangs past the deadline', async () => {
     jest.useFakeTimers();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      let settleFirst!: (v: boolean) => void;
-      mockHasHardwareProtector.mockReturnValueOnce(
-        new Promise<boolean>(res => {
-          settleFirst = res;
-        })
-      );
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
       const container = renderNoFlush();
       await act(async () => {
         await Promise.resolve();
       });
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
+
       await act(async () => {
         jest.advanceTimersByTime(6000);
       });
       await act(async () => {
         await Promise.resolve();
       });
-      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
 
-      // Second probe, also hanging.
-      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
-      await act(async () => {
-        buttonWithText(container, 'retry')!.click();
-      });
-      expect(jest.getTimerCount()).toBe(1);
-
-      // The FIRST read finally lands, long after it was superseded.
-      await act(async () => {
-        settleFirst(true);
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      // Its settle must not have disarmed the live probe's deadline.
-      expect(jest.getTimerCount()).toBe(1);
-      await act(async () => {
-        jest.advanceTimersByTime(6000);
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-      // NOT the banner: it has been up since the first deadline and nothing here clears
-      // it, so asserting it cannot fail and would read as proof of something it never
-      // tested. A second log line is the only thing the SECOND deadline can produce.
-      expect(warn).toHaveBeenCalledTimes(2);
-      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+      const slow = container.querySelector('[data-testid="reveal-seed-probe-slow"]');
+      expect(slow!.textContent).toContain('checkingUnlockMethodSlow');
+      expect(mockT).toHaveBeenCalledWith('checkingUnlockMethodSlow');
+      expect(slow!.getAttribute('role')).toBe('status');
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(buttonWithText(container, 'retry')).toBeUndefined();
+      expect(buttonWithText(container, 'view')!.disabled).toBe(true);
+      // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
+      expect(jest.getTimerCount()).toBe(0);
     } finally {
-      warn.mockRestore();
       jest.useRealTimers();
     }
   });
 
-  // One run can raise the banner twice - the deadline fires, then the read rejects - and
-  // two lines for one banner would over-count probes in a report. The stale-settle test
-  // cannot see this: it drives two runs whose reads never settle, so each logs once
-  // whether or not the guard exists.
-  it('logs once when a probe both times out and then fails', async () => {
+  // The deadline and the failure raise different surfaces (the wait notice, then the error), so
+  // each gets its own line.
+  it('logs the wait and then the failure when a probe times out and then fails', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -561,7 +547,7 @@ describe('RevealSeedPhrase', () => {
         })
       );
       mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
-      renderNoFlush();
+      const container = renderNoFlush();
       await act(async () => {
         await Promise.resolve();
       });
@@ -571,27 +557,47 @@ describe('RevealSeedPhrase', () => {
       });
       expect(warn).toHaveBeenCalledTimes(1);
 
-      // The same run's read now rejects, well after its deadline already spoke.
       await act(async () => {
         rejectRead(new Error('storage'));
       });
       await act(async () => {
         await Promise.resolve();
       });
+      await act(async () => {
+        await Promise.resolve();
+      });
 
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('protector probe failed:'));
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
+      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
     } finally {
       warn.mockRestore();
       jest.useRealTimers();
     }
   });
 
-  // The deadline must DEGRADE, not truncate. A slow read is the common case on mobile,
-  // where this is a native bridge call into a WebView the OS suspends when backgrounded -
-  // and this page invites the user to walk somewhere private and come back. Discarding
-  // the true answer because it arrived late would trade a rare hang for a routine failure.
-  it('adopts a slow answer that lands after the banner has appeared', async () => {
+  // The failure line is the only evidence for this state, so it names what each read failed with.
+  it("names both reads' failures in the probe-failure log", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+      mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+      await render();
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('hardware: hw-boom'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('password: pw-boom'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // A slow read is the common case on mobile (a native bridge call into a WebView the OS suspends
+  // when backgrounded). Staying on the page adopts the first read's answer whenever it lands.
+  it('adopts a slow answer that lands after the wait notice has appeared', async () => {
     jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       let settleRead!: (v: boolean) => void;
       mockHasHardwareProtector.mockReturnValue(
@@ -610,9 +616,8 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
 
-      // The read finally comes back, well past the deadline.
       await act(async () => {
         settleRead(true);
       });
@@ -620,21 +625,95 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('answered after the wait'));
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // The wait notice's way to retry: leaving ends this page's probe with it, and the reopened page starts
+  // a fresh read of its own, which answers when the first read was lost rather than wedged.
+  it('reopening the page after the wait notice probes again and uses the new answer', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise<boolean>(() => {}));
+      renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      expect(testContainer!.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
+
+      await act(async () => {
+        testRoot!.unmount();
+        testRoot = null;
+      });
+      testContainer!.remove();
+      testContainer = null;
+
+      mockHasHardwareProtector.mockResolvedValueOnce(true);
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockHasHardwareProtector).toHaveBeenCalledTimes(2);
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
+      expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // A Retry from the error state keeps the error and its disabled Retry while it runs; if that read
+  // then hangs past the deadline, the wait notice replaces the error, so the page never sits on a
+  // disabled Retry that nothing will re-enable.
+  it('swaps the error for the wait notice when a retry hangs past the deadline', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+    const container = await render();
+    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
+
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+      await act(async () => {
+        buttonWithText(container, 'retry')!.click();
+      });
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
+      expect(buttonWithText(container, 'retry')!.disabled).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
+      expect(buttonWithText(container, 'retry')).toBeUndefined();
     } finally {
       jest.useRealTimers();
     }
   });
 
-  // Pins the bound from BELOW: a probe that settles normally must never reach the
-  // deadline, and must leave no timer behind.
+  // Pins the bound from BELOW: a probe that settles normally never shows the wait notice and leaves no
+  // timer behind.
   it('lets a normal probe settle without arming a lasting timer', async () => {
     jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      // A read that is SLOW but well inside the bound. It has to be timer-driven: a
-      // mocked promise settles in a microtask, which beats any macrotask deadline, so
-      // an instantly-resolving mock would pass even with the bound set to zero.
+      // Timer-driven, so it settles strictly inside the bound; an instantly-resolving mock settles in a
+      // microtask and would pass for any bound.
       mockHasHardwareProtector.mockReturnValue(
         new Promise<boolean>(res => {
           setTimeout(() => res(true), 4000);
@@ -645,16 +724,13 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      // Strictly INSIDE the bound and strictly BEFORE the read settles. Advancing to the
-      // read's own settle time instead would run both timers in one go and every
-      // assertion would land post-adoption, which passes for any bound including zero -
-      // that is what the previous version of this test did.
       await act(async () => {
         jest.advanceTimersByTime(3999);
       });
       await act(async () => {
         await Promise.resolve();
       });
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
 
       await act(async () => {
@@ -664,41 +740,14 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
-      // And nothing is left armed once it settles.
       expect(jest.getTimerCount()).toBe(0);
+      // A probe that never waited has nothing to report.
+      expect(warn).not.toHaveBeenCalled();
     } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  // A storage read can HANG rather than reject, and the recovery affordance is gated on
-  // the probe settling - so without a bound this is the worst state on the page: no
-  // banner (nothing set it), a disabled View (no answer arrived) and only Close. The
-  // mount probe is the bad one, because a retry at least leaves the previous banner up.
-  it('turns a hanging probe into a retryable error instead of a dead end', async () => {
-    jest.useFakeTimers();
-    try {
-      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
-      const container = renderNoFlush();
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      // Before the bound: nothing to act on, which is the state being escaped.
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
-
-      await act(async () => {
-        jest.advanceTimersByTime(6000);
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
-      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
-    } finally {
+      warn.mockRestore();
       jest.useRealTimers();
     }
   });
@@ -759,6 +808,56 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed success path -> revealed view.
   // -------------------------------------------------------------------------
+  // #1042: hardware back does what the header back does on the screen showing, through `leave`,
+  // which also abandons an in-flight reveal; a plain history pop would skip it. Android minimizes the
+  // app only when no handler consumed the press.
+  const hardwareBack = async () => {
+    expect(mockBackButton).toBeDefined();
+    await act(async () => {
+      mockBackButton!();
+    });
+    expect(App.minimizeApp).not.toHaveBeenCalled();
+  };
+
+  it('hardware back on the warning leaves the page, as the header back does', async () => {
+    mockIsMobile = true;
+    await render();
+    await hardwareBack();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back on the revealed phrase hides it and leaves, as the header back does', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+    mockHapticLight.mockClear();
+    mockSetSecret.mockClear();
+    await hardwareBack();
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockSetSecret).toHaveBeenCalledWith(null);
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back while the biometric reveal is pending leaves, and the phrase it returns is dropped', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finishReveal: (phrase: string) => void = () => undefined;
+    mockRevealMnemonic.mockReturnValue(
+      new Promise<string>(resolve => {
+        finishReveal = resolve;
+      })
+    );
+    const container = await renderAndView();
+    await hardwareBack();
+    await act(async () => {
+      finishReveal('alpha beta gamma delta');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
   it('reveals the seed phrase via hardware unlock after View and shows the numbered word grid', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
@@ -780,23 +879,42 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[data-copy-icon] [data-name="CopyNew"]')).toBeTruthy();
     expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
 
-    // Copy button click -> haptic + copy().
+    // Copy button click -> haptic + the phrase written through the shared clipboard.
     const copyBtn = buttonWithText(container, 'copyToClipboard') as HTMLButtonElement;
     await act(async () => {
       copyBtn.click();
     });
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(mockCopy).toHaveBeenCalled();
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
   });
 
-  it('shows the "copied" state (the shared glyph morphed to a check + the label rolled to copied)', async () => {
+  it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    mockCopied = true;
     const container = await renderAndView();
 
-    expect(container.textContent).toContain('copied');
-    expect(container.textContent).not.toContain('copyToClipboard');
+    await act(async () => {
+      (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
+    });
+
+    // The label rolls, so the leaving one is still mounted mid-exit: read the one that is present.
+    expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copied');
     expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeTruthy();
+  });
+
+  // The phrase is the one value where a false "Copied" costs the most: the page clears it after
+  // 20s, and a user who read "Copied" believes they hold a backup.
+  it('keeps the copy label when the clipboard write is refused', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    const container = await renderAndView();
+
+    await act(async () => {
+      (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copyToClipboard');
+    expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeNull();
   });
 
   it('hides the phrase (haptic + clear secret + goBack) via the Hide button', async () => {

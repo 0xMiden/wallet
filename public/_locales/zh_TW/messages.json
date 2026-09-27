@@ -2831,6 +2831,10 @@
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "此網址未回應 Guardian。請檢查並重試。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "請輸入密碼以存取您的加密錢包檔案。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2842,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "我不會將我的加密錢包檔案分享給任何人，包括 Bread 在內。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "未從此檔案還原：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 透過私鑰匯入的帳戶無法從錢包檔案中還原，且從該檔案還原的錢包亦無法新增這些帳戶。這些帳戶將以獨立錢包的形式還原，並透過「匯入私鑰」功能，搭配其 Miden 日常私鑰與 EVM 私鑰進行設定。請妥善保管這些私鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」方可查看。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "請輸入密碼以加密您的錢包檔案。",
@@ -5253,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "檢查此錢包的解鎖方式所花費的時間比平常更長。若要重新嘗試，請返回並重新開啟此頁面。",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "更改 QR Code 顏色",

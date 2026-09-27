@@ -24,6 +24,7 @@ import {
   savePlain
 } from './safe-storage';
 import { Vault } from './vault';
+import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 
 jest.setTimeout(30_000);
 
@@ -1140,6 +1141,96 @@ describe('Vault.exportWalletBackupMaterial', () => {
       importedAccountBackupFailure(importedAccount.name)
     );
     expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  // #1114: Vault.spawnFromHotKey's record shape, beside an imported private-key account,
+  // in a wallet that stores no recovery phrase.
+  const hotKeyGuardian: WalletAccount = {
+    publicKey: 'bech32:guardian-hot-account',
+    name: 'Guardian account',
+    isPublic: false,
+    type: WalletType.Guardian,
+    hdIndex: -1,
+    authScheme: 'ecdsa',
+    hotPublicKey: 'dead',
+    guardianEndpoint: 'http://localhost:3000',
+    guardianNoteRecoveryPending: true,
+    evmAddress: '0x0000000000000000000000000000000000000001'
+  };
+  const seedHotKeyWallet = async (accounts: WalletAccount[]) => {
+    const seeded = await seedVault('pw', { accounts });
+    await seeded.insertKeySink(new Uint8Array([0xa1, 0xb2]), new Uint8Array([1, 2, 3, 4]));
+    await removeMany([keys.mnemonic]);
+  };
+
+  it('backs up the imported account and does not restore a hot-key Guardian account beside it (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, importedAccount]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).resolves.toEqual({
+      seedPhrase: '',
+      accounts: [importedAccount],
+      midenClientDbContent: 'miden-db-dump',
+      walletDbContent: '{"transactions":[]}',
+      importedAccounts: [
+        {
+          accountId: importedAccount.publicKey,
+          publicKeyCommitment: 'a1b2',
+          authScheme: 'falcon',
+          secretKeyHex: '01020304'
+        }
+      ]
+    });
+    // Never read as an imported account: nothing of its key travels in the file.
+    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.getAccount).toHaveBeenCalledWith(importedAccount.publicKey);
+    expect(mockExportDb).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a wallet whose every account is a hot-key Guardian, whose file would restore nothing (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian]);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      'Wallet has no accounts an encrypted file can restore'
+    );
+    expect(mockMidenClient.getAccount).not.toHaveBeenCalled();
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('still refuses an imported account it cannot back up when a hot-key Guardian sits beside it (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, { ...importedAccount, isPublic: false }]);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('writes a file whose restore brings back the imported account with its key and no keyless Guardian (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, importedAccount]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    const material = await Vault.exportWalletBackupMaterial('pw');
+
+    // The database dump still carries the Guardian's SDK row, and the restore meets it first.
+    const sdkRow = (marker: string) => ({ ...sdkAccount(), id: () => ({ __marker: marker }), isFaucet: () => false });
+    const guardianRow = sdkRow('guardian-hot-account');
+    const importedRow = sdkRow('imported-account-id');
+    mockMidenClient.getAccounts.mockResolvedValueOnce([guardianRow, importedRow]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(guardianRow).mockResolvedValueOnce(importedRow);
+    mockKeystoreInsert.mockClear();
+
+    const restored = await Vault.spawnFromMidenClient(
+      'pw',
+      material.seedPhrase,
+      material.accounts,
+      2,
+      material.importedAccounts
+    );
+
+    await expect(restored.fetchAccounts()).resolves.toEqual([importedAccount]);
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    expect(mockKeystoreInsert).toHaveBeenCalledWith({ __marker: 'imported-account-id' }, expect.any(Object));
+    await expect(Vault.getCurrentAccountPublicKey()).resolves.toBe(importedAccount.publicKey);
   });
 });
 
@@ -2936,13 +3027,29 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn surfaces a not-found from BOTH scans as a PublicError with the lookup reason', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    const { NoGuardianAccountsFoundError } = require('../sdk/guardian-recovery-errors');
     mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-none', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
     await expect(spawning).rejects.toThrow('No Guardian accounts found at this guardian endpoint for this seed');
+    await expect(spawning).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
     expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives a seed-path network failure after the first scheme misses no not-found code', async () => {
+    // The first scheme's miss is a definite "nothing here" (caught and folded to
+    // [] inside scanUnder); the second scheme's network error is an unrelated
+    // failure that must reach the caller as itself, not as a not-found.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.recoverGuardianAccountsBySeed
+      .mockRejectedValueOnce(new NoGuardianAccountsFoundError())
+      .mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-network', VALID_MNEMONIC, true);
+    await expect(spawning).rejects.toThrow(PublicError);
+    await expect(spawning).rejects.toMatchObject({ message: 'Failed to fetch' });
+    await expect(spawning).rejects.not.toHaveProperty('code');
   });
 
   it('Vault.spawn re-throws a PublicError from the recovery lookup unchanged', async () => {
@@ -4230,6 +4337,28 @@ describe('Vault.spawnFromHotKey', () => {
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
       'No Guardian account was found for this key'
     );
+  });
+
+  it('keeps the not-found code on the rethrown PublicError', async () => {
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+      new NoGuardianAccountsFoundError('No Guardian account was found for this key at this Guardian.')
+    );
+
+    const promise = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    await expect(promise).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
+    await expect(promise).rejects.toBeInstanceOf(PublicError);
+  });
+
+  it('gives a timeout no not-found code', async () => {
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+      new Error('RPC "recoverGuardianByKey" timed out after 30000ms')
+    );
+
+    const promise = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    await expect(promise).rejects.toMatchObject({ message: 'RPC "recoverGuardianByKey" timed out after 30000ms' });
+    await expect(promise).rejects.not.toHaveProperty('code');
   });
 
   it('requires a password when hardware protection is unavailable', async () => {

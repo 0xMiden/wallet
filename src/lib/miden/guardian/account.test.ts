@@ -366,6 +366,13 @@ describe('guardianProviderFromEndpoint', () => {
   it('returns null for a null endpoint', () => {
     expect(guardianProviderFromEndpoint(null)).toBeNull();
   });
+
+  // The reported id reaches dApps as `guardianProvider` (dapp.ts), so a host-case
+  // or default-port spelling of a built-in must still map to it rather than falling
+  // through to 'custom'.
+  it('maps a host-case spelling of a known endpoint to its provider id', () => {
+    expect(guardianProviderFromEndpoint('https://Guardian.OpenZeppelin.com')).toBe('open-zeppelin');
+  });
 });
 
 describe('createGuardianAccount', () => {

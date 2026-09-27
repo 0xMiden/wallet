@@ -6,6 +6,7 @@ import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -260,7 +261,7 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
   if (!endpoint) return null;
   for (const option of GUARDIAN_OPTIONS) {
     for (const url of option.endpoint.values()) {
-      if (url === endpoint) return PROVIDER_ID_MAP[option.id] ?? 'custom';
+      if (sameGuardianEndpoint(url, endpoint)) return PROVIDER_ID_MAP[option.id] ?? 'custom';
     }
   }
   return 'custom';

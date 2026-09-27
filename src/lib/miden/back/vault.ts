@@ -54,7 +54,13 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { MNEMONIC_PATTERN, importedAccountBackupFailure, isWalletAccount, normalizeBackupHex } from '../backup-file';
+import {
+  MNEMONIC_PATTERN,
+  importedAccountBackupFailure,
+  isExcludedFromWalletFile,
+  isWalletAccount,
+  normalizeBackupHex
+} from '../backup-file';
 import {
   authorizeRecovery,
   beginRecoveryAuthorization,
@@ -703,6 +709,13 @@ export class Vault {
           console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
           throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
         }
+        // The record goes with the key: the restore refuses a whole file holding an imported
+        // record without its secret. Its SDK row stays in the dump, and the restore skips it.
+        const fileAccounts = accounts.filter(account => !isExcludedFromWalletFile(account));
+        if (fileAccounts.length === 0) {
+          console.error('[walletBackup] refused: every account is restored from its own keys, not a file');
+          throw new PublicError('Wallet has no accounts an encrypted file can restore');
+        }
 
         const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
           async hold => {
@@ -710,7 +723,7 @@ export class Vault {
             assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
             const backups: ImportedAccountBackup[] = [];
 
-            for (const walletAccount of accounts.filter(account => account.hdIndex < 0)) {
+            for (const walletAccount of fileAccounts.filter(account => account.hdIndex < 0)) {
               // Every abort reads the same to the user, so the reason is logged
               // here or the failure cannot be diagnosed from a report. The name is
               // the only account detail that travels; no secret or commitment does.
@@ -774,7 +787,7 @@ export class Vault {
           { label: 'vault-export-wallet-backup' }
         );
 
-        return { seedPhrase, accounts, midenClientDbContent, importedAccounts };
+        return { seedPhrase, accounts: fileAccounts, midenClientDbContent, importedAccounts };
       });
 
       if (!snapshot) throw new PublicError('Failed to prepare encrypted wallet backup');
@@ -1013,7 +1026,7 @@ export class Vault {
           });
         })().catch((err: unknown) => {
           if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
+          throw toPublicError(err);
         });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
@@ -1350,7 +1363,7 @@ export class Vault {
         .catch((err: unknown) => {
           if (isWasmClientPoisonedError(err)) throw err;
           if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
+          throw toPublicError(err);
         });
 
       const initialAccounts: WalletAccount[] = recovered.map(
@@ -1556,6 +1569,8 @@ export class Vault {
               // Account exists in the restored miden-client DB but has no
               // matching legacy `WalletAccount` entry. Version 2's complete
               // imported-account check below rejects any owned omission.
+              // A hot-key Guardian's row lands here by design: the exporter leaves its
+              // record out (isExcludedFromWalletFile), so refusing it refuses the file.
               continue;
             }
             if (walletAccount.hdIndex < 0) {
@@ -2046,7 +2061,7 @@ export class Vault {
   }
 
   /**
-   * Persist a freshly-minted hot key blob produced by createReplaceHotKeyProposal.
+   * Persist the hot key blob a replace-hot-key row minted (resolveRotationHotKey in transaction/index.ts).
    * Called BEFORE the rotation tx is submitted so the new ciphertext is durable
    * even if the app dies after submit but before complete — the on-chain account
    * state determines which hotPublicKey is canonical, and `swapHotKey` (called
@@ -2975,6 +2990,15 @@ function createDynamicStorageKey(id: StorageEntity) {
 
 function combineStorageKey(...parts: (string | number)[]) {
   return parts.join('_');
+}
+
+// Flattening to PublicError drops the class; keep the code so the UI can still tell not-found apart.
+function toPublicError(err: unknown): PublicError {
+  const publicError = new PublicError(err instanceof Error ? err.message : String(err));
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+    Object.assign(publicError, { code: err.code });
+  }
+  return publicError;
 }
 
 async function withError<T>(errMessage: string, factory: (doThrow: () => void) => Promise<T>) {

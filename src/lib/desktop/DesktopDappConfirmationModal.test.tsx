@@ -189,8 +189,10 @@ describe('DesktopDappConfirmationModal', () => {
     // The prompt is in this document — the wallet's own React tree — not in a
     // string handed to the dApp webview to evaluate.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('Miden Faucet')).toBeInTheDocument();
-    expect(screen.getByText('https://faucet.testnet.miden.io')).toBeInTheDocument();
+    // The dApp-sent name is never shown: the title is the verified origin.
+    expect(screen.queryByText('Miden Faucet')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('https://faucet.testnet.miden.io');
+    expect(screen.getByTestId('dapp-confirmation-origin').textContent).toBe('https://faucet.testnet.miden.io');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'approve' }));
