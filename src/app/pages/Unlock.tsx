@@ -37,7 +37,7 @@ const formatDuration = (ms: number) => {
   return `${checkTime(Math.floor(diff / 60))}:${checkTime(Math.floor(diff % 60))}`;
 };
 
-// A tier every third failure: level 0 before the third, then LOCK_TIME more for each further three.
+// The stored attempt count is failures plus one; each full three of it adds LOCK_TIME to the lockout.
 const lockLevelOf = (attempt: number) => LOCK_TIME * Math.floor(attempt / 3);
 
 const isLockedAt = (stamp: number, level: number, now: number) => now - stamp <= level;
