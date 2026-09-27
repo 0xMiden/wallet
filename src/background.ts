@@ -21,7 +21,7 @@ if (process.env.TARGET_BROWSER === 'chrome') {
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
         // Restore popup if side panel setup fails
         chromeApi.action.setPopup({ popup: 'popup.html' });
-        chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
+        chromeApi.storage.local.set({ sidepanel_mode: false });
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });
     }

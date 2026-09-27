@@ -9,6 +9,6 @@ export const useSetOnboardingCompleted = () => {
   const [, setOnboarding] = useLocalStorage('onboarding', false);
   return (value: boolean) => {
     setOnboarding(value);
-    void putToStorage(MidenSharedStorageKey.OnboardingCompleted, value).catch(() => {});
+    void putToStorage(MidenSharedStorageKey.OnboardingCompleted, value);
   };
 };
