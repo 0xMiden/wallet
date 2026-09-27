@@ -14,6 +14,17 @@ export function usePageActive(): boolean {
 }
 
 /**
+ * Whether the tab a component renders in is the selected tab, whatever covers its layer. Unlike
+ * PageActiveContext it stays true while a slide page covers the layer, so a tab's return (the pane
+ * shown again) can be told apart from a slide page's reveal.
+ */
+export const TabActiveContext = createContext(true);
+
+export function useTabActive(): boolean {
+  return useContext(TabActiveContext);
+}
+
+/**
  * Whether the page's layer is fully on screen: false while a slide page covers it, and after any
  * pop that returns to it (to a plain page or a slide page alike) until its own way back has finished
  * and the popped page has slid off. A page nothing covered is on screen at once, as is every page
