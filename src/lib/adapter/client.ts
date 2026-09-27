@@ -64,9 +64,13 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
   return () => clearTimeout(t);
 }
 
-export function onPermissionChange(callback: (permission: MidenDAppCurrentPermission) => void) {
+// A caller that connected passes that permission as `initial`, so a first check that finds no grant is a change.
+export function onPermissionChange(
+  callback: (permission: MidenDAppCurrentPermission) => void,
+  initial: MidenDAppPermission = null
+) {
   let t: any;
-  let currentPerm: MidenDAppCurrentPermission = null;
+  let currentPerm: MidenDAppCurrentPermission = initial;
   // The clear function cannot cancel a check already awaiting its answer, so a
   // disconnect would otherwise be undone by that answer repopulating the window object (#174).
   let stopped = false;

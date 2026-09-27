@@ -126,8 +126,9 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.network = network;
     this.publicKey = perm.publicKey;
     // The adapter can call connect() again without a disconnect(), which stops only the latest poll.
+    // The poll starts from this permission, so a first check that finds no grant clears the account.
     this.clearAccountChangeInterval?.();
-    this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
+    this.clearAccountChangeInterval = onPermissionChange(current => this.applyPermission(current), perm);
   }
 
   // The poll stops before the request: after accountChange(null) that account holds no session for

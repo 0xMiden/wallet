@@ -1,4 +1,4 @@
-import { WalletError } from '@miden-sdk/miden-wallet-adapter-base';
+import { PrivateDataPermission, WalletAdapterNetwork, WalletError } from '@miden-sdk/miden-wallet-adapter-base';
 
 import * as client from 'lib/adapter/client';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -410,6 +410,15 @@ describe('MidenWindowObject', () => {
         await obj.connect('None' as any, 'testnet' as any);
         expect(firstStop).toHaveBeenCalledTimes(1);
         expect(secondStop).not.toHaveBeenCalled();
+      });
+
+      it('starts the watch from the permission it connected with, on every connect', async () => {
+        const { obj } = await connectCapturing();
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), permission);
+        const next = { ...permission, address: 'mtst1qnext' };
+        mockClient.requestPermission.mockResolvedValue(next);
+        await obj.connect(PrivateDataPermission.Auto, WalletAdapterNetwork.Testnet);
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), next);
       });
     });
   });
