@@ -616,6 +616,7 @@
   "newDeviceKey": "Nowy klucz codzienny",
   "replaceHotKeyDescription": "Wygeneruj nowy klucz codzienny i zastąp nim obecny w łańcuchu bloków. Jest to przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało przejęte.",
   "replaceHotKeyConfirmation": "Jest to podpisane Twoim kluczem odzyskiwania (kluczem zimnym). Twoja fraza odzyskiwania nie jest wymagana, a Twoje środki i konto pozostają bez zmian. Kontynuować?",
+  "replaceHotKeyConfirmationSeedRequired": "Jest to podpisywane za pomocą klucza odzyskiwania (cold). Zostaniesz poproszony o podanie frazy odzyskiwania w celu podpisania, a Twoje środki i konto pozostaną bez zmian. Kontynuować?",
   "confirmReplaceHotKey": "Potwierdź obrót",
   "hotKeyRotationOverlayTitle": "Rotacja klucza codziennego",
   "hotKeyRotationOverlayBody": "Twój klucz codzienny jest właśnie rotowany. Jest to wymagane podczas konfiguracji odzyskanego konta, aby mogło ono synchronizować się i przeprowadzać transakcje.",

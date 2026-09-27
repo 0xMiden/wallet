@@ -203,29 +203,23 @@ jest.mock('./transactionUtils', () => ({
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
-// InfiniteScroll: render children inline, invoke getScrollParent so the
-// `() => scrollParentRef.current` closure is exercised, and expose a button
-// that drives loadMore.
+// The props the view last handed the scroller, so a test can read the scroll parent and ask for a page
+// when the real scroller would: after render, not during it.
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+  useWindow?: boolean;
+  getScrollParent?: () => HTMLElement | null;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({
-    children,
-    loadMore,
-    hasMore,
-    getScrollParent
-  }: {
-    children: React.ReactNode;
-    loadMore: (page: number) => void;
-    hasMore: boolean;
-    getScrollParent?: () => unknown;
-  }) => {
-    const parent = getScrollParent?.();
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
     return (
-      <div data-testid="infinite-scroll" data-hasmore={String(hasMore)} data-hasparent={String(Boolean(parent))}>
-        <button data-testid="load-more" onClick={() => loadMore(2)}>
-          load
-        </button>
-        {children}
+      <div data-testid="infinite-scroll" data-hasmore={String(props.hasMore)}>
+        {props.children}
       </div>
     );
   }
@@ -263,6 +257,7 @@ const iconNameIn = (row: HTMLElement) => within(row).getByTestId('icon').getAttr
 beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
+  mockScroller.props = undefined;
   (isFaucetRequest as jest.Mock).mockImplementation(
     (entry: MockFaucetEntry) =>
       Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
@@ -1134,24 +1129,41 @@ describe('HistoryView infinite scroll wiring', () => {
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
     const parent = document.createElement('div');
     const loadMore = jest.fn();
+    const ref: { current: HTMLDivElement | null } = { current: null };
+    render(
+      <HistoryView {...baseProps} entries={twoEntries} fullHistory hasMore loadMore={loadMore} scrollParentRef={ref} />
+    );
+    // Attached after render, as the page's ref is, so a scroll parent read during render comes back null.
+    ref.current = parent;
+
+    expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-hasmore', 'true');
+    const scroller = mockScroller.props;
+    expect(Object.keys(scroller ?? {}).sort()).toEqual([
+      'children',
+      'getScrollParent',
+      'hasMore',
+      'loadMore',
+      'useWindow'
+    ]);
+    expect(scroller?.useWindow).toBe(false);
+    expect(scroller?.getScrollParent?.()).toBe(parent);
+    expect(loadMore).not.toHaveBeenCalled();
+    scroller?.loadMore(2);
+    expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-row')).toHaveLength(2);
+  });
+
+  it('tells the scroller when the history is exhausted', () => {
     render(
       <HistoryView
         {...baseProps}
         entries={twoEntries}
         fullHistory
-        hasMore
-        loadMore={loadMore}
-        scrollParentRef={{ current: parent }}
+        hasMore={false}
+        scrollParentRef={{ current: document.createElement('div') }}
       />
     );
-
-    const scroller = screen.getByTestId('infinite-scroll');
-    expect(scroller).toHaveAttribute('data-hasmore', 'true');
-    // getScrollParent() resolved to the provided ref's current element.
-    expect(scroller).toHaveAttribute('data-hasparent', 'true');
-
-    fireEvent.click(screen.getByTestId('load-more'));
-    expect(loadMore).toHaveBeenCalledWith(2);
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('renders the plain list (no InfiniteScroll) when scrollParentRef is absent', () => {

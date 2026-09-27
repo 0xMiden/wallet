@@ -778,4 +778,86 @@ describe('Explore', () => {
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
     });
   });
+
+  // AnimatedNumber renders its first value as-is and counts only on a change, so a figure keyed by
+  // the account lands on a switch. These pin the key: a new node for another account, the same
+  // node within one account. (AnimatedNumber.test.tsx owns the counting itself.)
+  describe('an account switch', () => {
+    beforeEach(() => {
+      // Without a loaded price the total renders the dash, not the AnimatedNumber node.
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    });
+
+    // The AnimatedNumber stub's own span; the balance-amount span around it is never keyed.
+    const totalNode = () => screen.getByTestId('balance-amount').firstChild;
+
+    it('mounts a new total for another account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+      expect(before).not.toBeNull();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).not.toBe(before);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('5');
+    });
+
+    it('keeps the total node within the same account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).toBe(before);
+    });
+
+    it('mounts a new row for a token both accounts hold', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).not.toBe(before);
+    });
+
+    it('keeps the row node when only the balance of the same account changes', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).toBe(before);
+    });
+
+    it('keeps HomeOverview state across an address change (only the figures are keyed)', async () => {
+      const { rerender } = await renderExplore();
+      fireEvent.click(screen.getByTestId('balance-more'));
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+    });
+  });
 });

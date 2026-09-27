@@ -362,7 +362,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
               !pricesLoaded(tokenPrices) || balance === null ? (
                 '—'
               ) : (
-                <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
+                // Keyed by the account: a switch lands on the new account's total instead of
+                // counting from the old one's (AnimatedNumber counts only within one subject).
+                <AnimatedNumber key={address} value={balance.toNumber()} format={usdTotal} />
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -397,7 +399,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         ) : (
           sortedTokens.map(asset => (
             <AssetRow
-              key={asset.tokenId}
+              // Keyed by the account too, for the same reason as the total: a new account's row lands.
+              key={`${address}:${asset.tokenId}`}
               asset={asset}
               tokenPrices={tokenPrices}
               onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
