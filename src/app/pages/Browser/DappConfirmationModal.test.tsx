@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -260,5 +260,55 @@ describe('DappConfirmationModal', () => {
     );
 
     expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+  });
+});
+
+describe('DappConfirmationModal origin', () => {
+  const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
+
+  it('keeps the registrable domain of a long origin out of the truncating part', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: LONG_ORIGIN })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const shown = screen.getByTestId('dapp-confirmation-origin');
+    expect(shown.textContent).toBe(LONG_ORIGIN);
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(domain).not.toHaveClass('truncate');
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+  });
+
+  it('shows the origin the same way in the title when the dApp sends no name', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: LONG_ORIGIN, appMeta: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const title = screen.getByRole('heading', { level: 2 });
+    expect(title.textContent).toBe(LONG_ORIGIN);
+    expect(title).not.toHaveClass('truncate');
+    expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
+  });
+
+  it('keeps a dApp-sent name in the title, truncated as before', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: LONG_ORIGIN, appMeta: { name: 'Example dApp' } })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const title = screen.getByRole('heading', { level: 2 });
+    expect(title).toHaveTextContent(/^Example dApp$/);
+    expect(title).toHaveClass('truncate');
   });
 });

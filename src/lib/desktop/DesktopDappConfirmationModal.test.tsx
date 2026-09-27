@@ -190,7 +190,7 @@ describe('DesktopDappConfirmationModal', () => {
     // string handed to the dApp webview to evaluate.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Miden Faucet')).toBeInTheDocument();
-    expect(screen.getByText('https://faucet.testnet.miden.io')).toBeInTheDocument();
+    expect(screen.getByTestId('dapp-confirmation-origin').textContent).toBe('https://faucet.testnet.miden.io');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'approve' }));

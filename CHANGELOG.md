@@ -23,6 +23,7 @@
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
+- [FIX][all] dApp approval screens keep the site's registrable domain visible: a long origin gives up its scheme and leading subdomains first, so `https://login.secure.wallet.example.co.uk` can no longer hide `example.co.uk`, on the extension's approval window, the connect prompt and the dApp browser's confirmation (#1072).
 
 ### Fixes
 

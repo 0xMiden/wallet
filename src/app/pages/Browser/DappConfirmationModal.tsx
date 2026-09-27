@@ -20,11 +20,13 @@
 import React, { type FC, useEffect, useRef, useState } from 'react';
 
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
+import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { useSprings } from 'lib/animation';
 import {
   confirmationPromptKey,
@@ -55,7 +57,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
   // privateData) renders the same detail-list body; only the prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
-  const appName = request.appMeta?.name || request.origin;
+  const appName = request.appMeta?.name;
   const transactionMessages = request.transactionMessages ?? [];
   const transactionAccountMatches =
     request.type !== 'transaction' ||
@@ -240,10 +242,18 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-ink">
-              {appName}
+            {/* A missing name falls back to the origin, shown like the line below: the dApp controls it. */}
+            <h2
+              id="dapp-confirmation-title"
+              className={classNames('text-lg font-semibold text-ink', appName && 'truncate')}
+            >
+              {appName || <DappOrigin origin={request.origin} />}
             </h2>
-            <p className="truncate text-sm text-text-muted">{request.origin}</p>
+            <DappOrigin
+              origin={request.origin}
+              className="text-sm text-text-muted"
+              data-testid="dapp-confirmation-origin"
+            />
           </div>
         </div>
 
