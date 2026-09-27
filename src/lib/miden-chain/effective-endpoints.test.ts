@@ -17,9 +17,10 @@ import {
 } from './effective-endpoints';
 
 const mockKvStore: Record<string, unknown> = {};
-// Per-test toggle so a single test can simulate a storage-provider failure
+// Per-test toggles so a single test can simulate a storage-provider failure
 // without a second jest.mock for the whole file.
 let mockThrows = false;
+let mockWriteThrows = false;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
@@ -29,9 +30,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
       return out;
     },
     set: async (obj: Record<string, unknown>) => {
+      if (mockWriteThrows) throw new Error('storage write failed');
       Object.assign(mockKvStore, obj);
     },
     remove: async (keys: string[]) => {
+      if (mockWriteThrows) throw new Error('storage write failed');
       for (const k of keys) delete mockKvStore[k];
     }
   }),
@@ -59,6 +62,7 @@ function loadModule(): typeof import('./effective-endpoints') {
 beforeEach(() => {
   for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
   mockThrows = false;
+  mockWriteThrows = false;
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
 });
@@ -259,6 +263,40 @@ describe('effective-endpoints resolver', () => {
       const m = loadModule();
       await expect(m.loadEndpointOverrides()).resolves.toBeUndefined();
       expect(m.getActiveOverride()).toBeNull();
+    });
+  });
+
+  // Developer Settings tells the user a rejected write was not saved, so the session must not
+  // switch to endpoints that a restart would drop.
+  describe('a rejected storage write', () => {
+    const savedA = (m: typeof import('./effective-endpoints')) => {
+      const a = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      a.rpcUrl = 'https://a.example/rpc';
+      return a;
+    };
+
+    it('keeps the previous override when applying a new one fails', async () => {
+      const m = loadModule();
+      const a = savedA(m);
+      await m.applyEndpointOverride(a);
+
+      mockWriteThrows = true;
+      await expect(m.applyEndpointOverride({ ...a, rpcUrl: 'https://b.example/rpc' })).rejects.toThrow(
+        'storage write failed'
+      );
+      expect(m.getActiveOverride()).toBe(a);
+      expect(m.getEffectiveRpcUrl()).toBe('https://a.example/rpc');
+    });
+
+    it('keeps the override when clearing it fails', async () => {
+      const m = loadModule();
+      const a = savedA(m);
+      await m.applyEndpointOverride(a);
+
+      mockWriteThrows = true;
+      await expect(m.clearEndpointOverride()).rejects.toThrow('storage write failed');
+      expect(m.getActiveOverride()).toBe(a);
+      expect(m.getEffectiveRpcUrl()).toBe('https://a.example/rpc');
     });
   });
 

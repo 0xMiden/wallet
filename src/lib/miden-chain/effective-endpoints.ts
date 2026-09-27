@@ -209,14 +209,16 @@ export async function loadEndpointOverrides(): Promise<void> {
   }
 }
 
+// Both write before they touch the cache: a rejected write must leave the session on the endpoints
+// that are actually stored, or it runs on ones a restart would drop.
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
-  overrideCache = override;
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
+  overrideCache = override;
 }
 
 export async function clearEndpointOverride(): Promise<void> {
-  overrideCache = null;
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+  overrideCache = null;
 }
 
 export async function isEndpointOverrideActive(): Promise<boolean> {
