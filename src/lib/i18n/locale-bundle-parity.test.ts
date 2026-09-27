@@ -157,6 +157,15 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(offenders).toEqual([]);
   });
 
+  it.each(ALL_LOCALES)('%s messages.json uses $-delimited placeholders, never {{…}}', locale => {
+    // Chrome i18n and `getMessage` (core.ts) render messages.json whole, stale entries included, so a
+    // `{{x}}` translation the flat bundle already dropped still reaches the screen until the next DeepL run.
+    const offenders = Object.entries(loadMessages(locale))
+      .filter(([, entry]) => entry.message.includes('{{'))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
   it('renders the Spanish "Close" action as Cerrar in the bundle the UI reads (#469)', () => {
     expect(loadFlat('es').close).toBe('Cerrar');
   });
