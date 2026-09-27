@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CONNECTIVITY_CATEGORIES,
   CONNECTIVITY_STATE_KEY,
   ConnectivityCategory,
   ConnectivityStateSnapshot,
@@ -23,7 +24,7 @@ const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
 // window just changed (#1158): the Web Lock every extension surface (popup, side panel, tabs) shares, as
 // lib/wallet-prompts.ts takes for its record, or, without Web Locks (iOS before 15.4, one window), an in-realm chain as
 // lib/miden/activity/bridge-in.ts keeps. A change that returns the record as it is writes nothing. A failed write is
-// not retried: this window keeps its change and storage keeps the old record.
+// not retried: this window keeps its change, and storage keeps the old record until a later change writes it.
 let dismissedActivationsTail: Promise<unknown> = Promise.resolve();
 
 function inDismissedActivationsTurn(operation: () => Promise<void>): Promise<void> {
@@ -82,54 +83,50 @@ export function useConnectivityState(): {
     NO_DISMISSED_ACTIVATIONS
   );
   const [memorySnapshot, setMemorySnapshot] = useState<ConnectivityStateSnapshot>(() => getConnectivityState());
-  const [dismissedActivations, setDismissedActivations] = useState<DismissedActivations>(storedDismissedActivations);
+  // This window's own dismissals, kept apart from the stored record (every write re-delivers that one), so a dismissal
+  // storage refused, failed to write or has not written yet still hides the banner here.
+  const [ownDismissals, setOwnDismissals] = useState<DismissedActivations>(NO_DISMISSED_ACTIVATIONS);
 
   useEffect(() => {
     return subscribeConnectivityState(setMemorySnapshot);
   }, []);
-
-  // Merge: storage wins for any category it knows about (it reflects the
-  // SW's authoritative view in the extension), memory fills the rest. In
-  // the non-extension case storage is just a mirror of the same in-process
-  // state machine, so the two agree by construction.
-  useEffect(() => {
-    setDismissedActivations(storedDismissedActivations);
-  }, [storedDismissedActivations]);
 
   const merged: ConnectivityStateSnapshot = isExtension() ? (storageSnapshot ?? memorySnapshot) : memorySnapshot;
   const mergedRef = useRef(merged);
   mergedRef.current = merged;
 
   useEffect(() => {
-    const recovered = (Object.keys(dismissedActivations) as ConnectivityCategory[]).filter(
-      category => !merged[category].active
+    const recovered = CONNECTIVITY_CATEGORIES.filter(
+      category => !merged[category].active && (category in ownDismissals || category in storedDismissedActivations)
     );
     if (recovered.length === 0) return;
-    // Forget a recovered dismissal only while it is still the one this window saw: another window may already hold a
-    // dismissal of a newer activation of the same category.
-    const seen: DismissedActivations = {};
-    for (const category of recovered) seen[category] = dismissedActivations[category];
+    // Forget a recovered dismissal only while it is still one this window saw in either input: another window may
+    // already hold a dismissal of a newer activation of the same category.
     const forget = (current: DismissedActivations): DismissedActivations => {
-      const stale = recovered.filter(category => category in current && current[category] === seen[category]);
+      const stale = recovered.filter(
+        category =>
+          category in current &&
+          (current[category] === ownDismissals[category] || current[category] === storedDismissedActivations[category])
+      );
       if (stale.length === 0) return current;
       const next = { ...current };
       for (const category of stale) delete next[category];
       return next;
     };
-    setDismissedActivations(forget);
+    setOwnDismissals(forget);
     void storeDismissedActivations(forget);
-  }, [dismissedActivations, merged]);
+  }, [ownDismissals, storedDismissedActivations, merged]);
 
   const visible = useMemo(() => {
-    if (Object.keys(dismissedActivations).length === 0) return merged;
-    const next = { ...merged };
-    for (const category of Object.keys(dismissedActivations) as ConnectivityCategory[]) {
-      if (next[category].active && next[category].since === dismissedActivations[category]) {
-        next[category] = { active: false, since: null };
+    let next = merged;
+    for (const category of CONNECTIVITY_CATEGORIES) {
+      const { active, since } = merged[category];
+      if (active && (since === storedDismissedActivations[category] || since === ownDismissals[category])) {
+        next = { ...next, [category]: { active: false, since: null } };
       }
     }
     return next;
-  }, [dismissedActivations, merged]);
+  }, [merged, storedDismissedActivations, ownDismissals]);
 
   const hasAnyIssue =
     visible.network.active || visible.node.active || visible.prover.active || visible.resolving.active;
@@ -139,7 +136,7 @@ export function useConnectivityState(): {
     if (!activation.active) return;
     const { since } = activation;
     // The window where the user tapped always hides what it shows.
-    setDismissedActivations(current => (current[category] === since ? current : { ...current, [category]: since }));
+    setOwnDismissals(current => (current[category] === since ? current : { ...current, [category]: since }));
     // In storage a dismissal of a later activation (from another window) outranks this one, so a window still showing
     // an old activation never brings the current one's banner back everywhere.
     void storeDismissedActivations(current => {
