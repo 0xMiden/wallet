@@ -20,6 +20,8 @@ import {
   type NoteInclusionProof,
   RpcClient,
   NoteType,
+  type ProvenTransaction,
+  type TransactionExecution,
   TransactionProver,
   TransactionRequest,
   TransactionResult,
@@ -62,11 +64,12 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
+import { getLocalProveTransport, proveInWorker } from './local-prove-transport';
 import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt, recordProveMarker } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
-import { wasmClientGeneration } from './wasm-client-poison';
+import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -1522,6 +1525,7 @@ export class MidenClientInterface {
           TransactionRequest.deserialize(requestBytes)
         );
         await onStage?.('proving');
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
         // Explicit prover on the delegated path — see `remoteProver`. `prove({})`
         // selects the SDK's default-prover fallback, which requires an initialized
         // client and so never dispatches in the offscreen realm (#718).
@@ -1738,6 +1742,7 @@ export class MidenClientInterface {
           TransactionRequest.deserialize(requestBytes)
         );
         recordProveTiming('newTransaction delegated: executeRequest returned; proving');
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
         // Hand `prove()` an EXPLICIT remote prover rather than letting it fall back to
         // the client's default. Per the SDK: with an explicit prover this is a pure
         // computation over the TransactionResult that "works on a bare WebClient that
@@ -1773,6 +1778,24 @@ export class MidenClientInterface {
       delegateTransaction,
       this.liveness
     );
+  }
+
+  /**
+   * The worker leg of a staged local attempt (#945): prove `executed` in the realm's
+   * prove worker, then submit that proof and apply it. Everything before
+   * `markSubmitting()` is pre-submit, including every worker failure.
+   */
+  private async submitWorkerProof(
+    executed: TransactionExecution,
+    attempt: ProveAttempt,
+    onStage?: (stage: ITransactionStage) => Promise<void> | void
+  ): Promise<TransactionResult> {
+    const proof = await attempt.proveInWorker(executed.result);
+    await onStage?.('submitting');
+    attempt.markSubmitting();
+    const submitted = await this.client.transactions.submitProven(proof, executed.result);
+    await submitted.apply();
+    return executed.result;
   }
 
   /**
@@ -2006,6 +2029,19 @@ export interface ProveAttempt {
    * wedges.
    */
   pauseWatchdogForLocalProve<T>(op: () => Promise<T>): Promise<T>;
+  /**
+   * True when this attempt is local AND the realm installed a local prove transport
+   * (only the offscreen document does, #945). A caller that sees true proves with
+   * {@link proveInWorker} and submits with `submitProven`; its `else` branch is the
+   * in-realm path every delegated attempt and every other realm keeps.
+   */
+  provesInWorker(): boolean;
+  /**
+   * Prove `result` in the realm's prove worker under this write's lock hold. Refuses
+   * with `WasmClientPoisonedError` once the client is disposed or the hold is gone:
+   * an evicted flow's entry hold may already be its successor's.
+   */
+  proveInWorker(result: Pick<TransactionResult, 'serialize'>): Promise<ProvenTransaction>;
 }
 
 /**
@@ -2121,8 +2157,19 @@ export async function proveWithFallback<T>(
     markSubmitting: () => {
       submitReached = true;
     },
-    pauseWatchdogForLocalProve: op =>
-      localProveAttempt && !liveness.disposed ? withWasmLockWatchdogPaused(op, hold) : op()
+    pauseWatchdogForLocalProve: op => {
+      if (!localProveAttempt || liveness.disposed) return op();
+      // The E2E frame-gap check measures the page between these two markers (#945).
+      recordProveTiming('local-prove-window open');
+      return withWasmLockWatchdogPaused(op, hold).finally(() => recordProveTiming('local-prove-window close'));
+    },
+    provesInWorker: () => localProveAttempt && getLocalProveTransport() !== null,
+    // Same gate as the pause above: an evicted flow's entry hold may be its
+    // successor's. `proveInWorker` itself refuses a hold that is no longer current.
+    proveInWorker: result =>
+      liveness.disposed || hold === null
+        ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
+        : proveInWorker(result, hold)
   };
 
   const startedAt = performance.now();
@@ -2131,6 +2178,8 @@ export async function proveWithFallback<T>(
   // land on this attempt's entry. Closed in `finally`: an attempt left open
   // would make the next one's observations ambiguous and get them dropped.
   const telemetryAttempt = beginProveAttempt();
+  // Starts the prove worker's cold start now, so it overlaps execute and sign (#945).
+  if (!shouldDelegate) getLocalProveTransport()?.prewarm();
   try {
     localProveAttempt = !shouldDelegate;
     const result = !shouldDelegate ? await fn(localProverFactory(), attempt) : await fn(undefined, attempt);
