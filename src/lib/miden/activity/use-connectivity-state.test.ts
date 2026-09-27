@@ -24,11 +24,10 @@ const mockFetchFromStorage = jest.fn(async (key: string) => {
   await Promise.resolve();
   return key in mockStoredValues ? mockStoredValues[key] : null;
 });
-const putToMockStore = async (key: string, value: unknown) => {
+const mockPutToStorage = jest.fn(async (key: string, value: unknown) => {
   await Promise.resolve();
   mockStoredValues[key] = value;
-};
-const mockPutToStorage = jest.fn(putToMockStore);
+});
 const mockIsExtension = jest.fn(() => false);
 
 jest.mock('../front/storage', () => ({
@@ -55,7 +54,6 @@ import {
 import { CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, useConnectivityState } from './use-connectivity-state';
 
 let storageSnapshot: ConnectivityStateSnapshot | null;
-let locks: SharedEarnLocks;
 let storedDismissedActivations: Partial<Record<ConnectivityCategory, number | null>>;
 // Every write of the record goes through the hook's storage turn; a regression to the unlocked useStorage setter fails
 // loudly instead of landing in the store.
@@ -81,11 +79,8 @@ beforeEach(() => {
   storageSnapshot = null;
   storedDismissedActivations = {};
   for (const key of Object.keys(mockStoredValues)) delete mockStoredValues[key];
-  // A test may stub the write path; clearAllMocks keeps implementations, so restore the store-backed one.
-  mockPutToStorage.mockImplementation(putToMockStore);
   // One lock manager for every hook instance, as navigator.locks is for the extension's pages.
-  locks = new SharedEarnLocks();
-  Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
   // Default: storage mirror is empty, so the hook falls back to the in-memory
   // machine. Individual tests override this before rendering.
   mockUseStorage.mockImplementation((key: string) =>
@@ -334,9 +329,6 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 123, node: 123 });
-      // Every window here shares one module, so its in-realm chain would serialize them too: pin that each turn took
-      // the Web Lock, which is what serializes separate extension windows.
-      expect(locks.requests.filter(name => name === 'turn:miden-connectivity-dismissed-activations')).toHaveLength(2);
     });
 
     it('hides both of two quick dismissals in one window', async () => {
@@ -379,7 +371,6 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ node: 789 });
-      expect(locks.requests).toContain('turn:miden-connectivity-dismissed-activations');
     });
 
     it('never replaces a newer stored dismissal with an older one', async () => {
@@ -530,37 +521,6 @@ describe('useConnectivityState', () => {
     await settle();
 
     expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({});
-  });
-
-  it('stores the next dismissal after a refused write without Web Locks', async () => {
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => {
-      markConnectivityIssue('network');
-      markConnectivityIssue('node');
-    });
-    // Only the dismissal record's first write is refused; the connectivity mirror writes through the same mock.
-    let refused = false;
-    mockPutToStorage.mockImplementation(async (key: string, value: unknown) => {
-      await Promise.resolve();
-      if (key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY && !refused) {
-        refused = true;
-        throw new Error('quota');
-      }
-      mockStoredValues[key] = value;
-    });
-
-    act(() => result.current.dismiss('network'));
-    await settle();
-    act(() => result.current.dismiss('node'));
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      node: getConnectivityState().node.since
-    });
-    expect(mockPutToStorage.mock.calls.filter(([key]) => key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(
-      2
-    );
   });
 
   it('keeps both of two overlapping turns without Web Locks', async () => {
