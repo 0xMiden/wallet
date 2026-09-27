@@ -49,8 +49,7 @@ export interface CopyButtonProps {
  *
  * Colour comes from the caller: the default is the `accent-tint-ink` text action of a detail row,
  * and a caller's own text colour in `className` replaces it (glyph and label paint in
- * `currentColor`). Built on `@capacitor/clipboard`, which has its own web implementation, so the
- * same call works on desktop, the extension and mobile.
+ * `currentColor`). Built on `useClipboardCopy`.
  */
 export const CopyButton: React.FC<CopyButtonProps> = ({
   text,
