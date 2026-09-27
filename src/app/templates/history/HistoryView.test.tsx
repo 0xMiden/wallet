@@ -179,10 +179,14 @@ jest.mock('./HistoryItem', () => ({
   )
 }));
 
-// isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
-// each entry can opt into the faucet branch independently.
+// isFaucetRequest: driven off a test-only `__faucet` marker so each entry can opt into the faucet
+// branch independently, and, like the real one, true only for an entry that is a receive.
+type MockFaucetEntry = { __faucet?: boolean; transactionIcon?: string; txType?: string };
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isFaucetRequest: jest.fn(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  ),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
@@ -259,7 +263,10 @@ const iconNameIn = (row: HTMLElement) => within(row).getByTestId('icon').getAttr
 beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
-  (isFaucetRequest as jest.Mock).mockImplementation((entry: { __faucet?: boolean }) => Boolean(entry.__faucet));
+  (isFaucetRequest as jest.Mock).mockImplementation(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  );
 });
 
 const noop = jest.fn();
@@ -547,16 +554,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txId: 'tx-swap-notoken',
       timestamp: DAY_B
     }),
-    // Faucet whose icon is NOT receive: covers the `isReceiveEntry(entry) || faucet`
-    // right-hand branch for the "from" subtitle, plus a short address.
+    // A faucet claim still in flight (no icon yet): the faucet glyph, a positive amount and the
+    // "from" subtitle, plus a short address.
     makeEntry({
-      key: 'faucet-send',
+      key: 'faucet-in-flight',
       __faucet: true,
-      transactionIcon: 'SEND',
+      txType: 'consume',
       secondaryAddress: 'shortaddr',
       amount: '1',
       token: 'MDN',
-      txId: 'tx-faucet-send',
+      txId: 'tx-faucet-in-flight',
       timestamp: DAY_B
     }),
     // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
@@ -801,7 +808,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '');
   });
 
-  it('renders a faucet row whose icon is not RECEIVE, still using the "from" subtitle', () => {
+  it('renders a faucet claim in flight with the faucet glyph and the "from" subtitle', () => {
     renderFull();
     // Two faucet rows share the title; pick the one with the short address.
     const row = screen
