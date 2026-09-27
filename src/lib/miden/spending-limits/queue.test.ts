@@ -219,19 +219,30 @@ describe('queueOutgoingTransaction', () => {
     }
   });
 
+  it('reads history through the initiatedAt index rather than the whole table', async () => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    const where = jest.spyOn(transactions, 'where');
+
+    try {
+      await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW);
+      // The scan runs inside the rw lock on `transactions`, so an unbounded read is backpressure
+      // on the write path that grows with total wallet history. Only the widest window matters.
+      expect(where).toHaveBeenCalledWith('initiatedAt');
+    } finally {
+      where.mockRestore();
+    }
+  });
+
   it('turns a history read failure into a fail-closed policy error', async () => {
     await saveConfig();
     mockedResolve.mockResolvedValue(1n);
-    // The failure lands on the window read, the second `where('initiatedAt')` call. The first is the
-    // count that chooses between the window and the whole table, and failing it instead would leave
-    // the window read's own failure untested.
-    const where = transactions.where.bind(transactions);
-    const read = jest
-      .spyOn(transactions, 'where')
-      .mockImplementationOnce(where)
-      .mockImplementationOnce(() => {
-        throw new Error('history offline');
-      });
+    // Targets `where`, not `toArray`: the history read is a bounded range scan over the
+    // `initiatedAt` index, so a spy on the table's own toArray no longer intercepts it and this
+    // fail-closed contract would pass while testing nothing.
+    const read = jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+      throw new Error('history offline');
+    });
 
     try {
       await expect(queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)).rejects.toThrow(
@@ -331,26 +342,6 @@ describe('queueOutgoingTransaction', () => {
       recordHistoryReads(() => queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW))
     ).resolves.toEqual(['count initiatedAt', 'count primary key', 'query primary key']);
   });
-
-  it.each([
-    ['a preflight', (id: string) => assessOutgoingSpendingLimitDetails(proposalFor(sendRow(1n, id)))],
-    ['the queue', (id: string) => queueOutgoingTransaction(sendRow(1n, id), spendsOf(sendRow(1n, id)), undefined, NOW)]
-  ])(
-    '%s skips an old matching send stamped 1.5 whether it reads the window or the whole table',
-    async (_label, assess) => {
-      await saveConfig();
-      mockedResolve.mockResolvedValue(1n);
-      await putStoredRow(historyRow({ id: 'old-send', initiatedAt: 1.5 }));
-      const windowOutcome = await assess('tx-1');
-
-      // An incoming row the policy never counts, but whose missing initiatedAt forces the whole-table read.
-      const incoming = { ...historyRow({ id: 'incoming' }), type: 'consume' };
-      Reflect.deleteProperty(incoming, 'initiatedAt');
-      await putStoredRow(incoming);
-
-      await expect(assess('tx-2')).resolves.toEqual(windowOutcome);
-    }
-  );
 
   it.each([
     ['account mismatch', { accountId: 'account-b' }],

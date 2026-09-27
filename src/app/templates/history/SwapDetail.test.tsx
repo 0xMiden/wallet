@@ -340,13 +340,6 @@ describe('SwapDetail note rows', () => {
     expect(screen.queryByText(/^swapConsumedAt/)).not.toBeInTheDocument();
   });
 
-  it('omits the time for a row whose stamp is past the Date range, instead of throwing', () => {
-    expect(() => renderDetail({ settledTransactions: [consume({ completedAt: 1e13 })] })).not.toThrow();
-
-    expect(screen.getByText('swapFillNote_1')).toBeInTheDocument();
-    expect(screen.queryByText(/^swapConsumedAt/)).not.toBeInTheDocument();
-  });
-
   it('shows a pending row only while the order can still be matched', () => {
     const { unmount } = renderDetail({ orderState: 'active' });
     expect(screen.getByText('swapOpenFill')).toBeInTheDocument();

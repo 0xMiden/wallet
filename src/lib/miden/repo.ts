@@ -1,6 +1,6 @@
 import Dexie, { Transaction } from 'dexie';
 
-import { ITransaction, ITransactionStatus, isValidTimestamp } from './db/types';
+import { ITransaction, ITransactionStatus } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
@@ -206,7 +206,7 @@ function defineSchema(target: Dexie): void {
           mutate: req => {
             if (req.type === 'add') {
               const rows: readonly ITransaction[] = req.values;
-              const unplaceable = rows.find(row => !isValidTimestamp(row.initiatedAt));
+              const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
               if (unplaceable !== undefined) {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
@@ -223,6 +223,11 @@ export const db = new Dexie('TridentMain');
 defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+/** Non-negative safe integer: what the `initiatedAt` index can place a row by (#1007). */
+function isPlaceableInitiatedAt(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
 
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
 
@@ -463,23 +468,27 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   const status = Reflect.get(tx, 'status');
   const initiatedAt = Reflect.get(tx, 'initiatedAt');
   const completedAt = Reflect.get(tx, 'completedAt');
-  // An imported row takes a placeable `initiatedAt` (its own, else its completedAt, else now): without
-  // one the insert check would refuse the restore, and a restored row the index cannot place would
-  // keep the spending limit's readHistory on its whole-table read (#1007).
-  const placedAt = isValidTimestamp(initiatedAt)
-    ? initiatedAt
-    : isValidTimestamp(completedAt)
-      ? completedAt
-      : Math.floor(Date.now() / 1000);
-
   // Unconditional, on the terminal path too. Any row that ends up Completed or
   // Failed is read back through the completed-history path, which takes
   // `completedAt` as the row's timestamp with NO fallback — a missing one
   // becomes an invalid `Date` and throws while grouping history by day, taking
   // down the whole activity list. A dump is free to carry `{status: 2}` and no
-  // `completedAt` at all, so this cannot be left to the unfinished branch. A
-  // `completedAt` the spending-limit guard would refuse falls back to placedAt.
-  const timestamp = isValidTimestamp(completedAt) ? completedAt : placedAt;
+  // `completedAt` at all, so this cannot be left to the unfinished branch.
+  const timestamp =
+    typeof completedAt === 'number'
+      ? completedAt
+      : typeof initiatedAt === 'number'
+        ? initiatedAt
+        : Math.floor(Date.now() / 1000);
+
+  // An imported row takes a placeable `initiatedAt` (its own, else its completedAt, else now): without
+  // one the insert check would refuse the restore, and a restored row the index cannot place would
+  // keep the spending limit's readHistory on its whole-table read (#1007).
+  const placedAt = isPlaceableInitiatedAt(initiatedAt)
+    ? initiatedAt
+    : isPlaceableInitiatedAt(completedAt)
+      ? completedAt
+      : Math.floor(Date.now() / 1000);
 
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at

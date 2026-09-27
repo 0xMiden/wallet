@@ -73,21 +73,15 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
     // One read transaction, so the counts and the read below are one snapshot; on the enforcement
     // path it nests inside the caller's rw scope.
     return await Repo.db.transaction('r', Repo.transactions, async () => {
-      // The count finds the rows the index cannot place (missing, NaN, null, any other non-key) or
-      // places below 0 (negative). When any exist, the whole table is read so the policy's timestamp
-      // guard judges them, and the filter drops what the window read below leaves out among the rest
-      // (a number >= 0 below the window), so both modes hand the policy the same placed rows (#1007).
+      // A row the index cannot place (missing, NaN, null) and a negative one both fall outside
+      // `aboveOrEqual(0)`, so one count finds every row the window read below would never hand the
+      // policy's fatal timestamp guard; a non-number key sorts above every number, so it stays in
+      // both the count and the window. When any exist, the whole table is read instead (#1007).
       const [total, placed] = await Promise.all([
         Repo.transactions.count(),
         Repo.transactions.where('initiatedAt').aboveOrEqual(0).count()
       ]);
-      if (total > placed) {
-        const rows = await Repo.transactions.toArray();
-        return rows.filter(
-          row =>
-            !(typeof row.initiatedAt === 'number' && row.initiatedAt >= 0 && row.initiatedAt < now - MAX_WINDOW_SECONDS)
-        );
-      }
+      if (total > placed) return await Repo.transactions.toArray();
       // Bounded by the rolling window through the `initiatedAt` index the schema already declares:
       // an older row is dropped by the policy anyway, so reading the whole table only bought a scan
       // that grows with total history - on the write path, inside the rw lock, deserializing every
