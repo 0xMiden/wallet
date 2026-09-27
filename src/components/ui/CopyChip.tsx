@@ -29,8 +29,9 @@ export interface CopyChipProps {
 }
 
 // A 44px-tall tap target on the 24px chip, drawn nowhere: 10px above and below, the InfoHint
-// pattern. Pill's root is already `relative`, so the extension sits on the chip's own button.
-const HIT_AREA = 'before:absolute before:inset-x-0 before:-inset-y-2.5';
+// pattern, height set directly so Pill's border cannot shorten it. Pill's root is already
+// `relative`, so the extension sits on the chip's own button.
+const HIT_AREA = 'before:absolute before:inset-x-0 before:top-1/2 before:h-11 before:-translate-y-1/2';
 
 /**
  * A Pill that copies `text` to the clipboard on tap: the hash/address chip variant of `Copy`

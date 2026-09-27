@@ -182,7 +182,7 @@ it('lets a caller compute aria-label from the copied state (e.g. "Copy" vs "Copi
   expect(screen.getByRole('button', { name: 'copied the hash' })).toBeInTheDocument();
 });
 
-const HIT_AREA = ['before:absolute', 'before:inset-x-0', 'before:-inset-y-2.5'];
+const HIT_AREA = ['before:absolute', 'before:inset-x-0', 'before:top-1/2', 'before:h-11', 'before:-translate-y-1/2'];
 
 it('takes taps across 44px (10px above and below its 24px) without drawing anything', () => {
   render(
