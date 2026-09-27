@@ -17,30 +17,70 @@ type StorageChangeHandler = (
   changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
   areaName: string
 ) => void;
-const mockAddListener = jest.fn<void, [StorageChangeHandler]>();
-const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>();
+// Live, like chrome.storage.onChanged: every commit reaches every listener still registered.
+const mockListeners = new Set<StorageChangeHandler>();
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     storage: {
       onChanged: {
-        addListener: mockAddListener,
-        removeListener: mockRemoveListener
+        addListener: (handler: StorageChangeHandler) => mockListeners.add(handler),
+        removeListener: (handler: StorageChangeHandler) => mockListeners.delete(handler)
       }
     }
   }
 }));
 
 const mockStored: Record<string, unknown> = { 'stored-key': 'stored-value' };
-const mockGet = jest.fn(
-  async ([key]: string[]): Promise<Record<string, unknown>> => (key! in mockStored ? { [key!]: mockStored[key!] } : {})
-);
-const mockSet = jest.fn(async (items: Record<string, unknown>) => {
+// This page's commits, echoed to its listeners only when a test delivers them, so each test orders echoes and events.
+const pendingEchoes: Array<[string, unknown]> = [];
+const readStored = async ([key]: string[]): Promise<Record<string, unknown>> =>
+  key! in mockStored ? { [key!]: mockStored[key!] } : {};
+const commit = (items: Record<string, unknown>) => {
   Object.assign(mockStored, items);
-});
+  if (isExtension()) pendingEchoes.push(...Object.entries(items));
+};
+const mockGet = jest.fn(readStored);
+const mockSet = jest.fn(async (items: Record<string, unknown>) => commit(items));
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({ get: mockGet, set: mockSet })
 }));
+
+afterEach(() => {
+  mockGet.mockReset().mockImplementation(readStored);
+  mockSet.mockReset().mockImplementation(async items => commit(items));
+  pendingEchoes.length = 0;
+  jest.mocked(isExtension).mockReturnValue(false);
+});
+
+// Another page's commit (no value removes the key): storage takes it and every listener hears it, as the browser sends.
+const emitChange = (key: string, newValue?: unknown) => {
+  if (newValue === undefined) delete mockStored[key];
+  else mockStored[key] = newValue;
+  const change = newValue === undefined ? {} : { newValue };
+  for (const listener of [...mockListeners]) listener({ [key]: change }, 'local');
+};
+
+// Delivers this page's echoes in commit order; an echo is the browser reporting that commit, so storage holds it again.
+const deliverEchoes = () => {
+  for (const [key, value] of pendingEchoes.splice(0)) emitChange(key, value);
+};
+
+// The next write commits at once, as every backend does in call order, and resolves when the test releases it.
+const holdNextSet = () => {
+  let release!: () => void;
+  mockSet.mockImplementationOnce(
+    items =>
+      new Promise<void>(resolve => {
+        commit(items);
+        release = resolve;
+      })
+  );
+  return () => release();
+};
+
+// Lets pending writes, a mounted hook's own SWR revalidation and, on the extension, its listener's import finish.
+const drain = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
 
 const Reader = ({ storageKey }: { storageKey: string }) => {
   const [value] = useStorage<string>(storageKey, 'fallback-value');
@@ -477,34 +517,31 @@ describe('storage hooks (#1148)', () => {
 
     expect(screen.getByTestId('value').textContent).toBe('new');
   });
+});
 
-  it('writes through on the extension when a storage change event for the same key lands during the write', async () => {
-    // Prediction: the write's own cache mutate (revalidate: false) and the change event's bound
-    // SWR mutate (default revalidate) both touch the cache for this key without looping - the
-    // rendered value stays the written one, and the change event's own revalidation accounts for
-    // the only extra mockGet call, not a growing series of them.
+describe('storage operation order (#1168)', () => {
+  it("ext: this page's write wins when it commits after another page's", async () => {
     jest.mocked(isExtension).mockReturnValue(true);
-    try {
-      mockStored['extension-setter-key'] = 'old';
-      await preloadStorage(['extension-setter-key']);
-      renderReader('extension-setter-key', Writer);
-      // Let onStorageChanged's dynamic import resolve and register its browser listener.
-      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+    mockStored['ext-later-key'] = 'old';
+    await preloadStorage(['ext-later-key']);
+    renderReader('ext-later-key', Writer);
+    await drain();
 
-      expect(mockAddListener).toHaveBeenCalled();
-      const handleChanged = mockAddListener.mock.calls[mockAddListener.mock.calls.length - 1]![0];
-      const callsBefore = mockGet.mock.calls.length;
+    const release = holdNextSet();
+    let write!: Promise<void> | void;
+    act(() => {
+      write = setStored('new');
+    });
+    act(() => emitChange('ext-later-key', 'other'));
+    expect(screen.getByTestId('value').textContent).toBe('other');
+    act(() => deliverEchoes());
+    expect(screen.getByTestId('value').textContent).toBe('new');
+    await act(async () => {
+      release();
+      await write;
+    });
 
-      await act(async () => {
-        await setStored('new');
-        handleChanged({ 'extension-setter-key': { newValue: 'new' } }, 'local');
-      });
-      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
-
-      expect(screen.getByTestId('value').textContent).toBe('new');
-      expect(mockGet.mock.calls.length - callsBefore).toBeLessThanOrEqual(2);
-    } finally {
-      jest.mocked(isExtension).mockReturnValue(false);
-    }
+    expect(screen.getByTestId('value').textContent).toBe('new');
+    expect(mockStored['ext-later-key']).toBe('new');
   });
 });
