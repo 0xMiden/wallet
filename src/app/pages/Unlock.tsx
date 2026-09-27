@@ -54,8 +54,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
   // re-created constantly, and a tick from before the render that armed a lockout still holds the
-  // old `timelock` (0): read from its closure, it would clear the fresh stamp and the lockout would
-  // never start. Arming writes this first; the tick reads it.
+  // old `timelock` (0, or a stamp from an earlier lockout): read from its closure, it would clear the
+  // fresh stamp and the lockout would never start. Arming writes this first; the tick reads it.
   const timelockRef = useRef(timelock);
 
   // HARDWARE UNLOCK STATE
@@ -204,8 +204,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // A failure from before or during a lockout is not what the screen means once the lockout ends:
   // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
   // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
-  // transition, not on the interval's tick: that branch is also true every second when nothing is
-  // locked, and `timelock` outlives its lockout (no success path resets it). No errorCount bump, so
+  // transition, not on the interval's tick: `timelock` outlives its lockout (no success path resets
+  // it), so the tick clears a stale stamp once with no lockout on screen. No errorCount bump, so
   // nothing shakes. The mount run is a no-op: both flags start false.
   useEffect(() => {
     if (!isDisabled) {

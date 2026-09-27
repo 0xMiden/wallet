@@ -442,7 +442,7 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
 
-    // Interval tick with no time-lock hits the Date.now()-timelock > lockLevel branch.
+    // The interval tick runs with no lockout armed and leaves the screen alone.
     await advance(1100);
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
   });
@@ -579,8 +579,8 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByRole('status')).not.toHaveClass('text-negative-ink');
   });
 
-  // THE TRAP: the interval's "lockout is over" branch is true every second when nothing is locked,
-  // so a clear hung off it would wipe this error a second after it appears.
+  // THE TRAP: a clear hung off the interval's tick would wipe this error the moment a tick lands,
+  // which the stale-stamp test below also guards.
   it('keeps an error from a failure that started no lockout', async () => {
     mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
     mockUnlock.mockRejectedValueOnce(new Error('nope'));
@@ -622,17 +622,17 @@ describe('Unlock — mobile passcode numpad', () => {
     const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
 
     type(container, '111111');
-    await advance(600);
-    const stamp = mockLsStore.TimeLock;
-    expect(stamp).toBe(BASE + 150);
-
-    act(() => staleTick());
-
-    expect(mockLsStore.TimeLock).toBe(stamp);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
+      await Promise.resolve();
+      await Promise.resolve(); // the catch has armed; React has not committed
+      staleTick();
+    });
+    await advance(450);
+    expect(mockLsStore.TimeLock).toBe(BASE + 150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
-    type(container, '2');
-    await advance(200);
-    expect(mockUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
   });
 
   // The same tick holding an expired stamp from an earlier session instead of 0: the fresh lockout
@@ -645,14 +645,16 @@ describe('Unlock — mobile passcode numpad', () => {
     const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
 
     type(container, '111111');
-    await advance(600);
-    const stamp = mockLsStore.TimeLock;
-    expect(stamp).toBe(BASE + 150);
-
-    act(() => staleTick());
-
-    expect(mockLsStore.TimeLock).toBe(stamp);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
+      await Promise.resolve();
+      await Promise.resolve(); // the catch has armed; React has not committed
+      staleTick();
+    });
+    await advance(450);
+    expect(mockLsStore.TimeLock).toBe(BASE + 150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
   });
 
   it('writes nothing to storage while no lockout is armed', async () => {
