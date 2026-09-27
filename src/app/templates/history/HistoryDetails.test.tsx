@@ -2703,12 +2703,15 @@ describe('HistoryDetails', () => {
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
     // so it draws only with a fill of its own; unset, the gap between the two amounts is blank.
-    it('draws the bridge hero arrow instead of leaving an invisible gap', async () => {
+    it('draws the bridge hero arrow in the muted ink instead of an invisible or pure-black gap', async () => {
       setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });
 
       const arrow = document.querySelector('svg[name="arrow-right"]');
       expect(arrow).toHaveAttribute('fill', 'currentColor');
+      // `currentColor` alone resolves to black with no ancestor setting a text colour; the
+      // auto-flipping token the hero's own symbols already use is what makes it muted ink.
+      expect(arrow).toHaveClass('text-text-muted');
     });
 
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
