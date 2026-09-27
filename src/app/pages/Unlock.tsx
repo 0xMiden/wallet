@@ -357,19 +357,22 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   useEffect(() => {
     const interval = setInterval(() => {
       const stamp = timelockRef.current;
+      // This window's own attempt can be stale (level 0) while it armed from a stored count another
+      // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
+      const level = LOCK_TIME * Math.floor(readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1) / 3);
       // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
-      if (stamp !== 0 && Date.now() - stamp > lockLevel) {
+      if (stamp !== 0 && Date.now() - stamp > level) {
         timelockRef.current = 0;
         // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
         if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) === stamp) setTimeLock(0);
       }
-      setTimeleft(getTimeLeft(stamp, lockLevel));
+      setTimeleft(getTimeLeft(stamp, level));
     }, 1_000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [lockLevel, setTimeLock]);
+  }, [setTimeLock]);
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {

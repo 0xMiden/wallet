@@ -73,6 +73,9 @@ jest.mock('lib/miden/front', () => {
       const setter = R.useCallback(
         (next: unknown) => {
           mockLsWrites.push([key, next]);
+          // Production writes storage synchronously in setValue; mirror that for a plain value so a
+          // read right after this call (another window, or this tick) sees it before React re-renders.
+          if (typeof next !== 'function') mockLsStore[key] = next;
           setValue((prev: unknown) => {
             const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(prev) : next;
             mockLsStore[key] = resolved;
@@ -338,7 +341,9 @@ describe('Unlock — extension password form', () => {
 
     fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
-    await flushMicro();
+    // A guess that got past the refusal would sleep 1-3s before it could reach unlock(); wait that out
+    // so the assertion below can actually fail if the refusal is missing.
+    await advance(3100);
 
     expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
@@ -677,6 +682,35 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(mockLsStore.TimeLock).toBe(BASE + 150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
     expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  // Cross-window form of the #1079 race above: this window's own lockLevel is stale not because of an
+  // earlier lockout, but because its own attempt count never left 1 while another window pushed the
+  // stored count to 5 after mount, and this window arms its lockout from that stored count (#1192).
+  it("keeps a lockout armed against a tick from before it, armed from another window's stored attempt (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window has already failed four times, after this window mounted.
+    mockLsStore.PasswordAttempts = 5;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires
+      await jest.advanceTimersByTimeAsync(1000); // storedAttempt(5) > LAST_ATTEMPT sleep, then unlock rejects
+      await Promise.resolve();
+      await Promise.resolve(); // the catch has armed; React has not committed
+      await jest.advanceTimersByTimeAsync(1); // a sliver of real time, so a stale lockLevel-0 tick reads it as expired
+      staleTick();
+    });
+    await advance(450);
+
+    expect(mockLsStore.TimeLock).toBe(BASE + 1150);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
     expect(screen.getByTestId('digit-2')).toBeDisabled();
   });
 
