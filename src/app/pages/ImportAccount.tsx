@@ -71,7 +71,7 @@ const ImportAccount: FC = () => {
       }
     >
       {clipboardNotCleared && (
-        <Notice tone="warning" data-testid="import-account-clipboard-warning">
+        <Notice tone="warning" role="alert" data-testid="import-account-clipboard-warning">
           {t('privateKeyClipboardNotCleared')}
         </Notice>
       )}

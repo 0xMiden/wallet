@@ -166,7 +166,10 @@ it('shows a warning notice when a pasted key could not be removed from the clipb
 
   fireEvent.paste(screen.getByLabelText('privateKey'));
 
-  const warning = await screen.findByTestId('import-account-clipboard-warning');
+  // `role="alert"` is what makes a screen reader announce it unprompted; a plain
+  // `findByTestId` would still pass with Notice's default `note` role.
+  const warning = await screen.findByRole('alert');
+  expect(warning).toHaveAttribute('data-testid', 'import-account-clipboard-warning');
   expect(warning).toHaveTextContent('privateKeyClipboardNotCleared');
 });
 
