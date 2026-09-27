@@ -180,7 +180,10 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 24, scale: 0.96 }}
       transition={springs.sheetPresent}
-      className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-surface-solid shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
+      // Radius and shadow in style, not classes: when the grid's width changes (a rotation, split
+      // view) this `layout` card is scaled, and framer counter-scales only values it reads from style.
+      style={{ borderRadius: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.4)' }}
+      className="relative flex aspect-[3/4] flex-col overflow-hidden bg-surface-solid"
       role="listitem"
     >
       {/* Tap-to-restore button — fills the card and sits behind the
