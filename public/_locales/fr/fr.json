@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "Saisissez votre mot de passe pour accéder à votre fichier de portefeuille chiffré.",
   "encryptedWalletFileDescriptionHardware": "Déverrouillez à l'aide de votre code d'accès pour accéder à votre fichier de portefeuille crypté.",
   "encryptedWalletFileConfirmation": "Je ne partagerai mon fichier de portefeuille crypté avec personne, pas même avec Bread.",
+  "encryptedWalletFileExcludedTitle": "Non restauré à partir de ce fichier : $accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian Les comptes importés avec des clés privées ne peuvent pas être restaurés à partir d’un fichier de portefeuille, et un portefeuille restauré à partir de ce fichier ne peut pas les ajouter. Ils sont restaurés sous la forme d’un portefeuille distinct, configuré avec l’importation des clés privées ainsi que leurs clés quotidiennes Miden et leurs clés privées EVM. Conservez ces clés en lieu sûr : affichez-les dans Paramètres → Clés → Afficher la clé privée après avoir sélectionné ce compte.",
   "enterPasswordToEncrypt": "Saisissez un mot de passe pour crypter le fichier de votre portefeuille.",
   "encryptedWalletFileJsonOnly": "Sélectionnez un fichier de portefeuille .JSON.",
   "encryptedWalletFileReadFailed": "Impossible de lire le fichier de portefeuille. Sélectionnez-le à nouveau.",

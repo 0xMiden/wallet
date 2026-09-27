@@ -640,6 +640,8 @@
   "encryptedWalletFileDescription": "암호화된 지갑 파일에 액세스하려면 비밀번호를 입력하세요.",
   "encryptedWalletFileDescriptionHardware": "암호를 입력하여 암호화된 지갑 파일에 접근하세요.",
   "encryptedWalletFileConfirmation": "저는 Bread를 포함해 누구에게도 제 암호화된 지갑 파일을 공유하지 않을 것입니다.",
+  "encryptedWalletFileExcludedTitle": "이 파일에서 복원되지 않음: $accountNames$",
+  "encryptedWalletFileExcludedDesc": "Guardian 개인 키로 가져온 계정은 지갑 파일에서 복원할 수 없으며, 이 파일로 복원한 지갑에는 해당 계정을 추가할 수 없습니다. 이러한 계정은 “개인 키 가져오기”를 통해 설정된 별도의 지갑으로 복원되며, 해당 계정의 Miden everyday 및 EVM 개인 키가 함께 포함됩니다. 해당 키를 안전하게 보관하십시오: 해당 계정을 선택한 상태에서 설정 → 키 → 개인 키 표시를 통해 키를 확인할 수 있습니다.",
   "enterPasswordToEncrypt": "지갑 파일을 암호화하려면 비밀번호를 입력하세요.",
   "encryptedWalletFileJsonOnly": ".JSON 지갑 파일을 선택하세요.",
   "encryptedWalletFileReadFailed": "지갑 파일을 읽을 수 없습니다. 다시 선택하세요.",

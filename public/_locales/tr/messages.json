@@ -2843,6 +2843,19 @@
     "message": "Şifrelenmiş Cüzdan Dosyamı, Bread dahil olmak üzere kimseyle paylaşmayacağım.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Bu dosyadan geri yüklenmedi: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Özel anahtarlarla içe aktarılan hesaplar bir cüzdan dosyasından geri yüklenemez ve bu dosyadan geri yüklenen bir cüzdan da bunları ekleyemez. Bu hesaplar, \"Özel anahtarları içe aktar\" seçeneği ile her gün Miden ve EVM özel anahtarları kullanılarak kurulan ayrı bir cüzdan olarak geri yüklenir. Bu anahtarları güvenli bir yerde saklayın: Ayarlar → Anahtarlar → Özel Anahtarı Göster seçeneğinden o hesabı seçerek anahtarları görüntüleyin.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+  },
   "enterPasswordToEncrypt": {
     "message": "Cüzdan dosyanızı şifrelemek için bir şifre girin.",
     "englishSource": "Enter a password to encrypt your wallet file."
