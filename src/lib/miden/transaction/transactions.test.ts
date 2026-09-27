@@ -17,6 +17,7 @@ import {
   initiateSwapTransaction,
   initiateBridgedSendTransaction,
   initiateEarnDepositTransaction,
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
   initiateUpdateProcedureThresholdTransaction,
@@ -594,8 +595,8 @@ describe('transactions utilities', () => {
         'market-a',
         'faucet-a',
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
-        undefined,
-        undefined,
+        true,
+        new Uint8Array([1, 2, 3]),
         authorization
       );
 
@@ -607,6 +608,30 @@ describe('transactions utilities', () => {
         authorization
       );
     });
+
+    it.each<[string, Uint8Array | undefined]>([
+      ['missing', undefined],
+      ['empty', new Uint8Array()]
+    ])(
+      'refuses an Earn deposit whose request bytes are %s before queueing it or booking its spend',
+      async (_, bytes) => {
+        await expect(
+          initiateEarnDepositTransaction(
+            'account-a',
+            10n,
+            '0xrecipient',
+            'market-a',
+            'faucet-a',
+            { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+            true,
+            // @ts-expect-error the type requires the bytes; this is the run-time guard behind it
+            bytes,
+            authorization
+          )
+        ).rejects.toThrow(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+        expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('initiateConsumeTransaction', () => {
