@@ -74,6 +74,13 @@ export interface GuardianFaultPolicy {
   target?: GuardianFaultTarget;
   /** URL path segment to match. */
   path: GuardianFaultPath;
+  /**
+   * HTTP method to match. Omit to match any method on the path -- most
+   * `/delta*` sub-routes share the same path segment across GET (poll) and
+   * POST/PUT (push/propose/sign) traffic, so a count-limited fault armed for
+   * one of them would otherwise also spend its count on the other.
+   */
+  method?: string;
   mode: GuardianFaultMode;
   /** Delay (ms) before continuing the request. Only used by 'delay' (default 3000). */
   delayMs?: number;
@@ -98,7 +105,7 @@ export interface GuardianFaultControls {
  * no BrowserContext/browser required.
  */
 export interface GuardianRouteLike {
-  request(): { url(): string };
+  request(): { url(): string; method(): string };
   continue(): Promise<void>;
   abort(errorCode?: string): Promise<void>;
   fulfill(response: {
@@ -169,14 +176,17 @@ export const ANSWERING_GUARDIAN_FAULT_ACTION_KINDS: ReadonlySet<GuardianFaultAct
 >(['abort', 'fulfill500', 'fulfillConflictPendingDelta', 'fulfillRateLimited']);
 
 /**
- * Pure fault decision for a single request: does the armed policy match
- * this URL, and if so what should happen? Exported standalone (no
- * Playwright dependency at all) so target/path matching and the
+ * Pure fault decision for a single request: does the armed policy match this
+ * URL and method, and if so what should happen? A policy's `method`, when
+ * set, narrows the match to that HTTP method - a hit counts a request only
+ * when target, path and (if set) method all match. Exported standalone (no
+ * Playwright dependency at all) so target/path/method matching and the
  * SELF_CLEARING_GUARDIAN_FAULT_MODES hit-counting are unit testable without
  * a browser.
  */
 export function decideGuardianFault(
   url: string,
+  method: string,
   policy: GuardianFaultPolicy | null,
   hits: number,
   origins: GuardianOrigins
@@ -185,6 +195,7 @@ export function decideGuardianFault(
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
+  if (policy.method && policy.method !== method) return { action: { kind: 'continue' }, hits };
   if (SELF_CLEARING_GUARDIAN_FAULT_MODES.has(policy.mode) && hits >= (policy.count ?? 1)) {
     return { action: { kind: 'continue' }, hits };
   }
@@ -278,12 +289,13 @@ export async function applyGuardianFaultAction(
 
 /**
  * Installs a context-wide route handler that intercepts guardian HTTP calls
- * by target (A: :3000, B: :3001) and path segment, applying whichever
- * GuardianFaultPolicy is currently armed. Requests to any other origin
- * (node, prover, note-transport, ...) or that don't match the armed
- * policy's target/path pass through via `route.continue()`. Only one
- * policy can be armed at a time -- `arm()` replaces it and resets the hit
- * counter the SELF_CLEARING_GUARDIAN_FAULT_MODES count against.
+ * by target (A: :3000, B: :3001), path segment and, when a policy sets one,
+ * HTTP method, applying whichever GuardianFaultPolicy is currently armed.
+ * Requests to any other origin (node, prover, note-transport, ...) or that
+ * don't match the armed policy's target/path/method pass through via
+ * `route.continue()`. Only one policy can be armed at a time -- `arm()`
+ * replaces it and resets the hit counter the SELF_CLEARING_GUARDIAN_FAULT_MODES
+ * count against.
  */
 export function installGuardianFaults(context: BrowserContext, origins: GuardianOrigins): GuardianFaultControls {
   let policy: GuardianFaultPolicy | null = null;
@@ -291,7 +303,7 @@ export function installGuardianFaults(context: BrowserContext, origins: Guardian
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
-    const decision = decideGuardianFault(url, policy, hits, origins);
+    const decision = decideGuardianFault(url, route.request().method(), policy, hits, origins);
     hits = decision.hits;
     await applyGuardianFaultAction(route, decision.action);
   });

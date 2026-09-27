@@ -13,8 +13,6 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import * as secureHotKey from 'lib/secure-hot-key';
-import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -32,7 +30,9 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { syncUnderBoundedLock } from '../sync-lock';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -532,11 +532,10 @@ export class MultisigService {
   }
 
   /**
-   * Build a proposal that replaces this account's hot signer in-place. Mints a
-   * fresh hot key via the secureHotKey facade and constructs an `update_signers`
-   * proposal whose target list is `[newHotCommit, coldCommit]` (preserving the
-   * `[hot, cold]` ordering convention so getSignerDetailsFromAccount keeps
-   * working post-rotation).
+   * Build a proposal that replaces this account's hot signer in-place. Constructs an
+   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]`
+   * (preserving the `[hot, cold]` ordering convention so getSignerDetailsFromAccount
+   * keeps working post-rotation) from the commitment it is given.
    *
    * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
    * convenience wrappers (those compute different target lists). At execution
@@ -548,68 +547,74 @@ export class MultisigService {
    * the hot key cannot itself require the hot key (recovery-friendly). Default
    * threshold for update_signers is 1, so cold alone satisfies it.
    *
-   * Caller is responsible for persisting `newHot.ciphertext` BEFORE submitting
-   * the resulting tx (see initiateReplaceHotKeyTransaction).
+   * The caller mints the key and owns its persistence (see
+   * `generateGuardianTransaction`), so a retried call proposes the same key.
+   * Each call first runs `syncBeforeRotationBuild`, so a retry after a
+   * pending-delta 409 builds on the settled state.
    */
-  async createReplaceHotKeyProposal(account: Account): Promise<{ proposal: Proposal; newHot: GeneratedHotKey }> {
-    const newHot = await secureHotKey.generateHotKey();
+  async createReplaceHotKeyProposal(account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
     const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
-    const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
+    const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitRaw)];
+    // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async hold => {
-      const webClient = (await getMidenClient()).client;
-      // An eviction ABANDONS this callback rather than cancelling it, so every
-      // WASM call after a parking await needs the ownership re-check — the build,
-      // the request construction, and the summary execution can each park on the
-      // network, and past an eviction the mutex (and the client) belong to a
-      // successor. All three transitions are pre-sign/pre-submit: stopping costs
-      // the user a retry and nothing else.
-      assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
-      const { request, salt } = await buildUpdateSignersTransactionRequest(
-        webClient,
-        targetThreshold,
-        targetSignerCommitments,
-        // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
-        // builder commits fee conversion info into the auth args, and without it
-        // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
-        // supplies it from its own cached lookup, but this call site drives the low-level
-        // builder directly (it needs the request AND salt back to build the proposal by
-        // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
-        // bare string as hex, and the wallet's native asset id is bech32.
-        {
-          signatureScheme: 'ecdsa',
-          midenRpcEndpoint: getEffectiveRpcUrl()
+    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        // An eviction ABANDONS this callback rather than cancelling it, so every
+        // WASM call after a parking await needs the ownership re-check - the build,
+        // the request construction, and the summary execution can each park on the
+        // network, and past an eviction the mutex (and the client) belong to a
+        // successor. All three transitions are pre-sign/pre-submit: stopping costs
+        // the user a retry and nothing else.
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
+        const { request, salt } = await buildUpdateSignersTransactionRequest(
+          webClient,
+          targetThreshold,
+          targetSignerCommitments,
+          // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
+          // builder commits fee conversion info into the auth args, and without it
+          // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
+          // supplies it from its own cached lookup, but this call site drives the low-level
+          // builder directly (it needs the request AND salt back to build the proposal by
+          // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
+          // bare string as hex, and the wallet's native asset id is bech32.
+          {
+            signatureScheme: 'ecdsa',
+            midenRpcEndpoint: getEffectiveRpcUrl()
+          }
+        );
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
+        // Since protocol 0.16 the signed summary binds the reference block
+        // commitment, so it only reproduces when re-executed at that same block.
+        // The anchor names that block; without shipping it on the proposal, a
+        // cosigner or the executor re-executes at whatever height it happens to
+        // be synced to and derives a different summary, so the collected
+        // signatures no longer verify.
+        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
+        // The live anchor's only job is to be serialized onto the proposal; once
+        // the wire form exists, release the WASM object (it holds a partial
+        // blockchain) instead of leaving it to the finalizer - the same
+        // serialize-then-free every multisig-client proposal creator does (#784).
+        try {
+          // Inside the try on purpose: summary/salt/anchor are borrows of the
+          // client's RefCell, so touching them past an eviction IS the double
+          // borrow - but the anchor release must still run on this throw
+          // (freeChainAnchor swallows a disposed-object failure).
+          assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
+          return {
+            summaryBase64: u8ToB64(summary.serialize()),
+            saltHex: salt.toHex(),
+            chainAnchor: chainAnchorToBase64(anchor)
+          };
+        } finally {
+          freeChainAnchor(anchor);
         }
-      );
-      assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-      // Since protocol 0.16 the signed summary binds the reference block
-      // commitment, so it only reproduces when re-executed at that same block.
-      // The anchor names that block; without shipping it on the proposal, a
-      // cosigner or the executor re-executes at whatever height it happens to
-      // be synced to and derives a different summary, so the collected
-      // signatures no longer verify.
-      const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
-      // The live anchor's only job is to be serialized onto the proposal; once
-      // the wire form exists, release the WASM object (it holds a partial
-      // blockchain) instead of leaving it to the finalizer — the same
-      // serialize-then-free every multisig-client proposal creator does (#784).
-      try {
-        // Inside the try on purpose: summary/salt/anchor are borrows of the
-        // client's RefCell, so touching them past an eviction IS the double
-        // borrow — but the anchor release must still run on this throw
-        // (freeChainAnchor swallows a disposed-object failure).
-        assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-        return {
-          summaryBase64: u8ToB64(summary.serialize()),
-          saltHex: salt.toHex(),
-          chainAnchor: chainAnchorToBase64(anchor)
-        };
-      } finally {
-        freeChainAnchor(anchor);
-      }
-    });
+      },
+      { label: 'replace-hot-key-build' }
+    );
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,
@@ -622,7 +627,33 @@ export class MultisigService {
 
     const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
     console.log('Created replace-hot-key proposal:', proposal.id);
-    return { proposal, newHot };
+    return proposal;
+  }
+
+  /**
+   * Bring the local copy of this private account up to date before a rotation is
+   * built on it: the chain for a current reference block, then the guardian for the
+   * account state, which only the guardian holds. After a seed recovery the local
+   * copy is whatever was adopted at recovery, and the old device's last transaction
+   * may have settled since; a summary built on the older state is refused by the
+   * node (#904).
+   *
+   * The adopt keeps local state quietly when the guardian is behind local. It throws
+   * the SDK's "Refusing to overwrite local state" when the guardian's state has local's
+   * nonce but another commitment, or does not match the chain. Those two are answers,
+   * not failures, and must not escape: the transaction loop reads that refusal as a
+   * landed write and would mark a rotation that never submitted Completed.
+   */
+  private async syncBeforeRotationBuild(): Promise<void> {
+    await syncUnderBoundedLock('replace-hot-key-sync');
+    await this.adoptGuardianStateOnce().catch((error: unknown) => {
+      if (!isGuardianCanonicalizationError(error)) throw error;
+      console.warn(
+        '[Guardian] replace-hot-key: guardian state refused (same nonce, other commitment; or not on chain); ' +
+          'building on local state',
+        error
+      );
+    });
   }
 
   /**

@@ -3,6 +3,7 @@ import React from 'react';
 import { render, act, fireEvent } from '@testing-library/react';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
+import { TabActiveContext } from './page-active';
 
 // ---------------------------------------------------------------------------
 // Mock capture holders. All are `mock`-prefixed so jest's factory-hoisting
@@ -455,9 +456,15 @@ describe('HomeSwipeContainer', () => {
     // Settings shows, and this component reads the live route. None of those
     // routes is a home page, and treating them as Overview slid the hidden track
     // there, so coming back showed Overview and then slid to the page the bar named.
+    const pane = (shown: boolean) => (
+      <TabActiveContext.Provider value={shown}>
+        <HomeSwipeContainer />
+      </TabActiveContext.Provider>
+    );
+
     it('holds the track on its page instead of sliding it to Overview', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockAnimate.mockClear();
@@ -465,7 +472,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
 
       expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
@@ -474,19 +481,19 @@ describe('HomeSwipeContainer', () => {
 
     it('shows the page again without a slide when the route comes back to it', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
 
       mockPathname = '/send';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       expect(mockAnimate).not.toHaveBeenCalled();
@@ -495,12 +502,12 @@ describe('HomeSwipeContainer', () => {
 
     it('swaps straight to Overview when Home is chosen from another tab', () => {
       mockPathname = '/receive';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-600);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
@@ -508,7 +515,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       // The pane was hidden, so the change is a tab swap: no slide across the
@@ -516,6 +523,29 @@ describe('HomeSwipeContainer', () => {
       expect(mockAnimate).not.toHaveBeenCalled();
       expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
       expect(mockX).toBe(-0);
+    });
+
+    // The swap is the tab's return (#1194), the one rule the action bar and Activity's filter row
+    // share; a route that leaves the home pages and comes back while the tab stays shown slides, as
+    // the action bar above it does.
+    it('slides when the route comes back to another page while the tab stays shown', () => {
+      mockPathname = '/receive';
+      const { rerender } = render(pane(true));
+      measure(300);
+      settleAt(-600);
+      mockPathname = '/token/abc';
+      act(() => {
+        rerender(pane(true));
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+
+      mockPathname = '/';
+      act(() => {
+        rerender(pane(true));
+      });
+
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
     });
   });
 
