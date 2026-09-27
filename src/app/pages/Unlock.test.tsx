@@ -470,6 +470,14 @@ describe('Unlock — extension password form', () => {
     expect(mockLsWrites.filter(([key, value]) => key === 'PasswordAttempts' && Number(value) > 6)).toEqual([]);
     expect(mockLsStore.PasswordAttempts).toBe(6);
     expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+
+    // Once the adopted lockout (the other window's stamp plus two minutes at attempt 6) runs out, the
+    // window guesses again: the refusal released the form, not only the in-flight guard.
+    await advance(121_000);
+    expect(passwordField(container)).not.toBeDisabled();
+    submitPassword(container, 'guess');
+    await advance(1600);
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
   });
 
   // A guess must be counted from the live stored total, not the value read before the sleep, or a
@@ -511,6 +519,32 @@ describe('Unlock — extension password form', () => {
     // B's refused guess recorded nothing: the store still holds A's count and A's provisional stamp.
     expect(mockLsStore.PasswordAttempts).toBe(4);
     expect(mockLsStore.TimeLock).toBe(BASE);
+  });
+
+  // The failure re-stamps only over this guess's own provisional stamp: a different one is a lockout
+  // another window armed while the guess was in flight, and the failure must not move it (#1192).
+  it('keeps a stamp another window wrote while this guess was in flight when the guess fails (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'wrong');
+    await advance(500);
+    expect(mockLsStore.TimeLock).toBe(BASE); // this guess's provisional stamp
+    const otherWindowStamp = Date.now();
+    mockLsStore.TimeLock = otherWindowStamp;
+    await advance(500);
+
+    await act(async () => rejectUnlock(new Error('bad')));
+    await flushMicro();
+
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
   });
 
   // The stamp a threshold guess writes before unlock() is provisional; the failure re-stamps it, so
@@ -960,6 +994,41 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(300); // the pre-error delay
     expect(filledDots()).toBe(0);
     expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+  });
+
+  const filledDotCount = (container: HTMLElement) =>
+    container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
+
+  // A refused code is cleared as a rejected one is, so the keypad never holds six dots it will not
+  // submit, whether the fast path refuses it or the re-check after the post-lockout sleep does (#1192).
+  it("clears a code another window's lockout refuses at once (#1192)", async () => {
+    const { container } = await renderUnlock();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = Date.now();
+
+    type(container, '123456');
+    await advance(150); // the auto-submit fires and the fast path refuses
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(filledDotCount(container)).toBe(0);
+  });
+
+  it('clears a code a lockout armed during the post-lockout sleep refuses (#1192)', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    mockLsStore = { PasswordAttempts: 4, TimeLock: 0 };
+    const { container } = await renderUnlock();
+
+    type(container, '123456');
+    await advance(700); // the auto-submit fired at 150ms; the sleep runs to 1150ms
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = Date.now();
+    // Past the re-check at 1150ms, and before a code left in place would auto-submit again at 1300ms.
+    await advance(460);
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(filledDotCount(container)).toBe(0);
   });
 
   it('routes forgot-passcode to the reset info screen', async () => {
