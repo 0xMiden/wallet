@@ -93,8 +93,8 @@ export function useConnectivityState(): {
 
   // On the extension a stored snapshot replaces the in-memory one whole, and memory
   // is used only while storage holds none. Off the extension only the in-process
-  // snapshot is read: the mirror there is a direct write, which the storage hook's
-  // cache sees only on a hook read (mount), never live (#1177).
+  // snapshot is read, for the same reason: storage there only updates on a hook
+  // read (mount), never live (#1177).
   const merged: ConnectivityStateSnapshot = isExtension() ? (storageSnapshot ?? memorySnapshot) : memorySnapshot;
   const mergedRef = useRef(merged);
   mergedRef.current = merged;
