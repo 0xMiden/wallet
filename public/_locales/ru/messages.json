@@ -503,6 +503,10 @@
     "message": "например, APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ваш приватный ключ не удалось удалить из буфера обмена. Удалите его самостоятельно, прежде чем продолжить.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Настройки",
     "englishSource": "Settings"

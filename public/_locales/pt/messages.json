@@ -503,6 +503,10 @@
     "message": "por ex., APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Sua chave privada não pôde ser removida da área de transferência. Limpe-a manualmente antes de continuar.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Configurações",
     "englishSource": "Settings"

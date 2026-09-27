@@ -94,6 +94,7 @@
   "accountNameInputInvalid": "请输入 1 至 16 个字符，且不要以空格或连字符开头。",
   "privateKeyInputDescription": "要导入的账户的私钥。",
   "privateKeyInputPlaceholder": "例如：APrivateKey1zkp...",
+  "privateKeyClipboardNotCleared": "您的私钥无法从剪贴板中清除。请在继续操作前自行清除。",
   "settings": "设置",
   "authorizedDApps": "授权的去中心化应用（DApps）",
   "versionLabel": "版本：$version$",
