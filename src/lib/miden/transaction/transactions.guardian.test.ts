@@ -5255,6 +5255,9 @@ describe('generateTransaction — Guardian routing', () => {
       // The refused candidate was retracted before the rebuild.
       expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
       expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(coldService.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+        createProposal.mock.invocationCallOrder[1]!
+      );
       // One key: minted and persisted by the first run, read back by the rebuild.
       expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
       expect(persistNewHotKey).toHaveBeenCalledTimes(1);

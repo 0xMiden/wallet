@@ -2624,6 +2624,14 @@ describe('structural persistNewHotKey ordering parity — SW-side, once, before 
 });
 
 describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
+  // Queues one rejection then one resolution on the shared module-level mock; if the
+  // rebuild under test regresses to a single attempt, the resolution is never consumed
+  // and `jest.clearAllMocks()` (the file's own beforeEach) does not drop queued
+  // once-values, so it would otherwise leak into the next test to call this mock.
+  afterEach(() => {
+    mockDispatchGuardianPipeline.mockReset();
+  });
+
   it('a superseded-commitment refusal crossing the offscreen bus is rebuilt once with the same key', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline
