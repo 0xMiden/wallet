@@ -29,7 +29,7 @@ import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import Name from './atoms/Name';
+import { DappOrigin } from './atoms/DappOrigin';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
@@ -136,10 +136,8 @@ const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = (
     )}
   >
     <Icon name={IconName.Globe} fill="currentColor" size="md" />
-    <div className="flex flex-col">
-      <Name className="font-semibold" data-testid="confirm-request-origin">
-        {origin}
-      </Name>
+    <div className="flex min-w-0 flex-col">
+      <DappOrigin origin={origin} className="font-semibold" data-testid="confirm-request-origin" />
       {children}
     </div>
   </div>
