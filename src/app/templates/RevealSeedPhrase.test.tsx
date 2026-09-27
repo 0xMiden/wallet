@@ -27,8 +27,7 @@ const mockHapticLight = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
-const mockCopy = jest.fn();
-let mockCopied = false;
+const mockClipboardWrite = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -145,9 +144,8 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
 
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: mockCopied })
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 // The warning's Close and back go through useBackWithFallback, which reads live
@@ -184,7 +182,7 @@ describe('RevealSeedPhrase', () => {
     mockHasPasswordProtector.mockResolvedValue(false);
     mockSecret = null;
     mockSeedStatus = 'stored';
-    mockCopied = false;
+    mockClipboardWrite.mockResolvedValue(undefined);
     mockIsMobile = false;
     mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -780,23 +778,42 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[data-copy-icon] [data-name="CopyNew"]')).toBeTruthy();
     expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
 
-    // Copy button click -> haptic + copy().
+    // Copy button click -> haptic + the phrase written through the shared clipboard.
     const copyBtn = buttonWithText(container, 'copyToClipboard') as HTMLButtonElement;
     await act(async () => {
       copyBtn.click();
     });
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(mockCopy).toHaveBeenCalled();
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
   });
 
-  it('shows the "copied" state (the shared glyph morphed to a check + the label rolled to copied)', async () => {
+  it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    mockCopied = true;
     const container = await renderAndView();
 
-    expect(container.textContent).toContain('copied');
-    expect(container.textContent).not.toContain('copyToClipboard');
+    await act(async () => {
+      (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
+    });
+
+    // The label rolls, so the leaving one is still mounted mid-exit: read the one that is present.
+    expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copied');
     expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeTruthy();
+  });
+
+  // The phrase is the one value where a false "Copied" costs the most: the page clears it after
+  // 20s, and a user who read "Copied" believes they hold a backup.
+  it('keeps the copy label when the clipboard write is refused', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    const container = await renderAndView();
+
+    await act(async () => {
+      (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copyToClipboard');
+    expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeNull();
   });
 
   it('hides the phrase (haptic + clear secret + goBack) via the Hide button', async () => {

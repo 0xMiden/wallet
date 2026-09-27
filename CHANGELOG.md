@@ -18,6 +18,7 @@
 - [CHORE][all] The clipboard comments in the dApp actions sheet, the copy button and the recovery phrase backup test now point at useClipboardCopy's description of what @capacitor/clipboard does on each surface, instead of promising the call works where the Clipboard API is missing (#1088).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
+- [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 
 ### Fixes
@@ -37,11 +38,15 @@
 - [FIX][all] A setting read at startup (display currency, network, last changelog shown) no longer reverts to the value stored before a change made while a slow startup read was still pending (#1119).
 - [FIX][android] The bottom tab bar no longer sits on the system navigation bar: its tabs end 8px above the Back, Home and Recents buttons (and the gesture handle), and the test-network ribbon in its corner can be tapped again (#1121).
 - [FIX][all] Spending limits now count IETH and IBTC at the ETH and BTC price, as the rest of the wallet values them, for sends, swaps, bridges, Earn deposits and dApp requests alike. They were counted as nothing, so moving either could go past the cap without the review stopping it; when the ETH or BTC price cannot be fetched, a limited account now asks for the same approval it asks for any other priced token. IETH and IBTC transfers made before this update were recorded as $0 and are not counted toward the cap, so the cap is exact again once they are more than 24 hours old (#1133).
+- [FIX][all] The bridge status screen and the confirmation step round the Fast route's quoted deposit the way Activity does (151.50 USDC) instead of showing every digit of the quote, which ran past the summary card; the Slow route's amount, which is what you typed, is shown unchanged everywhere, including Activity's bridge details in both directions, which previously cut it to two decimals, and the bridge detail hero's arrow between the two amounts now draws in the muted ink in both themes instead of leaving a blank gap (#1101).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110, #1153).
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][extension] A connectivity banner dismissed in one window (popup, side panel or a tab) stays dismissed when another window dismisses a different banner at the same time (#1158).
+- [FIX][all] Copying the recovery phrase, from Settings or from the phrase check, now uses the native clipboard on iOS and Android, like address and hash copies, and a second tap while Copied is showing copies again instead of being ignored (#1049).
+- [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
+- [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 
 ## 1.16.2 (2026-09-24)

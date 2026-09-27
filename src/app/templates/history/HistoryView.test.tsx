@@ -390,10 +390,10 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
-  // The row is a div with role=button and no tabIndex, so it cannot take focus. It gets press
-  // feedback and nothing that claims focus behaviour: a ring that can never render, and
-  // `select-none`, which would stop the activity text being selectable.
-  it('gives a tappable row press feedback without claiming focus behaviour it cannot deliver', () => {
+  // ActivityRow is mocked here, so this pins only what `Card asChild` adds: press feedback, and
+  // no focus classes of its own. The focus ring and `select-none` come from the row's own native
+  // button, and ActivityRow's tests pin them, with the real Card wrapped around it.
+  it('gives a tappable row press feedback from the card, and leaves focus styling to the row', () => {
     render(
       <HistoryView
         entries={[makeEntry({ key: 'tappable', txId: 'tx-tappable' })]}
