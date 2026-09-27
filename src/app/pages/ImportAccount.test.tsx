@@ -49,7 +49,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockImportAccount.mockResolvedValue('mtst1imported');
   mockUpdateCurrentAccount.mockResolvedValue(undefined);
-  (clearClipboard as jest.Mock).mockResolvedValue(true);
+  jest.mocked(clearClipboard).mockResolvedValue(true);
 });
 
 it('renders an accessible private-key import form', () => {
@@ -161,7 +161,7 @@ it('clears the clipboard when a secret is pasted', async () => {
 });
 
 it('shows a warning notice when a pasted key could not be removed from the clipboard', async () => {
-  (clearClipboard as jest.Mock).mockResolvedValue(false);
+  jest.mocked(clearClipboard).mockResolvedValue(false);
   render(<ImportAccount />);
 
   fireEvent.paste(screen.getByLabelText('privateKey'));
@@ -171,7 +171,7 @@ it('shows a warning notice when a pasted key could not be removed from the clipb
 });
 
 it('shows no warning when the pasted key is removed from the clipboard', async () => {
-  (clearClipboard as jest.Mock).mockResolvedValue(true);
+  jest.mocked(clearClipboard).mockResolvedValue(true);
   render(<ImportAccount />);
 
   // `act` flushes the resolved promise's `.then` before this asserts, so a false positive
@@ -184,14 +184,14 @@ it('shows no warning when the pasted key is removed from the clipboard', async (
 });
 
 it('hides an earlier warning once a later paste clears the clipboard', async () => {
-  (clearClipboard as jest.Mock).mockResolvedValue(false);
+  jest.mocked(clearClipboard).mockResolvedValue(false);
   render(<ImportAccount />);
   const field = screen.getByLabelText('privateKey');
 
   fireEvent.paste(field);
   await screen.findByTestId('import-account-clipboard-warning');
 
-  (clearClipboard as jest.Mock).mockResolvedValue(true);
+  jest.mocked(clearClipboard).mockResolvedValue(true);
   fireEvent.paste(field);
 
   await waitFor(() => expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument());
