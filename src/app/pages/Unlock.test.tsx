@@ -18,6 +18,10 @@ let mockCompact = false;
 // drive `attempt` / `timelock`; reset to `{}` in beforeEach for defaults.
 let mockLsStore: Record<string, unknown> = {};
 
+// Every value a setter was called with, in order, recorded in the setter itself: the state updater
+// can run more than once, which would double-count.
+let mockLsWrites: Array<[string, unknown]> = [];
+
 const mockUnlock = jest.fn();
 const mockNavigate = jest.fn();
 const mockOpenInFullPage = jest.fn();
@@ -66,6 +70,7 @@ jest.mock('lib/miden/front', () => {
       );
       const setter = R.useCallback(
         (next: unknown) => {
+          mockLsWrites.push([key, next]);
           setValue((prev: unknown) => {
             const resolved = typeof next === 'function' ? (next as (p: unknown) => unknown)(prev) : next;
             mockLsStore[key] = resolved;
@@ -245,6 +250,7 @@ beforeEach(() => {
   mockIsMobile = false;
   mockCompact = false;
   mockLsStore = {};
+  mockLsWrites = [];
 
   mockUnlock.mockReset();
   mockNavigate.mockReset();
@@ -435,10 +441,6 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByText('enterYour6DigitCode')).toBeInTheDocument();
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
-
-    // Interval tick with no time-lock hits the Date.now()-timelock > lockLevel branch.
-    await advance(1100);
-    expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
   });
 
   it('accumulates six digits (with a delete) and auto-submits successfully', async () => {
@@ -573,8 +575,8 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByRole('status')).not.toHaveClass('text-negative-ink');
   });
 
-  // THE TRAP: the interval's "lockout is over" branch is true every second when nothing is locked,
-  // so a clear hung off it would wipe this error a second after it appears.
+  // THE TRAP: a clear hung off the interval's tick would wipe this error the moment a tick lands,
+  // which the stale-stamp test below also guards.
   it('keeps an error from a failure that started no lockout', async () => {
     mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
     mockUnlock.mockRejectedValueOnce(new Error('nope'));
@@ -599,6 +601,56 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(2000);
 
     expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // Every 1 s interval callback registered so far, oldest first.
+  const intervalTicks = (spy: jest.SpyInstance) =>
+    (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
+
+  // The stub's setter is stable, so the interval is not re-created on every render as it is in the
+  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run
+  // by hand, after the catch arms and before React commits (#1079). The stored stamp is 0, or an
+  // expired one from an earlier lockout, which only reading the live stamp survives.
+  it.each([
+    ['0', 0],
+    ['an expired stamp', BASE - 10 * 60_000]
+  ])('keeps a lockout armed against a tick from before it (stored TimeLock %s)', async (_label, stored) => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: stored };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
+      await Promise.resolve();
+      await Promise.resolve(); // the catch has armed; React has not committed
+      staleTick();
+    });
+    await advance(450);
+    expect(mockLsStore.TimeLock).toBe(BASE + 150);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  it('writes nothing to storage while no lockout is armed', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([]);
+  });
+
+  it('clears an expired stored lockout stamp once', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    await renderUnlock();
+
+    await advance(3_000);
+
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([['TimeLock', 0]]);
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {

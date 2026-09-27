@@ -17,7 +17,13 @@ import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive, usePageOnScreen, usePageRevealedByLayer } from 'app/layouts/page-active';
+import {
+  PageActiveContext,
+  TabActiveContext,
+  usePageActive,
+  usePageOnScreen,
+  usePageRevealedByLayer
+} from 'app/layouts/page-active';
 import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
@@ -82,7 +88,9 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
       aria-hidden={!active || undefined}
       style={{ visibility: active ? 'visible' : 'hidden' }}
     >
-      <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      <TabActiveContext.Provider value={active}>
+        <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      </TabActiveContext.Provider>
     </div>
   );
 };
