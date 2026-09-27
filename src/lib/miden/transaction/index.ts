@@ -2146,42 +2146,34 @@ const generateDirectSwitchGuardianTransaction = async (
   await setTransactionStage(transaction.id, 'complete');
 };
 
-// One rebuild. A first refusal comes from state adopted before the old device's last
-// transaction settled, or from that transaction settling between a build's state read
-// and its proposal; a second means the guardian itself is behind the chain, which no
-// rebuild fixes.
-const ROTATION_STALE_STATE_ATTEMPTS = 2;
-
 /**
  * `generateGuardianTransaction`, rebuilding a replace-hot-key rotation once when the
- * node refused it for a superseded initial account commitment (#904). The refusal is
- * an admission verdict, the submit catch has already abandoned the refused candidate
- * (its 409 is then waited out by the rebuild's own proposal retry), and the rebuild
- * proposes the key the first run persisted (`resolveRotationHotKey`), so even a
- * misread refusal of a rotation that did land rebuilds to the same signer set.
+ * node refused it for a superseded initial account commitment (#904). One rebuild: a
+ * first refusal comes from state adopted before the old device's last transaction
+ * settled, or from that transaction settling between a build's state read and its
+ * proposal; a second means the guardian itself is behind the chain, which no rebuild
+ * fixes. The refusal is an admission verdict, the submit catch has already abandoned
+ * the refused candidate (its 409 is then waited out by the rebuild's own proposal
+ * retry), and the rebuild proposes the key the first run persisted
+ * (`resolveRotationHotKey`), so even a misread refusal of a rotation that did land
+ * rebuilds to the same signer set.
  */
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider
 ): Promise<void> => {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
-      return;
-    } catch (error) {
-      if (
-        transaction.type !== 'replace-hot-key' ||
-        attempt >= ROTATION_STALE_STATE_ATTEMPTS ||
-        !isStaleInitialCommitmentError(error)
-      ) {
-        throw error;
-      }
-      console.warn(
-        `[Guardian] replace-hot-key refused as built on superseded account state (attempt ${attempt}/` +
-          `${ROTATION_STALE_STATE_ATTEMPTS}); rebuilding on fresh state with the same key: ${describeError(error)}`
-      );
+  try {
+    await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+  } catch (error) {
+    if (transaction.type !== 'replace-hot-key' || !isStaleInitialCommitmentError(error)) {
+      throw error;
     }
+    console.warn(
+      '[Guardian] replace-hot-key refused as built on superseded account state; rebuilding on fresh ' +
+        `state with the same key: ${describeError(error)}`
+    );
+    await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   }
 };
 
@@ -2431,13 +2423,16 @@ const generateGuardianTransaction = async (
       // left orphaned (inert). A blind delete-on-failure here is unsafe — the
       // persist-before-submit design relies on this blob surviving for the
       // reconcile path — so reaping orphaned pending keys belongs in a dedicated
-      // cleanup, not this hot path. The same inert orphan can also arise if the
-      // vault locks while the proposal call above is still retrying a pending
-      // delta - 12 attempts, 5 s apart, each re-syncing the chain, re-adopting
-      // the guardian state, and re-executing the summary before its POST: a
-      // minute or more, twice over if a stale-state refusal forces a rebuild -
-      // the locked-vault requeue runs before any persist, so the next run of
-      // the row mints again.
+      // cleanup, not this hot path. Every run that starts before the key is
+      // persisted mints, so any of them can orphan a key: by failing outright
+      // (a non-409 proposal error, a 429, an adopt 503, a poison eviction, an
+      // exhausted retry budget), or by requeueing on a locked vault while the
+      // proposal call above is still retrying a pending delta - 12 attempts,
+      // 5 s apart, each re-syncing the chain, re-adopting the guardian state,
+      // and re-executing the summary before its POST: a minute or more before
+      // the locked-vault requeue runs, still ahead of any persist, so the next
+      // run of the row mints again. A stale-state rebuild, or any run after
+      // the persist, reads the persisted key back instead.
       await guardianProvider.persistNewHotKey(mintedKey.publicKeyHex, mintedKey.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
