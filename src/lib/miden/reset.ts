@@ -1,43 +1,48 @@
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
 
-// Keys that are configuration, NOT wallet data, and must survive a storage
-// reset. The dev-settings endpoint override selects the network the wallet is
-// being created for — and it is set BEFORE creation. Without preserving it,
-// creating a wallet on a custom network wipes the override (the wipe below is a
-// blanket `clear()`), so the wallet silently reverts to the build-default
-// network while the account was already minted on the custom one — leaving the
-// account on one network and the client (balances, faucet, native token) on
-// another. The dedicated dev-settings "Reset to defaults" clears it explicitly.
+// Keys that are configuration, NOT wallet data, and are never removed by a
+// storage reset. The dev-settings endpoint override selects the network the
+// wallet is being created for - and it is set BEFORE creation. Without keeping
+// it, creating a wallet on a custom network wipes the override, so the wallet
+// silently reverts to the build-default network while the account was already
+// minted on the custom one - leaving the account on one network and the client
+// (balances, faucet, native token) on another. The wipe removes every other key
+// instead of clearing everything and writing these back, so no failed read or
+// write can lose them (#1093). The dedicated dev-settings "Reset to defaults"
+// clears it explicitly.
 const PRESERVED_STORAGE_KEYS = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
+function localStorageKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key !== null) keys.push(key);
+  }
+  return keys;
+}
+
 async function clearPlatformKeyValueStorage(): Promise<void> {
-  // Snapshot preserved config before the blanket wipe, restore it after.
-  const preserved: Record<string, unknown> = {};
-  for (const key of PRESERVED_STORAGE_KEYS) {
-    const value = await fetchFromStorage(key).catch(() => null);
-    if (value != null) preserved[key] = value;
-  }
-
   if (isMobile()) {
-    // On mobile, use native Capacitor Preferences.clear()
     const { Preferences } = await import('@capacitor/preferences');
-    await Preferences.clear();
+    const { keys } = await Preferences.keys();
+    for (const key of keys) {
+      if (!PRESERVED_STORAGE_KEYS.includes(key)) await Preferences.remove({ key });
+    }
   } else if (isDesktop()) {
-    // On desktop, use localStorage
-    localStorage.clear();
+    const preserved = PRESERVED_STORAGE_KEYS.map(key => `${DESKTOP_STORAGE_PREFIX}${key}`);
+    for (const key of localStorageKeys()) {
+      if (!preserved.includes(key)) localStorage.removeItem(key);
+    }
   } else if (isExtension()) {
-    // On extension, use browser.storage.local.clear()
     const browser = await import('webextension-polyfill');
-    await browser.default.storage.local.clear();
-  }
-
-  for (const [key, value] of Object.entries(preserved)) {
-    await putToStorage(key, value).catch(() => {});
+    const stored = await browser.default.storage.local.get(null);
+    await browser.default.storage.local.remove(
+      Object.keys(stored).filter(key => !PRESERVED_STORAGE_KEYS.includes(key))
+    );
   }
 }
 
@@ -84,15 +89,6 @@ export async function resetStorageDestructive() {
   await Repo.db.open();
   await clearPlatformKeyValueStorage();
   await resetNativeAssetCache();
-}
-
-function localStorageKeys(): string[] {
-  const keys: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key !== null) keys.push(key);
-  }
-  return keys;
 }
 
 // Leaves desktop's platform key-value store to Vault.spawn, which reads the legacy

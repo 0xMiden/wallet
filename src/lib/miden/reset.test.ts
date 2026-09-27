@@ -2,8 +2,11 @@
 
 const _g = globalThis as any;
 _g.__resetTest = {
-  prefStub: { clear: jest.fn() }
+  prefStub: { keys: jest.fn(), remove: jest.fn(), clear: jest.fn() }
 };
+const prefStub = _g.__resetTest.prefStub;
+const mockPrefStore = new Map<string, string>();
+const mockExtensionStore = new Map<string, string>();
 
 const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
@@ -44,12 +47,16 @@ jest.mock('lib/miden/front/storage', () => ({
   putToStorage: (...a: unknown[]) => mockPutToStorage(...a)
 }));
 
+const mockBrowserStorageGet = jest.fn();
+const mockBrowserStorageRemove = jest.fn();
 const mockBrowserStorageClear = jest.fn();
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     storage: {
       local: {
+        get: (...args: unknown[]) => mockBrowserStorageGet(...args),
+        remove: (...args: unknown[]) => mockBrowserStorageRemove(...args),
         clear: (...args: unknown[]) => mockBrowserStorageClear(...args)
       }
     }
@@ -69,6 +76,60 @@ import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
 
+const OVERRIDE = '{"networkName":"localnet","rpcUrl":"https://rpc.custom"}';
+
+type PlatformStore = {
+  name: string;
+  select: () => void;
+  set: (key: string, value: string) => void;
+  get: (key: string) => string | undefined;
+  failNextRemove: (error: Error) => void;
+};
+
+const afterEachRestores: Array<() => void> = [];
+
+const MOBILE: PlatformStore = {
+  name: 'mobile',
+  select: () => (isMobile as jest.Mock).mockReturnValue(true),
+  set: (key, value) => mockPrefStore.set(key, value),
+  get: key => mockPrefStore.get(key),
+  failNextRemove: error => prefStub.remove.mockRejectedValueOnce(error)
+};
+
+const DESKTOP: PlatformStore = {
+  name: 'desktop',
+  select: () => (isDesktop as jest.Mock).mockReturnValue(true),
+  set: (key, value) => localStorage.setItem(`miden_wallet_${key}`, value),
+  get: key => localStorage.getItem(`miden_wallet_${key}`) ?? undefined,
+  failNextRemove: error => {
+    const spy = jest.spyOn(Storage.prototype, 'removeItem').mockImplementationOnce(() => {
+      throw error;
+    });
+    afterEachRestores.push(() => spy.mockRestore());
+  }
+};
+
+const EXTENSION: PlatformStore = {
+  name: 'extension',
+  select: () => (isExtension as jest.Mock).mockReturnValue(true),
+  set: (key, value) => mockExtensionStore.set(key, value),
+  get: key => mockExtensionStore.get(key),
+  failNextRemove: error => mockBrowserStorageRemove.mockRejectedValueOnce(error)
+};
+
+// fetchFromStorage and putToStorage reach the same store, so a snapshot-and-restore wipe would
+// keep the override and only the no-read/no-write assertions would tell it apart.
+function seedPlatform(platform: PlatformStore) {
+  platform.select();
+  platform.set('endpoint_overrides', OVERRIDE);
+  platform.set('vault_data', 'vault');
+  platform.set('guardian_url_setting', 'https://guardian.custom');
+  mockFetchFromStorage.mockImplementation(async (key: string) => platform.get(key) ?? null);
+  mockPutToStorage.mockImplementation(async (key: string, value: string) => {
+    platform.set(key, value);
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (isMobile as jest.Mock).mockReturnValue(false);
@@ -76,8 +137,28 @@ beforeEach(() => {
   (isExtension as jest.Mock).mockReturnValue(false);
   localStorage.clear();
   sessionStorage.clear();
+  mockPrefStore.clear();
+  mockExtensionStore.clear();
   mockFetchFromStorage.mockResolvedValue(null);
   mockPutToStorage.mockResolvedValue(undefined);
+  prefStub.keys.mockReset().mockImplementation(async () => ({ keys: [...mockPrefStore.keys()] }));
+  prefStub.remove.mockReset().mockImplementation(async ({ key }: { key: string }) => {
+    mockPrefStore.delete(key);
+  });
+  prefStub.clear.mockReset().mockImplementation(async () => mockPrefStore.clear());
+  mockBrowserStorageGet
+    .mockReset()
+    .mockImplementation(async (keys: string[] | null) =>
+      Object.fromEntries([...mockExtensionStore].filter(([key]) => keys === null || keys.includes(key)))
+    );
+  mockBrowserStorageRemove.mockReset().mockImplementation(async (keys: string[]) => {
+    for (const key of keys) mockExtensionStore.delete(key);
+  });
+  mockBrowserStorageClear.mockReset().mockImplementation(async () => mockExtensionStore.clear());
+});
+
+afterEach(() => {
+  for (const restore of afterEachRestores.splice(0)) restore();
 });
 
 describe('clearStorage', () => {
@@ -101,51 +182,28 @@ describe('clearStorage', () => {
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
-  it('clears Capacitor Preferences on mobile', async () => {
-    (isMobile as jest.Mock).mockReturnValue(true);
-    _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
-    await clearStorage();
-    expect(_g.__resetTest.prefStub.clear).toHaveBeenCalled();
-  });
+  describe.each([MOBILE, DESKTOP, EXTENSION])('on $name', platform => {
+    it('removes every other platform key and keeps the endpoint override without reading or rewriting it', async () => {
+      seedPlatform(platform);
 
-  it('clears localStorage on desktop', async () => {
-    (isDesktop as jest.Mock).mockReturnValue(true);
-    const setSpy = jest.spyOn(Storage.prototype, 'clear');
-    await clearStorage();
-    expect(setSpy).toHaveBeenCalled();
-    setSpy.mockRestore();
-  });
+      await clearStorage();
 
-  it('clears browser.storage.local on extension', async () => {
-    (isExtension as jest.Mock).mockReturnValue(true);
-    await clearStorage();
-    expect(mockBrowserStorageClear).toHaveBeenCalled();
-  });
+      expect(platform.get('vault_data')).toBeUndefined();
+      expect(platform.get('guardian_url_setting')).toBeUndefined();
+      expect(platform.get('endpoint_overrides')).toBe(OVERRIDE);
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+    });
 
-  it('preserves the endpoint override across the wipe (snapshot → clear → restore)', async () => {
-    (isExtension as jest.Mock).mockReturnValue(true);
-    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
-    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+    it('rejects when removing a key fails, with the endpoint override still in place', async () => {
+      seedPlatform(platform);
+      const failure = new Error('storage unavailable');
+      platform.failNextRemove(failure);
 
-    await clearStorage();
+      await expect(clearStorage()).rejects.toBe(failure);
 
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
-    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', OVERRIDE);
-    // Order is load-bearing: the override must be READ before the wipe and
-    // RESTORED after it, or the blanket clear() would erase it.
-    expect(mockFetchFromStorage.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockBrowserStorageClear.mock.invocationCallOrder[0]!
-    );
-    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockPutToStorage.mock.invocationCallOrder[0]!
-    );
-  });
-
-  it('does not restore an endpoint override that was never set', async () => {
-    (isExtension as jest.Mock).mockReturnValue(true);
-    mockFetchFromStorage.mockResolvedValue(null);
-    await clearStorage();
-    expect(mockPutToStorage).not.toHaveBeenCalled();
+      expect(platform.get('endpoint_overrides')).toBe(OVERRIDE);
+    });
   });
 
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
@@ -165,12 +223,18 @@ describe('clearStorage', () => {
 });
 
 describe('resetStorageDestructive', () => {
-  it('drops and reopens the IndexedDB and clears platform storage', async () => {
-    (isExtension as jest.Mock).mockReturnValue(true);
+  it('drops and reopens the IndexedDB and removes every platform key but the endpoint override', async () => {
+    seedPlatform(EXTENSION);
+
     await resetStorageDestructive();
+
     expect(mockDbDelete).toHaveBeenCalled();
     expect(mockDbOpen).toHaveBeenCalled();
-    expect(mockBrowserStorageClear).toHaveBeenCalled();
+    expect(EXTENSION.get('vault_data')).toBeUndefined();
+    expect(EXTENSION.get('guardian_url_setting')).toBeUndefined();
+    expect(EXTENSION.get('endpoint_overrides')).toBe(OVERRIDE);
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 });
 
