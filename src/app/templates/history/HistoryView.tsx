@@ -10,11 +10,12 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { springs, useMotion } from 'lib/animation';
+import { springs, tabBarSwap, useMotion } from 'lib/animation';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -408,8 +409,10 @@ const HistoryView = memo<HistoryViewProps>(
   }) => {
     const { t } = useTranslation();
     // Same spring as the rows, so a date group and the rows inside it move
-    // together when a filter empties part of the list.
-    const layoutTransition = useMotion(springs.settle);
+    // together when a filter empties part of the list, and the same instant move
+    // in the commit that shows the tab again (#1194).
+    const settle = useMotion(springs.settle);
+    const layoutTransition = useTabShownAgain() ? tabBarSwap : settle;
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;

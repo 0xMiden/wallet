@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -59,7 +61,7 @@ jest.mock('framer-motion', () => {
         ) => {
           if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
           return (
-            <div ref={ref} data-layout={String(layout)} {...rest}>
+            <div ref={ref} data-layout={String(layout)} data-transition={JSON.stringify(transition)} {...rest}>
               {children}
             </div>
           );
@@ -1447,4 +1449,66 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1194): the date groups and pending cards that survive take their new places at once there,
+// and slide on the settle spring on any other change.
+describe('HistoryView - its tab shown again', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'swap-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  const view = (shown: boolean, onScreen = true) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <HistoryView
+          fullHistory
+          initialLoading={false}
+          hasMore={false}
+          loadMore={async () => {}}
+          entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+          pendingItems={[pending]}
+          renderPendingItem={() => <span>Pending note</span>}
+        />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const moves = (container: HTMLElement) => [
+    ...Array.from(container.querySelectorAll('[data-layout]'))
+      .filter(node => !node.hasAttribute('data-pending-note-id'))
+      .map(node => JSON.parse(node.getAttribute('data-transition')!)),
+    mockPendingWrapper.props?.transition
+  ];
+
+  it('moves its date groups and pending cards at once in the commit that shows the tab again', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+
+    const shown = moves(container);
+    expect(shown.length).toBeGreaterThan(1);
+    shown.forEach(transition => expect(transition).toEqual(tabBarSwap));
+  });
+
+  it('slides them on the next change, and when a slide page uncovers the list', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+    rerender(view(true));
+    moves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+
+    rerender(view(true, false));
+    rerender(view(true, true));
+    moves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+  });
 });
