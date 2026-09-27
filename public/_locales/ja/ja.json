@@ -616,6 +616,7 @@
   "newDeviceKey": "新しい日常用キー",
   "replaceHotKeyDescription": "新しい日常用キーを生成し、オンチェーンで現在のキーと置き換えます。デバイスが侵害された疑いがある場合に役立ちます。",
   "replaceHotKeyConfirmation": "これは、あなたのリカバリー（コールド）キーで署名されます。リカバリーフレーズを入力する必要はなく、資金やアカウントはそのまま維持されます。続行しますか？",
+  "replaceHotKeyConfirmationSeedRequired": "これは、あなたのリカバリー（コールド）キーで署名されます。署名するためにリカバリーフレーズを入力するよう求められますが、資金やアカウントはそのまま維持されます。続行しますか？",
   "confirmReplaceHotKey": "回転を確認する",
   "hotKeyRotationOverlayTitle": "日常的に使用する鍵のローテーション",
   "hotKeyRotationOverlayBody": "日常的に使用している鍵がローテーションされています。これは、復元されたアカウントが同期を行い、取引を行えるようにするために必要な手順です。",
