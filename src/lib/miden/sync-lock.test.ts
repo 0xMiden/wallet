@@ -1,7 +1,8 @@
 /**
- * #777 — the pure-sync lock holds outside the useSyncTrigger loop (the tx
- * pipeline's pre-flight sync and the landed-verification probes) go through
- * one helper so the sync watchdog ceiling cannot drift per call site.
+ * #777 - the pure-sync lock holds outside the useSyncTrigger loop go through
+ * one helper so the sync watchdog ceiling cannot drift per call site. See
+ * `sync-lock.ts`'s own header for the current list of holds - not repeated
+ * here so this file cannot go stale as callers are added.
  *
  * Driven against the REAL `withWasmClientLock`, with only the SDK proxy mocked.
  * A pass-through lock double would have let this suite assert that an options
@@ -26,7 +27,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: { syncState: () => mockSyncState() }
 }));
 
-import { __resetRecoveryCooldownForTests, isWasmClientBusy } from 'lib/miden/sdk/miden-client';
+import { __resetRecoveryCooldownForTests, getCurrentWasmLockHold, isWasmClientBusy } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
 import { syncUnderBoundedLock } from './sync-lock';
@@ -71,6 +72,28 @@ describe('syncUnderBoundedLock (#777)', () => {
     expect(mockSyncState).toHaveBeenCalledTimes(1);
     expect(busyDuringSync).toBe(true);
     expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('takes an optional hold label, and keeps only the watchdog when none is given', async () => {
+    // The label is not returned by `syncUnderBoundedLock` itself, so read it off
+    // the live hold during the callback - the same shape as `busyDuringSync`
+    // above, and for the same reason: a call that dropped the label entirely
+    // on the way to `withWasmClientLock` would otherwise still pass.
+    let holdSeenLabeled: ReturnType<typeof getCurrentWasmLockHold> | undefined;
+    mockSyncState.mockImplementationOnce(async () => {
+      holdSeenLabeled = getCurrentWasmLockHold();
+    });
+    await syncUnderBoundedLock('x');
+    expect(holdSeenLabeled?.label).toBe('x');
+    expect(holdSeenLabeled?.normalCeilingMs).toBe(WASM_LOCK_SYNC_WATCHDOG_MS);
+
+    let holdSeenUnlabeled: ReturnType<typeof getCurrentWasmLockHold> | undefined;
+    mockSyncState.mockImplementationOnce(async () => {
+      holdSeenUnlabeled = getCurrentWasmLockHold();
+    });
+    await syncUnderBoundedLock();
+    expect(holdSeenUnlabeled?.label).toBeNull();
+    expect(holdSeenUnlabeled?.normalCeilingMs).toBe(WASM_LOCK_SYNC_WATCHDOG_MS);
   });
 
   it('evicts a parked sync at the sync ceiling, not the 5-minute last resort', async () => {

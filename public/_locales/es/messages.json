@@ -5250,6 +5250,10 @@
     "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   },
+  "checkingUnlockMethodSlow": {
+    "message": "Comprobar el método de desbloqueo de este monedero está tardando más de lo habitual. Para volver a intentarlo, retrocede y vuelve a abrir esta página.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
+  },
   "receiveQrColorAction": {
     "message": "Cambiar el color del código QR",
     "englishSource": "Change the QR code color"
