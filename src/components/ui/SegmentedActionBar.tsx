@@ -57,11 +57,12 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
         style={{ borderRadius: '9999px' }}
         className={cn(
           // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
-          // pill's shadow off at the segment's edge.
-          'group flex h-12 min-w-0 items-center justify-center rounded-full',
+          // pill's shadow off at the segment's edge. The active segment takes its label's width with
+          // today's width as the floor, so a longer translation grows it instead of spilling (#1069).
+          'group flex h-12 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-          active ? 'w-28 flex-none px-2.5 max-[359px]:w-24 max-[359px]:px-2' : 'flex-1 px-0'
+          active ? 'min-w-28 flex-initial px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
         )}
       >
         <motion.span
@@ -81,7 +82,7 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative font-bold whitespace-nowrap text-pill max-[359px]:text-badge"
+            className="relative min-w-0 truncate font-bold text-pill max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}
