@@ -14,7 +14,7 @@ import { useReducedMotion, type TargetAndTransition, type Transition } from 'fra
 
 import { easings } from './easings';
 import { springs } from './springs';
-import { resolveTransition } from './use-motion';
+import { reducedMotionTransition, resolveTransition } from './use-motion';
 
 const labelReveal: Transition = { type: 'tween', duration: 0.12, delay: 0.1, ease: easings.easeInOut };
 
@@ -34,6 +34,14 @@ export const tabBarMotion = {
   /** The action bar's label fading in once its segment has started to open. */
   label: labelReveal
 };
+
+/**
+ * A tab bar shown again because its own tab was reselected (not because a slide page merely closed
+ * back onto it) takes its new state at once, as the pane's content does (HomeSwipeContainer snaps its
+ * track on the same return). The reduced-motion instant (not `duration: 0`, so completion callbacks
+ * still fire), named for the swap so a pane swap never reads as the user's motion preference.
+ */
+export const tabBarSwap: Transition = { ...reducedMotionTransition };
 
 export interface TabBarMotion {
   /** Transition for the sliding highlight and the segments' `layout` resize. */
@@ -83,8 +91,11 @@ export interface TabIconPop {
  * completes. A spring can only run between two values, so the pop is two phases rather than one
  * keyframed animation. Nothing pops on mount (the tab was already active), under reduced motion, or
  * for a tab that is inactive.
+ *
+ * A tab made active by a swap (its bar shown again, see `tabBarSwap`) rests too: the bar only shows
+ * the state it would have had all along.
  */
-export function useTabIconPop(active: boolean): TabIconPop {
+export function useTabIconPop(active: boolean, swap = false): TabIconPop {
   const reduceMotion = useReducedMotion();
   const [phase, setPhase] = useState<TabIconPopPhase>('rest');
   const wasActive = useRef(active);
@@ -93,8 +104,8 @@ export function useTabIconPop(active: boolean): TabIconPop {
     const becameActive = active && !wasActive.current;
     wasActive.current = active;
     if (!active || reduceMotion) setPhase('rest');
-    else if (becameActive) setPhase('pop');
-  }, [active, reduceMotion]);
+    else if (becameActive && !swap) setPhase('pop');
+  }, [active, reduceMotion, swap]);
 
   const onAnimationComplete = useCallback(() => setPhase('rest'), []);
   const popping = phase === 'pop';
