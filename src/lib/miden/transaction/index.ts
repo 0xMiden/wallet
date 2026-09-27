@@ -269,6 +269,10 @@ const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
 // temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
 const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
+// Cooldown (seconds) for a tx requeued because the guardian gave no HTTP response (#779). A connection refusal
+// answers in milliseconds, so a shorter wait would only hammer a dead operator.
+const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
+
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
 // declares rate-limit rejections retryable, so terminal-failing a value-moving
@@ -640,7 +644,7 @@ function scheduleRequeueWake(
         // In flight under another driver. NOT a reason to stop: that attempt can
         // end by requeueing rather than finishing, through the pending-delta
         // (409), rate-limit (429), prover-outage or locked-wallet arms — none of
-        // which schedules a wake, since only the unauthorized arm does. Stopping
+        // which schedules a wake, since only the unauthorized and unreachable arms do. Stopping
         // here on `GeneratingTransaction` would hand the row back to a queue
         // with no driver off-extension, which is the strand this chain exists to
         // prevent, and the row would look healthy on the way there. So watch it
@@ -1285,6 +1289,32 @@ const generateTransactionWithProvider = async (
         );
         console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
         await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
+        return;
+      }
+      // No HTTP response at all (connection refused, DNS, TLS, a timeout) or a 5xx: the operator is down, not
+      // refusing. Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend; failing instead
+      // wrote one Failed row per auto-consume retry (#779).
+      if (
+        isGuardianUnreachableError(error) &&
+        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
+      ) {
+        console.warn(
+          `[Guardian] guardian unreachable pre-submit, requeueing in ${GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC}s`,
+          error
+        );
+        await requeueTransactionForRetry(
+          transaction.id,
+          transaction.type,
+          'creating-proposal',
+          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC
+        );
+        scheduleRequeueWake(
+          transaction.id,
+          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC * 1000 + 1000,
+          signCallback,
+          guardianProvider
+        );
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the

@@ -3584,6 +3584,283 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('Guardian consume: an unreachable guardian at creating-proposal requeues instead of failing (#779)', async () => {
+    // No HTTP response at all (connection refused, DNS, TLS, timeout). Nothing reached the chain, so a
+    // retry is safe; failing would write one Failed row per auto-consume retry.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-unreachable';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-unreachable'
+      });
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw new TypeError('Failed to fetch');
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const before = Math.floor(Date.now() / 1000);
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-unreachable',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.error).toBeUndefined();
+      expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
+      expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian consume: a guardian 5xx at creating-proposal requeues the same way (#779)', async () => {
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-503';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-503'
+      });
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error('Service Unavailable'), { status: 503 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-503',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {
+    // The second pre-submit stage: the co-signature never came back, so no leaf ran.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unreachable-at-signing';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 7 })),
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    const before = Math.floor(Date.now() / 1000);
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.stage).toBe('creating-proposal');
+    expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
+    expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
+    expect(multisigService.abandonCandidate).toHaveBeenCalledWith(7);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): an unreachable error at the SUBMIT stage is NOT requeued (#779)', async () => {
+    // A node-side transport failure at submit is worded exactly like a silent guardian, and the send
+    // may already be on chain: the stage gate, not the error, is what keeps it Failed.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unreachable-at-submit';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.submitProven.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(client.transactions.submitProven).toHaveBeenCalled();
+    expect(row.stage).toBe('submitting');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian replace-hot-key: an unreachable guardian at creating-proposal still fails (#779)', async () => {
+    // Structural ops stay out for the same reason as the 409 and 429 cases: a requeue re-runs the
+    // rotation, which mints before its proposal and persists only after it.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'replace-hot-unreachable';
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
+    });
+
+    const coldService = {
+      // The mint runs in the transaction layer before this call.
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      signAndCreateTransactionRequest: jest.fn()
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      client: makeClientApi(makeResult())
+    });
+
+    const txArg = { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false };
+
+    // Three loop cycles: a correctly-failed structural op is terminal and runs
+    // once. Under a requeue-everything bug this would re-mint every cycle.
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const current = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      if (current.status !== ITransactionStatus.Queued) break;
+      await generateTransaction(
+        txArg as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+    }
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
   it('a 429 cooldown does not eat the unauthorized-retry budget it parks on top of', async () => {
     // The unauthorized budget is a wall clock, so any backoff for an unrelated
     // reason spends it. That matters here more than anywhere: a rate limit and an
