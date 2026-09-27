@@ -406,3 +406,86 @@ it("keeps both windows' declines when one window saves while the other's save is
   });
   expect(stored(KEY)).toEqual(['old', 'popup-note', 'panel-note']);
 });
+
+it("restores every note this window shows and keeps another window's decline it never showed", async () => {
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  storeElsewhere(KEY, ['old', 'theirs'], { announced: false });
+
+  await act(async () => {
+    await result.current.restore();
+  });
+  expect(write).toHaveBeenLastCalledWith(KEY, ['theirs']);
+  expect([...result.current.ids]).toEqual(['theirs']);
+});
+
+it('refuses a save whose read of the stored list fails, and saves the whole list once it reads again', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+
+  read.mockRejectedValueOnce(new Error('Read unavailable'));
+  let saved: boolean | undefined;
+  await act(async () => {
+    saved = await result.current.hide('new');
+  });
+  expect(saved).toBe(false);
+  expect(write).not.toHaveBeenCalled();
+  expect([...result.current.ids]).toEqual(['old']);
+  expect(result.current.failed).toBe(true);
+
+  await act(async () => {
+    saved = await result.current.hide('new');
+  });
+  expect(saved).toBe(true);
+  expect(write).toHaveBeenLastCalledWith(KEY, ['old', 'new']);
+  expect(result.current.failed).toBe(false);
+  log.mockRestore();
+});
+
+it('keeps a stored save when the read after it fails, and takes the next event', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const put = held<void>();
+  write.mockImplementationOnce(() => put.promise);
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+
+  let saved: Promise<boolean> = Promise.resolve(false);
+  act(() => {
+    saved = result.current.hide('mine');
+  });
+  await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+  storeElsewhere(KEY, ['old', 'mine', 'theirs']);
+  read.mockRejectedValueOnce(new Error('Read unavailable'));
+
+  let outcome: boolean | undefined;
+  await act(async () => {
+    put.resolve();
+    outcome = await saved;
+  });
+  expect(outcome).toBe(true);
+  expect(read).toHaveBeenCalledTimes(3);
+
+  storeElsewhere(KEY, ['old', 'mine', 'theirs', 'later']);
+  expect([...result.current.ids]).toEqual(['old', 'mine', 'theirs', 'later']);
+  log.mockRestore();
+});
+
+it("keeps another window's list adopted while the first read was out when that read then fails", async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const first = held<unknown>();
+  read.mockImplementationOnce(() => first.promise);
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+
+  storeElsewhere(KEY, ['old', 'theirs']);
+  await act(async () => first.reject(new Error('Read unavailable')));
+  expect(result.current.loaded).toBe(true);
+  expect([...result.current.ids]).toEqual(['old', 'theirs']);
+  expect(result.current.failed).toBe(false);
+
+  await act(async () => {
+    await result.current.hide('mine');
+  });
+  expect(write).toHaveBeenLastCalledWith(KEY, ['old', 'theirs', 'mine']);
+  log.mockRestore();
+});
