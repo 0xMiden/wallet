@@ -66,9 +66,9 @@ describe('SubPageLayout', () => {
     expect(pinned.parentElement).toBe(page);
     expect(pinned.previousElementSibling).toBe(body(page));
     expect(pinned).toHaveClass('shrink-0', 'flex', 'gap-2.5', 'px-4');
-    // The flow footer's keyboard-aware cushion, not a flat `pb-4`: the docked bar draws over the
-    // page, so a sub-page's CTA clears it for as long as the bar is up, and `data-navbar-cushion`
-    // is what collapses the cushion once `body[data-hide-navbar]` says the bar is down.
+    // The flow footer's keyboard-aware cushion, not a flat `pb-4`: it reserves the bar's room only inside
+    // TabLayout's root (a sub-page's slide page gets 1rem), and `data-navbar-cushion` is what collapses it
+    // once `body[data-hide-navbar]` says the bar is down.
     expect(pinned.className).toContain('var(--keyboard-height,0px)');
     expect(pinned.getAttribute('data-navbar-cushion')).toBe('true');
     expect(pinned).not.toHaveClass('flex-col');
@@ -90,7 +90,7 @@ describe('SubPageLayout', () => {
     expect(observed).toContain(pinned);
   });
 
-  it('keeps the flat 16px margin, with no navbar cushion, where no tab bar is drawn', () => {
+  it('keeps the flat 16px margin, with no navbar cushion, when the page opts out', () => {
     render(
       <SubPageLayout
         title="Keys"
