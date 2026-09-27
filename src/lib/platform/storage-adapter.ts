@@ -17,8 +17,11 @@ export interface StorageProvider {
  * Desktop storage implementation using localStorage
  * Works in Tauri webview context
  */
+// DesktopStorage's key namespace in localStorage; storage resets need it to keep kept keys.
+export const DESKTOP_STORAGE_PREFIX = 'miden_wallet_';
+
 export class DesktopStorage implements StorageProvider {
-  private prefix = 'miden_wallet_';
+  private prefix = DESKTOP_STORAGE_PREFIX;
 
   async get(keys: string[]): Promise<Record<string, any>> {
     const result: Record<string, any> = {};

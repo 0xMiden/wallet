@@ -1,49 +1,54 @@
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
-// Keys that are configuration, NOT wallet data, and must survive a storage
-// reset. The dev-settings endpoint override selects the network the wallet is
-// being created for — and it is set BEFORE creation. Without preserving it,
-// creating a wallet on a custom network wipes the override (the wipe below is a
-// blanket `clear()`), so the wallet silently reverts to the build-default
-// network while the account was already minted on the custom one — leaving the
-// account on one network and the client (balances, faucet, native token) on
-// another. The dedicated dev-settings "Reset to defaults" clears it explicitly.
-const PRESERVED_STORAGE_KEYS = [ENDPOINT_OVERRIDE_STORAGE_KEY];
+// Configuration, not wallet data, so every reset keeps it. The dev-settings endpoint override
+// selects the network a wallet is created for and is set BEFORE creation; losing it mints the
+// account on one network while the client resolves another. Developer Settings' "Reset to
+// defaults" clears it explicitly.
+export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
-async function clearPlatformKeyValueStorage(): Promise<void> {
-  // Snapshot preserved config before the blanket wipe, restore it after.
-  const preserved: Record<string, unknown> = {};
-  for (const key of PRESERVED_STORAGE_KEYS) {
-    const value = await fetchFromStorage(key).catch(() => null);
-    if (value != null) preserved[key] = value;
-  }
+// Wallet setup also keeps the frozen legacy guardian URL: a Guardian recovery with no pick and
+// no probe result falls back to it, and a Retry must find the value the first attempt did.
+export const SETUP_PRESERVED_STORAGE_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, GUARDIAN_URL_STORAGE_KEY];
 
+// Removes every key but the kept ones. A kept key is never deleted and written back, so no
+// failure can lose it, and a failure rejects the reset rather than being swallowed.
+async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
   if (isMobile()) {
-    // On mobile, use native Capacitor Preferences.clear()
     const { Preferences } = await import('@capacitor/preferences');
-    await Preferences.clear();
+    const { keys } = await Preferences.keys();
+    for (const key of keys) {
+      if (!keep.includes(key)) await Preferences.remove({ key });
+    }
   } else if (isDesktop()) {
-    // On desktop, use localStorage
-    localStorage.clear();
+    removeLocalStorageExcept(keep);
   } else if (isExtension()) {
-    // On extension, use browser.storage.local.clear()
     const browser = await import('webextension-polyfill');
-    await browser.default.storage.local.clear();
+    const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+    if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
   }
+}
 
-  for (const [key, value] of Object.entries(preserved)) {
-    await putToStorage(key, value).catch(() => {});
+// Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's
+// prefix. Keys are collected first: removing while indexing shifts the indices.
+function removeLocalStorageExcept(keep: readonly string[]): void {
+  const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
+  const doomed: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key !== null && !kept.has(key)) doomed.push(key);
   }
+  for (const key of doomed) localStorage.removeItem(key);
 }
 
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Empties the `transactions` table and wipes the platform key-value store,
+ * Empties the `transactions` table and every platform key-value entry but `SETUP_PRESERVED_STORAGE_KEYS`,
  * but deliberately keeps the TridentMain Dexie connection alive. Using
  * `db.delete()` here would fire a `versionchange` event to every other open
  * handle (notably the page's, which was opened lazily by the onboarding UI),
@@ -64,7 +69,7 @@ export async function clearStorage(clearDb: boolean = true) {
     // promises that resetting app data removes both.
     await Repo.spendingLimits.clear();
   }
-  await clearPlatformKeyValueStorage();
+  await clearPlatformKeyValueStorage(SETUP_PRESERVED_STORAGE_KEYS);
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
@@ -73,19 +78,21 @@ export async function clearStorage(clearDb: boolean = true) {
 
 /**
  * Hard reset — explicitly what the options-page "Reset Wallet" button wants.
- * Deletes the Dexie database (forcing every live handle closed) AND clears
- * the platform key-value store. Callers should only use this when the user
+ * Deletes the Dexie database (forcing every live handle closed) AND every platform key-value
+ * entry but `PRESERVED_STORAGE_KEYS`. Callers should only use this when the user
  * has explicitly opted into a full wipe; for wallet creation flows use
  * `clearStorage` above instead.
  */
 export async function resetStorageDestructive() {
   await Repo.db.delete();
   await Repo.db.open();
-  await clearPlatformKeyValueStorage();
+  await clearPlatformKeyValueStorage(PRESERVED_STORAGE_KEYS);
   await resetNativeAssetCache();
 }
 
+// The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
+// what a wallet-setup reset keeps; on the extension and mobile those names are not in it.
 export function clearClientStorage() {
-  localStorage.clear();
+  removeLocalStorageExcept(SETUP_PRESERVED_STORAGE_KEYS);
   sessionStorage.clear();
 }
