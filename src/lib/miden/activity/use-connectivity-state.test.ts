@@ -329,6 +329,16 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 123, node: 123 });
+
+      // The change event delivers the record to every window, the writer included.
+      storedDismissedActivations = { network: 123, node: 123 };
+      popup.rerender();
+      sidePanel.rerender();
+
+      expect(popup.result.current.state.network.active).toBe(false);
+      expect(popup.result.current.state.node.active).toBe(false);
+      expect(sidePanel.result.current.state.network.active).toBe(false);
+      expect(sidePanel.result.current.state.node.active).toBe(false);
     });
 
     it('hides both of two quick dismissals in one window', async () => {
