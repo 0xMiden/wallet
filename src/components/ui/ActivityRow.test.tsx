@@ -15,6 +15,8 @@ jest.mock('lib/mobile/haptics', () => ({
 // rounded avatar and status dot, whose radius is a class Framer cannot read.
 // Surface the prop on both elements the row can be (a div, or a button when it
 // opens something) so a revert to bare `layout` on either fails here.
+// Surface whileTap too: on a real div, framer's press gesture adds tabIndex=0,
+// which a mock that drops the prop would hide.
 // Spread the real module rather than listing exports: the row reaches
 // `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
 // hand-listed factory that misses one such export throws on every render.
@@ -29,7 +31,7 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => (
-          <div ref={ref} data-layout={String(layout)} {...rest}>
+          <div ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
             {children}
           </div>
         )
@@ -39,7 +41,7 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLButtonElement>
         ) => (
-          <button ref={ref} data-layout={String(layout)} {...rest}>
+          <button ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
             {children}
           </button>
         )
@@ -358,6 +360,7 @@ describe('ActivityRow', () => {
       const button = screen.getByRole('button');
       expect(button.tagName).toBe('BUTTON');
       expect(button).toHaveAttribute('type', 'button');
+      expect(button).toHaveAttribute('data-while-tap', 'on');
     });
 
     it('takes keyboard focus, with the card focus ring, when it opens something', () => {
@@ -398,6 +401,7 @@ describe('ActivityRow', () => {
       // the interactive classes are not applied, and the row takes no keyboard focus
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
       expect((container.firstChild as HTMLElement).hasAttribute('tabindex')).toBe(false);
+      expect(container.firstChild as HTMLElement).not.toHaveAttribute('data-while-tap');
     });
   });
 

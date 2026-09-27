@@ -50,9 +50,9 @@ type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 /**
  * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
- * CardButton applies it, as does ActivityRow's button when a row opens something. The tests
- * iterate it rather than restating its lines, which is what let half of it go unpinned when it
- * moved off the cva variant.
+ * CardButton applies it, as does ActivityRow's button when a row opens something. Card.test.tsx's
+ * CardButton test names its ten classes outright and a second test counts them; only ActivityRow's
+ * tests iterate it, to check the row's button applies whatever it holds.
  */
 export const FOCUSABLE_CLASSES = [
   'select-none outline-none',
