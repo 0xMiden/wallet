@@ -97,7 +97,7 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     // under a secure context. Swallow errors — the UI closes either way so
     // the user isn't left with a stuck sheet, and there is nowhere left on
     // screen to report a failure once it has.
-    void Clipboard.write({ string: session.url }).catch(() => {});
+    void Clipboard.write({ string: session.url }).catch(error => console.error('[clipboard] failed to copy:', error));
     close();
   }, [session, close]);
 

@@ -640,9 +640,9 @@ export async function readClipboardWrites(page: Page): Promise<string[]> {
  * Click the Receive screen's copy button and wait for the clipboard write it is
  * supposed to make.
  *
- * The canonical `CopyButton`'s `useClipboardCopy` hook has no latch: every click re-writes and
- * resets its 1.5s "Copied" feedback timer. This helper only ever clicks once, so it just waits on
- * that one write rather than guarding against a second click being a no-op.
+ * The canonical `CopyButton`'s `useClipboardCopy` hook ignores a click while its write is in
+ * flight and writes again once it settles, resetting its 1.5s "Copied" feedback timer. This
+ * helper only ever clicks once, so it just waits on that one write.
  *
  * @returns every write recorded so far, so the caller can assert the FIRST one
  *          and that there was exactly one.

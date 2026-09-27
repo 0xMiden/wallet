@@ -10,8 +10,9 @@ export type ClipboardCopyStatus = 'idle' | 'success' | 'failure';
  * Writes `text` to the clipboard via `@capacitor/clipboard` - one call for every surface, backed by
  * the native bridge on iOS and Android, and by `navigator.clipboard` on desktop and the extension,
  * where it fails in the same places a direct call would. Shared by `CopyButton`, `CopyChip`, the
- * Receive share fallback, the seed-phrase backup and the hot-key error prompt, so they read from one
- * clipboard/feedback implementation.
+ * Receive share fallback, the seed-phrase backup and the hot-key error prompt, so they write through
+ * one clipboard implementation; each decides its own feedback (`copied` on the buttons, chip and
+ * backup, `status` on the hot-key prompt, none on the Receive fallback).
  *
  * `status` is `'success'` once the write resolves, or `'failure'` once it rejects (the error is
  * logged), and either decays to `'idle'` after `COPY_FEEDBACK_MS`; a newer outcome replaces the
