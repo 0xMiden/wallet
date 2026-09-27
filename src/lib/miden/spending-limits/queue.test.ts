@@ -239,6 +239,7 @@ describe('queueOutgoingTransaction', () => {
     await putStoredRow(stored);
 
     await expect(queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)).resolves.not.toThrow();
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({ spentUsd: 1n });
   });
 
   it('reads the whole table only when a row cannot be placed by the index', async () => {

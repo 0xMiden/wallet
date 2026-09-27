@@ -554,7 +554,7 @@ describe('miden repo export/import', () => {
   // everything else falls back the same way a missing `completedAt` does above.
   it.each([
     ['missing', undefined, 1_700_000_100, 1_700_000_100],
-    ['NaN', Number.NaN, 1_700_000_100, 1_700_000_100],
+    ['NaN (null after JSON)', Number.NaN, 1_700_000_100, 1_700_000_100],
     ['negative', -5, 1_700_000_100, 1_700_000_100],
     ['fractional', 1_700_000_000.5, 1_700_000_100, 1_700_000_100]
   ])(
@@ -824,6 +824,7 @@ describe('writing a transaction row', () => {
       ] as never)
     ).rejects.toThrow();
     await expect(transactions.get('hook-3')).resolves.toBeUndefined();
+    await expect(transactions.get('hook-2')).resolves.toBeUndefined();
   });
 
   it('writes a row with a non-negative safe-integer initiatedAt', async () => {
