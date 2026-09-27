@@ -26,6 +26,9 @@ import { Vault } from './vault';
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
+const mockStorageSet = jest.fn(async (items: Record<string, any>) => {
+  Object.assign(memoryStore, items);
+});
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -33,9 +36,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
       for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
       return out;
     },
-    set: async (items: Record<string, any>) => {
-      Object.assign(memoryStore, items);
-    },
+    set: (items: Record<string, any>) => mockStorageSet(items),
     remove: async (keys: string[]) => {
       for (const k of keys) delete memoryStore[k];
     }
@@ -93,9 +94,11 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
+// Mirrors the real wallet-setup reset: every key but the kept ones goes.
 jest.mock('lib/miden/reset', () => ({
   clearStorage: jest.fn(async () => {
-    for (const k of Object.keys(memoryStore)) delete memoryStore[k];
+    const { SETUP_PRESERVED_STORAGE_KEYS } = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+    for (const k of Object.keys(memoryStore)) if (!SETUP_PRESERVED_STORAGE_KEYS.includes(k)) delete memoryStore[k];
   })
 }));
 
@@ -396,19 +399,18 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
   });
 });
 
-describe('Vault.spawn: frozen guardian URL (no writer remains)', () => {
-  it('does NOT restore GUARDIAN_URL_STORAGE_KEY across the storage wipe — the key is frozen/never-written (#408 stage 3)', async () => {
-    const { putToStorage, fetchFromStorage } = await import('../front/storage');
+describe('Vault.spawn: frozen guardian URL (kept, never written)', () => {
+  it('keeps GUARDIAN_URL_STORAGE_KEY through the wipe and never writes it (#408 stage 3, #1174)', async () => {
+    const { fetchFromStorage } = await import('../front/storage');
     const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
-    await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
+    memoryStore[GUARDIAN_URL_STORAGE_KEY] = 'https://my-guardian.example';
 
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC);
 
-    // Stage 3 removed the snapshot/restore write: spawn wipes the key and never
-    // writes it back (the last global-key writer is gone). Nothing is stranded —
-    // a spawn re-creates every account with a per-account guardianEndpoint. This
-    // guards against the write being reintroduced.
-    expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBeNull();
+    expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
+    // Frozen: no code path may write it again.
+    const written = mockStorageSet.mock.calls.flatMap(([items]) => Object.keys(items));
+    expect(written).not.toContain(GUARDIAN_URL_STORAGE_KEY);
   });
 });
 
@@ -451,11 +453,7 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     }));
 
     try {
-      // No guardianEndpoint arg is passed here (the operator probe detected
-      // nothing). Recovery must still fall back to the legacy global key. Stage 3
-      // froze that key: spawn snapshots its pre-wipe value in-memory and feeds it
-      // to the recovery branch WITHOUT writing it back. Seed it like a pre-stage-1
-      // install would have.
+      // No pick and no probe result: recovery falls back to the frozen legacy key, which the wipe keeps.
       const { putToStorage, fetchFromStorage } = await import('../front/storage');
       const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
       await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
@@ -467,8 +465,53 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
       // of the recovery fallback (a custom-guardian recovery must not silently
       // bind to the network default).
       expect(recoveredWithEndpoint).toBe('https://my-guardian.example');
-      // ...and the key was NOT written back — it stays wiped after the spawn.
-      expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBeNull();
+      expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
+    } finally {
+      sdk.getMidenClient = origGetClient;
+    }
+  });
+
+  it('a Retry after a recovery that failed past the wipe still falls back to the legacy guardian (#1174)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    const endpoints: string[] = [];
+    // Vault.spawn scans both derivation schemes per attempt (sequentially, unless the
+    // first scheme throws before the second runs), so a failing attempt makes one call
+    // and a succeeding attempt makes two. Track by call count, not by array length: call
+    // 1 (attempt 1's only scheme scan) fails, call 2 (attempt 2's first scheme) succeeds
+    // and is the match, call 3 (attempt 2's other scheme) is a plain miss and not pushed.
+    let callCount = 0;
+    sdk.getMidenClient = jest.fn(async (_options: any) => ({
+      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, endpoint: string) => {
+        callCount += 1;
+        if (callCount === 1) {
+          endpoints.push(endpoint);
+          throw new Error('guardian unreachable');
+        }
+        if (callCount === 2) {
+          endpoints.push(endpoint);
+          return [
+            { accountId: 'guardian-pk', hdIndex: 0, coldPublicKey: 'bb'.repeat(33), coldSecretKeyHex: 'dd'.repeat(32) }
+          ];
+        }
+        return [];
+      },
+      getAccounts: async () => [],
+      getAccount: async () => null,
+      syncState: async () => {},
+      network: 'devnet',
+      client: { accounts: { insert: jest.fn() }, keystore: { insert: jest.fn() } }
+    }));
+
+    try {
+      const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
+      memoryStore[GUARDIAN_URL_STORAGE_KEY] = 'https://my-guardian.example';
+
+      await expect(Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true)).rejects.toThrow();
+      const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
+
+      expect(vault).toBeInstanceOf(Vault);
+      expect(endpoints).toEqual(['https://my-guardian.example', 'https://my-guardian.example']);
     } finally {
       sdk.getMidenClient = origGetClient;
     }

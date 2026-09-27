@@ -856,13 +856,10 @@ export class Vault {
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
       // the create/recovery branches below.
       //
-      // The global `GUARDIAN_URL_STORAGE_KEY` is now frozen and never written
-      // anywhere (#408 stage 3), so we no longer restore it across the wipe. We
-      // DO still snapshot its pre-wipe value into this local so the Guardian-
-      // recovery branch below can fall back to it when the operator probe
-      // detected nothing — a legacy custom/self-hosted guardian whose only
-      // pointer is this key. That fallback is now purely in-memory: the value is
-      // read once here and passed forward; it is never written back to storage.
+      // The global `GUARDIAN_URL_STORAGE_KEY` is frozen: nothing writes it (#408 stage 3). The
+      // Guardian-recovery branch below still falls back to it when the operator probe detected
+      // nothing (a legacy custom/self-hosted guardian whose only pointer is this key). The wipe
+      // keeps it (`SETUP_PRESERVED_STORAGE_KEYS`), so every attempt, a Retry included, reads it.
       console.log('[Vault.spawn] Step 3: clearing storage...');
       const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
@@ -952,8 +949,8 @@ export class Vault {
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         // Prefer the endpoint the caller probed/picked for this recovery (stage 1
-        // of #408). Fall back to the legacy global key (snapshotted before the
-        // storage wipe above; it is frozen and no longer restored — #408 stage 3),
+        // of #408). Fall back to the legacy global key (read above; frozen, and kept
+        // by the wipe - #408 stage 3),
         // then the network default, so a recovery that detected nothing still
         // resolves exactly as before.
         const resolvedGuardianEndpoint =
@@ -1309,7 +1306,7 @@ export class Vault {
         }
       });
 
-      // Same pre-wipe snapshot + wipe as `spawn` (see the comments there).
+      // Same legacy-key read + wipe as `spawn` (see the comments there).
       const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
 
