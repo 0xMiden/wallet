@@ -2827,6 +2827,10 @@
     "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "Bu URL'de Guardian adresine yanıt bulunamadı. Kontrol edip tekrar deneyin.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Şifrelenmiş Cüzdan Dosyanıza erişmek için şifrenizi girin.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

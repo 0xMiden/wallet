@@ -2827,6 +2827,10 @@
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "此網址未回應 Guardian。請檢查並重試。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "請輸入密碼以存取您的加密錢包檔案。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

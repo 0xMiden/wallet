@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "Avant de divulguer vos clés privées",
   "hotKeyRevealWarningBody": "Toute personne disposant de ces clés peut contrôler vos actifs Miden et EVM. La rotation de votre clé quotidienne Miden ne modifie ni ne protège une clé EVM qui aurait fait l’objet d’une fuite.",
   "invalidUrl": "Saisissez une URL valide commençant par http:// ou https://",
+  "customGuardianUnreachable": "Aucune réponse n’a été trouvée à cette URL Guardian. Vérifiez-la et réessayez.",
   "encryptedWalletFileDescription": "Saisissez votre mot de passe pour accéder à votre fichier de portefeuille chiffré.",
   "encryptedWalletFileDescriptionHardware": "Déverrouillez à l'aide de votre code d'accès pour accéder à votre fichier de portefeuille crypté.",
   "encryptedWalletFileConfirmation": "Je ne partagerai mon fichier de portefeuille crypté avec personne, pas même avec Bread.",
