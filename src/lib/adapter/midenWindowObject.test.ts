@@ -341,6 +341,18 @@ describe('MidenWindowObject', () => {
         expect(obj.address).toBe(ADDRESS);
         expect(obj.publicKey).toBe(permission.publicKey);
       });
+
+      it('a second connect keeps one poll', async () => {
+        mockClient.requestPermission.mockResolvedValue(permission);
+        const firstStop = jest.fn();
+        const secondStop = jest.fn();
+        mockClient.onPermissionChange.mockReturnValueOnce(firstStop).mockReturnValueOnce(secondStop);
+        const obj = new MidenWindowObject();
+        await obj.connect('None' as any, 'testnet' as any);
+        await obj.connect('None' as any, 'testnet' as any);
+        expect(firstStop).toHaveBeenCalledTimes(1);
+        expect(secondStop).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -362,6 +374,22 @@ describe('MidenWindowObject', () => {
       expect(clearFn).toHaveBeenCalledTimes(1);
       expect(obj.address).toBeUndefined();
       expect(obj.permission).toBeUndefined();
+    });
+
+    it('stops the poll and clears the account even when the disconnect request is refused', async () => {
+      mockClient.requestPermission.mockResolvedValue({ address: ADDRESS, publicKey: new Uint8Array([1]) } as any);
+      const clearFn = jest.fn();
+      mockClient.onPermissionChange.mockReturnValue(clearFn);
+      const refused = new Error('NotFound');
+      mockClient.requestDisconnect.mockRejectedValue(refused);
+
+      const obj = new MidenWindowObject();
+      await obj.connect('None' as any, 'testnet' as any);
+
+      await expect(obj.disconnect()).rejects.toBe(refused);
+
+      expect(clearFn).toHaveBeenCalledTimes(1);
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
     });
 
     it('is a no-op on the interval clearer when never connected', async () => {

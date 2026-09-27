@@ -121,14 +121,22 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.address = perm.address;
     this.network = network;
     this.publicKey = perm.publicKey;
+    // The adapter can call connect() again without a disconnect(), which stops only the latest poll.
+    this.clearAccountChangeInterval?.();
     this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
   }
 
+  // The poll stops before the request: after accountChange(null) that account holds no session for
+  // this origin and the request is refused, and a poll still running would repopulate the fields.
   async disconnect(): Promise<void> {
-    await requestDisconnect();
-    this.address = undefined;
-    this.permission = undefined;
-    this.clearAccountChangeInterval && this.clearAccountChangeInterval();
+    this.clearAccountChangeInterval?.();
+    try {
+      await requestDisconnect();
+    } finally {
+      this.address = undefined;
+      this.publicKey = undefined;
+      this.permission = undefined;
+    }
   }
 
   // An account switch arrives here (#174). The fields follow the new account before listeners
