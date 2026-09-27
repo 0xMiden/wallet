@@ -50,19 +50,13 @@ const propertyName = (member: ts.PropertyAssignment) =>
 function constObject(name: string, file: ts.SourceFile): ts.ObjectLiteralExpression {
   for (const statement of file.statements) {
     if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      const { name: declared, initializer } = declaration;
-      if (
-        ts.isIdentifier(declared) &&
-        declared.text === name &&
-        initializer &&
-        ts.isObjectLiteralExpression(initializer)
-      ) {
-        return initializer;
-      }
+    for (const { name: declared, initializer } of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declared) || declared.text !== name || !initializer) continue;
+      if (ts.isObjectLiteralExpression(initializer)) return initializer;
+      throw new Error(`const ${name} is not a plain object literal (found ${ts.SyntaxKind[initializer.kind]})`);
     }
   }
-  throw new Error(`no const ${name} object in the config`);
+  throw new Error(`no const ${name} in the config`);
 }
 
 // Any other member (a shorthand, a method, a spread of a call or a conditional) contributes entries the
@@ -86,23 +80,27 @@ function entries(object: ts.ObjectLiteralExpression, file: ts.SourceFile): strin
  */
 export function defineSource(configSource: string): string {
   // createSourceFile recovers from syntax errors instead of throwing, so a truncated config is caught here.
-  if (ts.transpileModule(configSource, { reportDiagnostics: true }).diagnostics?.length) {
-    throw new Error('the config does not parse');
+  const [diagnostic] = ts.transpileModule(configSource, { reportDiagnostics: true }).diagnostics ?? [];
+  if (diagnostic) {
+    const where =
+      diagnostic.file && diagnostic.start !== undefined
+        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+        : undefined;
+    const at = where ? ` (${where.line + 1}:${where.character + 1})` : '';
+    throw new Error(`the config does not parse: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}${at}`);
   }
   const file = ts.createSourceFile('config.ts', configSource, ts.ScriptTarget.Latest, true);
-  const defines: ts.ObjectLiteralExpression[] = [];
+  const defines: ts.PropertyAssignment[] = [];
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertyAssignment(node) &&
-      propertyName(node) === 'define' &&
-      ts.isObjectLiteralExpression(node.initializer)
-    ) {
-      defines.push(node.initializer);
-    }
+    if (ts.isPropertyAssignment(node) && propertyName(node) === 'define') defines.push(node);
     ts.forEachChild(node, visit);
   };
   visit(file);
   if (defines.length === 0) throw new Error('no define object in the config');
   if (defines.length > 1) throw new Error('the config has more than one define object');
-  return entries(defines[0]!, file).join('\n');
+  const { initializer } = defines[0]!;
+  if (!ts.isObjectLiteralExpression(initializer)) {
+    throw new Error(`define is not an object literal: ${initializer.getText(file)}`);
+  }
+  return entries(initializer, file).join('\n');
 }

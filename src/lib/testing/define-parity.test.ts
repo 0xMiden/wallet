@@ -75,15 +75,17 @@ describe('defineSource', () => {
   });
 
   it('throws when the config has no define object', () => {
-    expect(() => defineSource('export default { plugins: [] };')).toThrow('define');
+    expect(() => defineSource('export default { plugins: [] };')).toThrow('no define object in the config');
   });
 
   it('throws when a spread names no const in the config', () => {
-    expect(() => defineSource('export default { define: { ...missing } };')).toThrow('missing');
+    expect(() => defineSource('export default { define: { ...missing } };')).toThrow('no const missing in the config');
   });
 
   it('throws on a config that does not parse', () => {
-    expect(() => defineSource("export default { define: { 'process.env.A': 'a'")).toThrow('does not parse');
+    expect(() => defineSource("export default { define: { 'process.env.A': 'a'")).toThrow(
+      "the config does not parse: '}' expected. (1:48)"
+    );
   });
 
   it.each([
@@ -100,7 +102,15 @@ describe('defineSource', () => {
       "const shared = { 'process.env.B': JSON.stringify('x') } as const;",
       'export default { define: { ...shared } };'
     ].join('\n');
-    expect(() => defineSource(source)).toThrow('no const shared object in the config');
+    expect(() => defineSource(source)).toThrow('const shared is not a plain object literal (found AsExpression)');
+  });
+
+  it('throws on a define that is not an object literal', () => {
+    const source = [
+      "const shared = { 'process.env.B': JSON.stringify('x') };",
+      'export default { define: shared };'
+    ].join('\n');
+    expect(() => defineSource(source)).toThrow('define is not an object literal: shared');
   });
 
   it('ignores a define block inside a comment above the live one', () => {
