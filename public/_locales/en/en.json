@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "Before you reveal your private keys",
   "hotKeyRevealWarningBody": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key.",
   "invalidUrl": "Enter a valid URL starting with http:// or https://",
+  "customGuardianUnreachable": "No Guardian answered at this URL. Check it and try again.",
   "encryptedWalletFileDescription": "Enter your password to access your Encrypted Wallet File.",
   "encryptedWalletFileDescriptionHardware": "Unlock with your passcode to access your Encrypted Wallet File.",
   "encryptedWalletFileConfirmation": "I will not share my Encrypted Wallet File with anyone, including Bread.",
