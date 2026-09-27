@@ -49,7 +49,7 @@ Extension manifest version comes from `package.json`, NOT `public/manifest.json`
 ## CHANGELOG
 
 `CHANGELOG.md` carries unreleased entries under a `## <next-version> (TBD)` heading. **NEVER add an entry to a section whose version has already been published — check `gh api repos/0xMiden/wallet/releases/latest` for the latest tag and put new entries under a section whose version is strictly higher and still has `(TBD)` next to it. If no such section exists, add one.** The header at the top of `CHANGELOG.md` may lag (a `(TBD)` heading often persists past the release tag); don't trust the heading alone.
-CI's changelog check enforces this: every line a pull request adds, or moves to another section, must sit under a version newer than the highest `vX.Y.Z` tag, and a line already under a released version must stay under it, so a released heading is never renamed or covered by a new one (`scripts/check-changelog.sh`, tests in `scripts/check-changelog.test.sh`).
+CI's changelog check enforces this per added line: each must sit under a version newer than the highest `vX.Y.Z` tag (`scripts/check-changelog.sh`, `scripts/changelog-placement.sh`; tests in `scripts/check-changelog.test.sh`).
 
 ## Critical gotchas
 
