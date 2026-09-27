@@ -19,18 +19,29 @@ type DappOriginProps = {
 export const DappOrigin: FC<DappOriginProps> = ({ origin, className, 'data-testid': testId }) => {
   const { lead, domain } = splitDappOrigin(origin);
 
+  // The visual row splits the origin into two spans purely for layout (which end may
+  // truncate); a screen reader announcing them separately, mid-word, would garble it, so
+  // it reads the origin once from the sr-only span while the row itself is aria-hidden.
   return (
-    <span className={classNames('flex min-w-0 max-w-full', className)} title={origin} data-testid={testId}>
-      {lead && (
-        <span className="min-w-0 truncate" data-testid="dapp-origin-lead">
-          {lead}
-        </span>
-      )}
-      {domain && (
-        <span className="max-w-full shrink-0 break-all" data-testid="dapp-origin-domain">
-          {domain}
-        </span>
-      )}
-    </span>
+    <>
+      <span className="sr-only">{origin}</span>
+      <span
+        aria-hidden="true"
+        className={classNames('flex min-w-0 max-w-full', className)}
+        title={origin}
+        data-testid={testId}
+      >
+        {lead && (
+          <span className="min-w-0 truncate" data-testid="dapp-origin-lead">
+            {lead}
+          </span>
+        )}
+        {domain && (
+          <span className="max-w-full shrink-0 break-all" data-testid="dapp-origin-domain">
+            {domain}
+          </span>
+        )}
+      </span>
+    </>
   );
 };

@@ -297,7 +297,9 @@ describe('DappConfirmationModal origin', () => {
     );
 
     const title = screen.getByRole('heading', { level: 2 });
-    expect(title.textContent).toBe(LONG_ORIGIN);
+    // DappOrigin also renders an sr-only span carrying the same text, so the title's own
+    // textContent would double it; the visual (aria-hidden) row is the one the user reads.
+    expect(title.querySelector('[aria-hidden="true"]')).toHaveTextContent(LONG_ORIGIN);
     expect(title).not.toHaveClass('truncate');
     expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
   });

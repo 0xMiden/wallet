@@ -36,4 +36,12 @@ describe('DappOrigin', () => {
 
     expect(screen.getByTestId('origin')).toHaveClass('flex', 'min-w-0', 'justify-center', 'font-semibold');
   });
+
+  it('gives assistive tech the whole origin once, and hides the visual split from it', () => {
+    const origin = 'https://login.wallet.example.co.uk';
+    render(<DappOrigin origin={origin} data-testid="origin" />);
+
+    expect(screen.getByText(origin, { selector: '.sr-only' })).toBeInTheDocument();
+    expect(screen.getByTestId('origin')).toHaveAttribute('aria-hidden', 'true');
+  });
 });
