@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CONNECTIVITY_CATEGORIES,
   CONNECTIVITY_STATE_KEY,
   ConnectivityCategory,
   ConnectivityStateSnapshot,
@@ -8,7 +9,7 @@ import {
   subscribeConnectivityState
 } from './connectivity-state';
 import { isExtension } from '../../platform';
-import { useStorage } from '../front/storage';
+import { fetchFromStorage, putToStorage, useStorage } from '../front/storage';
 
 export const CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY = 'miden-connectivity-dismissed-activations';
 
@@ -18,6 +19,37 @@ type DismissedActivations = Partial<Record<ConnectivityCategory, number | null>>
 // useStorage returns `data ?? fallback`, so the sync effect below would fire
 // on each render and setState forever ("Maximum update depth exceeded").
 const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
+
+// The stored record as it is, keeping only known categories with a timestamp (or null), so a malformed value reads as
+// nothing dismissed.
+function readDismissedActivations(raw: unknown): DismissedActivations {
+  const record: DismissedActivations = {};
+  if (!raw || typeof raw !== 'object') return record;
+  for (const category of CONNECTIVITY_CATEGORIES) {
+    const since: unknown = Reflect.get(raw, category);
+    if (typeof since === 'number' || since === null) record[category] = since;
+  }
+  return record;
+}
+
+// One read-modify-write of the stored record inside a Web Lock that every extension surface (popup, side panel,
+// tabs) shares, so a window never puts back a category another window just changed (#1158), as
+// lib/wallet-prompts.ts does for its record. A change that returns the record as it is writes nothing.
+// Declared `async` so a synchronous throw from `navigator.locks.request` itself (no Web Locks, e.g. iOS 15.0-15.3)
+// becomes a rejection the caller's `.catch(ignoreFailedWrite)` can reach, instead of escaping past it and crashing
+// the render.
+async function updateDismissedActivations(
+  change: (current: DismissedActivations) => DismissedActivations
+): Promise<void> {
+  return navigator.locks.request(`turn:${CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY}`, async () => {
+    const current = readDismissedActivations(await fetchFromStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY));
+    const next = change(current);
+    if (next !== current) await putToStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, next);
+  });
+}
+
+// A failed write is not retried: this window keeps its change and storage keeps the old record.
+const ignoreFailedWrite = () => {};
 
 /**
  * React hook exposing the current connectivity-state snapshot.
@@ -44,7 +76,7 @@ export function useConnectivityState(): {
   dismiss: (category: ConnectivityCategory) => void;
 } {
   const [storageSnapshot] = useStorage<ConnectivityStateSnapshot | null>(CONNECTIVITY_STATE_KEY, null);
-  const [storedDismissedActivations, setStoredDismissedActivations] = useStorage<DismissedActivations>(
+  const [storedDismissedActivations] = useStorage<DismissedActivations>(
     CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY,
     NO_DISMISSED_ACTIVATIONS
   );
@@ -72,11 +104,20 @@ export function useConnectivityState(): {
       category => !merged[category].active
     );
     if (recovered.length === 0) return;
-    const next = { ...dismissedActivations };
-    for (const category of recovered) delete next[category];
-    setDismissedActivations(next);
-    void setStoredDismissedActivations(next);
-  }, [dismissedActivations, merged, setStoredDismissedActivations]);
+    // Forget a recovered dismissal only while it is still the one this window saw: another window may already hold a
+    // dismissal of a newer activation of the same category.
+    const seen: DismissedActivations = {};
+    for (const category of recovered) seen[category] = dismissedActivations[category];
+    const forget = (current: DismissedActivations): DismissedActivations => {
+      const stale = recovered.filter(category => category in current && current[category] === seen[category]);
+      if (stale.length === 0) return current;
+      const next = { ...current };
+      for (const category of stale) delete next[category];
+      return next;
+    };
+    setDismissedActivations(forget);
+    void updateDismissedActivations(forget).catch(ignoreFailedWrite);
+  }, [dismissedActivations, merged]);
 
   const visible = useMemo(() => {
     if (Object.keys(dismissedActivations).length === 0) return merged;
@@ -92,16 +133,19 @@ export function useConnectivityState(): {
   const hasAnyIssue =
     visible.network.active || visible.node.active || visible.prover.active || visible.resolving.active;
 
-  const dismiss = useCallback(
-    (category: ConnectivityCategory) => {
-      const activation = mergedRef.current[category];
-      if (!activation.active) return;
-      const next = { ...dismissedActivations, [category]: activation.since };
-      setDismissedActivations(next);
-      void setStoredDismissedActivations(next);
-    },
-    [dismissedActivations, setStoredDismissedActivations]
-  );
+  const dismiss = useCallback((category: ConnectivityCategory) => {
+    const activation = mergedRef.current[category];
+    if (!activation.active) return;
+    const { since } = activation;
+    const record = (current: DismissedActivations): DismissedActivations => {
+      const held = current[category];
+      // A dismissal of a later activation (from another window) outranks this one.
+      if (held === since || (typeof held === 'number' && typeof since === 'number' && held > since)) return current;
+      return { ...current, [category]: since };
+    };
+    setDismissedActivations(record);
+    void updateDismissedActivations(record).catch(ignoreFailedWrite);
+  }, []);
 
   return { state: visible, hasAnyIssue, dismiss };
 }
