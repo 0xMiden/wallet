@@ -20,24 +20,12 @@ describe('splitDappOrigin', () => {
     ['http://192.168.1.1:8080', 'http://', '192.168.1.1:8080'],
     ['http://[::1]:3000', 'http://', '[::1]:3000'],
     ['chrome-extension://abcdefghijklmnop', 'chrome-extension://', 'abcdefghijklmnop'],
-    // The origin's own spelling is kept; only the match ignores case.
-    ['https://Login.EXAMPLE.co.uk', 'https://Login.', 'EXAMPLE.co.uk']
+    // A mixed-case origin is shown whole: the split must match the origin exactly.
+    ['https://Login.EXAMPLE.co.uk', '', 'https://Login.EXAMPLE.co.uk'],
+    ['foo://Login.EXAMPLE.com', '', 'foo://Login.EXAMPLE.com'],
+    ['ionic://App.Example.com', '', 'ionic://App.Example.com']
   ])('splits %s into %j and %j', (origin, lead, domain) => {
     expect(splitDappOrigin(origin)).toEqual({ lead, domain });
-  });
-
-  // A non-special scheme keeps the host's original case (the URL parser only lowercases
-  // special schemes), while tldts always lowercases what it returns, so the match between
-  // them has to ignore case too, or a case mismatch finds no match and falls back to the
-  // last character of the host.
-  it.each([
-    ['foo://Login.EXAMPLE.com', 'foo://Login.', 'EXAMPLE.com'],
-    ['ionic://App.Example.com', 'ionic://App.', 'Example.com']
-  ])('splits a non-special-scheme case mismatch %s into %j and %j', (origin, lead, domain) => {
-    const result = splitDappOrigin(origin);
-    expect(result.lead + result.domain).toBe(origin);
-    expect(result.domain.length).toBeGreaterThan(1);
-    expect(result).toEqual({ lead, domain });
   });
 
   // ms.show became a public suffix after tldts 6.1.86's snapshot of the public suffix list;
