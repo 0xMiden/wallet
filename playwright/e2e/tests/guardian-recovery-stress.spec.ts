@@ -233,7 +233,7 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
  * the now-rotated on-chain account and hands its serialized state to
  * `registerOnGuardianWithRetry` (line 574) -- the SAME retry helper
  * `finalizeGuardianSwitch` calls for `switch-guardian` (line 521): up to
- * `MAX_GUARDIAN_REGISTER_RETRIES` (8) attempts with capped exponential backoff
+ * `GUARDIAN_RETRY_MAX_ATTEMPTS` (8) attempts with capped exponential backoff
  * (1s doubling to an 8s ceiling, ~39s total) so the re-register survives the
  * guardian's post-delta canonicalization window instead of exhausting inside it
  * (`guardian/index.ts`).

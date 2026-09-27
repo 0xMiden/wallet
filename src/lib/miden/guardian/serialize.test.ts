@@ -1,8 +1,8 @@
 import {
   clearGuardianAccountLocks,
-  GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS,
   GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS,
   GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS,
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
   guardianRegisterBackoffMs,
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -304,22 +304,14 @@ describe('withGuardianRateLimitRetry (#906)', () => {
     expect(calls).toBe(2);
   });
 
-  it('makes GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS calls, then rethrows the last 429', async () => {
+  it('makes GUARDIAN_RETRY_MAX_ATTEMPTS calls, then rethrows the last 429', async () => {
     const { waits, sleepFn } = recordingSleep();
-    const errors = Array.from({ length: GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS }, () => rateLimited());
+    const errors = Array.from({ length: GUARDIAN_RETRY_MAX_ATTEMPTS }, () => rateLimited());
     const fn = jest.fn();
     errors.forEach(e => fn.mockRejectedValueOnce(e));
     await expect(withGuardianRateLimitRetry(fn, { sleepFn })).rejects.toBe(errors[errors.length - 1]);
-    expect(GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS).toBe(8);
     expect(fn).toHaveBeenCalledTimes(8);
     expect(waits).toEqual([1000, 2000, 4000, 8000, 8000, 8000, 8000]);
-  });
-
-  it('honours a maxAttempts override', async () => {
-    const { sleepFn } = recordingSleep();
-    const fn = jest.fn().mockRejectedValue(rateLimited(1));
-    await expect(withGuardianRateLimitRetry(fn, { maxAttempts: 3, sleepFn })).rejects.toMatchObject({ status: 429 });
-    expect(fn).toHaveBeenCalledTimes(3);
   });
 
   describe('with a deadline', () => {

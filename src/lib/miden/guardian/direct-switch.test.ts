@@ -87,8 +87,10 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
 // and the attempt it just spent. A loop that sleeps a fixed interval instead
 // retries a 429 under the cooldown the guardian just asked for and earns
 // another one — while the rotation it is finalizing has already committed.
+// The rest of the module stays real: the loop reads its attempt cap from it.
 const mockRegisterBackoffMs = jest.fn((_error: unknown, _attempt: number) => 0);
 jest.mock('./serialize', () => ({
+  ...jest.requireActual('./serialize'),
   guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt)
 }));
 
