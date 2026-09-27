@@ -477,8 +477,9 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   // `completedAt` as the row's timestamp with NO fallback — a missing one
   // becomes an invalid `Date` and throws while grouping history by day, taking
   // down the whole activity list. A dump is free to carry `{status: 2}` and no
-  // `completedAt` at all, so this cannot be left to the unfinished branch.
-  const timestamp = typeof completedAt === 'number' ? completedAt : placedAt;
+  // `completedAt` at all, so this cannot be left to the unfinished branch. A
+  // `completedAt` the spending-limit guard would refuse falls back to placedAt.
+  const timestamp = isValidTimestamp(completedAt) ? completedAt : placedAt;
 
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at

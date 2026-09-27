@@ -105,6 +105,10 @@ const settlementTime = (completedAt: number | undefined): string | undefined => 
   // Falsy, not just undefined: a zero stamp is an unwritten one, and formatting
   // it dates the fill to 1970.
   if (!completedAt) return undefined;
+  // A finite stamp can still overflow the Date range, and formatting that Invalid Date throws
+  // while rendering; test the built Date, the way HistoryView's grouping does.
+  const settledAt = new Date(completedAt * 1000);
+  if (!Number.isFinite(settledAt.getTime())) return undefined;
 
   timeFormatter ??= new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
@@ -112,7 +116,7 @@ const settlementTime = (completedAt: number | undefined): string | undefined => 
     hour12: false
   });
 
-  return timeFormatter.format(new Date(completedAt * 1000));
+  return timeFormatter.format(settledAt);
 };
 
 const SwapNoteRow = memo(function SwapNoteRow({

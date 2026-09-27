@@ -595,6 +595,23 @@ describe('miden repo export/import', () => {
     }
   );
 
+  it.each([
+    ['negative', -5],
+    ['fractional', 1.5]
+  ])(
+    'stamps an imported row with a %s completedAt and no initiatedAt at the current time on both',
+    async (_label, completedAt) => {
+      const before = Math.floor(Date.now() / 1000);
+      await importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'imported-5', status: 2, completedAt }] }));
+      const after = Math.floor(Date.now() / 1000);
+
+      const row = await transactions.get('imported-5');
+      expect(row!.initiatedAt).toBeGreaterThanOrEqual(before);
+      expect(row!.initiatedAt).toBeLessThanOrEqual(after);
+      expect(row!.completedAt).toBe(row!.initiatedAt);
+    }
+  );
+
   it('keeps a usable imported initiatedAt as it is', async () => {
     await importDb(
       JSON.stringify({
