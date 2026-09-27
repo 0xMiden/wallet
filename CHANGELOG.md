@@ -43,6 +43,7 @@
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] A Guardian endpoint written with different host capitals or an explicit default port (:443) is recognised as the same Guardian: the picker and the import screen mark it as that Guardian, Guardian Settings and the rotation and history screens name it as that operator, rotating to it is refused as unchanged, and dApps are told its Guardian provider instead of "custom" (#1085).
+- [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 
 ## 1.16.2 (2026-09-24)

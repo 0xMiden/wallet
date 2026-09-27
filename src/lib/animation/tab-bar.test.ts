@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { easings } from './easings';
 import { springToLinearEasing } from './spring-easing';
 import { springs } from './springs';
-import { resolveTabBarMotion, tabBarMotion, useTabBarMotion, useTabIconPop } from './tab-bar';
+import { resolveTabBarMotion, tabBarMotion, tabBarSwap, useTabBarMotion, useTabIconPop } from './tab-bar';
 
 let mockReduce: boolean | null = false;
 jest.mock('framer-motion', () => ({
@@ -76,6 +76,10 @@ describe('lib/animation/tab-bar', () => {
       expect(tabBarMotion.pressScale).toBe(0.92);
       expect(tabBarMotion.press).toBe(springs.snappy);
       expect(tabBarMotion.label).toEqual({ type: 'tween', duration: 0.12, delay: 0.1, ease: easings.easeInOut });
+    });
+
+    it('names an instant swap for a bar shown again, which still completes', () => {
+      expect(tabBarSwap).toEqual(INSTANT);
     });
   });
 
@@ -157,6 +161,20 @@ describe('lib/animation/tab-bar', () => {
       expect(result.current.phase).toBe('rest');
       expect(result.current.animate).toEqual({ scale: 1 });
       expect(result.current.transition).toEqual(INSTANT);
+    });
+
+    it('does not pop a tab that becomes active on a swap, and pops on a later activation', () => {
+      const { result, rerender } = renderHook(
+        ({ on, swap }: { on: boolean; swap: boolean }) => useTabIconPop(on, swap),
+        { initialProps: { on: false, swap: false } }
+      );
+
+      rerender({ on: true, swap: true });
+      expect(result.current.phase).toBe('rest');
+
+      rerender({ on: false, swap: false });
+      rerender({ on: true, swap: false });
+      expect(result.current.phase).toBe('pop');
     });
   });
 });
