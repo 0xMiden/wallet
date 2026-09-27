@@ -19,6 +19,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -2452,6 +2453,39 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(sendTransaction).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { label: 'with no request bytes', requestBytes: undefined, abandoned: false },
+    { label: 'whose intent was abandoned', requestBytes: new Uint8Array([91, 92, 93]), abandoned: true }
+  ])(
+    'Guardian earn-deposit $label fails with its own reason while the guardian is unreachable (#779)',
+    async ({ requestBytes, abandoned }) => {
+      // Both checks run before the multisig service load, which can reach the guardian. Behind it, a refused
+      // connection would requeue a row no retry can send, until it expired.
+      const txId = abandoned ? 'earn-abandoned-unreachable' : 'earn-no-bytes-unreachable';
+      const transaction = seedEarnDeposit(txId, requestBytes);
+      const stored = txStore.find(r => r.id === txId);
+      if (abandoned && stored) stored.extraInputs = { recallBlocks: 25, epochStatus: 'failed' };
+      mockGetOrCreateMultisigService.mockRejectedValue(new TypeError('Failed to fetch'));
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toContain(abandoned ? 'already abandoned by the caller' : EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
+  );
 
   it('Guardian recallable send: a still-pending 409 requeues AND drops the frozen requestBytes', async () => {
     // Unlike the earn-deposit case above, whose attachment cannot be rebuilt, a

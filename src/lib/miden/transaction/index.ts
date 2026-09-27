@@ -976,6 +976,17 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
   }
 };
 
+/**
+ * An Earn deposit's precondition for both leaves: its intent is still live and the row carries the collateral request
+ * built at initiate, which is returned. Nothing on the row can rebuild that request's mandate-binding attachment, so a
+ * row without it fails here. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ */
+const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promise<Uint8Array> => {
+  await assertEarnDepositIntentLive(transaction);
+  if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+  return transaction.requestBytes;
+};
+
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
@@ -1512,10 +1523,7 @@ const generateTransactionWithProvider = async (
       // shared block had none, so a non-Guardian account still minted the orphan
       // collateral note. `bridged-send` needs no equivalent — its abandonment path
       // writes `status = Failed`, which takes the row out of the Queued scan.
-      if (transaction.type === 'earn-deposit') {
-        await assertEarnDepositIntentLive(transaction);
-        if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
-      }
+      if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
       if (transaction.requestBytes) {
         // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
         // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -2564,28 +2572,18 @@ const generateGuardianTransaction = async (
       // its own (later) chain head, not an exact height, so the extra guardian
       // propose/sign/submit delay is absorbed by the ~1000-block buffer the SDK
       // bakes into `recallBlocks`.
-      const earnTx = transaction as EarnDepositTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const recallBlocks = earnTx.extraInputs?.recallBlocks;
-      if (!recallBlocks || !earnTx.secondaryAccountId) {
-        throw new Error(
-          'Earn deposit is missing recallBlocks/allocator — the collateral must be a recallable P2IDE note.'
-        );
-      }
+      //
       // If openEarnPosition already abandoned this deposit, bail out rather than
       // submit a collateral note the allocator has no live intent for. A guardian
       // requeue can keep this row live long past the caller's wait (up to
-      // MAX_QUEUED_AGE). See assertEarnDepositIntentLive; the throw is terminal
-      // (→ cancelTransaction below) and a Failed row is never re-picked.
-      await assertEarnDepositIntentLive(earnTx);
-      // Rows queued by `createEarnP2IDENote` carry the pre-built P2IDE collateral
-      // request (own output note with the mandate-binding attachment, smallocator
-      // PR #38) in `requestBytes`, and they are proposed as they are. Nothing on the
-      // row can rebuild that attachment, so a row without its bytes fails here,
-      // before anything is minted. Their fee conversion salt was declared when they
-      // were built, so they need nothing added here.
-      const requestBytes = earnTx.requestBytes;
-      if (!requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+      // MAX_QUEUED_AGE). The throw is terminal (→ cancelTransaction below) and a
+      // Failed row is never re-picked. Rows queued by `createEarnP2IDENote` carry
+      // the pre-built P2IDE collateral request (own output note with the
+      // mandate-binding attachment, smallocator PR #38) in `requestBytes`, and they
+      // are proposed as they are, with the fee conversion salt declared when they
+      // were built. Checked before the service load, which can reach the guardian.
+      const requestBytes = await requireEarnDepositRequestBytes(transaction);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createCustomProposal(requestBytes, 'earn_deposit')
       );
