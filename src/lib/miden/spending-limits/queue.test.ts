@@ -344,6 +344,26 @@ describe('queueOutgoingTransaction', () => {
   });
 
   it.each([
+    ['a preflight', (id: string) => assessOutgoingSpendingLimitDetails(proposalFor(sendRow(1n, id)))],
+    ['the queue', (id: string) => queueOutgoingTransaction(sendRow(1n, id), spendsOf(sendRow(1n, id)), undefined, NOW)]
+  ])(
+    '%s skips an old matching send stamped 1.5 whether it reads the window or the whole table',
+    async (_label, assess) => {
+      await saveConfig();
+      mockedResolve.mockResolvedValue(1n);
+      await putStoredRow(historyRow({ id: 'old-send', initiatedAt: 1.5 }));
+      const windowOutcome = await assess('tx-1');
+
+      // An incoming row the policy never counts, but whose missing initiatedAt forces the whole-table read.
+      const incoming = { ...historyRow({ id: 'incoming' }), type: 'consume' };
+      Reflect.deleteProperty(incoming, 'initiatedAt');
+      await putStoredRow(incoming);
+
+      await expect(assess('tx-2')).resolves.toEqual(windowOutcome);
+    }
+  );
+
+  it.each([
     ['account mismatch', { accountId: 'account-b' }],
     ['spends mismatch', { spends: [{ faucetId: 'eth', amount: 2n }] }],
     ['stale revision', { revision: 'revision-old' }],
