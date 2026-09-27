@@ -37,11 +37,11 @@ describe('DappOrigin', () => {
     expect(screen.getByTestId('origin')).toHaveClass('flex', 'min-w-0', 'justify-center', 'font-semibold');
   });
 
-  it('gives assistive tech the whole origin once, and hides the visual split from it', () => {
+  it('reads the origin exactly once across everything it renders', () => {
     const origin = 'https://login.wallet.example.co.uk';
-    render(<DappOrigin origin={origin} data-testid="origin" />);
+    // The container, not the testid row: a copy rendered beside the row would escape a row-scoped read.
+    const { container } = render(<DappOrigin origin={origin} data-testid="origin" />);
 
-    expect(screen.getByText(origin, { selector: '.sr-only' })).toBeInTheDocument();
-    expect(screen.getByTestId('origin')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.textContent).toBe(origin);
   });
 });
