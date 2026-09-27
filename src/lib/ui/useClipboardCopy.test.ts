@@ -46,8 +46,9 @@ it('writes the given text and flips copied true, then false after the feedback w
   expect(result.current.copied).toBe(false);
 });
 
-it('leaves copied false and arms no timer when the write is refused', async () => {
+it('leaves copied false and reports a failure that decays when the write is refused', async () => {
   jest.useFakeTimers();
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   mockWrite.mockRejectedValueOnce(new Error('refused'));
   const { result } = renderHook(() => useClipboardCopy('0xabc123'));
 
@@ -56,7 +57,11 @@ it('leaves copied false and arms no timer when the write is refused', async () =
   });
 
   expect(result.current.copied).toBe(false);
-  expect(jest.getTimerCount()).toBe(0);
+  expect(result.current.status).toBe('failure');
+  expect(errorSpy).toHaveBeenCalledWith('[clipboard] failed to copy:', expect.any(Error));
+  // The only timer is the failure's decay back to idle.
+  expect(jest.getTimerCount()).toBe(1);
+  errorSpy.mockRestore();
 });
 
 it('does not arm the revert timer for a write that resolves after unmount', async () => {
