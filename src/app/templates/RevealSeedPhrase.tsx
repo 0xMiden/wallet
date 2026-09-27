@@ -456,7 +456,7 @@ const RevealSeedPhrase: FC = () => {
           <SubPageSection className="gap-3">
             <SeedPhraseGrid words={words} />
 
-            {/* Copy is the shared Pill, like every other copy action in the wallet. */}
+            {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill
               className="self-start"
               icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}

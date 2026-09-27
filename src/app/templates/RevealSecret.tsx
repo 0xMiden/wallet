@@ -113,7 +113,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       secretFieldRef.current?.focus();
       secretFieldRef.current?.select();
     }
-  }, [secret, secretFieldRef]);
+  }, [secret]);
 
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -305,7 +305,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     secret,
     texts,
     clearErrors,
-    secretFieldRef,
     t,
     hasHardwareProtector,
     handleSubmit,
