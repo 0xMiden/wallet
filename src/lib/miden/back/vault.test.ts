@@ -4159,6 +4159,26 @@ describe('Vault.spawnFromHotKey', () => {
     expect(order).toEqual(['wasm', 'parse']);
   });
 
+  it('recovers through the legacy guardian URL when no endpoint is passed (#1174)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    // This suite stubs the resolver; give it the real one's order (the account's field, then the
+    // legacy key, then the default) so the spawn's use of it is what is under test.
+    const stub = mockResolveGuardianEndpoint.getMockImplementation();
+    mockResolveGuardianEndpoint.mockImplementation(
+      async (acc: { guardianEndpoint?: string }) =>
+        acc?.guardianEndpoint || memoryStore['guardian_url_setting'] || 'https://default.example'
+    );
+    try {
+      await Vault.spawnFromHotKey('pw', PAIR);
+      expect(mockRecoverGuardianAccountByHotKey).toHaveBeenCalledWith(
+        expect.any(String),
+        'https://my-guardian.example'
+      );
+    } finally {
+      if (stub) mockResolveGuardianEndpoint.mockImplementation(stub);
+    }
+  });
+
   it('adopts the guardian account and persists a hot-key-only wallet', async () => {
     const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
 

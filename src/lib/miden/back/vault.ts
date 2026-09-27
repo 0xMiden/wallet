@@ -33,10 +33,8 @@ import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/pr
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
-import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
@@ -65,7 +63,6 @@ import {
   getRecoveryAction,
   isRecoveryTransaction
 } from './recovery-authorization';
-import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import {
   getGuardianCommitmentFromAccount,
@@ -856,12 +853,9 @@ export class Vault {
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
       // the create/recovery branches below.
       //
-      // The global `GUARDIAN_URL_STORAGE_KEY` is frozen: nothing writes it (#408 stage 3). The
-      // Guardian-recovery branch below still falls back to it when the operator probe detected
-      // nothing (a legacy custom/self-hosted guardian whose only pointer is this key). The wipe
-      // keeps it (`SETUP_PRESERVED_STORAGE_KEYS`), so every attempt, a Retry included, reads it.
+      // Resolved before the wipe, so a failed read aborts first: the pick, else the legacy key, else the default.
+      const resolvedGuardianEndpoint = await resolveGuardianEndpoint({ guardianEndpoint });
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
       console.log('[Vault.spawn] Step 4: storage cleared');
 
@@ -948,12 +942,6 @@ export class Vault {
 
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
-        // Prefer the endpoint the caller probed/picked for this recovery (stage 1
-        // of #408). Fall back to the legacy global key (read above; frozen, and kept
-        // by the wipe - #408 stage 3), then the network default, so a recovery that
-        // detected nothing still resolves exactly as before.
-        const resolvedGuardianEndpoint =
-          guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
@@ -1305,8 +1293,8 @@ export class Vault {
         }
       });
 
-      // Same legacy-key read + wipe as `spawn` (see the comments there).
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+      // Resolved before the wipe, as in `spawn`.
+      const resolvedGuardianEndpoint = await resolveGuardianEndpoint({ guardianEndpoint });
       await clearStorage();
 
       // Same security-model branch as `spawn`: hardware-only when the user
@@ -1335,8 +1323,6 @@ export class Vault {
         return midenClient;
       };
 
-      const resolvedGuardianEndpoint =
-        guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
       // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
       // per op, and its lookup reasons ("no account for this key", "this is the
       // recovery key") are the only actionable strings the user has left after

@@ -7,7 +7,6 @@ import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/mid
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianProvider } from 'lib/shared/types';
-import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
 import { fetchFromStorage } from '../front/storage';
@@ -29,7 +28,7 @@ import { fetchFromStorage } from '../front/storage';
  * "re-enter your guardian URL" user flow (out of scope). The key is no longer
  * written anywhere in the codebase — grep for writers to confirm.
  */
-export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+export async function resolveGuardianEndpoint(account: { guardianEndpoint?: string }): Promise<string> {
   return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
 }
 
