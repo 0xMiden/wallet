@@ -52,6 +52,7 @@ const REPLACEMENTS: Record<string, string> = {
   'lib/ui/badge': 'components/ui/Pill',
   'lib/ui/skeleton': 'components/ui/Skeleton',
   'lib/ui/DetailCard': 'components/ui/DetailCard',
+  'lib/ui/useCopyToClipboard': 'lib/ui/useClipboardCopy',
   'components/Checkbox': 'components/ui/Checkbox',
   'components/EmptyState': 'components/ui/EmptyState',
   'components/flow/FlowDetails': 'components/ui/DetailCard',
