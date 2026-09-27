@@ -8,7 +8,7 @@
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
-- [CHANGE][ci] Tests pin the usage-data and crash-reporting key defines in every build config that bundles them, and the dApp-bridge debug flag and update-flag define tests check the same way: deleting a define, commenting it out with // or adding a second entry for the same key fails a test, as does changing a define's default value (#1118, #1147).
+- [CHANGE][ci] Tests pin the usage-data and crash-reporting key defines in every build config that bundles them, and the dApp-bridge debug flag and update-flag define tests check the same way: deleting a define, commenting it out with // or adding a second entry for the same key fails a test, as does changing a telemetry key's empty default (#1118, #1147).
 
 ### Fixes
 
