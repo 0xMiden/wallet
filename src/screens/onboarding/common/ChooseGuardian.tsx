@@ -95,7 +95,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const availability = useGuardianAvailability(endpoints);
   const isOfflineEndpoint = (endpoint: string) => availability[endpoint] === 'offline';
 
-  // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
+  // In the switch context (RotateGuardian passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
   // switch, never nudging them onto another operator by default. An account on a
   // custom Guardian has no listed operator to pre-select, so nothing is (#1083).
@@ -153,8 +153,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   // Continue has something to submit: a custom URL (validated on tap), the
   // no-guardian sentinel, or a provider not reported offline. It is dead when
-  // every provider is offline, or in the switch flow when the operator the
-  // account is on is offline and nothing else is picked; each card says why.
+  // every provider is offline, when the user's own pick is offline, or in the
+  // switch flow when the current operator is offline or is not a listed
+  // provider and nothing else is picked; the offline card explains itself,
+  // only where one is offline.
   const canContinue = isCustom || effectiveSelectedId !== '';
 
   const handleContinue = () => {
