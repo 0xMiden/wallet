@@ -139,7 +139,7 @@ describe('showExtensionNotification', () => {
     // A received-note notification should land on the incoming-notes list (claim
     // actions), not the generic wallet QR/receive page (#467).
     expect(mockTabsCreate).toHaveBeenCalledWith({
-      url: expect.stringContaining('fullpage.html#/history?filter=pending&view=list')
+      url: expect.stringContaining('fullpage.html#/history?filter=pending')
     });
     expect(createdNotif!.close).toHaveBeenCalled();
   });

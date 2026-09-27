@@ -2633,7 +2633,7 @@ describe('HomePrompts', () => {
     expect(screen.queryByRole('button', { name: 'dismiss-pendingNotesPromptTitle' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
-    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending');
   });
 
   it('shows the pending-notes card without a total when any waiting note has no price', () => {

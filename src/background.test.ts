@@ -328,9 +328,9 @@ describe('background.ts — core service-worker listeners', () => {
     expect(wep.notifications.clear).toHaveBeenCalledWith('note-123');
     // The note-received notification should deep-link to the incoming-notes list
     // (claim actions), matching the mobile handler, not the generic receive page (#467).
-    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/history?filter=pending&view=list');
+    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/history?filter=pending');
     expect(wep.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test-id/fullpage.html#/history?filter=pending&view=list'
+      url: 'chrome-extension://test-id/fullpage.html#/history?filter=pending'
     });
   });
 });

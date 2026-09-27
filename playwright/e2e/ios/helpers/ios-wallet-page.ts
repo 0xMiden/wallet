@@ -570,7 +570,7 @@ export class IosWalletPage implements WalletPage {
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
     // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/history?filter=pending&view=list');
+    await this.navigateTo('/history?filter=pending');
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full

@@ -169,7 +169,7 @@ describe('native-notifications', () => {
             channelId: 'miden_notes',
             extra: {
               type: 'note_received',
-              navigateTo: '/history?filter=pending&view=list'
+              navigateTo: '/history?filter=pending'
             }
           })
         ]

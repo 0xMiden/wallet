@@ -591,7 +591,7 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
 
   it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending&view=list');
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
     cleanup();
 
     // Where that redirect lands: the Activity page, which reads `filter` off the location.
