@@ -1,6 +1,6 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 
 import { isExtension } from 'lib/platform';
@@ -35,8 +35,9 @@ jest.mock('webextension-polyfill', () => ({
 const mockStored: Record<string, unknown> = { 'stored-key': 'stored-value' };
 // This page's commits, echoed to its listeners only when a test delivers them, so each test orders echoes and events.
 const pendingEchoes: Array<[string, unknown]> = [];
+// Every read hands back a freshly parsed copy, as a real backend does.
 const readStored = async ([key]: string[]): Promise<Record<string, unknown>> =>
-  key! in mockStored ? { [key!]: mockStored[key!] } : {};
+  key! in mockStored ? { [key!]: JSON.parse(JSON.stringify(mockStored[key!])) } : {};
 const commit = (items: Record<string, unknown>) => {
   Object.assign(mockStored, items);
   if (isExtension()) pendingEchoes.push(...Object.entries(items));
@@ -105,6 +106,23 @@ const PassiveWriter = ({ storageKey }: { storageKey: string }) => {
   const [value, setValue] = usePassiveStorage<string>(storageKey, 'fallback-value');
   setStored = setValue;
   return <div data-testid="value">{value}</div>;
+};
+
+type Flags = Record<string, boolean>;
+const NO_FLAGS: Flags = {};
+
+// Re-syncs a local copy of a stored object whenever the stored value changes identity, as use-connectivity-state does.
+const LocalCopy = ({ storageKey }: { storageKey: string }) => {
+  const [stored] = useStorage<Flags>(storageKey, NO_FLAGS);
+  const [local, setLocal] = useState(stored);
+  useEffect(() => {
+    setLocal(stored);
+  }, [stored]);
+  return (
+    <button data-testid="value" onClick={() => setLocal({ ...local, changed: true })}>
+      {JSON.stringify(local)}
+    </button>
+  );
 };
 
 class Boundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
@@ -803,6 +821,18 @@ describe('storage operation order (#1168)', () => {
     await drain();
 
     expect(screen.getByTestId('value').textContent).toBe('other');
+  });
+
+  it('keeps a local change synced from a stored object after a read settles an equal copy of it', async () => {
+    mockStored['equal-object-key'] = { dismissed: true };
+    await preloadStorage(['equal-object-key']);
+    renderReader('equal-object-key', LocalCopy);
+    await drain();
+    expect(mockGet).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByTestId('value'));
+
+    expect(screen.getByTestId('value').textContent).toBe('{"dismissed":true,"changed":true}');
   });
 
   it('keeps a usePassiveStorage value when its write fails', async () => {

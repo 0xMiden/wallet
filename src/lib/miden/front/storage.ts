@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import isEqual from 'fast-deep-equal';
 import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
@@ -110,12 +111,13 @@ let lastSeq = 0;
 const appliedSeq = new Map<string, number>();
 const begin = () => ++lastSeq;
 
-// The only writer of a storage key's SWR cache entry. A plain-value mutate writes before its first await, so the
-// check and the write are one step.
+// The only writer of a storage key's SWR cache entry. A mutate with a value or a sync updater writes before its first
+// await, so the check and the write are one step. A read parses a fresh copy and consumers key effects on the value's
+// identity, so an equal value keeps the cached reference.
 function settle(key: string, seq: number, value: unknown) {
   if (seq <= (appliedSeq.get(key) ?? 0)) return;
   appliedSeq.set(key, seq);
-  void mutateCache(key, value, { revalidate: false });
+  void mutateCache(key, (cached: unknown) => (isEqual(cached, value) ? cached : value), { revalidate: false });
 }
 
 const ignoreFailedWrite = () => {};
