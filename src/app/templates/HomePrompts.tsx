@@ -579,8 +579,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
     setFaucetStatusIndicator('loading');
     setFaucetError(null);
-    // Installed before the request is awaited, so the account on screen is still the
-    // one asking - no switch can have happened yet.
+    // Installed before the request is awaited, while the account on screen is still the one
+    // asking: nothing has been awaited yet, or the check after the question above confirmed it.
     setFundingWait({ address, ...marker });
     try {
       // The request persists the marker, so a card that unmounts over it still
