@@ -186,7 +186,7 @@ it('does not arm the revert timer for a write that rejects after unmount', async
   }
 });
 
-it('ignores a copy while a write is in flight, and writes again once that write has rejected', async () => {
+it('drops a copy made while a write is in flight, and a later copy writes again once that write has rejected', async () => {
   const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
   try {
     const { result } = renderHook(() => useClipboardCopy('0xabc123'));
@@ -207,6 +207,8 @@ it('ignores a copy while a write is in flight, and writes again once that write 
     });
     expect(result.current.status).toBe('failure');
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+    // The dropped copy is not replayed once the write settles.
+    expect(mockWrite).toHaveBeenCalledTimes(1);
 
     act(() => {
       void result.current.copy();
