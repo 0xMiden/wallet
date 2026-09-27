@@ -518,7 +518,20 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
         }
         // The user is asked before a request replaces an unresolved one, but a surface that read
         // storage before another surface flagged it never asked: only a confirmed replacement passes.
-        if (stored?.unresolved && replaces !== stored.requestedAt) throw new FaucetRequestUnresolvedError(stored);
+        // A sent request past its window is unresolved flagged or not, as the mount read treats it:
+        // the flag is best effort, and a surface whose read failed never saw the request.
+        if (
+          stored !== null &&
+          replaces !== stored.requestedAt &&
+          (stored.unresolved ||
+            (stored.submitted &&
+              !isFaucetFundingMarkerLive(stored, {
+                runningHere: getInFlightFaucetMarker(address)?.requestedAt === stored.requestedAt,
+                settledAt: getFaucetRequestSettledAt(address, stored.requestedAt)
+              })))
+        ) {
+          throw new FaucetRequestUnresolvedError(stored);
+        }
         // A request its timeout already ended reported a safe failure and writes nothing: a
         // retry may have stored its own marker by now.
         if (controller.signal.aborted) throw controller.signal.reason;

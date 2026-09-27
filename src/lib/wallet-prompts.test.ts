@@ -724,7 +724,9 @@ describe('wallet prompts', () => {
   );
 
   it.each([
-    ['a sent request past its arrival window', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
+    // No surface flagged it (each one watching closed first, or the flag write failed), yet it is
+    // unresolved all the same, as the mount read names it: only a request that names it replaces it.
+    ['a sent request past its arrival window, named as the one replaced', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
     ['an unsent request past its own timeout', FAUCET_UNSUBMITTED_MARKER_MS, false]
   ])('starts a new request over %s', async (_state, ageMs, submitted) => {
     const stale = { requestedAt: Date.now() - ageMs - 1, baselineNoteIds: [], ...(submitted && { submitted }) };
@@ -737,7 +739,7 @@ describe('wallet prompts', () => {
       }
     );
 
-    await faucet('accountStale', marker);
+    await faucet('accountStale', marker, { replaces: submitted ? stale.requestedAt : undefined });
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
     expect(await fetchFaucetFundingMarker('accountStale')).toEqual({
@@ -745,6 +747,25 @@ describe('wallet prompts', () => {
       submitted: true,
       submittedAt: expect.any(Number)
     });
+  });
+
+  it('refuses a request over a sent request past its arrival window that does not name it', async () => {
+    const stale: FaucetFundingMarker = {
+      requestedAt: Date.now() - FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - 1,
+      baselineNoteIds: ['note-1'],
+      submitted: true
+    };
+    await setFaucetFundingMarker('accountStale', stale);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountStale', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(error).toMatchObject({ record: { requestedAt: stale.requestedAt, baselineNoteIds: ['note-1'] } });
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    expect(await fetchFaucetFundingMarker('accountStale')).toEqual(stale);
   });
 
   describe('over an unresolved request', () => {
