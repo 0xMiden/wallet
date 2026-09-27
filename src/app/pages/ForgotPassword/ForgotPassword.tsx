@@ -126,26 +126,26 @@ const ForgotPassword: FC = () => {
       // the override lives in browser.storage.local / Capacitor Preferences,
       // which `localStorage.clear()` cannot reach, so the restore rewrites the
       // value it just read.
-      const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
-      clearClientStorage();
-      if (endpointOverrides != null) {
-        await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, endpointOverrides);
-      }
-      // Resolve the probed guardian endpoint (import path only) and thread it
-      // explicitly into registerWallet (stage 1 of #408) rather than writing the
-      // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
-      // clearClientStorage above cannot clobber it. When nothing was detected the
-      // endpoint stays undefined and the backend falls back to the stored /
-      // default endpoint.
-      // Endpoint only matters for a Guardian recovery; a non-guardian recovery
-      // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
-      const guardianEndpoint =
-        onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
-          ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
-          : undefined;
-
-      const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       try {
+        const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
+        clearClientStorage();
+        if (endpointOverrides != null) {
+          await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, endpointOverrides);
+        }
+        // Resolve the probed guardian endpoint (import path only) and thread it
+        // explicitly into registerWallet (stage 1 of #408) rather than writing the
+        // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
+        // clearClientStorage above cannot clobber it. When nothing was detected the
+        // endpoint stays undefined and the backend falls back to the stored /
+        // default endpoint.
+        // Endpoint only matters for a Guardian recovery; a non-guardian recovery
+        // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
+        const guardianEndpoint =
+          onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
+            ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
+            : undefined;
+
+        const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
         await registerWallet(
           walletType,
           password,
@@ -159,7 +159,9 @@ const ForgotPassword: FC = () => {
         // failure here leaves the user with nothing. Swallowing it into
         // console.error (and then navigating away regardless) showed them an
         // empty wallet with no explanation — indistinguishable from data loss.
-        // Surface it and stay put so Retry is reachable (#630).
+        // Surface it and stay put so Retry is reachable (#630). The try covers
+        // the whole branch above because any step after the wipe leaves the
+        // user with nothing.
         console.error(e);
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
@@ -255,7 +257,6 @@ const ForgotPassword: FC = () => {
           try {
             const outcome = await register();
             finishMark.arm();
-            setIsLoading(false);
             // Block the exit ONLY on a real failure. 'skipped' means the guarded
             // branch never ran, so nothing was destroyed and the previous
             // navigate-home behaviour is still right; 'failed' means the reset
@@ -267,6 +268,7 @@ const ForgotPassword: FC = () => {
             // first-run onboarding rather than always entering in-tab (#428).
             navigate(postOnboardingRoute());
           } finally {
+            setIsLoading(false);
             finishMark.release();
           }
           break;

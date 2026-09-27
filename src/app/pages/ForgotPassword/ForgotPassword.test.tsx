@@ -607,6 +607,47 @@ describe('ForgotPassword', () => {
     errSpy.mockRestore();
   });
 
+  it('clears the spinner and surfaces the error when restoring the endpoint override fails after the wipe (#1093)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    mockPutToStorage.mockRejectedValue(new Error('quota exceeded'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('quota exceeded');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('clears the spinner when reading the endpoint override fails (#1093)', async () => {
+    mockFetchFromStorage.mockRejectedValue(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('retries from the start after a failed restore (#1093)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    mockPutToStorage.mockRejectedValue(new Error('quota exceeded'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    mockPutToStorage.mockResolvedValue(undefined);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // onAction — back branches
   // -------------------------------------------------------------------------
