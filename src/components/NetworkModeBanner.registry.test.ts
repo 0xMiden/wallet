@@ -24,8 +24,8 @@ import { join } from 'path';
  * connected bridge flow shipped without one while this file stayed green. Presence is asserted by
  * each screen's own suite, named below, where the real component renders. This file checks that
  * the assertion is there, that the suite does not replace the banner, or the layout that carries
- * it, with a mock, and that it never sets the banner's test id itself. A skipped assertion is not
- * checked here: `yarn lint` fails a direct `it.skip`, `xit` or `describe.skip`
+ * it, with a mock, and that it mentions the banner's test id only to read it. A skipped assertion
+ * is not checked here: `yarn lint` fails a direct `it.skip`, `xit` or `describe.skip`
  * (`jest/no-disabled-tests` under `--max-warnings 0`); a subtler way to keep an assertion from
  * running is the new kind of hole the issue's execution-signal follow-up is for.
  */
@@ -94,8 +94,11 @@ const moduleName = (specifier: string) =>
 const mockedModules = (source: string) =>
   [...source.matchAll(/jest\.(?:mock|doMock)\(\s*(['"`])([^'"`]+)\1/g)].map(match => moduleName(match[2]!));
 
-/** A suite that sets the banner's test id itself: only NetworkModeBanner.tsx may, since a stand-in carrying it passes the assertion whatever module it replaces. */
-const SETS_BANNER_TEST_ID = /data-testid["']?\s*[=:]\s*\{?\s*["'`]network-mode-banner/;
+/** Whether a suite writes the banner's test id in any form: only NetworkModeBanner.tsx may, so a registered suite may mention it only to read it. */
+const writesBannerTestId = (source: string) =>
+  source
+    .replace(/\b(?:get|query|find)(?:All)?ByTestId\(\s*(['"`])network-mode-banner\1\s*\)/g, '')
+    .includes('network-mode-banner');
 
 describe('every screen that commits value names the network', () => {
   it.each(VALUE_SIGNING_SCREENS)('$screen is guarded by a render assertion in $assertedIn', ({ assertedIn }) => {
@@ -110,12 +113,12 @@ describe('every screen that commits value names the network', () => {
       // A stand-in that renders the test id keeps the assertion green while the real component never
       // renders. Stubbing the layout that carries the banner is the same hole one level up, and a
       // stand-in can arrive through any module (the banner, the layout, the barrel it is imported
-      // through), so the suite may not set the banner's test id either.
+      // through), so the suite may mention the banner's test id only to read it.
       const mocked = mockedModules(read(assertedIn));
 
       expect(mocked).not.toContain('NetworkModeBanner');
       expect(mocked).not.toContain(moduleName(rendersBannerIn));
-      expect(read(assertedIn)).not.toMatch(SETS_BANNER_TEST_ID);
+      expect(writesBannerTestId(read(assertedIn))).toBe(false);
     }
   );
 
@@ -151,19 +154,19 @@ describe('mockedModules', () => {
   });
 });
 
-describe('SETS_BANNER_TEST_ID', () => {
+describe('writesBannerTestId', () => {
   it.each([
-    '<div data-testid="network-mode-banner" />',
-    "{ 'data-testid': 'network-mode-banner' }",
-    "<span data-testid={'network-mode-banner'} />",
-    '<i data-testid={`network-mode-banner`} />'
-  ])('matches %j, a stand-in setting the test id itself', source => {
-    expect(SETS_BANNER_TEST_ID.test(source)).toBe(true);
+    "el.setAttribute('data-testid', 'network-mode-banner');",
+    "const ID = 'network-mode-banner';",
+    '<div data-testid="network-mode-banner" />'
+  ])('reads %j as writing the test id', source => {
+    expect(writesBannerTestId(source)).toBe(true);
   });
 
-  it('does not match a read of the test id, only a write of it', () => {
-    expect(SETS_BANNER_TEST_ID.test("expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();")).toBe(
-      false
-    );
+  it.each([
+    "expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();",
+    'screen.queryAllByTestId("network-mode-banner")'
+  ])('reads %j as only reading it', source => {
+    expect(writesBannerTestId(source)).toBe(false);
   });
 });
