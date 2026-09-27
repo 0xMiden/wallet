@@ -22,6 +22,7 @@ const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHapticLight = jest.fn();
 const mockHapticMedium = jest.fn();
+const mockClipboardWrite = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,10 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { EyeOff: 'EyeOff' }
@@ -173,6 +178,41 @@ describe('VerifySeedPhraseFlow', () => {
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
+    mockClipboardWrite.mockResolvedValue(undefined);
+  });
+
+  const presentCopyLabel = () =>
+    screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
+
+  const reachReview = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('w1');
+  };
+
+  it('copies the phrase through the shared clipboard and confirms only once the write lands', async () => {
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TWELVE });
+    expect(presentCopyLabel()).toBe('copied');
+  });
+
+  it('keeps the copy label when the clipboard write is refused', async () => {
+    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(presentCopyLabel()).toBe('copyToClipboard');
   });
 
   it('disables the continue button while the hardware-protector probe is pending', async () => {

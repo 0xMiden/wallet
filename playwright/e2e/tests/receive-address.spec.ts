@@ -91,8 +91,7 @@ test.describe('Receive address surface', () => {
 
       // One write because the helper clicks ONCE. This button is a `CopyButton`, which copies
       // through `useClipboardCopy` - a hook with no re-entrancy latch, so every click re-writes
-      // and restarts its COPY_FEEDBACK_MS feedback. (The 2s latch belongs to `useCopyToClipboard`,
-      // which this surface has never used.)
+      // and restarts its COPY_FEEDBACK_MS feedback.
       expect(writes).toHaveLength(1);
       // The bare address — NOT the miden: URI (that is the QR's format) and NOT
       // the truncated string the button displays.
