@@ -132,10 +132,11 @@ const RevealSeedPhrase: FC = () => {
     }
   }, []);
 
-  // One probe at a time. Retry exists only once a probe has settled with both reads rejected, so no
-  // second probe can start while one is in flight, and the first read's answer, however late, is the
-  // one the page uses. A late settle after the page is gone writes to an unmounted component, which
-  // React ignores.
+  // One probe per page at a time. Retry exists only once a probe has settled with both reads
+  // rejected, so no second probe can start while one is in flight, and staying on the page adopts the
+  // first read's answer however late. During a hang the only retry is leaving and reopening, which
+  // ends this probe with the page: its late settle writes to an unmounted component, which React
+  // ignores, and the new page's read answers if the first was lost rather than wedged.
   const runProbe = useCallback(() => {
     setProbing(true);
     let waited = false;

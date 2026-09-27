@@ -501,9 +501,8 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // A second read goes to the same storage as the first, so an in-place Retry during a hang buys
-  // nothing waiting does not, and it would discard the first read's late answer. Past the deadline the
-  // page says it is still checking and offers no Retry; nothing can start a second probe.
+  // Past the deadline the page keeps its one probe in flight and offers no Retry, so no two probes on
+  // one page ever overlap; the notice's way to retry is leaving and reopening the page.
   it('shows the wait notice, not an error, when a probe hangs past the deadline', async () => {
     jest.useFakeTimers();
     try {
@@ -580,8 +579,7 @@ describe('RevealSeedPhrase', () => {
   });
 
   // A slow read is the common case on mobile (a native bridge call into a WebView the OS suspends
-  // when backgrounded), and under a wedged storage layer the first read's answer is the only one that
-  // will ever arrive. The page adopts it whenever it lands.
+  // when backgrounded). Staying on the page adopts the first read's answer whenever it lands.
   it('adopts a slow answer that lands after the wait notice has appeared', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -616,6 +614,44 @@ describe('RevealSeedPhrase', () => {
       expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
       expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('answered after the wait'));
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // The wait notice's way to retry: leaving ends this page's probe with it, and the reopened page starts
+  // a fresh read of its own, which answers when the first read was lost rather than wedged.
+  it('reopening the page after the wait notice probes again and uses the new answer', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise<boolean>(() => {}));
+      renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      expect(testContainer!.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
+
+      await act(async () => {
+        testRoot!.unmount();
+        testRoot = null;
+      });
+      testContainer!.remove();
+      testContainer = null;
+
+      mockHasHardwareProtector.mockResolvedValueOnce(true);
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockHasHardwareProtector).toHaveBeenCalledTimes(2);
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
+      expect(buttonWithText(container, 'view')!.disabled).toBe(false);
     } finally {
       warn.mockRestore();
       jest.useRealTimers();
