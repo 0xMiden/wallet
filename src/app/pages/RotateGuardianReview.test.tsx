@@ -436,6 +436,19 @@ describe('endpoint from the query string', () => {
     expect(mockInitiateSwitch).not.toHaveBeenCalled();
   });
 
+  it('treats a host-case and default-port spelling of the current endpoint as unchanged', async () => {
+    mockCurrentEndpoint = 'https://new.example';
+    mockSearch = '?endpoint=' + encodeURIComponent('https://New.Example:443/');
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
+    expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
   it('refuses a malformed endpoint before asking for a credential', async () => {
     mockSearch = '?endpoint=not-a-url';
     render(<RotateGuardianReview />);

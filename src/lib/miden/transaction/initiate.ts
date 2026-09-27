@@ -4,7 +4,7 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -602,14 +602,6 @@ export const initiateBridgedReceiveTransaction = async (args: {
 };
 
 /**
- * Do two rotation requests name the same operator? Trailing-slash tolerant via
- * the same `sanitizeGuardianUrl` the wallet already uses for guardian-URL
- * identity, so `https://g.example.com` and `https://g.example.com/` are one
- * target rather than two.
- */
-const sameGuardianEndpointTarget = (a: string, b: string): boolean => sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b);
-
-/**
  * The stored Guardian account a structural change targets, or `refusal` thrown. The row is queued under
  * its `publicKey`, not the caller's spelling: completion otherwise learns the stored id only from a
  * post-commit account read, and when that read fails it acts on the queued spelling, which the vault
@@ -694,7 +686,7 @@ export const initiateSwitchGuardianTransaction = async (
       // and "I cannot tell what that rotation targets" is not grounds for
       // claiming it is this one.
       const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
-      if (!inFlightEndpoint || !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
+      if (!inFlightEndpoint || !sameGuardianEndpoint(inFlightEndpoint, newGuardianEndpoint)) {
         throw new GuardianRotationInProgressError(inFlightEndpoint);
       }
       return inFlight.id;
