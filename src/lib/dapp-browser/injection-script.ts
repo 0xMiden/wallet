@@ -139,6 +139,41 @@ export const INJECTION_SCRIPT = `
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+
+  function samePermission(a, b) {
+    if (a === null || b === null) return a === b;
+    return a.address === b.address && a.rpc === b.rpc;
+  }
+
+  function watchPermission(wallet, seed) {
+    stopPermissionWatch();
+    let current = seed;
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission && !samePermission(current, res.permission) && wallet._applyPermission(res.permission)) {
+          current = res.permission;
+        }
+      } catch (e) {
+        // A refused or timed-out poll leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   // MidenWallet class
   class MidenWallet extends EventEmitter {
     constructor() {
@@ -193,15 +228,44 @@ export const INJECTION_SCRIPT = `
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
 
+      watchPermission(this, this.permission);
       return this.permission;
     }
 
     async disconnect() {
+      stopPermissionWatch();
       await request({ type: 'DISCONNECT_REQUEST' });
       this.address = undefined;
       this.permission = undefined;
       this.publicKey = undefined;
       this.emit('disconnect');
+    }
+
+    // Fields follow the new account before listeners hear of it; null clears them. Returns false,
+    // changing nothing, when the key cannot be decoded, so the next poll retries.
+    _applyPermission(perm) {
+      if (perm === null) {
+        this.address = undefined;
+        this.publicKey = undefined;
+        this.permission = undefined;
+        this.emit('accountChange', null);
+        return true;
+      }
+      let publicKey;
+      if (perm.publicKey) {
+        try {
+          publicKey = b64ToU8(perm.publicKey);
+        } catch (e) {
+          return false;
+        }
+      } else if (perm.address === this.address) {
+        publicKey = this.publicKey;
+      }
+      this.permission = perm;
+      this.address = perm.address;
+      this.publicKey = publicKey;
+      this.emit('accountChange', perm);
+      return true;
     }
 
     async requestSend(transaction) {
