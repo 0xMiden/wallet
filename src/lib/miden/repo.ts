@@ -196,11 +196,15 @@ defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
-// Every writer of this table goes through here (the send, claim, bridge and earn paths, the
-// spending-limit queue, backup import). A row whose `initiatedAt` the index cannot place is
-// invisible to the spending-limit window read, so none is written (#1007).
+/** Non-negative safe integer: what the `initiatedAt` index can place a row by (#1007). */
+function isPlaceableInitiatedAt(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+// Every insert goes through here. A row whose `initiatedAt` the index cannot place is invisible
+// to the spending-limit window read, so none is written (#1007).
 transactions.hook('creating', (_primaryKey, row) => {
-  if (!Number.isSafeInteger(row.initiatedAt) || row.initiatedAt < 0) {
+  if (!isPlaceableInitiatedAt(row.initiatedAt)) {
     throw new Error(`transaction ${row.id} has an unplaceable initiatedAt`);
   }
 });
@@ -459,10 +463,9 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
 
   // `initiatedAt` is the spending-limit window's index: a row the index cannot place is invisible
   // to that read, so an imported one takes a usable stamp - its completedAt, else now (#1007).
-  const usable = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
-  const placedAt = usable(initiatedAt)
+  const placedAt = isPlaceableInitiatedAt(initiatedAt)
     ? initiatedAt
-    : usable(completedAt)
+    : isPlaceableInitiatedAt(completedAt)
       ? completedAt
       : Math.floor(Date.now() / 1000);
 
