@@ -347,8 +347,11 @@ export interface SendContactInput extends ContactInput {
 /**
  * Save a contact from the send flow's own sheet (`AddContactDrawer`), the second save path beside
  * the address book's New contact page: type the recipient, take the "Add to contacts?" pill, check
- * the sheet names the typed address and `contact.network`, pick that network when the sheet offers
- * a choice, name the contact and save.
+ * the sheet names the typed address and shows `contact.network`, name the contact and save.
+ *
+ * With Sepolia the only bridge network, the sheet shows each network as a static label. The helper
+ * checks exactly that, and throws if the chip ever becomes a button to pick, since it does not yet
+ * pick one.
  *
  * Postcondition: the sheet closed and the recipient step shows the contact by name, so the send
  * flow now knows the address as a contact. Where it lands in the address book is the caller's
@@ -359,10 +362,25 @@ export async function addContactFromSend(
   contact: SendContactInput,
   timeoutMs = 30_000
 ): Promise<void> {
+  const step = `addContactFromSend("${contact.name}")`;
   await wallet.navigateTo('/send');
   const sendFlow = wallet.page.getByTestId('send-flow');
-  await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
-  await sendFlow.getByTestId('send-recipient-input').fill(contact.address);
+  try {
+    await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: /send never showed the send flow ([data-testid="send-flow"]) within ${timeoutMs}ms. ` +
+        `URL: ${wallet.page.url()}`
+    );
+  }
+  try {
+    await sendFlow.getByTestId('send-recipient-input').fill(contact.address, { timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not type into the recipient field ([data-testid="send-recipient-input"]) within ` +
+        `${timeoutMs}ms. Send flow text: ${await safeText(sendFlow)}`
+    );
+  }
 
   // The pill keeps its testid in every state; only a valid address that is not yet a contact
   // turns it into the add prompt.
@@ -371,25 +389,25 @@ export async function addContactFromSend(
     await addPill.click({ timeout: timeoutMs });
   } catch {
     throw new Error(
-      `addContactFromSend("${contact.name}"): the recipient step never offered "Add to contacts?" ` +
-        `for ${contact.address} within ${timeoutMs}ms. Recipient step text: ${await safeText(sendFlow)}`
+      `${step}: the recipient step never offered "Add to contacts?" for ${contact.address} within ` +
+        `${timeoutMs}ms. Recipient step text: ${await safeText(sendFlow)}`
     );
   }
 
   const sheetAddress = wallet.page.getByTestId('add-contact-address');
+  // The sheet's own form, so its alert cannot be confused with another on the page.
+  const sheet = wallet.page.locator('form').filter({ has: sheetAddress });
   try {
     await sheetAddress.waitFor({ state: 'visible', timeout: timeoutMs });
   } catch {
     throw new Error(
-      `addContactFromSend("${contact.name}"): took "Add to contacts?" but the sheet ` +
-        `([data-testid="add-contact-address"]) never opened within ${timeoutMs}ms.`
+      `${step}: took "Add to contacts?" but the sheet ([data-testid="add-contact-address"]) never ` +
+        `opened within ${timeoutMs}ms.`
     );
   }
   const shownAddress = (await sheetAddress.textContent())?.trim() ?? '';
   if (shownAddress !== contact.address) {
-    throw new Error(
-      `addContactFromSend: the sheet names ${JSON.stringify(shownAddress)}, not the typed recipient ${contact.address}.`
-    );
+    throw new Error(`${step}: the sheet names ${JSON.stringify(shownAddress)}, not the typed ${contact.address}.`);
   }
 
   const chip = wallet.page.getByTestId(`add-contact-network-${contact.network.id}`);
@@ -397,49 +415,65 @@ export async function addContactFromSend(
     await chip.waitFor({ state: 'visible', timeout: timeoutMs });
   } catch {
     throw new Error(
-      `addContactFromSend("${contact.name}"): the sheet shows no ${contact.network.name} network ` +
+      `${step}: the sheet shows no ${contact.network.name} network ` +
         `([data-testid="add-contact-network-${contact.network.id}"]). Networks shown: ` +
         `${await safeText(wallet.page.getByTestId('add-contact-network-options'))}`
     );
   }
   const chipText = (await chip.textContent())?.trim() ?? '';
   if (chipText !== contact.network.name) {
-    throw new Error(`addContactFromSend: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
+    throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
   }
-  // With one network on offer the chip is a static label; with more it is a button to pick.
   if ((await chip.evaluate(el => el.tagName)) === 'BUTTON') {
-    await chip.click({ timeout: timeoutMs });
-    if ((await chip.getAttribute('aria-pressed')) !== 'true') {
-      throw new Error(`addContactFromSend: picked ${contact.network.name} but its chip is not selected.`);
-    }
-  }
-
-  await wallet.page.getByTestId('address-book-name-input').fill(contact.name);
-  const submit = wallet.page.getByTestId('address-book-add-contact');
-  try {
-    await submit.click({ timeout: timeoutMs });
-  } catch {
     throw new Error(
-      `addContactFromSend("${contact.name}"): could not click [data-testid="address-book-add-contact"] ` +
-        `within ${timeoutMs}ms - it stays disabled until a name is typed.`
+      `${step}: the ${contact.network.name} chip is now a button, so the sheet offers a network choice. ` +
+        `This helper only checks the one-network sheet; teach it to pick the network.`
     );
   }
 
-  await sheetAddress.waitFor({ state: 'hidden', timeout: timeoutMs });
+  try {
+    await sheet.getByTestId('address-book-name-input').fill(contact.name, { timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not type into the sheet's name field ([data-testid="address-book-name-input"]) ` +
+        `within ${timeoutMs}ms. Sheet text: ${await safeText(sheet)}`
+    );
+  }
+  try {
+    await sheet.getByTestId('address-book-add-contact').click({ timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not press Add contact ([data-testid="address-book-add-contact"]) within ` +
+        `${timeoutMs}ms. Sheet text: ${await safeText(sheet)}`
+    );
+  }
+
+  try {
+    await sheetAddress.waitFor({ state: 'hidden', timeout: timeoutMs });
+  } catch {
+    // A rejected save keeps the sheet open and says why in its alert; there may be none, so the
+    // read is bounded rather than left to wait out the test.
+    const alert = await sheet
+      .getByRole('alert')
+      .textContent({ timeout: 2_000 })
+      .catch(() => null);
+    throw new Error(
+      `${step}: pressed Add contact but the sheet stayed open for ${timeoutMs}ms. ` +
+        `Sheet error: ${JSON.stringify(alert ?? '<no alert>')}. Sheet text: ${await safeText(sheet)}`
+    );
+  }
   const recipientName = sendFlow.getByTestId('send-recipient-name');
   try {
     await recipientName.waitFor({ state: 'visible', timeout: timeoutMs });
   } catch {
     throw new Error(
-      `addContactFromSend("${contact.name}"): the sheet closed but the recipient step never showed ` +
-        `the new contact's name. Recipient step text: ${await safeText(sendFlow)}`
+      `${step}: the sheet closed but the recipient step never showed the new contact's name. ` +
+        `Recipient step text: ${await safeText(sendFlow)}`
     );
   }
   const shownName = (await recipientName.textContent())?.trim() ?? '';
   if (shownName !== contact.name) {
-    throw new Error(
-      `addContactFromSend: the recipient step names ${JSON.stringify(shownName)}, not "${contact.name}".`
-    );
+    throw new Error(`${step}: the recipient step names ${JSON.stringify(shownName)}, not "${contact.name}".`);
   }
 }
 
