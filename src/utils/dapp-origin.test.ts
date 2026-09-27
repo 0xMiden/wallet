@@ -40,6 +40,12 @@ describe('splitDappOrigin', () => {
     expect(result).toEqual({ lead, domain });
   });
 
+  // ms.show became a public suffix after tldts 6.1.86's snapshot of the public suffix list;
+  // on a stale list the party asking is misread as ms.show instead of evil.ms.show.
+  it('reads a domain under a public suffix the list only recognises once current', () => {
+    expect(splitDappOrigin('https://a.b.evil.ms.show')).toEqual({ lead: 'https://a.b.', domain: 'evil.ms.show' });
+  });
+
   it.each(['app.miden.io', 'null', 'file:///tmp/x', 'https://example.com/path', ''])(
     'shows %j whole in the part that is never elided when it is not an origin it can split',
     origin => {
