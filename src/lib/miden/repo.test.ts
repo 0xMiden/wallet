@@ -573,9 +573,12 @@ describe('miden repo export/import', () => {
     const before = Math.floor(Date.now() / 1000);
     await importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'imported-2', status: 2 }] }));
 
+    const after = Math.floor(Date.now() / 1000);
+
     const row = await transactions.get('imported-2');
     expect(Number.isSafeInteger(row?.initiatedAt)).toBe(true);
     expect(row!.initiatedAt).toBeGreaterThanOrEqual(before);
+    expect(row!.initiatedAt).toBeLessThanOrEqual(after);
   });
 
   it('keeps a usable imported initiatedAt as it is', async () => {
