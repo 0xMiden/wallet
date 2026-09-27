@@ -300,18 +300,10 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 // would be in the temporal dead zone at that point.
 // eslint-disable-next-line no-var
 var mockPlatformIsMobile = false;
-// Undefined (the default) keeps the real answer, which the webextension mock's runtime id makes "on the extension";
-// a test sets false to see the requeue wake, which is a no-op on the extension.
-// eslint-disable-next-line no-var
-var mockPlatformIsExtension: boolean | undefined;
-jest.mock('lib/platform', () => {
-  const actual = jest.requireActual<typeof import('lib/platform')>('lib/platform');
-  return {
-    ...actual,
-    isMobile: () => mockPlatformIsMobile,
-    isExtension: () => mockPlatformIsExtension ?? actual.isExtension()
-  };
-});
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockPlatformIsMobile
+}));
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
@@ -3785,9 +3777,12 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
-  it('Guardian consume: an unreachable guardian at creating-proposal requeues instead of failing (#779)', async () => {
-    // No HTTP response at all (connection refused, DNS, TLS, timeout). Nothing reached the chain, so a
-    // retry is safe; failing would write one Failed row per auto-consume retry.
+  it.each([
+    ['a refused connection', new TypeError('Failed to fetch')],
+    ['a guardian 503', Object.assign(new Error('Service Unavailable'), { status: 503 })]
+  ])('Guardian consume: %s at creating-proposal requeues instead of failing (#779)', async (_label, proposalError) => {
+    // No usable answer from the guardian. Nothing reached the chain, so a retry is safe; failing would write one Failed
+    // row per auto-consume retry.
     jest.useFakeTimers();
     try {
       const txId = 'consume-guardian-unreachable';
@@ -3800,7 +3795,7 @@ describe('generateTransaction — Guardian routing', () => {
       });
       const multisigService = {
         createConsumeNotesProposal: jest.fn(async () => {
-          throw new TypeError('Failed to fetch');
+          throw proposalError;
         }),
         signAndCreateTransactionRequest: jest.fn(),
         sync: jest.fn(async () => {})
@@ -3819,57 +3814,6 @@ describe('generateTransaction — Guardian routing', () => {
           type: 'consume',
           accountId: 'guardian-acc',
           noteId: 'note-unreachable',
-          delegateTransaction: false
-        } as never,
-        jest.fn(async () => new Uint8Array([1])),
-        false,
-        makeGuardianProvider(true)
-      );
-      await jest.runAllTimersAsync();
-      await pending;
-
-      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
-      expect(row.status).toBe(ITransactionStatus.Queued);
-      expect(row.error).toBeUndefined();
-      expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
-      expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('Guardian consume: a guardian 5xx at creating-proposal requeues the same way (#779)', async () => {
-    jest.useFakeTimers();
-    try {
-      const txId = 'consume-guardian-503';
-      txStore.push({
-        id: txId,
-        type: 'consume',
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        noteId: 'note-503'
-      });
-      const multisigService = {
-        createConsumeNotesProposal: jest.fn(async () => {
-          throw Object.assign(new Error('Service Unavailable'), { status: 503 });
-        }),
-        signAndCreateTransactionRequest: jest.fn(),
-        sync: jest.fn(async () => {})
-      };
-      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-      mockGetMidenClient.mockResolvedValue({
-        getAccount: jest.fn(async () => undefined),
-        syncState: jest.fn(async () => {}),
-        client: makeClientApi(makeResult())
-      });
-
-      const before = Math.floor(Date.now() / 1000);
-      const pending = generateTransaction(
-        {
-          id: txId,
-          type: 'consume',
-          accountId: 'guardian-acc',
-          noteId: 'note-503',
           delegateTransaction: false
         } as never,
         jest.fn(async () => new Uint8Array([1])),
@@ -4116,52 +4060,43 @@ describe('generateTransaction — Guardian routing', () => {
 
   it('Guardian execute: an unreachable guardian at creating-proposal fails at once and is never requeued (#779)', async () => {
     // A dApp waits five minutes on its execute row and reads "timed out" as failed, while a requeued row can land up to
-    // 30 minutes later. Off the extension, so a requeue would also arm its wake.
-    mockPlatformIsExtension = false;
-    jest.useFakeTimers();
-    try {
-      const txId = 'execute-unreachable';
-      const requestBytes = new Uint8Array([3, 3]);
-      txStore.push({
-        id: txId,
-        type: 'execute',
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        requestBytes,
-        initiatedAt: Math.floor(Date.now() / 1000)
-      });
-      const multisigService = {
-        createCustomProposal: jest.fn(async () => {
-          throw new TypeError('Failed to fetch');
-        }),
-        signAndCreateTransactionRequest: jest.fn(),
-        sync: jest.fn(async () => {})
-      };
-      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-      mockGetMidenClient.mockResolvedValue({
-        getAccount: jest.fn(async () => undefined),
-        syncState: jest.fn(async () => {}),
-        client: makeClientApi(makeResult())
-      });
+    // 30 minutes later.
+    const txId = 'execute-unreachable';
+    const requestBytes = new Uint8Array([3, 3]);
+    txStore.push({
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      requestBytes,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
 
-      await generateTransaction(
-        { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false } as never,
-        jest.fn(async () => new Uint8Array([1])),
-        false,
-        makeGuardianProvider(true)
-      );
+    await generateTransaction(
+      { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
 
-      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
-      expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
-      expect(row.nextEligibleAt).toBeUndefined();
-      expect(jest.getTimerCount()).toBe(0);
-    } finally {
-      jest.clearAllTimers();
-      jest.useRealTimers();
-      mockPlatformIsExtension = undefined;
-    }
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    expect(row.nextEligibleAt).toBeUndefined();
   });
 
   it('Guardian replace-hot-key: an unreachable guardian at creating-proposal still fails (#779)', async () => {

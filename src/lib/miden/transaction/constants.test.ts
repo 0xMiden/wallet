@@ -125,8 +125,10 @@ describe('resolveTransactionErrorMessage', () => {
   });
 
   it('names an unreachable guardian before submit in plain language (#779)', () => {
+    // Hedged between the guardian and the network, since the proposal stages also call the node.
     expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'creating-proposal')).toBe(
-      GUARDIAN_UNREACHABLE_ERROR
+      'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are ' +
+        'safe; try again in a moment.'
     );
     expect(
       resolveTransactionErrorMessage(Object.assign(new Error('Bad Gateway'), { status: 502 }), 'signing-proposal')
@@ -136,13 +138,6 @@ describe('resolveTransactionErrorMessage', () => {
   it('leaves an unreachable-looking failure at any other stage raw (#779)', () => {
     expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'sending')).toBe(
       'TypeError: Failed to fetch'
-    );
-  });
-
-  it('hedges between the guardian and the network, since the proposal stages also call the node (#779)', () => {
-    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'creating-proposal')).toBe(
-      'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are ' +
-        'safe; try again in a moment.'
     );
   });
 
