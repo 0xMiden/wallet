@@ -104,43 +104,4 @@ describe('useInfiniteList', () => {
     expect(result.current.error).toBe(failure);
     expect(result.current.hasMore).toBe(true);
   });
-
-  it('reports only the latest of two overlapping loads', async () => {
-    const pending: { resolve: (value: string[]) => void; reject: (reason: unknown) => void }[] = [];
-    const getCount = jest.fn().mockResolvedValue(6);
-    const getItems = jest
-      .fn()
-      .mockImplementation(() => new Promise<string[]>((resolve, reject) => pending.push({ resolve, reject })));
-    const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
-    // The mount load is the first request; it lands before the two overlapping loads start.
-    await waitFor(() => expect(pending).toHaveLength(1));
-    await act(async () => {
-      pending[0]!.resolve(['a']);
-    });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    let older: Promise<void> = Promise.resolve();
-    let newer: Promise<void> = Promise.resolve();
-    act(() => {
-      older = result.current.loadItems();
-      newer = result.current.loadItems();
-    });
-    await waitFor(() => expect(pending).toHaveLength(3));
-
-    // The older load fails while the newer one is still in flight.
-    await act(async () => {
-      pending[1]!.reject(new Error('older failed'));
-      await older;
-    });
-    expect(result.current.isLoading).toBe(true);
-    expect(result.current.error).toBeUndefined();
-
-    await act(async () => {
-      pending[2]!.resolve(['b']);
-      await newer;
-    });
-    expect(result.current.isLoading).toBe(false);
-    expect(result.current.error).toBeUndefined();
-    expect(result.current.items).toEqual(['a', 'b']);
-  });
 });

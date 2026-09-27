@@ -14,8 +14,6 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
   const pageToLoad = useRef(0);
   const initialPageLoaded = useRef(false);
   const [hasMore, setHasMore] = useState(true);
-  // Numbers the loads, so only the most recently started one reports a failure and ends the loading state.
-  const loadSeq = useRef(0);
 
   useEffect(() => {
     /* c8 ignore next 4 -- address-change reset, requires multi-render hook test */
@@ -28,7 +26,6 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
   const loadItems = useCallback(async () => {
     setIsLoading(true);
     setError(undefined);
-    const seq = ++loadSeq.current;
     try {
       const count = await getCount(address);
       const data = await getItems(address, pageToLoad.current);
@@ -36,13 +33,9 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
       setHasMore(items.length < count);
       setItems(prevItems => [...prevItems, ...data]);
     } catch (e) {
-      if (seq === loadSeq.current) {
-        setError(e);
-      }
+      setError(e);
     } finally {
-      if (seq === loadSeq.current) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   }, [address, getCount, getItems, items.length]);
 
