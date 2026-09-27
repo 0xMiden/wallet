@@ -290,13 +290,13 @@ function canonicalGuardianEndpoint(raw: string): string {
   const trimmed = sanitizeGuardianUrl(raw);
   try {
     const url = new URL(trimmed);
-    // Userinfo and the fragment are kept, not dropped: `GuardianHttpClient` sends
-    // every request to `${baseUrl}${path}`, so a fragment swallows the path the
-    // client appends, and credentials in the URL make `fetch` throw - a spelling
-    // carrying either is not the working endpoint, so it must not canonicalize to
-    // the same string as one without it.
-    const credentials = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : '';
-    return `${url.protocol}//${credentials}${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}${url.hash}`;
+    // `href`, not a template of the parts: `GuardianHttpClient` sends every request
+    // to `${baseUrl}${path}`, so a query or fragment (even a bare `?` or `#`, which
+    // `search` and `hash` report as '') moves the appended path out of the path,
+    // and any userinfo makes `fetch` throw. A spelling carrying one is not the
+    // working endpoint, and `href` keeps each of them distinct.
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return url.href;
   } catch {
     return trimmed.toLowerCase();
   }

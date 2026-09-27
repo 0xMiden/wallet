@@ -113,13 +113,16 @@ describe('settings helpers', () => {
       expect(sameGuardianEndpoint('not a url', 'https://guardian.example.com')).toBe(false);
     });
 
-    // A stored spelling with userinfo or a fragment isn't the working endpoint:
-    // GuardianHttpClient concatenates `${baseUrl}${path}`, so a fragment swallows
-    // every path the client appends, and credentials in a URL make `fetch` throw.
-    // Neither may compare equal to the plain endpoint it looks like.
-    it('keeps userinfo and the fragment meaningful', () => {
+    // A stored spelling with userinfo, a query or a fragment isn't the working
+    // endpoint: GuardianHttpClient concatenates `${baseUrl}${path}`, so a `?` or `#`
+    // swallows every path the client appends, and credentials in a URL make `fetch`
+    // throw. None may compare equal to the plain endpoint it looks like.
+    it('keeps userinfo, an empty query and the fragment meaningful', () => {
       expect(sameGuardianEndpoint('https://u:p@guardian.example.com', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://:p@guardian.example.com', 'https://guardian.example.com')).toBe(false);
       expect(sameGuardianEndpoint('https://guardian.example.com#section', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com#', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com?', 'https://guardian.example.com')).toBe(false);
     });
   });
 
