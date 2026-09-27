@@ -774,17 +774,15 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
-  // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
-  // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`
-  // takes the SDK BUNDLED prove path (NOT OFFSCREEN_PROVE) because inside this
-  // doc `isOffscreenAvailable()` is false — the `isInOffscreenDocument()`
-  // recursion guard (offscreen-prover.ts, keyed off the `__MIDEN_IN_OFFSCREEN_DOC__`
-  // marker set at this module's top) short-circuits it — so
-  // `shouldUseOffscreenProver()` returns false and the prove runs on THIS doc's
-  // pooled main-thread WASM instance (the client was created `useWorker:false`,
-  // design §5.1/§5.2). The mid-execute signature is fetched from the SW via the
-  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back;
-  // the intermediate handles stay opaque in-realm (design §6.2).
+  // execute→prove→submit→apply chain runs here as one op, so a wedge anywhere in
+  // it is killable via `closeDocument()`. Inside this doc `isOffscreenAvailable()`
+  // is false (the `isInOffscreenDocument()` recursion guard, keyed off the
+  // `__MIDEN_IN_OFFSCREEN_DOC__` marker set at this module's top), so
+  // `client.consumeNoteId` never re-dispatches OFFSCREEN_PROVE. A delegated
+  // attempt proves remotely; a local one is staged and proves in the prove worker
+  // installed above (#945). The mid-execute signature is fetched from the SW via
+  // the reverse-IPC stub. Only the final serialized `TransactionResult` crosses
+  // back; the intermediate handles stay opaque in-realm (design §6.2).
   consumeNoteId: async (
     _context,
     client,
@@ -792,19 +790,18 @@ const DISPATCH: Record<string, DispatchFn> = {
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
-    // proves AND submits inside that one opaque call, so control returning here
-    // means the consume may already be broadcast. Completing beats aborting past
+    // has submitted (and applied) by the time it returns, on either leg, so the
+    // consume may already be broadcast. Completing beats aborting past
     // a possible submit — refusing to serialize would abandon the applied result
     // of a write the network may have accepted.
     return result.serialize() as Uint8Array;
   },
 
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
-  // each mirroring `consumeNoteId` exactly: the whole execute→prove→submit→apply
-  // chain runs here in-realm as one killable op, taking the SDK BUNDLED prove path
-  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc via the
-  // `isInOffscreenDocument()` recursion guard), with
-  // the mid-execute signature fetched from the SW via the reverse-IPC stub. Only
+  // each mirroring `consumeNoteId`: the whole execute→prove→submit→apply chain
+  // runs here as one killable op (never OFFSCREEN_PROVE, for the same recursion
+  // guard), a local prove runs in the prove worker (#945), and
+  // the mid-execute signature is fetched from the SW via the reverse-IPC stub. Only
   // the final serialized `TransactionResult` crosses back. The BigInt amounts that
   // crossed as decimal strings are re-widened to BigInt so the reconstructed row
   // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
@@ -830,12 +827,8 @@ const DISPATCH: Record<string, DispatchFn> = {
     // caller still needs mid-flight, so they reverse to the SW as they happen
     // rather than riding the final result. `MidenClientInterface.sendTransaction`
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
-    // BOTH of its prover branches — the in-realm staged pipeline and the
-    // offscreen-prover one (`proveLocallyViaOffscreen`) — so the stamps do not
-    // depend on which branch runs here. Which one that is: inside this doc
-    // `isOffscreenAvailable()` is false (the `isInOffscreenDocument()` recursion
-    // guard), so `shouldUseOffscreenProver()` returns false and the prove runs on
-    // THIS doc's pooled WASM; that choice moves the prove, not the stamping.
+    // every prover branch - delegated, the prove worker (#945), and the SW's
+    // offscreen-prover one - so the stamps do not depend on which branch runs here.
     const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
@@ -863,10 +856,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
-    // Deliberately NO hold re-check (#788): `swapTransaction` is the SDK's
-    // all-in-one `transactions.submit` — execute, prove and submit in a single
-    // opaque call — so when it returns the PSWAP note may already be on the
-    // network. Post-submit, completing beats aborting.
+    // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
+    // applied) by the time it returns, through the delegated leg's all-in-one
+    // `transactions.submit` or the local leg's staged `submitProven`, so the PSWAP
+    // note may already be on the network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 

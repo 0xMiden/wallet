@@ -8,8 +8,8 @@
  * Imports are dynamic and per test so the interface, the lock and the transport slot
  * all come from one fresh module registry.
  */
-import { SendTransaction } from '../db/types';
-import { NoteTypeEnum } from '../types';
+import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
+import { type ConsumableNote, NoteTypeEnum } from '../types';
 import type { LocalProveOptions, LocalProveRequest } from './local-prove-transport';
 
 const IN_REALM = 'in-realm prove reached';
@@ -44,8 +44,9 @@ function buildHarness() {
         (arg): arg is { prover?: unknown } => typeof arg === 'object' && arg !== null && 'prover' in arg
       );
       if (options?.prover === 'local') throw new Error(IN_REALM);
-      if (delegated.fail) throw new Error('remote prover unavailable');
+      // Recorded before its outcome, so a failed delegated call still shows in `order`.
       order.push(label);
+      if (delegated.fail) throw new Error('remote prover unavailable');
       return { txId: 'tx', result };
     });
   const inner = {
@@ -315,6 +316,188 @@ describe('newTransaction (site 6)', () => {
     await expect(
       withWasmClientLock(async () => client.newTransaction('acct', new Uint8Array([4]), false))
     ).rejects.toThrow('worker gone');
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+});
+
+const note = (id: string): ConsumableNote => ({
+  id,
+  faucetId: 'faucet',
+  amount: '1',
+  senderAddress: 'sender',
+  isBeingClaimed: false,
+  type: NoteTypeEnum.Public
+});
+
+const consumeTx = (delegateTransaction: boolean) =>
+  new ConsumeTransaction('acct', [note('n1'), note('n2')], delegateTransaction);
+
+describe('consume (site 7)', () => {
+  it('a local attempt builds the SDK consume request, executes it and proves in the worker', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    const returned = await withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)));
+
+    expect(harness.inner.getInputNote.mock.calls.map(call => call[0])).toEqual(['n1', 'n2']);
+    const [notes, account] = harness.inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
+    expect(notes).toEqual([{ note: 'n1' }, { note: 'n2' }]);
+    expect(String(account)).toBe('sdk-acct');
+    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { requestBytes: [3, 3] });
+    expectWorkerProved(harness);
+    expect(returned).toBe(harness.result);
+    expect(harness.fakeClient.transactions.consume).not.toHaveBeenCalled();
+    expect(harness.order).toEqual(['prewarm', 'worker prove', 'submitProven', 'apply']);
+  });
+
+  it('a delegated consume that fails re-proves in the worker', async () => {
+    const harness = buildHarness();
+    harness.delegated.fail = true;
+    const { client, withWasmClientLock } = await load(harness);
+    await withWasmClientLock(async () => client.consumeNoteId(consumeTx(true)));
+    expect(harness.fakeClient.transactions.consume).toHaveBeenCalledTimes(1);
+    expectWorkerProved(harness);
+    expect(harness.order).toEqual(['delegated consume', 'worker prove', 'submitProven', 'apply']);
+  });
+
+  it('a delegated consume that succeeds keeps the all-in-one call and never the worker', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    await withWasmClientLock(async () => client.consumeNoteId(consumeTx(true)));
+    expect(harness.order).toEqual(['delegated consume']);
+    expect(harness.transport.prove).not.toHaveBeenCalled();
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+  });
+
+  it('an eviction during the worker prove stops the consume before submit', async () => {
+    const harness = buildHarness();
+    let finish!: () => void;
+    harness.setWorkerProve(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ proven: new Uint8Array([5]), durationMs: 1 });
+        })
+    );
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const consuming = withWasmClientLock(async () => client.consumeNoteId(consumeTx(false))).catch(
+      (error: unknown) => error
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    const error = await consuming;
+    finish();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+  });
+
+  it('a worker failure fails the consume before submit', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    harness.setWorkerProve(async () => {
+      throw new Error('worker gone');
+    });
+    await expect(withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)))).rejects.toThrow('worker gone');
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('fails a local consume loudly when the SDK lacks its inner-client escape hatch', async () => {
+    const harness = buildHarness();
+    Reflect.deleteProperty(harness.fakeClient, '_withInnerWebClient');
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)))).rejects.toThrow(
+      '_withInnerWebClient missing'
+    );
+    expect(harness.transport.prove).not.toHaveBeenCalled();
+  });
+
+  it('a note missing from the store fails the consume before anything executes', async () => {
+    const harness = buildHarness();
+    harness.inner.getInputNote.mockImplementation(async (id: string) =>
+      id === 'n2' ? undefined : { toNote: () => ({ note: id }) }
+    );
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)))).rejects.toThrow(
+      'Note not found: n2'
+    );
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.transport.prove).not.toHaveBeenCalled();
+    expect(harness.order).toEqual(['prewarm']);
+  });
+});
+
+const swapTx = (delegateTransaction: boolean) =>
+  new SwapTransaction('acct', 'offered', 5n, 'requested', 7n, delegateTransaction);
+
+describe('swap (site 8)', () => {
+  it('a local attempt executes the PSWAP request it built and proves in the worker', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(false)));
+    expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { pswapRequest: true });
+    expectWorkerProved(harness);
+    expect(returned).toBe(harness.result);
+    expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();
+    expect(harness.order).toEqual(['prewarm', 'worker prove', 'submitProven', 'apply']);
+  });
+
+  it('a delegated swap keeps the all-in-one submit, and its failure never falls back', async () => {
+    const harness = buildHarness();
+    harness.delegated.fail = true;
+    const { client, withWasmClientLock } = await load(harness);
+    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(true)))).rejects.toThrow(
+      'remote prover unavailable'
+    );
+    expect(harness.fakeClient.transactions.submit).toHaveBeenCalledTimes(1);
+    expect(harness.transport.prove).not.toHaveBeenCalled();
+    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.order).toEqual(['delegated swap submit']);
+  });
+
+  it('a delegated swap that fails before its point of no return falls back to the worker', async () => {
+    const harness = buildHarness();
+    harness.fakeClient.accounts.get.mockImplementationOnce(async () => {
+      harness.order.push('delegated read failed');
+      throw new Error('account read failed');
+    });
+    const { client, withWasmClientLock } = await load(harness);
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true)));
+    expectWorkerProved(harness);
+    expect(returned).toBe(harness.result);
+    expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();
+    expect(harness.order).toEqual(['delegated read failed', 'worker prove', 'submitProven', 'apply']);
+  });
+
+  it('an eviction during the worker prove stops the swap before submit', async () => {
+    const harness = buildHarness();
+    let finish!: () => void;
+    harness.setWorkerProve(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ proven: new Uint8Array([5]), durationMs: 1 });
+        })
+    );
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const swapping = withWasmClientLock(async () => client.swapTransaction(swapTx(false))).catch(
+      (error: unknown) => error
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    const error = await swapping;
+    finish();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+  });
+
+  it('a worker failure fails the swap before submit', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    harness.setWorkerProve(async () => {
+      throw new Error('worker gone');
+    });
+    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toThrow('worker gone');
     expect(harness.submitProven).not.toHaveBeenCalled();
   });
 });

@@ -262,6 +262,15 @@ export type AssertLive = (step?: string) => void;
 
 const noAssertLive: AssertLive = () => {};
 
+/** The SDK's `_withInnerWebClient` escape hatch, which its types do not declare. */
+interface InnerClientAccess {
+  _withInnerWebClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T>;
+}
+
+function hasInnerClientAccess(client: object): client is InnerClientAccess {
+  return '_withInnerWebClient' in client && typeof client._withInnerWebClient === 'function';
+}
+
 /**
  * A keystore member the creator left out (#878): the SDK's type makes all three
  * mandatory, so the slot is filled with a refusal that names the member rather
@@ -1589,6 +1598,27 @@ export class MidenClientInterface {
             return { accountId: acctId, request };
           }, attempt);
         }
+        if (attempt.provesInWorker()) {
+          // Staged so the proof can come from the prove worker (#945), from the same
+          // request the SDK's own consume builds: each note read from the store, and
+          // the consuming account, which SDK 0.16.1 requires. It crosses the SDK lock
+          // as bytes, like the send's.
+          const requestBytes = await this.withInnerClient(async inner => {
+            const notes: Note[] = [];
+            for (const id of targetNoteIds) {
+              const record = await inner.getInputNote(id);
+              if (!record) throw new Error(`Note not found: ${id}`);
+              notes.push(record.toNote());
+            }
+            const request = await inner.newConsumeTransactionRequest(notes, walletAccountIdToSdk(accountId));
+            return request.serialize();
+          });
+          const executed = await this.client.transactions.executeRequest(
+            walletAccountIdToSdk(accountId).toString(),
+            TransactionRequest.deserialize(requestBytes)
+          );
+          return await this.submitWorkerProof(executed, attempt);
+        }
         // The ONLY caller that deliberately does NOT call `attempt.markSubmitting()`
         // before an opaque whole-op SDK write, i.e. the only one that still permits a
         // whole-op local-prover retry. Two properties make that safe here and nowhere
@@ -1689,6 +1719,13 @@ export class MidenClientInterface {
           )
         )) as TransactionRequest;
         const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
+        if (attempt.provesInWorker()) {
+          // Staged so the proof can come from the prove worker (#945). The point of no
+          // return moves to `submitProven`, the first network write; a local leg is
+          // never retried, so no retry boundary moves.
+          const executed = await this.client.transactions.executeRequest(canonicalId, request);
+          return await this.submitWorkerProof(executed, attempt);
+        }
         // Point of no return. `submit` executes, proves and submits in one call, so
         // a whole-op retry past here would draw a fresh serial from
         // `newPswapCreateTransactionRequest` above, build a SECOND PSWAP note and
@@ -1778,6 +1815,14 @@ export class MidenClientInterface {
       delegateTransaction,
       this.liveness
     );
+  }
+
+  private withInnerClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T> {
+    const { client } = this;
+    if (!hasInnerClientAccess(client)) {
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+    }
+    return client._withInnerWebClient(fn);
   }
 
   /**
