@@ -254,8 +254,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  // Latches a copy in flight so a second click while the write is still pending joins nothing and
-  // starts nothing - it is simply ignored until the first write settles, success or failure.
   const copyInFlightRef = useRef(false);
   const isMounted = useIsMounted();
   const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
