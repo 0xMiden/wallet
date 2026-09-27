@@ -649,6 +649,41 @@ describe('ForgotPassword', () => {
     expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
   });
 
+  it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    mockClassifyError.mockImplementationOnce(() => {
+      throw new Error('classify failed');
+    });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    // React 18.2's act does not flush the queued updates when its callback
+    // rejects, so the rejection is caught inside the act scope.
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('classify failed');
+    });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('guardian not found');
+  });
+
+  it('clears the spinner when navigating on after a successful registration throws (#1093)', async () => {
+    mockNavigate.mockImplementationOnce(() => {
+      throw new Error('navigation failed');
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('navigation failed');
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(captured.props?.isLoading).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // onAction — back branches
   // -------------------------------------------------------------------------
