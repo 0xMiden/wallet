@@ -34,7 +34,7 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 }));
 
 // The Guardian ping a custom URL must pass before it submits (#1084): resolves to a
-// latency when a Guardian answers, `null` when none does. The picker also survives a rejection.
+// latency when a Guardian answers, `null` when none does. Never rejects, like the real one.
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
   pingGuardianEndpointLatency: (...args: unknown[]) => mockPing(...args)
@@ -127,8 +127,6 @@ jest.mock('./GuardianInfoDrawer', () => ({
   )
 }));
 
-// eslint-disable-next-line import/first
-import { PageActiveContext } from 'app/layouts/page-active';
 // eslint-disable-next-line import/first
 import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
 
@@ -606,43 +604,6 @@ describe('ChooseGuardianScreen', () => {
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
     unmount();
-    await answer(42);
-
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it('treats a ping that rejects as no Guardian answering, and lets Continue check again', async () => {
-    mockPing.mockRejectedValueOnce(new Error('network'));
-    const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
-
-    enterCustomUrl('https://custom.example.com');
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('continue-button'));
-    });
-
-    expect(screen.getByText('customGuardianUnreachable')).toBeInTheDocument();
-    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
-    expect(onSubmit).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('continue-button'));
-    });
-    expect(mockPing).toHaveBeenCalledTimes(2);
-  });
-
-  it('drops the verdict for a custom URL when the picker stops being the current page during the check', async () => {
-    const answer = deferredPing();
-    const onSubmit = jest.fn();
-    const picker = (active: boolean) => (
-      <PageActiveContext.Provider value={active}>
-        <ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />
-      </PageActiveContext.Provider>
-    );
-    const { rerender } = render(picker(true));
-
-    enterCustomUrl('https://first.example.com');
-    fireEvent.click(screen.getByTestId('continue-button'));
-    rerender(picker(false));
     await answer(42);
 
     expect(onSubmit).not.toHaveBeenCalled();
