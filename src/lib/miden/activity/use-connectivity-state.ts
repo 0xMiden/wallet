@@ -138,15 +138,14 @@ export function useConnectivityState(): {
     const activation = mergedRef.current[category];
     if (!activation.active) return;
     const { since } = activation;
-    // The window where the user tapped always hides what it shows.
-    setDismissedActivations(current => (current[category] === since ? current : { ...current, [category]: since }));
-    // In storage a dismissal of a later activation (from another window) outranks this one, so a window still showing
-    // an old activation never brings the current one's banner back everywhere.
-    void storeDismissedActivations(current => {
+    const record = (current: DismissedActivations): DismissedActivations => {
       const held = current[category];
+      // A dismissal of a later activation (from another window) outranks this one.
       if (held === since || (typeof held === 'number' && typeof since === 'number' && held > since)) return current;
       return { ...current, [category]: since };
-    });
+    };
+    setDismissedActivations(record);
+    void storeDismissedActivations(record);
   }, []);
 
   return { state: visible, hasAnyIssue, dismiss };
