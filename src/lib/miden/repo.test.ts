@@ -547,6 +547,45 @@ describe('miden repo export/import', () => {
     expect(restored.get('done')!.restoredFromBackup).toBe(true);
     expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
+
+  // `initiatedAt` is the spending-limit window's index, so an imported row that
+  // cannot be placed in it is invisible to that read. A dump is free to carry
+  // anything under that key; only a non-negative safe integer is usable, and
+  // everything else falls back the same way a missing `completedAt` does above.
+  it.each([
+    ['missing', undefined, 1_700_000_100, 1_700_000_100],
+    ['NaN', Number.NaN, 1_700_000_100, 1_700_000_100],
+    ['negative', -5, 1_700_000_100, 1_700_000_100],
+    ['fractional', 1_700_000_000.5, 1_700_000_100, 1_700_000_100]
+  ])(
+    'gives an imported row with a %s initiatedAt its completedAt instead',
+    async (_label, initiatedAt, completedAt, expected) => {
+      const row: Record<string, unknown> = { id: 'imported-1', status: 2, completedAt };
+      if (initiatedAt !== undefined) row.initiatedAt = initiatedAt;
+      await importDb(JSON.stringify({ [Table.Transactions]: [row] }));
+
+      await expect(transactions.get('imported-1')).resolves.toMatchObject({ initiatedAt: expected });
+    }
+  );
+
+  it('gives an imported row with neither timestamp usable the current time', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    await importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'imported-2', status: 2 }] }));
+
+    const row = await transactions.get('imported-2');
+    expect(Number.isSafeInteger(row?.initiatedAt)).toBe(true);
+    expect(row!.initiatedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it('keeps a usable imported initiatedAt as it is', async () => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [{ id: 'imported-3', status: 2, initiatedAt: 1_600_000_000, completedAt: 1_700_000_100 }]
+      })
+    );
+
+    await expect(transactions.get('imported-3')).resolves.toMatchObject({ initiatedAt: 1_600_000_000 });
+  });
 });
 
 describe('spending limits schema', () => {

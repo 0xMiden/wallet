@@ -447,13 +447,22 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
         ? initiatedAt
         : Math.floor(Date.now() / 1000);
 
+  // `initiatedAt` is the spending-limit window's index: a row the index cannot place is invisible
+  // to that read, so an imported one takes a usable stamp - its completedAt, else now (#1007).
+  const usable = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+  const placedAt = usable(initiatedAt)
+    ? initiatedAt
+    : usable(completedAt)
+      ? completedAt
+      : Math.floor(Date.now() / 1000);
+
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
   // all; every consumer compares with `===`, so such a row is invisible in every
   // history view while still occupying its id — and a deny-list would wave it
   // through unstamped. Anything not recognisably terminal is treated as unfinished.
   if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
-    return { ...restored, completedAt: timestamp };
+    return { ...restored, completedAt: timestamp, initiatedAt: placedAt };
   }
   return {
     ...restored,
@@ -461,7 +470,8 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
     error: IMPORTED_UNFINISHED_REASON,
     // `displayIcon`/`displayMessage` are re-derived for failed rows when history
     // renders, so only the fields history reads straight off the row are set here.
-    completedAt: timestamp
+    completedAt: timestamp,
+    initiatedAt: placedAt
   };
 };
 
