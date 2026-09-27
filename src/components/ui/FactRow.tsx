@@ -6,17 +6,20 @@ export interface IconCircleProps {
   children: React.ReactNode;
   /** `md` (default) the 32px disc with a 16px glyph; `sm` a 20px disc whose glyph keeps its own size. */
   size?: 'md' | 'sm';
-  /** Tone and colour: a tint class replaces the default `fill` disc. */
+  /** Tone and colour: a tint class replaces the default `fill` disc, a text colour its `ink` glyph. */
   className?: string;
 }
 
-/** The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's. */
+/**
+ * The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's.
+ * A glyph drawn in `currentColor` takes `ink` from it, since nothing above sets a text colour.
+ */
 export const IconCircle: React.FC<IconCircleProps> = ({ children, size = 'md', className }) => (
   <span
     aria-hidden="true"
     data-slot="icon"
     className={cn(
-      'flex shrink-0 items-center justify-center rounded-full bg-fill',
+      'flex shrink-0 items-center justify-center rounded-full bg-fill text-ink',
       size === 'md' ? 'h-8 w-8 [&>svg]:h-4 [&>svg]:w-4' : 'size-5',
       className
     )}

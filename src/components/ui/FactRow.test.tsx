@@ -103,4 +103,14 @@ describe('IconCircle', () => {
     expect(circle).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
     expect(circle).not.toHaveClass('bg-fill');
   });
+
+  // A `currentColor` glyph takes the circle's colour; with none set above it, it fell back to black.
+  it("draws its glyph in ink, which a caller's colour replaces", () => {
+    const { rerender } = render(<IconCircle>*</IconCircle>);
+    expect(screen.getByText('*')).toHaveClass('text-ink');
+
+    rerender(<IconCircle className="text-card-green">*</IconCircle>);
+    expect(screen.getByText('*')).toHaveClass('text-card-green');
+    expect(screen.getByText('*')).not.toHaveClass('text-ink');
+  });
 });
