@@ -133,10 +133,11 @@ function fakeDriver(
 ) {
   let now = 0;
   let next = 0;
-  const calls = { samples: 0, clicks: 0, reopens: 0 };
+  const calls = { samples: 0, clicks: 0, reopens: 0, sampleTimes: new Array<number>() };
   const driver: DrainDriver = {
     sample: async (): Promise<PendingSample> => {
       calls.samples++;
+      calls.sampleTimes.push(now);
       const read = reads[Math.min(next++, reads.length - 1)];
       if (read === undefined) throw new Error('fake driver ran out of reads');
       if (read instanceof Error) throw read;
@@ -201,6 +202,13 @@ describe('drainPendingClaims', () => {
     const { driver, calls } = fakeDriver([waiting, drained, drained]);
     await drainPendingClaims(driver, options);
     expect(calls.clicks).toBe(1);
+  });
+
+  it('reads the list again one sync after a click', async () => {
+    const { driver, calls } = fakeDriver([waiting, drained, drained]);
+    await drainPendingClaims(driver, options);
+    // One 3_500 sync, the click, then the 3_000 poll spacing and the next lap's sync.
+    expect(calls.sampleTimes.slice(0, 2)).toEqual([3_500, 10_000]);
   });
 
   it('does not click a busy Accept All', async () => {

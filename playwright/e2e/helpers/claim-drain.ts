@@ -78,8 +78,8 @@ export interface DrainOptions {
 
 const STABLE_ZERO_THRESHOLD = 2;
 const ZERO_SPACING_MS = 2_000;
-// No usable signal for a consume the click just queued: the card leaves only when its row completes.
-const CLICK_HEAD_START_MS = 8_000;
+// Also the wait after a click: Accept All marks its notes claiming before it awaits anything, so the
+// cards stay listed with Accept All busy until their rows settle, and the next read cannot drain early.
 const POLL_SPACING_MS = 3_000;
 
 // A failed page step is a lap that learned nothing; the deadline bounds the drain.
@@ -141,8 +141,6 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
       if (landed) {
         clicks++;
         driver.log?.(`[${label}] lap=${laps} rows=${sample.rows} clicked Accept All`);
-        await driver.sleep(CLICK_HEAD_START_MS);
-        continue;
       }
     }
     await driver.sleep(POLL_SPACING_MS);
