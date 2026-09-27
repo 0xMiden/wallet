@@ -173,6 +173,48 @@ describe('faucet-api', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it('stops waiting out a 429 back-off as soon as the caller aborts', async () => {
+      jest.useFakeTimers();
+      try {
+        // One 429 asking for the capped 30s back-off; a second attempt must never happen.
+        fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const outcome = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }).then(
+          () => 'resolved',
+          (error: unknown) => error
+        );
+        await jest.advanceTimersByTimeAsync(10);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        await expect(outcome).resolves.toBe(reason);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not start the back-off when the caller aborted during the first attempt', async () => {
+      // The abort lands while the 429 response is still in flight: the sleep must
+      // never begin, so the rejection carries the reason with no wait at all.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+
+      const request = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal });
+      controller.abort(reason);
+
+      await expect(request).rejects.toThrow('caller gave up');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('aborts a request that never answers, bounded by the timeout (no infinite hang)', async () => {
       jest.useFakeTimers();
       try {

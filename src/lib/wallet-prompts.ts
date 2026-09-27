@@ -395,10 +395,8 @@ export async function setFaucetFundingMarker(address: string, marker: FaucetFund
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch and checked per PoW iteration.
-// (A 429 back-off sleep inside faucetFetch is not itself interrupted, so
-// cancellation of the work can lag the wrapper's rejection by up to that
-// capped wait — the next fetch attempt then aborts immediately.)
+// work: the signal is linked into each fetch, checked per PoW iteration, and
+// cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
  * How long a funding marker not flagged `submitted` may still belong to a live

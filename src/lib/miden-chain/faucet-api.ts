@@ -86,7 +86,23 @@ export async function faucetFetch(
 
   const waitMs = retryAfterMs(first);
   if (waitMs === null) return first; // 429 with no honorable delay — let the caller fail it
-  await new Promise(resolve => setTimeout(resolve, waitMs));
+  // A capped Retry-After can still be 30s; the caller's abort must cut this sleep
+  // short instead of waiting it out before the rejection is seen.
+  await new Promise<void>((resolve, reject) => {
+    if (external?.aborted) {
+      reject(external.reason);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(external?.reason);
+    };
+    const timer = setTimeout(() => {
+      external?.removeEventListener('abort', onAbort);
+      resolve();
+    }, waitMs);
+    external?.addEventListener('abort', onAbort, { once: true });
+  });
   return attempt();
 }
 
