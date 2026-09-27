@@ -126,12 +126,16 @@ export class ProveWorkerClient implements LocalProveTransport {
     worker.addEventListener('message', event => {
       if (this.live === live) this.onMessage(live, event.data);
     });
-    worker.addEventListener('error', event => {
+    worker.addEventListener('error', (event: Event) => {
       // First, and for a retired worker too: an unprevented worker error reaches this
       // realm's global `error` listener, whose WASM trap predicate would evict the
       // current lock holder and poison a healthy client.
       event.preventDefault();
-      if (this.live === live) this.fail('crashed', event.message);
+      // A worker script that fails to LOAD (bad URL, CSP, a parse error) fires a plain
+      // `Event` here, not an `ErrorEvent` - reading `.message` off it is `undefined`, so
+      // the fixed text below is what actually reaches `detail` in that case.
+      const detail = event instanceof ErrorEvent ? event.message : 'the prove worker failed to load';
+      if (this.live === live) this.fail('crashed', detail);
     });
     worker.addEventListener('messageerror', () => {
       if (this.live === live) this.fail('crashed', 'messageerror');
@@ -231,6 +235,12 @@ export class ProveWorkerClient implements LocalProveTransport {
     this.queue.shift()?.reject(reason);
   }
 
+  /**
+   * Posting a call does not clear this timer - only `retire()` and a fresh call here
+   * do. That is safe only because the callback below re-checks `queue.length === 0`:
+   * a timer armed while idle and left running through a later post fires as a no-op
+   * instead of retiring a worker that is busy again by the time it goes off.
+   */
   private armIdleTimer(): void {
     this.clearIdleTimer();
     this.idleTimer = setTimeout(() => {

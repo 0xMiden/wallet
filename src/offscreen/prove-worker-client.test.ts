@@ -36,14 +36,22 @@ class FakeWorker extends EventTarget {
     this.dispatchEvent(event);
     return event;
   }
+
+  /** A worker script that fails to load fires a plain `Event`, not an `ErrorEvent`. */
+  emitLoadFailure(): Event {
+    const event = new Event('error', { cancelable: true });
+    this.dispatchEvent(event);
+    return event;
+  }
 }
 
 const mockWorkers: FakeWorker[] = [];
-const mockSpawn = jest.fn(() => {
+function spawnFakeWorker(): FakeWorker {
   const worker = new FakeWorker();
   mockWorkers.push(worker);
   return worker;
-});
+}
+const mockSpawn = jest.fn(spawnFakeWorker);
 
 jest.mock('./spawn-prove-worker', () => ({ spawnProveWorker: () => mockSpawn() }));
 
@@ -72,7 +80,12 @@ function outcome(promise: Promise<unknown>): Promise<{ ok: boolean; value: unkno
 
 beforeEach(() => {
   mockWorkers.length = 0;
-  mockSpawn.mockClear();
+  // `mockClear()` alone leaves a `mockImplementationOnce` queued by a test whose
+  // mutated code never consumed it (e.g. a mutant that stops pumping before its
+  // respawn) sitting for the NEXT test's first spawn call - `mockReset()` drops that
+  // queue too, so a spawn-throw test can never leak its once-implementation forward.
+  mockSpawn.mockReset();
+  mockSpawn.mockImplementation(spawnFakeWorker);
 });
 
 afterEach(() => {
@@ -248,6 +261,15 @@ describe('ProveWorkerClient retirement', () => {
     expect((await proving).value).toMatchObject({ kind: 'crashed' });
   });
 
+  it('treats a plain Event on error (a worker script load failure) as crashed with fixed detail', async () => {
+    const client = new ProveWorkerClient();
+    const { proving } = await inFlight(client);
+    const event = worker(0).emitLoadFailure();
+    expect(event.defaultPrevented).toBe(true);
+    expect(worker(0).terminated).toBe(1);
+    expect((await proving).value).toMatchObject({ kind: 'crashed', detail: 'the prove worker failed to load' });
+  });
+
   it('retires and rejects crashed on a messageerror', async () => {
     const client = new ProveWorkerClient();
     const { proving } = await inFlight(client);
@@ -335,6 +357,11 @@ describe('ProveWorkerClient retirement', () => {
     expect(worker(0).terminated).toBe(0);
     worker(0).succeed(2);
     await flush();
+    // Pins the no-op: without it, `cancel()` would splice a live, unrelated queue
+    // entry (here, the still-queued `third`) out from under it, and `third` would
+    // never be posted at all - failing this the moment it can, instead of `await
+    // third` below hanging to the jest timeout.
+    expect(worker(0).posted).toHaveLength(3);
     worker(0).succeed(3);
     expect((await second).ok).toBe(true);
     expect((await third).ok).toBe(true);
@@ -349,6 +376,9 @@ describe('ProveWorkerClient retirement', () => {
     const result = await outcome(client.prove(request(), { cancel }));
     expect(result.value).toBe(eviction);
     expect(worker(0).posted).toEqual([]);
+    // The cancelled call was the FIFO head (unposted, still waiting on the prewarmed
+    // worker's `ready`), so it retires that worker too, not just the call itself.
+    expect(worker(0).terminated).toBe(1);
   });
 
   it('drops a queued call whose cancel rejects, leaving the call in flight alone', async () => {
@@ -466,6 +496,32 @@ describe('ProveWorkerClient E2E markers', () => {
       '[prove-timing] prove-worker posted id=1 bytes=3',
       '[prove-timing] prove-worker result id=1 ok=false',
       '[prove-timing] prove-worker retired reason=prove-failed'
+    ]);
+  });
+
+  it('records the ok=true result marker with its measured duration', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const lines: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    let Client: typeof ProveWorkerClient | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('lib/miden/sdk/prove-telemetry', () => ({ recordProveMarker: (line: string) => lines.push(line) }));
+      ({ ProveWorkerClient: Client } =
+        jest.requireActual<typeof import('./prove-worker-client')>('./prove-worker-client'));
+    });
+    if (!Client) throw new Error('the client module did not load');
+    const client = new Client();
+    const proving = client.prove(request());
+    await flush();
+    worker(0).ready(6);
+    worker(0).succeed(1, new Uint8Array([9, 9]), 4321);
+    await proving;
+
+    expect(lines).toEqual([
+      '[prove-timing] prove-worker spawned',
+      expect.stringMatching(/^\[prove-timing\] prove-worker ready threads=6 coi=true ms=\d+$/),
+      '[prove-timing] prove-worker posted id=1 bytes=3',
+      '[prove-timing] prove-worker result id=1 ok=true ms=4321'
     ]);
   });
 });

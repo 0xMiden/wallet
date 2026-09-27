@@ -3,8 +3,10 @@
  *
  * Only the offscreen document installs one (its prove worker client), so every other
  * realm - the service worker, mobile, desktop, Firefox - finds none and keeps proving
- * exactly as before. Nothing here touches the DOM or `chrome.*`, so the transaction
- * code can import it from any realm.
+ * exactly as before. Nothing here needs the DOM; the one extension call is
+ * `recordProveTiming`'s guarded marker post (`prove-telemetry`'s `recordProveMarker`),
+ * which every realm already imports, so the transaction code can still import this
+ * module from any realm.
  */
 
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
@@ -75,9 +77,9 @@ export function getLocalProveTransport(): LocalProveTransport | null {
   return installed;
 }
 
-// #945: E2E-only markers for the prove worker client (and its callers, from Task 3
-// on). Defined once here rather than in the client, since more than one caller needs
-// it. Gated on the same build flag as every other realm's marker helper.
+// #945: E2E-only markers for the prove worker client. Defined once here rather than
+// in the client, since more than one caller needs it. Gated on the same build flag as
+// every other realm's marker helper.
 const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
 
 export function recordProveTiming(message: string): void {
