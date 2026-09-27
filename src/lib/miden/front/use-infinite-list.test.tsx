@@ -88,12 +88,8 @@ describe('useInfiniteList', () => {
 
   it('a failed load leaves hasMore alone', async () => {
     const failure = new Error('page failed');
-    const getCount = jest.fn().mockResolvedValueOnce(6).mockResolvedValueOnce(3).mockResolvedValueOnce(6);
-    const getItems = jest
-      .fn()
-      .mockResolvedValueOnce(['a', 'b', 'c'])
-      .mockRejectedValueOnce(failure)
-      .mockResolvedValueOnce(['d', 'e', 'f']);
+    const getCount = jest.fn().mockResolvedValueOnce(6).mockResolvedValueOnce(3);
+    const getItems = jest.fn().mockResolvedValueOnce(['a', 'b', 'c']).mockRejectedValueOnce(failure);
     const { result } = renderHook(() => useInfiniteList({ getCount, getItems }));
     await waitFor(() => expect(result.current.items).toEqual(['a', 'b', 'c']));
     expect(result.current.hasMore).toBe(true);
