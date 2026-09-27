@@ -339,6 +339,144 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
   return list;
 }
 
+export interface SendContactInput extends ContactInput {
+  /** The network the sheet must show: `id` names its chip, `name` its label ("Miden", "Sepolia"). */
+  network: { id: string; name: string };
+}
+
+/**
+ * Save a contact from the send flow's own sheet (`AddContactDrawer`), the second save path beside
+ * the address book's New contact page: type the recipient, take the "Add to contacts?" pill, check
+ * the sheet names the typed address and shows `contact.network`, name the contact and save.
+ *
+ * With Sepolia the only bridge network, the sheet shows each network as a static label. The helper
+ * checks exactly that, and throws if the chip ever becomes a button to pick, since it does not yet
+ * pick one.
+ *
+ * Postcondition: the sheet closed and the recipient step shows the contact by name, so the send
+ * flow now knows the address as a contact. Where it lands in the address book is the caller's
+ * check.
+ */
+export async function addContactFromSend(
+  wallet: ChromeWalletPageApi,
+  contact: SendContactInput,
+  timeoutMs = 30_000
+): Promise<void> {
+  const step = `addContactFromSend("${contact.name}")`;
+  await wallet.navigateTo('/send');
+  const sendFlow = wallet.page.getByTestId('send-flow');
+  try {
+    await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: /send never showed the send flow ([data-testid="send-flow"]) within ${timeoutMs}ms. ` +
+        `URL: ${wallet.page.url()}`
+    );
+  }
+  try {
+    await sendFlow.getByTestId('send-recipient-input').fill(contact.address, { timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not type into the recipient field ([data-testid="send-recipient-input"]) within ` +
+        `${timeoutMs}ms. Send flow text: ${await safeText(sendFlow)}`
+    );
+  }
+
+  // The pill keeps its testid in every state; only a valid address that is not yet a contact
+  // turns it into the add prompt.
+  const addPill = sendFlow.getByTestId('send-address-book').filter({ hasText: 'Add to contacts?' });
+  try {
+    await addPill.click({ timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: the recipient step never offered "Add to contacts?" for ${contact.address} within ` +
+        `${timeoutMs}ms. Recipient step text: ${await safeText(sendFlow)}`
+    );
+  }
+
+  const sheetAddress = wallet.page.getByTestId('add-contact-address');
+  // The sheet's own form, so its alert cannot be confused with another on the page.
+  const sheet = wallet.page.locator('form').filter({ has: sheetAddress });
+  try {
+    await sheetAddress.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: took "Add to contacts?" but the sheet ([data-testid="add-contact-address"]) never ` +
+        `opened within ${timeoutMs}ms.`
+    );
+  }
+  const shownAddress = (await sheetAddress.textContent())?.trim() ?? '';
+  if (shownAddress !== contact.address) {
+    throw new Error(`${step}: the sheet names ${JSON.stringify(shownAddress)}, not the typed ${contact.address}.`);
+  }
+
+  const chip = wallet.page.getByTestId(`add-contact-network-${contact.network.id}`);
+  try {
+    await chip.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: the sheet shows no ${contact.network.name} network ` +
+        `([data-testid="add-contact-network-${contact.network.id}"]). Networks shown: ` +
+        `${await safeText(wallet.page.getByTestId('add-contact-network-options'))}`
+    );
+  }
+  const chipText = (await chip.textContent())?.trim() ?? '';
+  if (chipText !== contact.network.name) {
+    throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
+  }
+  if ((await chip.evaluate(el => el.tagName)) === 'BUTTON') {
+    throw new Error(
+      `${step}: the ${contact.network.name} chip is now a button, so the sheet offers a network choice. ` +
+        `This helper only checks the one-network sheet; teach it to pick the network.`
+    );
+  }
+
+  try {
+    await sheet.getByTestId('address-book-name-input').fill(contact.name, { timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not type into the sheet's name field ([data-testid="address-book-name-input"]) ` +
+        `within ${timeoutMs}ms. Sheet text: ${await safeText(sheet)}`
+    );
+  }
+  try {
+    await sheet.getByTestId('address-book-add-contact').click({ timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: could not press Add contact ([data-testid="address-book-add-contact"]) within ` +
+        `${timeoutMs}ms. Sheet text: ${await safeText(sheet)}`
+    );
+  }
+
+  try {
+    await sheetAddress.waitFor({ state: 'hidden', timeout: timeoutMs });
+  } catch {
+    // A rejected save keeps the sheet open and says why in its alert; there may be none, so the
+    // read gets 2 s rather than the 30 s action timeout.
+    const alert = await sheet
+      .getByRole('alert')
+      .textContent({ timeout: 2_000 })
+      .catch(() => null);
+    throw new Error(
+      `${step}: pressed Add contact but the sheet stayed open for ${timeoutMs}ms. ` +
+        `Sheet error: ${JSON.stringify(alert ?? '<no alert>')}. Sheet text: ${await safeText(sheet)}`
+    );
+  }
+  const recipientName = sendFlow.getByTestId('send-recipient-name');
+  try {
+    await recipientName.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `${step}: the sheet closed but the recipient step never showed the new contact's name. ` +
+        `Recipient step text: ${await safeText(sendFlow)}`
+    );
+  }
+  const shownName = (await recipientName.textContent())?.trim() ?? '';
+  if (shownName !== contact.name) {
+    throw new Error(`${step}: the recipient step names ${JSON.stringify(shownName)}, not "${contact.name}".`);
+  }
+}
+
 /**
  * Every row of the OPEN contact picker, as `{ name, address }`. The name is the
  * ListRow title; the address comes off the row's testid, so this reports the
