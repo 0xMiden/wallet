@@ -369,14 +369,21 @@ describe('storage hooks (#1148)', () => {
 
   it('shows the error screen when both the preload and the reader read fail', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    mockGet.mockImplementationOnce(async () => {
-      throw new Error('preload read failed');
-    });
-    await preloadStorage(['both-fail-key']).catch(() => {});
-
-    mockGet.mockImplementationOnce(async () => {
-      throw new Error('read failed');
-    });
+    let rejectPreload!: () => void;
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectPreload = () => reject(new Error('preload read failed'));
+        })
+    );
+    const preload = preloadStorage(['both-fail-key']);
+    let failRead!: () => void;
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          failRead = () => reject(new Error('read failed'));
+        })
+    );
     render(
       <Boundary>
         <Suspense fallback={<div data-testid="suspended" />}>
@@ -384,6 +391,14 @@ describe('storage hooks (#1148)', () => {
         </Suspense>
       </Boundary>
     );
+
+    await act(async () => {
+      rejectPreload();
+      await preload.catch(() => {});
+    });
+    await act(async () => {
+      failRead();
+    });
 
     expect(await screen.findByTestId('failed')).toBeDefined();
     consoleError.mockRestore();
@@ -410,7 +425,7 @@ describe('storage hooks (#1148)', () => {
   it('a usePassiveStorage setter write supersedes a preload still in flight', async () => {
     mockStored['passive-race-key'] = 'old';
     await preloadStorage(['passive-race-key']);
-    renderReader('passive-race-key', PassiveWriter);
+    const first = renderReader('passive-race-key', PassiveWriter);
 
     const release = deferredRead('passive-race-key', 'old');
     const pending = preloadStorage(['passive-race-key']);
@@ -423,6 +438,9 @@ describe('storage hooks (#1148)', () => {
       release();
       await pending;
     });
+
+    first.unmount();
+    renderReader('passive-race-key', PassiveReader);
 
     expect(screen.getByTestId('value').textContent).toBe('new');
   });
