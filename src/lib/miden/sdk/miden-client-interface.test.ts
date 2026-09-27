@@ -1560,8 +1560,8 @@ describe('MidenClientInterface', () => {
   });
 
   describe('recoverGuardianAccountByHotKey', () => {
-    // The pasted key's commitment, normalized (lowercase, no 0x prefix): what
-    // the callback below compares the on-chain hot/cold signer commitments against.
+    // The pasted key's commitment as its toHex() returns it (0x-prefixed); the method
+    // normalizes it and each on-chain signer commitment before comparing.
     const PASTED_COMMITMENT = '0xaabb';
 
     // The lookup itself (recoverAndAdoptByKey) is spied on the instance rather than
@@ -1588,7 +1588,7 @@ describe('MidenClientInterface', () => {
     };
 
     // recoverAndAdoptByKey's 3rd argument is the adopt callback under test; invoking it
-    // with a stub account exercises the two refusals without a real lookup or adoption.
+    // with a stub account exercises its accept path and two refusals without a real lookup.
     const spyRecoverAndAdoptByKeyInvokingVerify = (client: unknown, stubAccount: unknown) =>
       jest.spyOn(client as any, 'recoverAndAdoptByKey').mockImplementation(async (...args: unknown[]) => {
         const verify = args[2] as ((acc: unknown) => Promise<void>) | undefined;
@@ -1612,12 +1612,26 @@ describe('MidenClientInterface', () => {
       });
     });
 
+    it('resolves with the adopted account when the pasted key is the current hot key, in any case or prefix', async () => {
+      const stubAccount = {};
+      const getSignerDetailsFromAccount = jest.fn().mockResolvedValueOnce({ commitment: '0xAABB' });
+      setup(getSignerDetailsFromAccount);
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).resolves.toEqual([
+        { accountId: 'unreachable', hotPublicKey: '1122' }
+      ]);
+      expect(getSignerDetailsFromAccount).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects with no code when the pasted key matches only the recovery (cold) key', async () => {
       const stubAccount = {};
       const getSignerDetailsFromAccount = jest
         .fn()
         .mockResolvedValueOnce({ commitment: 'ffff' })
-        .mockResolvedValueOnce({ commitment: PASTED_COMMITMENT });
+        .mockResolvedValueOnce({ commitment: '0xAABB' });
       setup(getSignerDetailsFromAccount);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');

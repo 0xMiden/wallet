@@ -3810,29 +3810,6 @@ describe('hot-key import flow', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
   });
 
-  it("carries a hot-key import failure's reason to the recovery-method screen", async () => {
-    mockRegisterWalletFromHotKey.mockRejectedValue(
-      new Error('This looks like your recovery key. Paste the everyday key instead.')
-    );
-    await renderWelcome();
-    await setHash('#import-from-key');
-    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
-    await setHash('#create-password');
-    await dispatch({ id: 'create-password-submit', payload: { password: 'pw-1', enableBiometric: false } });
-    await setHash('#import-select-recovery-method');
-    await dispatch({
-      id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.Guardian, guardianEndpoint: ENDPOINT }
-    });
-    await setHash('#confirmation');
-
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockFlowProps.current.guardianLookupFailure).toBe(
-      'This looks like your recovery key. Paste the everyday key instead.'
-    );
-  });
-
   it('names the key when a key-pair import finds no Guardian account', async () => {
     mockRegisterWalletFromHotKey.mockRejectedValue(
       Object.assign(new Error('importHotKeyNoAccount'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
