@@ -131,9 +131,9 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   //   onto an operator by default, which the pre-selection rule exists to
   //   prevent.
   // - An explicit pick that goes offline: NOTHING in either flow. The user chose
-  //   that operator - a card the user activates counts even when it was already
-  //   highlighted, by the default or the fallback - and another operator is
-  //   never substituted for it (#1083).
+  //   that operator (a card the user activates counts even when the default or
+  //   the fallback already highlighted it); the card's offline badge says why it
+  //   is not selected, and another operator is never substituted for it (#1083).
   const intended = options.find(o => o.id === intendedId);
   const effectiveSelectedId =
     intendedId === NO_GUARDIAN_ID
