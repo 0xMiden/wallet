@@ -23,9 +23,9 @@ type AllHistoryProps = {
 };
 
 /**
- * The filter a link asked for, e.g. `/history?filter=pending` - which is where every
- * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`). Only an
- * id the segmented control offers is accepted.
+ * The filter the location names: the page's own record of a pick, or a link's, e.g.
+ * `/history?filter=pending&view=list` - which is where every received-transfer notification and the
+ * home prompt now land (`ACTIVITY_PENDING_PATH`). Only an id the segmented control offers is accepted.
  */
 function filterFromSearch(
   search: string,
@@ -87,20 +87,35 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     ],
     [t]
   );
-  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch, filters) ?? 'all');
-  // `TabLayout` keeps a visited tab mounted, so a notification arriving while Activity is already
-  // open does not remount this page — the initial state above would never be re-read. Following
-  // the location is what makes the deep link work on the second and every later tap.
+  // `TabLayout` keeps this page mounted under another tab, whose location is not this page's, so off
+  // screen it keeps the search it last read on screen. Set during render, so it takes no extra commit.
+  const [heldSearch, setHeldSearch] = useState(locationSearch);
+  if (pageActive && heldSearch !== locationSearch) setHeldSearch(locationSearch);
+  const routeSearch = pageActive ? locationSearch : heldSearch;
+  // The filter the location names, read once per render.
+  const linkedFilter = filterFromSearch(routeSearch, filters);
+  // A link asks for the feed, the only view with filters and Accept All, with `view=list` beside its
+  // filter; the page's own record of a pick carries `view=list` only on a List a link opened, so Back
+  // or a reload onto any other record keeps the saved view.
+  const listAsked = linkedFilter !== undefined && new URLSearchParams(routeSearch).get('view') === 'list';
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+  // The location's filter also becomes the kept choice, so a link's filter survives a return to
+  // Activity through the tab, whose `/history` names none, and a remount restores the recorded one.
+  // Putting it on screen from the first frame is `shownFilter`'s job, below.
   useEffect(() => {
-    const asked = filterFromSearch(locationSearch, filters);
-    if (asked) setFilter(asked);
-  }, [locationSearch, filters]);
+    if (linkedFilter) setFilter(linkedFilter);
+  }, [linkedFilter]);
   // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
-  // change of location the effect above sees.
+  // change of location the effect above sees. A pick on a List a link asked for keeps that request.
   const pickFilter = (next: ActivityFilter) => {
     setFilter(next);
     navigate(
-      ({ pathname, hash, state }) => ({ pathname, search: `?filter=${next}`, hash, state }),
+      ({ pathname, hash, state }) => ({
+        pathname,
+        search: listAsked ? `?filter=${next}&view=list` : `?filter=${next}`,
+        hash,
+        state
+      }),
       HistoryAction.Replace
     );
   };
@@ -109,20 +124,21 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   // Remembered per device in the app's settings module, so the tab reopens in the view the user
   // left it in; `list` until they choose otherwise.
   const savedView = useActivityView();
-  // A link that names a filter (the home prompt, a received-transfer notification) asks for the feed,
-  // the only view with filters and Accept All, so it shows the List for that visit without changing
-  // the saved view. Switching to the Activity tab from another tab goes to `/history`, which names none.
-  const linkedFilter = filterFromSearch(locationSearch, filters);
-  const view: ActivityView = linkedFilter ? 'list' : savedView;
+  // A link's request shows the List for that visit without changing the saved view. Switching to the
+  // Activity tab from another tab goes to `/history`, which asks for nothing.
+  const view: ActivityView = listAsked ? 'list' : savedView;
   // The filter on screen: the one the location names, read directly so a link's first frame already
   // shows it (the effect above lands a render later); the kept choice otherwise.
   const shownFilter = linkedFilter ?? filter;
-  // Leaving the feed for Groups also drops the filter the location names, or the override above would
-  // hold the List against the user's own choice.
+  // Leaving a link's List for Groups drops its request, or the override above would hold the List
+  // against the user's own choice, and keeps its filter as the page's own record.
   const changeView = (next: ActivityView) => {
     setActivityView(next);
-    if (next === 'groups' && linkedFilter) {
-      navigate(({ pathname, hash, state }) => ({ pathname, search: '', hash, state }), HistoryAction.Replace);
+    if (next === 'groups' && listAsked) {
+      navigate(
+        ({ pathname, hash, state }) => ({ pathname, search: `?filter=${linkedFilter}`, hash, state }),
+        HistoryAction.Replace
+      );
     }
   };
   const menuAnchorRef = useRef<HTMLButtonElement>(null);

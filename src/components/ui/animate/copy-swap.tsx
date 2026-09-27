@@ -31,7 +31,8 @@ export const CurrentCopyState = React.createContext<CopyState>('idle');
  * tests can tell the settled side from the leaving one.
  */
 // `forwardRef`: `AnimatePresence mode="popLayout"` hands its direct child a ref to measure the
-// outgoing element before popping it out of layout.
+// outgoing element before popping it out of layout; without it the leaving side stays in flow
+// beside the arriving one instead of overlapping it in one box.
 export const SwapSlot = React.forwardRef<HTMLSpanElement, SwapSlotProps>(
   ({ swap, className, 'data-copy-state': state, children }, ref) => {
     const isPresent = React.useContext(CurrentCopyState) === state;
