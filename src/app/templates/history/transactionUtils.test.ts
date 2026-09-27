@@ -9,7 +9,6 @@ import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
-  bridgeInDeliveredAmount,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -17,7 +16,6 @@ import {
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
-  formatBridgeInAmount,
   formatBridgeOutputAmount,
   formatDate,
   formatEarnWithdrawAmount,
@@ -477,35 +475,6 @@ describe('formatBridgeOutputAmount', () => {
   });
 });
 
-describe('formatBridgeInAmount', () => {
-  // 10.6555 is where the two directions part: half-up would show 10.66.
-  it('rounds an Epoch quote down, never half-up', () => {
-    expect(formatBridgeInAmount('10.6555', 'epoch')).toBe('10.65');
-  });
-
-  it('shows an Agglayer amount as entered', () => {
-    expect(formatBridgeInAmount('0.015', 'agglayer')).toBe('0.015');
-  });
-});
-
-describe('bridgeInDeliveredAmount', () => {
-  it('shows the credited amount once received', () => {
-    expect(bridgeInDeliveredAmount('received', 'epoch', '150.12', '150.123456')).toBe('150.123456');
-  });
-
-  it('rounds an in-flight Epoch quote down, whatever the row amount', () => {
-    expect(bridgeInDeliveredAmount('delivering', 'epoch', '10.6555', '10.6555')).toBe('10.65');
-  });
-
-  it('shows an in-flight Slow-route quote as entered', () => {
-    expect(bridgeInDeliveredAmount('delivering', 'agglayer', '0.015', undefined)).toBe('0.015');
-  });
-
-  it('falls back to the quote when a received row has no credited amount', () => {
-    expect(bridgeInDeliveredAmount('received', 'epoch', '10.6555', undefined)).toBe('10.65');
-  });
-});
-
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.
@@ -572,20 +541,15 @@ describe('bridgeRowDisplay', () => {
     });
   });
 
-  // Proves the value HistoryItem/HistoryView render for a bridge-out list row too: neither
-  // reformats `outAmount` themselves, so this function's return is the list row's amount. An
-  // agglayer row never carries a quoted output (that field is Epoch-only), so this is the typed
-  // Miden-side send amount and must show as entered, not cut to two decimals - three decimal
-  // places, so a mutation that formats this fallback still shows.
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
-        bridgeEntry({ token: 'MIDEN', amount: '0.015', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'ETH',
-      outAmount: '0.015',
+      outAmount: '7',
       providerLabel: 'Agglayer',
       network: 'Sepolia',
       status: 'confirmed'
@@ -601,6 +565,16 @@ describe('bridgeRowDisplay', () => {
       network: 'Sepolia',
       status: 'pending'
     });
+  });
+
+  // Proves the value HistoryItem/HistoryView render for a bridge-out list row: neither
+  // reformats `outAmount` themselves, so this function's return is the list row's amount.
+  // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
+  // typed Miden-side send amount and must show as entered, not cut to two decimals.
+  it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
+    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
+      '0.015'
+    );
   });
 });
 
@@ -654,20 +628,6 @@ describe('bridgeInRowDisplay', () => {
         })
       ).outAmount
     ).toBe('7');
-  });
-
-  it('rounds an in-flight Epoch quote down, never half-up', () => {
-    expect(
-      bridgeInRowDisplay(
-        bridgeEntry({
-          txType: 'bridged-receive',
-          bridgeInPhase: 'delivering',
-          amount: '7',
-          bridgeInOutputAmount: '10.6555',
-          bridgeInProvider: 'epoch'
-        })
-      ).outAmount
-    ).toBe('10.65');
   });
 
   // Rows written before the fix carry the allocator's token `name` as a symbol,

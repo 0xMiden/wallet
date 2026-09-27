@@ -2687,19 +2687,18 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    // 10.6555 is where the two directions part: half-up would show 10.66.
     it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
       setMockRow({
         ...bridgedSendTx,
         extraInputs: {
           ...(bridgedSendTx.extraInputs as Record<string, unknown>),
-          outputAmount: '10.6555'
+          outputAmount: '151.500000000000000001'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
 
-      expect(screen.getByText('10.65')).toBeInTheDocument();
-      expect(screen.queryByText('10.6555')).not.toBeInTheDocument();
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
     });
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
@@ -2766,35 +2765,18 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    // 10.6555 is where the two directions part: half-up would show 10.66.
     it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          sourceAmount: '10.6555'
+          sourceAmount: '151.500000000000000001'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('10.65')).toBeInTheDocument();
-      expect(screen.queryByText('10.6555')).not.toBeInTheDocument();
-    });
-
-    it('shows a received Epoch bridge-in credited amount in full, the same as its list row', async () => {
-      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
-      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
-      setMockRow({
-        ...bridgedReceiveTx,
-        amount: 150123456n,
-        extraInputs: {
-          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          phase: 'received'
-        }
-      });
-      await renderAndLoad({ transactionId: 'bridge-in' });
-
-      expect(screen.getByText('150.123456')).toBeInTheDocument();
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {

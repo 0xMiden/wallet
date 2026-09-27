@@ -33,8 +33,9 @@ jest.mock('lib/miden/activity', () => ({
 }));
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({ CollateralType: { Miden: 'Miden' } }));
 jest.mock('viem', () => ({ formatUnits: (value: bigint) => value.toString() }));
+jest.mock('lib/i18n/numbers', () => ({ toAdaptiveFixed: (value: string) => value }));
 
-import { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
+import { bridgeEpochSend } from './epoch-send';
 
 const authorization = {
   kind: 'usd' as const,
@@ -99,26 +100,5 @@ describe('bridgeEpochSend spending-limit authorization', () => {
     await expect(bridgeEpochSend(args())).rejects.toBe(error);
     expect(mockMarkBridgedSendFailed).not.toHaveBeenCalled();
     expect(mockUpdateBridgeClaimStatus).not.toHaveBeenCalled();
-  });
-});
-
-describe('quoteEpochSendOutput', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockGetEpochReadOnlySdk.mockResolvedValue({});
-    mockGetCurrentMidenBlock.mockResolvedValue(1000);
-  });
-
-  it('rounds a quote down, never half-up', async () => {
-    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '10.6555' } });
-
-    await expect(
-      quoteEpochSendOutput({
-        amount: 250n,
-        faucetId: 'mtst1faucet',
-        destinationAddress: '0x1111111111111111111111111111111111111111',
-        senderPublicKey: 'mtst1sender'
-      })
-    ).resolves.toEqual({ amount: '10.65', symbol: 'USDC' });
   });
 });

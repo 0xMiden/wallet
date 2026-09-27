@@ -4,8 +4,6 @@ import { format } from 'date-fns';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
-  IBridgedReceivePhase,
-  IBridgeProvider,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -174,29 +172,6 @@ export const formatBridgeOutputAmount = (amount: string | undefined): string | u
   return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
 };
 
-/**
- * A bridge-in amount is rounded only when it is a genuine Epoch quote, converted from base
- * units and of unbounded precision; an amount the user typed (the Slow/Agglayer route) or the
- * chain already credited is shown as stored.
- */
-export const formatBridgeInAmount = (
-  amount: string | undefined,
-  provider: IBridgeProvider | undefined
-): string | undefined => (provider === 'epoch' ? formatBridgeOutputAmount(amount) : amount);
-
-/**
- * What a bridge-in delivered, for every surface that shows it: once received, the amount the
- * chain credited (already scaled to its faucet); before that, or while the credited amount is not
- * known, the by-route quote.
- */
-export const bridgeInDeliveredAmount = (
-  phase: IBridgedReceivePhase | undefined,
-  provider: IBridgeProvider | undefined,
-  outputAmount: string | undefined,
-  creditedAmount: string | undefined
-): string | undefined =>
-  (phase === 'received' ? creditedAmount : undefined) ?? formatBridgeInAmount(outputAmount, provider);
-
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
@@ -269,14 +244,14 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
-  // A tagged consume row is the credit itself, so it reads as received; a row with no quote shows its own amount.
+  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
+  // typed (at most 6 decimals), so it is shown as stored.
   const outAmount =
-    bridgeInDeliveredAmount(
-      entry.txType === 'consume' ? 'received' : entry.bridgeInPhase,
-      entry.bridgeInProvider,
-      entry.bridgeInOutputAmount,
-      entry.amount
-    ) ?? entry.amount;
+    entry.bridgeInPhase === 'received' || entry.txType === 'consume'
+      ? entry.amount?.toString()
+      : entry.bridgeInProvider === 'epoch'
+        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
+        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

@@ -1,6 +1,5 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
-import BigNumber from 'bignumber.js';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
@@ -255,10 +254,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         ) : pending ? null : (
           <>
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
-            {/* A typed amount, so shown as entered: rounding it could show more than is deposited. */}
             <EarnHero
               labelId="earn-deposit-review-amount"
-              value={new BigNumber(amountValue).toFixed()}
+              value={toAdaptiveFixed(amountValue)}
               unit={<EarnAmountUnit symbol={depositSymbol} />}
               label={t('earnDepositAmountTitle')}
             />
