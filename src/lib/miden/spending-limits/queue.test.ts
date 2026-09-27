@@ -113,7 +113,7 @@ const recordHistoryReads = async (run: () => Promise<unknown>): Promise<string[]
   try {
     await run();
   } finally {
-    db.unuse(recorder);
+    db.unuse({ stack: 'dbcore', name: 'history-read-recorder' });
     db.close();
     await db.open();
   }
