@@ -74,8 +74,9 @@ export function onPermissionChange(callback: (permission: MidenDAppCurrentPermis
     try {
       const perm = await getCurrentPermission();
       if (!stopped && !permissionsAreEqual(perm, currentPerm)) {
-        callback(perm);
+        // Recorded first, so a callback that throws cannot freeze the baseline and hide a switch back.
         currentPerm = perm;
+        callback(perm);
       }
     } catch {}
 

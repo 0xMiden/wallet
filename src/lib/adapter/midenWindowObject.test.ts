@@ -324,7 +324,23 @@ describe('MidenWindowObject', () => {
         expect(obj.publicKey).toBeUndefined();
       });
 
-      it('changes nothing and throws on a malformed key, so the next poll retries', async () => {
+      it('ignores the first check echoing the account just connected', async () => {
+        const { obj, fire } = await connectCapturing();
+        const spy = jest.fn();
+        obj.on('accountChange', spy);
+        fire({
+          rpc: 'https://rpc.testnet.miden.io',
+          address: ADDRESS,
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('abc')
+        });
+        expect(spy).not.toHaveBeenCalled();
+        expect(obj.permission).toBe(permission);
+        expect(obj.publicKey).toBe(permission.publicKey);
+      });
+
+      it('changes nothing and throws on a malformed key, which the poll does not retry', async () => {
         const { obj, fire } = await connectCapturing();
         const spy = jest.fn();
         obj.on('accountChange', spy);

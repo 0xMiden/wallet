@@ -139,10 +139,13 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     }
   }
 
-  // An account switch arrives here (#174). The fields follow the new account before listeners
-  // hear of it, and null (no grant from that account) clears them. A malformed key throws before
-  // anything changes, so onPermissionChange keeps its old state and asks again on its next poll.
+  // An account switch arrives here (#174). A permission for the account already held changes
+  // nothing, so the check right after connect does not echo it. The fields follow a new account
+  // before listeners hear of it, and null (no grant from that account) clears them. A malformed
+  // key throws before anything changes; onPermissionChange has recorded it and does not retry it,
+  // as the same key would fail again.
   private applyPermission(perm: MidenDAppCurrentPermission) {
+    if (perm?.address === this.address) return;
     if (perm === null) {
       this.address = undefined;
       this.publicKey = undefined;
@@ -152,7 +155,6 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     }
     let publicKey: Uint8Array | undefined;
     if (perm.publicKey) publicKey = b64ToU8(perm.publicKey);
-    else if (perm.address === this.address) publicKey = this.publicKey;
     this.permission = perm;
     this.address = perm.address;
     this.publicKey = publicKey;
