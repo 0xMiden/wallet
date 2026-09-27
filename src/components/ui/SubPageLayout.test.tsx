@@ -72,6 +72,7 @@ describe('SubPageLayout', () => {
     expect(pinned.className).toContain('var(--keyboard-height,0px)');
     expect(pinned.getAttribute('data-navbar-cushion')).toBe('true');
     expect(pinned).not.toHaveClass('flex-col');
+    expect(pinned).not.toHaveClass('[&>*]:flex-none');
     expect(within(pinned).getByRole('button', { name: 'Rotate' })).toBeInTheDocument();
   });
 
@@ -108,13 +109,14 @@ describe('SubPageLayout', () => {
     expect(pinned).not.toHaveAttribute('data-navbar-cushion');
   });
 
-  it('stacks the footer on request and renders none without one', () => {
+  it('stacks the footer on request, each child at its own height, and renders none without one', () => {
     const { rerender } = render(
       <SubPageLayout title="Keys" data-testid="page" footer={<button type="button">a</button>} footerLayout="stack">
         <p>content</p>
       </SubPageLayout>
     );
-    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col');
+    // In a column a row-style `flex-1` would size a button from a zero basis and squash it to its label.
+    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col', '[&>*]:flex-none');
 
     rerender(
       <SubPageLayout title="Keys" data-testid="page">
@@ -122,29 +124,6 @@ describe('SubPageLayout', () => {
       </SubPageLayout>
     );
     expect(footer(screen.getByTestId('page'))).toBeNull();
-  });
-
-  // In a column, a row-style `flex-1` sizes a button's height from a zero basis and squashes it to
-  // its label, so the stack puts every child back at its own height; the row keeps its even split.
-  it('keeps each stacked child at its own height whatever flex it carries, and leaves the row split alone', () => {
-    const action = (
-      <button type="button" className="flex-1">
-        a
-      </button>
-    );
-    const { rerender } = render(
-      <SubPageLayout title="Keys" data-testid="page" footer={action} footerLayout="stack">
-        <p>content</p>
-      </SubPageLayout>
-    );
-    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col', '[&>*]:flex-none');
-
-    rerender(
-      <SubPageLayout title="Keys" data-testid="page" footer={action}>
-        <p>content</p>
-      </SubPageLayout>
-    );
-    expect(footer(screen.getByTestId('page'))).not.toHaveClass('[&>*]:flex-none');
   });
 
   it('takes its header from the route that opened it, and lets the page override it', () => {
