@@ -135,21 +135,25 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
-    // The sizing contract as an allowlist, variant prefixes included: the active segment has a floor,
-    // not a fixed width, and no flex, shrink or grow utility, so the CSS default (0 1 auto) lets it grow
-    // to fit a longer label and give width back down to its ellipsis (#1069).
-    const sizing = (tab: HTMLElement) =>
-      Array.from(tab.classList)
-        .filter(c => /^(?:[^:]+:)*(?:w|min-w|max-w|basis|flex|shrink|grow)-/.test(c))
-        .sort();
-    expect(sizing(getTab('Send'))).toEqual(['max-[359px]:min-w-24', 'min-w-28']);
-    expect(getTab('Send')).toHaveClass('px-2.5', 'h-12');
+    // The floor, not a fixed width: the segment grows to fit a longer label and gives width back
+    // when the bar runs out (#1069).
+    expect(getTab('Send')).toHaveClass('min-w-28', 'max-[359px]:min-w-24', 'px-2.5', 'h-12');
+    expect(getTab('Send')).not.toHaveClass('w-28');
+    expect(getTab('Send')).not.toHaveClass('max-[359px]:w-24');
+    // No flex, shrink or grow utility: the CSS default (0 1 auto) is what lets it shrink to its ellipsis.
+    expect(
+      Array.from(getTab('Send').classList).filter(c =>
+        /^(flex-(none|auto|initial|\d+)|shrink(-\d+)?|grow(-\d+)?)$/.test(c)
+      )
+    ).toEqual([]);
     expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1', 'min-w-0');
 
-    // Inactive: stretches to fill the row with no horizontal padding, and 44px keeps it a touch target
-    // when the active one grows.
-    expect(sizing(getTab('Receive'))).toEqual(['flex-1', 'min-w-11']);
-    expect(getTab('Receive')).toHaveClass('px-0');
+    // Inactive: stretches to fill the row with no horizontal padding.
+    expect(getTab('Receive')).toHaveClass('flex-1', 'px-0');
+    expect(getTab('Receive')).not.toHaveClass('w-28');
+    // 44px keeps every inactive segment a touch target when the active one grows.
+    expect(getTab('Receive')).toHaveClass('min-w-11');
+    expect(getTab('Receive')).not.toHaveClass('min-w-28');
   });
 
   it('keeps the 20px icon unshrunk, so a label within the 112px floor keeps that width', () => {
