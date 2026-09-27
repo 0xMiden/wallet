@@ -38,8 +38,8 @@ export const tabBarMotion = {
 /**
  * A tab bar shown again because its own tab was reselected (not because a slide page merely closed
  * back onto it) takes its new state at once, as the pane's content does (HomeSwipeContainer snaps its
- * track on the same return). Effectively instant rather than `duration: 0`, so completion callbacks
- * still fire. Not the reduced-motion token: that also drops the press.
+ * track on the same return). The reduced-motion instant (not `duration: 0`, so completion callbacks
+ * still fire), named for the swap so a pane swap never reads as the user's motion preference.
  */
 export const tabBarSwap: Transition = { ...reducedMotionTransition };
 
