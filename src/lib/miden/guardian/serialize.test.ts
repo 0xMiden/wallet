@@ -321,4 +321,36 @@ describe('withGuardianRateLimitRetry (#906)', () => {
     await expect(withGuardianRateLimitRetry(fn, { maxAttempts: 3, sleepFn })).rejects.toMatchObject({ status: 429 });
     expect(fn).toHaveBeenCalledTimes(3);
   });
+
+  describe('with a deadline', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('rethrows the 429 without waiting when the wait would end past the deadline', async () => {
+      jest.spyOn(performance, 'now').mockReturnValue(1_000);
+      const { waits, sleepFn } = recordingSleep();
+      const error = rateLimited(60);
+      const fn = jest.fn().mockRejectedValue(error);
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 59_999 })).rejects.toBe(error);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(waits).toEqual([]);
+    });
+
+    it('still retries when the wait ends exactly at the deadline', async () => {
+      jest.spyOn(performance, 'now').mockReturnValue(1_000);
+      const { waits, sleepFn } = recordingSleep();
+      const fn = jest.fn().mockRejectedValueOnce(rateLimited(60)).mockResolvedValueOnce('ok');
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 60_000 })).resolves.toBe('ok');
+      expect(waits).toEqual([60_000]);
+    });
+
+    it('treats a deadline of 0 as a deadline, since 0 is a valid monotonic stamp', async () => {
+      jest.spyOn(performance, 'now').mockReturnValue(0);
+      const { waits, sleepFn } = recordingSleep();
+      const error = rateLimited(1);
+      const fn = jest.fn().mockRejectedValue(error);
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 0 })).rejects.toBe(error);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(waits).toEqual([]);
+    });
+  });
 });

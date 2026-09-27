@@ -2,6 +2,7 @@ import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { AccountInspector, EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
@@ -269,6 +270,16 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
 }
 
 /**
+ * How long a Guardian account creation may spend waiting out guardian 429s,
+ * across both of its guardian calls. The creation runs inside the WASM client
+ * lock, so its waits are held against `WASM_LOCK_WATCHDOG_MS` and block every
+ * other WASM operation in the realm; 90 s covers one full per-minute cooldown
+ * and keeps the onboarding spinner bounded. Moving the waits off the lock is
+ * wallet#1207.
+ */
+export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
+
+/**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
  * key (held inside the keystore, used for rotation/recovery), and the external
@@ -326,10 +337,12 @@ export async function createGuardianAccount(
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
     // Both guardian calls count against its per-IP rate limit, which users
-    // behind a shared egress IP (NAT, VPN) share; a 429 is waited out, not
-    // turned into a failed wallet creation (#906).
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(() =>
-      client.guardianClient.getPubkey('ecdsa')
+    // behind a shared egress IP (NAT, VPN) share; a 429 is waited out within
+    // GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, one deadline for both calls (#906).
+    const rateLimitDeadline = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
+    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
+      () => client.guardianClient.getPubkey('ecdsa'),
+      { deadlineMs: rateLimitDeadline }
     );
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
@@ -368,7 +381,7 @@ export async function createGuardianAccount(
     );
 
     if (!skipRegistration) {
-      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian());
+      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), { deadlineMs: rateLimitDeadline });
     }
     await webClient.sync();
 

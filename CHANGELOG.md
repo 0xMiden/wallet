@@ -58,7 +58,7 @@
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
-- [FIX][all] Creating a Guardian wallet while the guardian is rate limiting (a 429) waits out the guardian's cooldown and retries, up to eight attempts, instead of failing with "Failed to create wallet" at the first one (#906, #903).
+- [FIX][all] Creating a Guardian wallet while the guardian is rate limiting (a 429) waits out the guardian's cooldown and retries for up to 90 seconds, instead of failing with "Failed to create wallet" at the first one (#906, #903).
 
 ## 1.16.2 (2026-09-24)
 

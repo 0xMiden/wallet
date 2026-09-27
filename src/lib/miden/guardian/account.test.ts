@@ -7,9 +7,12 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
+import { WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+
 import {
   assertGuardianKeyCommitment,
   createGuardianAccount,
+  GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
@@ -506,11 +509,11 @@ describe('createGuardianAccount', () => {
   });
 
   describe('a guardian answering 429 (#906)', () => {
-    const rateLimited = () =>
+    const rateLimited = (retryAfterSecs = 1) =>
       Object.assign(new Error('GUARDIAN HTTP error 429: Too Many Requests'), {
         status: 429,
         code: 'rate_limit_exceeded',
-        meta: { retryable: true, retryAfterSecs: 1 }
+        meta: { retryable: true, retryAfterSecs }
       });
 
     beforeEach(() => jest.useFakeTimers());
@@ -568,6 +571,48 @@ describe('createGuardianAccount', () => {
         jest.runAllTimersAsync()
       ]);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
+    });
+
+    // The creation holds the WASM client lock, so its waits are bounded by one
+    // deadline rather than by the attempt count alone.
+    it('gives up at the creation deadline instead of starting a wait that would pass it', async () => {
+      const multisig = makeMultisig();
+      const last = rateLimited(60);
+      multisig.registerOnGuardian.mockRejectedValue(last);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const startedAt = performance.now();
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: last
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(performance.now() - startedAt).toBe(60_000);
+      expect(performance.now() - startedAt).toBeLessThanOrEqual(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS);
+    });
+
+    it('counts the pubkey wait against the same deadline as the registration', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited(60));
+      const multisig = makeMultisig();
+      const registrationLimited = rateLimited(60);
+      multisig.registerOnGuardian.mockRejectedValue(registrationLimited);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const startedAt = performance.now();
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: registrationLimited
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(performance.now() - startedAt).toBe(60_000);
+      expect(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS).toBeLessThan(WASM_LOCK_WATCHDOG_MS / 2);
     });
 
     it('still fails at once on a registration error that is not a 429', async () => {

@@ -15,6 +15,8 @@
  * mid-canonicalization), wait it out instead of failing the transaction.
  */
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
+
 const noop = (): void => {};
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -187,11 +189,14 @@ export const GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS = 8;
  * guardian's own `retry_after_secs` (clamped), or the capped exponential backoff
  * when the 429 carries none: retrying under the cooldown only earns another 429.
  * Any other error propagates at once; after `maxAttempts` calls the last 429 is
- * rethrown unchanged, so callers still see the guardian's own error.
+ * rethrown unchanged, so callers still see the guardian's own error. A caller
+ * holding a lock bounds the waits with `deadlineMs`, an absolute time on
+ * `monotonicNowMs()`: a wait that would end past it is not started, and the 429
+ * is rethrown as at the attempt limit.
  */
 export async function withGuardianRateLimitRetry<T>(
   fn: () => Promise<T>,
-  opts: { maxAttempts?: number; sleepFn?: (ms: number) => Promise<void> } = {}
+  opts: { maxAttempts?: number; deadlineMs?: number; sleepFn?: (ms: number) => Promise<void> } = {}
 ): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS;
   const wait = opts.sleepFn ?? sleep;
@@ -201,6 +206,15 @@ export async function withGuardianRateLimitRetry<T>(
     } catch (err) {
       if (attempt >= maxAttempts || !isGuardianRateLimited(err)) throw err;
       const delayMs = guardianRegisterBackoffMs(err, attempt);
+      // Not shortened to fit: a retry inside the guardian's stated cooldown only
+      // earns another 429. `!== undefined` because 0 is a valid monotonic stamp.
+      if (opts.deadlineMs !== undefined && monotonicNowMs() + delayMs > opts.deadlineMs) {
+        console.warn(
+          `[guardian] rate limited (429, attempt ${attempt}/${maxAttempts}); ` +
+            `the next wait of ${delayMs} ms would pass the deadline, giving up`
+        );
+        throw err;
+      }
       console.warn(`[guardian] rate limited (429, attempt ${attempt}/${maxAttempts}); retrying in ${delayMs} ms`);
       await wait(delayMs);
     }
