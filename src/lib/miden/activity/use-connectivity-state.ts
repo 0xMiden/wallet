@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CONNECTIVITY_CATEGORIES,
   CONNECTIVITY_STATE_KEY,
   ConnectivityCategory,
   ConnectivityStateSnapshot,
@@ -19,38 +20,36 @@ type DismissedActivations = Partial<Record<ConnectivityCategory, number | null>>
 // on each render and setState forever ("Maximum update depth exceeded").
 const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
 
-// Every write of the stored record is one read-modify-write in a turn, so a window never puts back a category another
-// window just changed (#1158): the Web Lock every extension surface (popup, side panel, tabs) shares, as
-// lib/wallet-prompts.ts takes for its record, or, without Web Locks (iOS before 15.4, one window), an in-realm chain as
-// lib/miden/activity/bridge-in.ts keeps. A change that returns the record as it is writes nothing. A failed write is
-// not retried: this window keeps its change and storage keeps the old record.
-let dismissedActivationsTail: Promise<unknown> = Promise.resolve();
-
-function inDismissedActivationsTurn(operation: () => Promise<void>): Promise<void> {
-  if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request(`turn:${CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY}`, operation);
+// The stored record as it is, keeping only known categories with a timestamp (or null), so a malformed value reads as
+// nothing dismissed.
+function readDismissedActivations(raw: unknown): DismissedActivations {
+  const record: DismissedActivations = {};
+  if (!raw || typeof raw !== 'object') return record;
+  for (const category of CONNECTIVITY_CATEGORIES) {
+    const since: unknown = Reflect.get(raw, category);
+    if (typeof since === 'number' || since === null) record[category] = since;
   }
-  const run = dismissedActivationsTail.then(operation, operation);
-  dismissedActivationsTail = run.then(
-    () => undefined,
-    () => undefined
-  );
-  return run;
+  return record;
 }
 
-async function storeDismissedActivations(
+// One read-modify-write of the stored record inside a Web Lock that every extension surface (popup, side panel,
+// tabs) shares, so a window never puts back a category another window just changed (#1158), as
+// lib/wallet-prompts.ts does for its record. A change that returns the record as it is writes nothing.
+// Declared `async` so a synchronous throw from `navigator.locks.request` itself (no Web Locks, e.g. iOS 15.0-15.3)
+// becomes a rejection the caller's `.catch(ignoreFailedWrite)` can reach, instead of escaping past it and crashing
+// the render.
+async function updateDismissedActivations(
   change: (current: DismissedActivations) => DismissedActivations
 ): Promise<void> {
-  try {
-    await inDismissedActivationsTurn(async () => {
-      const current = (await fetchFromStorage<DismissedActivations>(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)) ?? {};
-      const next = change(current);
-      if (next !== current) await putToStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, next);
-    });
-  } catch {
-    // Not retried (above).
-  }
+  return navigator.locks.request(`turn:${CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY}`, async () => {
+    const current = readDismissedActivations(await fetchFromStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY));
+    const next = change(current);
+    if (next !== current) await putToStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, next);
+  });
 }
+
+// A failed write is not retried: this window keeps its change and storage keeps the old record.
+const ignoreFailedWrite = () => {};
 
 /**
  * React hook exposing the current connectivity-state snapshot.
@@ -117,7 +116,7 @@ export function useConnectivityState(): {
       return next;
     };
     setDismissedActivations(forget);
-    void storeDismissedActivations(forget);
+    void updateDismissedActivations(forget).catch(ignoreFailedWrite);
   }, [dismissedActivations, merged]);
 
   const visible = useMemo(() => {
@@ -145,7 +144,7 @@ export function useConnectivityState(): {
       return { ...current, [category]: since };
     };
     setDismissedActivations(record);
-    void storeDismissedActivations(record);
+    void updateDismissedActivations(record).catch(ignoreFailedWrite);
   }, []);
 
   return { state: visible, hasAnyIssue, dismiss };

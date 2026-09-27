@@ -385,19 +385,28 @@ describe('useConnectivityState', () => {
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
 
-    it('keeps both changes local when their writes fail, and tries each once', async () => {
-      // The cleanup forgets the recovered network dismissal and the user dismisses node; both writes are refused.
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
-      storedDismissedActivations = { network: 100 };
-      storageSnapshot = makeSnapshot({ node: true });
-      mockPutToStorage.mockRejectedValueOnce(new Error('quota')).mockRejectedValueOnce(new Error('quota'));
+    it('keeps the dismissal when the write fails', async () => {
+      storageSnapshot = makeSnapshot({ network: true });
+      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
       const { result } = renderHook(() => useConnectivityState());
 
-      act(() => result.current.dismiss('node'));
+      act(() => result.current.dismiss('network'));
       await settle();
 
-      expect(result.current.state.node.active).toBe(false);
-      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(2);
+      expect(result.current.state.network.active).toBe(false);
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
+    });
+
+    it('does not retry the cleanup write when it fails', async () => {
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
+      storedDismissedActivations = { network: 100 };
+      storageSnapshot = makeSnapshot();
+      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
+
+      renderHook(() => useConnectivityState());
+      await settle();
+
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
     });
   });
 
@@ -415,30 +424,5 @@ describe('useConnectivityState', () => {
     act(() => result.current.dismiss('node'));
 
     expect(result.current.state.node.active).toBe(false);
-    // Without Web Locks the turn runs on an in-realm chain, so the dismissal is still stored.
-    await settle();
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      node: getConnectivityState().node.since
-    });
-  });
-
-  it('keeps both of two overlapping turns without Web Locks', async () => {
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => {
-      markConnectivityIssue('network');
-      markConnectivityIssue('node');
-    });
-
-    act(() => {
-      result.current.dismiss('network');
-      result.current.dismiss('node');
-    });
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      network: getConnectivityState().network.since,
-      node: getConnectivityState().node.since
-    });
   });
 });
