@@ -21,9 +21,12 @@ jest.mock('app/env', () => ({
 }));
 
 // `lib/platform.isMobile` is the other half of the address-trim branch — a
-// steerable jest.fn so each test picks the mobile / desktop path.
+// steerable jest.fn so each test picks the mobile / desktop path. `isExtension`
+// is stubbed too: `./transactionUtils`'s real module (loaded below via
+// `jest.requireActual`) pulls in `lib/i18n`, which reads it at import time.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => false)
 }));
 
 // `AddressShortView` pulls in the real address-truncation util; replace it with
@@ -85,6 +88,7 @@ jest.mock('./TransactionIcon', () => ({
 }));
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'
@@ -169,7 +173,7 @@ describe('HistoryItem', () => {
     expect(contentRoot(container)).toHaveClass('border-b', 'border-b-border-card', 'border-b-[0.27px]');
   });
 
-  it('renders the woozie Link variant, treats message "Consuming" as receive, and omits optional blocks', () => {
+  it('renders the woozie Link variant and omits optional blocks', () => {
     const entry = makeEntry({
       transactionIcon: undefined,
       message: 'Consuming',
@@ -187,7 +191,7 @@ describe('HistoryItem', () => {
     expect(container.querySelector('a[href]')).toBeNull();
     expect(screen.getByTestId('woozie-link')).toHaveAttribute('data-to', '/history-details/tx-999');
 
-    // Title = message; isReceive via message === 'Consuming'.
+    // Title = message.
     expect(screen.getByText('Consuming')).toBeInTheDocument();
 
     // No secondaryAddress => no address row; no amount => no amount block; no cancel.
@@ -242,6 +246,59 @@ describe('HistoryItem', () => {
 
     expect(screen.getByText('t:faucetRequest')).toBeInTheDocument();
     expect(screen.queryByText('this-message-should-be-ignored')).toBeNull();
+  });
+
+  // A retried claim loses its "Consuming" message (retry clears it), so its in-flight entry
+  // reads "Generating transaction" with no icon; it is still a receive (#1102).
+  it('reads a faucet claim in flight as received from the faucet', () => {
+    mockIsFaucetRequest.mockReturnValue(true);
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'consume',
+      message: 'Generating transaction',
+      secondaryAddress: 'faucet-id',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText('t:faucetRequest')).toBeInTheDocument();
+    expect(screen.getByText(/t:from/)).toBeInTheDocument();
+    expect(screen.queryByText(/t:to/)).toBeNull();
+    expect(screen.getByText('+5')).toHaveClass('text-positive-tint-ink');
+  });
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'consume',
+      message: 'Generating transaction',
+      secondaryAddress: 'sender',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText(/t:from/)).toBeInTheDocument();
+    expect(screen.getByText('+5')).toHaveClass('text-positive-tint-ink');
+  });
+
+  it('keeps a send in flight reading "to" with a negative amount', () => {
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'send',
+      message: 'Sending',
+      secondaryAddress: 'recipient',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText(/t:to/)).toBeInTheDocument();
+    expect(screen.getByText('-5')).toHaveClass('text-negative-tint-ink');
   });
 
   it('trims the address when compact even on desktop (compact branch)', () => {

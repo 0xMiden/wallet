@@ -500,7 +500,7 @@ describe('useTransactionSummaryBadgeContent', () => {
 // assertion for the same reason the network-banner registry is one - the fills are attributes on
 // an inline SVG, and jsdom does not resolve `var()` in an attribute, so a render assertion would
 // only ever read the literal string back.
-describe('the badge paints no retired activity hue of its own', () => {
+describe('the badge paints no activity hue of its own', () => {
   const source = readFileSync(join(__dirname, 'TransactionSummaryBadge.tsx'), 'utf8');
 
   it('takes the send arrow from the activity token', () => {
@@ -511,8 +511,34 @@ describe('the badge paints no retired activity hue of its own', () => {
     expect(source).toContain("fillForArrow: 'var(--tx-swap)'");
   });
 
-  it.each(['#91ACC1', '#BEACD2', '#99AC94', '#CCA4B8'])('carries no retired hue (%s)', hex => {
-    expect(source).not.toContain(hex);
+  // Hex colours live in one place: ARROW_INK, whose hex keys are the fill spellings a caller can pass
+  // (TRANSACTION_COLORS' and main.css's lowercase faucet rose) and whose values are fixed arrow inks.
+  // Anywhere else a hex is a mirrored hue, retired or current, in any case and any CSS length. Comments
+  // are dropped first, since an issue cited as #1074 reads as a hex; the lookbehind keeps a URL's `//`.
+  const HEX = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b/gi;
+  const hexIn = (text: string) => text.replace(/\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm, '').match(HEX) ?? [];
+  const start = source.indexOf('export const ARROW_INK = {');
+  const end = source.indexOf('} as const satisfies', start);
+  const table = start === -1 || end === -1 ? '' : source.slice(start, end);
+
+  it('holds no hex colour outside the arrow-ink table', () => {
+    expect(table).not.toBe('');
+    expect(hexIn(source.replace(table, ''))).toEqual([]);
+  });
+
+  it('reads a hex in code, and not an issue cited in a comment', () => {
+    const fixture = [
+      '// see #1074',
+      '/** (#775) */',
+      "const ink = '#91acc1'; // #1234",
+      "const ns = 'http://www.w3.org/2000/svg', hue = '#abc';",
+      "const id = '#12345';"
+    ].join('\n');
+    expect(hexIn(fixture)).toEqual(['#91acc1', '#abc']);
+  });
+
+  it('keeps only the allowed fill spellings and inks in the arrow-ink table', () => {
+    expect([...new Set(hexIn(table))].sort()).toEqual(['#191919', '#777487', '#BA839F', '#ba839f', '#ffffff'].sort());
   });
 });
 

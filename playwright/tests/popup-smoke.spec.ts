@@ -1,3 +1,5 @@
+import type { BrowserContext } from '@playwright/test';
+
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
@@ -28,6 +30,26 @@ const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(patt
  * its own can tell "handed off" apart from "still on the confirmation screen".
  */
 const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
+
+const openSeedPhraseImport = async (extensionContext: BrowserContext, extensionId: string) => {
+  const page = await extensionContext.newPage();
+  await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
+
+  const welcome = page.getByTestId('onboarding-welcome');
+  await welcome.waitFor({ timeout: 30000 });
+  if (page.isClosed()) {
+    throw new Error('Page closed before onboarding');
+  }
+  await page.locator('#import-link').click();
+
+  await acknowledgeNetworkNotice(page, 15000);
+  // Import now asks WHICH credential first; this flow is the seed-phrase one.
+  await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+  await page.getByTestId('import-type-seed-phrase').click();
+  const seedForm = page.getByTestId('import-seed-phrase');
+  await seedForm.waitFor({ timeout: 15000 });
+  return { page, seedForm };
+};
 
 test.describe('Fullpage UI', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
@@ -141,25 +163,7 @@ test.describe('Fullpage UI', () => {
     extensionContext,
     extensionId
   }) => {
-    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
-    const page = await extensionContext.newPage();
-
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-
-    const welcome = page.getByTestId('onboarding-welcome');
-    await welcome.waitFor({ timeout: 30000 });
-    if (page.isClosed()) {
-      throw new Error('Page closed before onboarding');
-    }
-    await page.locator('#import-link').click();
-
-    // Acknowledge the network notice before entering the seed phrase.
-    await acknowledgeNetworkNotice(page, 15000);
-    // Import now asks WHICH credential first: a seed phrase or an encrypted
-    // wallet file. This flow is the seed-phrase one.
-    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
-    await page.getByTestId('import-type-seed-phrase').click();
-    await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
+    const { page } = await openSeedPhraseImport(extensionContext, extensionId);
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
       ' '
@@ -207,24 +211,7 @@ test.describe('Fullpage UI', () => {
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
-    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
-    const page = await extensionContext.newPage();
-
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-
-    const welcome = page.getByTestId('onboarding-welcome');
-    await welcome.waitFor({ timeout: 30000 });
-    if (page.isClosed()) {
-      throw new Error('Page closed before onboarding');
-    }
-    await page.locator('#import-link').click();
-
-    await acknowledgeNetworkNotice(page, 15000);
-    // Import now asks WHICH credential first; this flow is the seed-phrase one.
-    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
-    await page.getByTestId('import-type-seed-phrase').click();
-    const seedForm = page.getByTestId('import-seed-phrase');
-    await seedForm.waitFor({ timeout: 15000 });
+    const { page, seedForm } = await openSeedPhraseImport(extensionContext, extensionId);
 
     const continueButton = page.getByRole('button', { name: /continue/i });
     await seedForm.locator('#seed-phrase-input-0').fill('notaword');
@@ -238,6 +225,25 @@ test.describe('Fullpage UI', () => {
     }
 
     await expect(continueButton).toBeEnabled();
+  });
+
+  test('import seed phrase: Enter moves to the next word, and on the last word focus stays (desktop)', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    const { seedForm } = await openSeedPhraseImport(extensionContext, extensionId);
+
+    const first = seedForm.locator('#seed-phrase-input-0');
+    await first.fill('abandon');
+    await first.press('Enter');
+    await expect(seedForm.locator('#seed-phrase-input-1')).toBeFocused();
+
+    // The extension is a desktop surface: there is no soft keyboard for Done to dismiss, so
+    // Enter on the last word keeps focus there instead of blurring to body.
+    const last = seedForm.locator('#seed-phrase-input-11');
+    await last.fill('about');
+    await last.press('Enter');
+    await expect(last).toBeFocused();
   });
 
   test('send flow renders and stays disabled without inputs', async ({ extensionContext, extensionId }) => {

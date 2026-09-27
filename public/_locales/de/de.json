@@ -616,6 +616,7 @@
   "newDeviceKey": "Neuer Alltagsschlüssel",
   "replaceHotKeyDescription": "Generieren Sie einen neuen Alltagsschlüssel und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie vermuten, dass Ihr Gerät kompromittiert wurde.",
   "replaceHotKeyConfirmation": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold-Schlüssel) signiert. Ihre Wiederherstellungsphrase wird nicht benötigt, und Ihr Guthaben sowie Ihr Konto bleiben unverändert. Weiter?",
+  "replaceHotKeyConfirmationSeedRequired": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold-Schlüssel) signiert. Sie werden zur Eingabe Ihrer Wiederherstellungsphrase aufgefordert, um die Signatur zu erstellen; Ihr Guthaben und Ihr Konto bleiben dabei unverändert. Möchten Sie fortfahren?",
   "confirmReplaceHotKey": "Drehung bestätigen",
   "hotKeyRotationOverlayTitle": "Rotation Ihres Alltagsschlüssels",
   "hotKeyRotationOverlayBody": "Dein Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn du ein wiederhergestelltes Konto einrichtest, damit es synchronisiert werden und Transaktionen durchführen kann.",

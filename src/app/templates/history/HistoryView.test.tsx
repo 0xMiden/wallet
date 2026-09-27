@@ -179,10 +179,14 @@ jest.mock('./HistoryItem', () => ({
   )
 }));
 
-// isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
-// each entry can opt into the faucet branch independently.
+// isFaucetRequest: driven off a test-only `__faucet` marker so each entry can opt into the faucet
+// branch independently, and, like the real one, true only for an entry that is a receive.
+type MockFaucetEntry = { __faucet?: boolean; transactionIcon?: string; txType?: string };
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isFaucetRequest: jest.fn(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  ),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
@@ -192,35 +196,30 @@ jest.mock('./transactionUtils', () => ({
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
-// InfiniteScroll: render children inline, invoke getScrollParent so the
-// `() => scrollParentRef.current` closure is exercised, and expose a button
-// that drives loadMore.
+// The props the view last handed the scroller, so a test can read the scroll parent and ask for a page
+// when the real scroller would: after render, not during it.
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+  useWindow?: boolean;
+  getScrollParent?: () => HTMLElement | null;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({
-    children,
-    loadMore,
-    hasMore,
-    getScrollParent
-  }: {
-    children: React.ReactNode;
-    loadMore: (page: number) => void;
-    hasMore: boolean;
-    getScrollParent?: () => unknown;
-  }) => {
-    const parent = getScrollParent?.();
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
     return (
-      <div data-testid="infinite-scroll" data-hasmore={String(hasMore)} data-hasparent={String(Boolean(parent))}>
-        <button data-testid="load-more" onClick={() => loadMore(2)}>
-          load
-        </button>
-        {children}
+      <div data-testid="infinite-scroll" data-hasmore={String(props.hasMore)}>
+        {props.children}
       </div>
     );
   }
@@ -258,7 +257,11 @@ const iconNameIn = (row: HTMLElement) => within(row).getByTestId('icon').getAttr
 beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
-  (isFaucetRequest as jest.Mock).mockImplementation((entry: { __faucet?: boolean }) => Boolean(entry.__faucet));
+  mockScroller.props = undefined;
+  (isFaucetRequest as jest.Mock).mockImplementation(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  );
 });
 
 const noop = jest.fn();
@@ -546,16 +549,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txId: 'tx-swap-notoken',
       timestamp: DAY_B
     }),
-    // Faucet whose icon is NOT receive: covers the `icon==='RECEIVE' || faucet`
-    // right-hand branch for the "from" subtitle, plus a short address.
+    // A faucet claim still in flight (no icon yet): the faucet glyph, a positive amount and the
+    // "from" subtitle, plus a short address.
     makeEntry({
-      key: 'faucet-send',
+      key: 'faucet-in-flight',
       __faucet: true,
-      transactionIcon: 'SEND',
+      txType: 'consume',
       secondaryAddress: 'shortaddr',
       amount: '1',
       token: 'MDN',
-      txId: 'tx-faucet-send',
+      txId: 'tx-faucet-in-flight',
       timestamp: DAY_B
     }),
     // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
@@ -800,7 +803,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '');
   });
 
-  it('renders a faucet row whose icon is not RECEIVE, still using the "from" subtitle', () => {
+  it('renders a faucet claim in flight with the faucet glyph and the "from" subtitle', () => {
     renderFull();
     // Two faucet rows share the title; pick the one with the short address.
     const row = screen
@@ -1080,6 +1083,43 @@ describe('HistoryView batch-claim extra assets', () => {
   });
 });
 
+// A claim in flight has no icon yet (its entry is built from the transaction row), so the
+// direction comes from its type (#1102).
+describe('HistoryView claims in flight', () => {
+  const renderPending = (overrides: EntryOverrides) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'pending',
+            type: HistoryEntryType.PendingTransaction,
+            message: 'Generating transaction',
+            secondaryAddress: 'shortaddr',
+            amount: '3',
+            token: 'MDN',
+            txId: 'tx-pending',
+            ...overrides
+          })
+        ]}
+        fullHistory
+      />
+    );
+    return screen.getByTestId('activity-row');
+  };
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const row = renderPending({ txType: 'consume' });
+    expect(row).toHaveAttribute('data-subtitle', 'from: shortaddr');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('keeps a send in flight reading "to" its recipient', () => {
+    const row = renderPending({ txType: 'send' });
+    expect(row).toHaveAttribute('data-subtitle', 'to: shortaddr');
+  });
+});
+
 describe('HistoryView infinite scroll wiring', () => {
   const twoEntries = [
     makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: '1', token: 'MDN' }),
@@ -1089,24 +1129,41 @@ describe('HistoryView infinite scroll wiring', () => {
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
     const parent = document.createElement('div');
     const loadMore = jest.fn();
+    const ref: { current: HTMLDivElement | null } = { current: null };
+    render(
+      <HistoryView {...baseProps} entries={twoEntries} fullHistory hasMore loadMore={loadMore} scrollParentRef={ref} />
+    );
+    // Attached after render, as the page's ref is, so a scroll parent read during render comes back null.
+    ref.current = parent;
+
+    expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-hasmore', 'true');
+    const scroller = mockScroller.props;
+    expect(Object.keys(scroller ?? {}).sort()).toEqual([
+      'children',
+      'getScrollParent',
+      'hasMore',
+      'loadMore',
+      'useWindow'
+    ]);
+    expect(scroller?.useWindow).toBe(false);
+    expect(scroller?.getScrollParent?.()).toBe(parent);
+    expect(loadMore).not.toHaveBeenCalled();
+    scroller?.loadMore(2);
+    expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-row')).toHaveLength(2);
+  });
+
+  it('tells the scroller when the history is exhausted', () => {
     render(
       <HistoryView
         {...baseProps}
         entries={twoEntries}
         fullHistory
-        hasMore
-        loadMore={loadMore}
-        scrollParentRef={{ current: parent }}
+        hasMore={false}
+        scrollParentRef={{ current: document.createElement('div') }}
       />
     );
-
-    const scroller = screen.getByTestId('infinite-scroll');
-    expect(scroller).toHaveAttribute('data-hasmore', 'true');
-    // getScrollParent() resolved to the provided ref's current element.
-    expect(scroller).toHaveAttribute('data-hasparent', 'true');
-
-    fireEvent.click(screen.getByTestId('load-more'));
-    expect(loadMore).toHaveBeenCalledWith(2);
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('renders the plain list (no InfiniteScroll) when scrollParentRef is absent', () => {

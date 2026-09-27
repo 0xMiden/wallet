@@ -117,6 +117,16 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   };
 };
 
+/**
+ * Whether the wallet received this entry. A settled receive carries the `RECEIVE` icon; a claim
+ * still queued or processing has none, because the pending entries History builds do not copy the
+ * row's `displayIcon`, so it is recognised by its type.
+ */
+export const isReceiveEntry = (
+  entry: Pick<IHistoryEntry, 'transactionIcon'> & { txType?: IHistoryEntry['txType'] }
+): boolean =>
+  entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
+
 export const isFaucetRequest = (
   entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
     txType?: IHistoryEntry['txType'];
@@ -124,10 +134,7 @@ export const isFaucetRequest = (
 ): boolean => {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
-  // A queued or processing claim's entry is built from the transaction row, which has no icon.
-  const receives =
-    entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
-  return receives && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
+  return isReceiveEntry(entry) && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
 };
 
 export const isCompletedTransaction = (message: string): boolean => {
