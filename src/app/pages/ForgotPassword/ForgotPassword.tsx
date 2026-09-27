@@ -40,11 +40,11 @@ const ForgotPassword: FC = () => {
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
   const { registerWallet } = useMidenContext();
-  // Guardian auto-detection (issue #418). This flow has no recovery-method
-  // screen, so the probe is invisible: it starts at seed submit and its winner
-  // is written to the guardian-URL setting just before registering. When it
-  // finds nothing (or is still running at the deadline) the previously stored
-  // endpoint is used, exactly as before.
+  // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
+  // its winner is passed to registerWallet unless the user picked an endpoint on
+  // the recovery-method step. The stored legacy guardian URL is only read as a
+  // fallback, by the backend, when the probe finds nothing (or is still running
+  // at the deadline).
   const guardianProbe = useGuardianProbe();
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;

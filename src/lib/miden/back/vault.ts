@@ -2342,9 +2342,10 @@ export class Vault {
    * `resolveGuardianDrift` uses at runtime — then stamps the operator's endpoint
    * plus the commitment baseline onto the record. After that,
    * `resolveGuardianEndpoint` reads the per-account field instead of the legacy
-   * global `GUARDIAN_URL_STORAGE_KEY` (which stage 3 froze as a read-only,
-   * never-written last-resort fallback rather than removing — a legacy account
-   * on a custom guardian the backfill can't resolve still needs it).
+   * global `GUARDIAN_URL_STORAGE_KEY`. Stage 3 froze that key: it is never
+   * written, a wallet that is only ever unlocked keeps it (a legacy account on a
+   * custom guardian the backfill can't resolve still needs it), and it is dropped
+   * once a setup succeeds and by a full reset.
    *
    * The built-in-operator commitment→option map is built ONCE up front
    * (`buildOperatorKeyMap`) and each account's on-chain commitment is looked up

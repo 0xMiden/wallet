@@ -191,7 +191,7 @@ jest.mock('./dapp', () => ({
   waitForTransaction: jest.fn()
 }));
 
-// `clear` is what the failed-restore undo calls through clearStorage; without it
+// The failed-restore undo reaches `storage.local.remove` through clearStorage; without it
 // the undo throws inside a finally and masks the failure it was undoing.
 const mockStorageRemove = jest.fn().mockResolvedValue(undefined);
 
