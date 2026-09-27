@@ -44,6 +44,7 @@
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] Resetting or recovering a wallet from the forgot-password screen no longer hangs on the confirmation spinner when a storage step fails, before or after local data is cleared: the error shows and Retry works (#1093).
+- [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 
