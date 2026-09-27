@@ -39,9 +39,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 const mockFetchFromStorage = jest.fn();
 const mockPutToStorage = jest.fn();
+const mockInvalidateStorageCache = jest.fn();
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: (...a: unknown[]) => mockFetchFromStorage(...a),
-  putToStorage: (...a: unknown[]) => mockPutToStorage(...a)
+  putToStorage: (...a: unknown[]) => mockPutToStorage(...a),
+  invalidateStorageCache: (...a: unknown[]) => mockInvalidateStorageCache(...a)
 }));
 
 const mockBrowserStorageClear = jest.fn();
@@ -76,6 +78,7 @@ beforeEach(() => {
   (isExtension as jest.Mock).mockReturnValue(false);
   mockFetchFromStorage.mockResolvedValue(null);
   mockPutToStorage.mockResolvedValue(undefined);
+  mockInvalidateStorageCache.mockResolvedValue(undefined);
 });
 
 describe('clearStorage', () => {
@@ -169,6 +172,33 @@ describe('resetStorageDestructive', () => {
     expect(mockDbDelete).toHaveBeenCalled();
     expect(mockDbOpen).toHaveBeenCalled();
     expect(mockBrowserStorageClear).toHaveBeenCalled();
+  });
+});
+
+describe('the storage cache after a key-value wipe (#1148)', () => {
+  const resets: [string, () => Promise<void>][] = [
+    ['clearStorage', () => clearStorage()],
+    ['resetStorageDestructive', () => resetStorageDestructive()]
+  ];
+
+  it.each(resets)('%s re-reads the cached storage keys after the platform clear', async (_, reset) => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+
+    await reset();
+
+    expect(mockInvalidateStorageCache).toHaveBeenCalledTimes(1);
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockInvalidateStorageCache.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it.each(resets)('%s still re-reads the cached storage keys when the platform clear fails', async (_, reset) => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    mockBrowserStorageClear.mockRejectedValueOnce(new Error('clear failed'));
+
+    await expect(reset()).rejects.toThrow('clear failed');
+
+    expect(mockInvalidateStorageCache).toHaveBeenCalledTimes(1);
   });
 });
 

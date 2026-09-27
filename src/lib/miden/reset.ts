@@ -1,4 +1,4 @@
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { fetchFromStorage, invalidateStorageCache, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
@@ -64,7 +64,13 @@ export async function clearStorage(clearDb: boolean = true) {
     // promises that resetting app data removes both.
     await Repo.spendingLimits.clear();
   }
-  await clearPlatformKeyValueStorage();
+  try {
+    await clearPlatformKeyValueStorage();
+  } finally {
+    // A reader mounted after the wipe would otherwise render the previous wallet's cached value, and a wipe that
+    // failed part way has still removed keys.
+    await invalidateStorageCache();
+  }
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
@@ -81,7 +87,11 @@ export async function clearStorage(clearDb: boolean = true) {
 export async function resetStorageDestructive() {
   await Repo.db.delete();
   await Repo.db.open();
-  await clearPlatformKeyValueStorage();
+  try {
+    await clearPlatformKeyValueStorage();
+  } finally {
+    await invalidateStorageCache();
+  }
   await resetNativeAssetCache();
 }
 

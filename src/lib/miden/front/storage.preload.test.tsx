@@ -1,10 +1,11 @@
 import React, { Suspense } from 'react';
 
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 
-import { preloadStorage, usePassiveStorage, useStorage } from './storage';
+import { invalidateStorageCache, preloadStorage, putToStorage, usePassiveStorage, useStorage } from './storage';
 
 // Real SWR and real suspense: the regression is a storage hook suspending the whole app on unlock.
 
@@ -17,8 +18,17 @@ type StorageChangeHandler = (
   changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
   areaName: string
 ) => void;
-const mockAddListener = jest.fn<void, [StorageChangeHandler]>();
-const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>();
+// The listeners still attached, so a test can emit a change the way the browser does: to every one of them.
+const mockChangeListeners = new Set<StorageChangeHandler>();
+const mockAddListener = jest.fn<void, [StorageChangeHandler]>(handler => {
+  mockChangeListeners.add(handler);
+});
+const mockRemoveListener = jest.fn<void, [StorageChangeHandler]>(handler => {
+  mockChangeListeners.delete(handler);
+});
+const emitStorageChange: StorageChangeHandler = (changes, areaName) => {
+  mockChangeListeners.forEach(handler => handler(changes, areaName));
+};
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
@@ -503,6 +513,97 @@ describe('storage hooks (#1148)', () => {
 
       expect(screen.getByTestId('value').textContent).toBe('new');
       expect(mockGet.mock.calls.length - callsBefore).toBeLessThanOrEqual(2);
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+});
+
+describe('storage writes and wipes (#1148)', () => {
+  it('shows a value written through putToStorage after its reader remounts', async () => {
+    mockStored['put-key'] = 'old';
+    await preloadStorage(['put-key']);
+    const first = renderReader('put-key');
+    // Let the mount's own SWR revalidation settle before the write.
+    await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+    first.unmount();
+
+    await putToStorage('put-key', 'new');
+    renderReader('put-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a putToStorage write supersedes a preload still in flight', async () => {
+    mockStored['put-race-key'] = 'old';
+    await preloadStorage(['put-race-key']);
+
+    const release = deferredRead('put-race-key', 'old');
+    const pending = preloadStorage(['put-race-key']);
+    await putToStorage('put-race-key', 'new');
+    release();
+    await pending;
+    renderReader('put-race-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('keeps a key that was only ever written out of the SWR cache', async () => {
+    await putToStorage('written-only-key', 'written');
+
+    expect(SWRConfig.defaultValue.cache.get('written-only-key')).toBeUndefined();
+  });
+
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])('gives a %s reader mounted after a wipe the fallback, not the value cached before it', async (hook, Component) => {
+    const key = `wiped-${hook}-key`;
+    mockStored[key] = 'EUR';
+    await preloadStorage([key]);
+    delete mockStored[key];
+
+    await invalidateStorageCache();
+    renderReader(key, Component);
+
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it('gives a passive reader the fallback after the extension wipes a key no reader had mounted', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-wiped-key'] = 'EUR';
+      await preloadStorage(['extension-wiped-key']);
+      // Let a listener's dynamic import of the browser API resolve.
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      delete mockStored['extension-wiped-key'];
+      await act(async () => {
+        emitStorageChange({ 'extension-wiped-key': { oldValue: 'EUR' } }, 'local');
+      });
+      renderReader('extension-wiped-key', PassiveReader);
+
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it('leaves the cache alone for a change in another storage area or of a key no read cached', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-kept-key'] = 'EUR';
+      await preloadStorage(['extension-kept-key']);
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      await act(async () => {
+        emitStorageChange({ 'extension-kept-key': { oldValue: 'EUR' } }, 'sync');
+        emitStorageChange({ 'extension-uncached-key': { newValue: 'written' } }, 'local');
+      });
+      renderReader('extension-kept-key', PassiveReader);
+
+      expect(screen.getByTestId('value').textContent).toBe('EUR');
+      expect(SWRConfig.defaultValue.cache.get('extension-uncached-key')).toBeUndefined();
     } finally {
       jest.mocked(isExtension).mockReturnValue(false);
     }

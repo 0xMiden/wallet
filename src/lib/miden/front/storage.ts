@@ -25,10 +25,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
       const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
-      preloadReads.delete(key);
       await putToStorage(key, nextValue);
-      // The cache backs every reader of this key; off the extension no change event updates it.
-      await mutateCache(key, nextValue, { revalidate: false });
       valueRef.current = nextValue;
     },
     [key]
@@ -52,9 +49,7 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
     const put = async () => {
       if (prevValue.current !== value) {
         prevValue.current = value;
-        preloadReads.delete(key);
         await putToStorage(key, value);
-        await mutateCache(key, value, { revalidate: false });
       }
     };
     put();
@@ -106,16 +101,45 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight, with its value once it lands. A hook read, a write, or a later preload
-// removes or replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces
-// whatever the cache holds.
+// Each key's preload read still in flight, with its value once it lands. Whatever supersedes a preload (see
+// preloadStorage) removes or replaces its entry, so a preload still holding it when it lands is the key's newest read.
 interface PreloadRead {
   read: Promise<unknown>;
   landed?: { value: unknown };
 }
 const preloadReads = new Map<string, PreloadRead>();
 
+// The keys a hook read or a landed preload put in the SWR cache. Writes, wipes and change events update only these,
+// so a key nobody read never gets a cache entry.
+const cachedKeys = new Set<string>();
+let listeningForChanges = false;
+
+function markCached(key: string) {
+  cachedKeys.add(key);
+  if (!listeningForChanges && isExtension()) {
+    listeningForChanges = true;
+    listenForChanges();
+  }
+}
+
+// A useStorage hook hears a change only while mounted, but the service worker or the options page can write or wipe
+// a key this page cached for a passive reader or a preload no hook has read yet.
+function listenForChanges() {
+  import('webextension-polyfill').then(browserModule => {
+    browserModule.default.storage.onChanged.addListener(
+      (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
+        if (areaName !== 'local') return;
+        for (const key of Object.keys(changes)) {
+          // A removed key reads as null; an undefined cache entry would suspend its next reader instead.
+          if (cachedKeys.has(key)) void mutateCache(key, changes[key]!.newValue ?? null, { revalidate: false });
+        }
+      }
+    );
+  });
+}
+
 async function fetchForHook(key: string): Promise<unknown> {
+  markCached(key);
   const preload = preloadReads.get(key);
   preloadReads.delete(key);
   try {
@@ -131,7 +155,8 @@ async function fetchForHook(key: string): Promise<unknown> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A key whose read a hook, a write, or a later preload started meanwhile is left to that newer read.
+ * A hook read, a `putToStorage` write, an `invalidateStorageCache` re-read or a later preload of a key, started
+ * meanwhile, supersedes the key's preload, and the cache keeps that newer value.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -146,6 +171,7 @@ export async function preloadStorage(
         const value = await entry.read;
         entry.landed = { value };
         if (preloadReads.get(key) !== entry) return;
+        markCached(key);
         await mutateCache(key, value, { revalidate: false });
       } finally {
         if (preloadReads.get(key) === entry) preloadReads.delete(key);
@@ -163,6 +189,23 @@ export async function preloadStorage(
 }
 
 export async function putToStorage<T = any>(key: string, value: T) {
-  const storage = getStorageProvider();
-  return await storage.set({ [key]: value });
+  preloadReads.delete(key);
+  await getStorageProvider().set({ [key]: value });
+  // The cache backs every reader of this key; off the extension no change event updates it.
+  if (cachedKeys.has(key)) await mutateCache(key, value, { revalidate: false });
+}
+
+/**
+ * Re-reads every storage key the SWR cache holds, after a wipe of the key-value store, so a reader
+ * mounted afterwards renders what storage now holds rather than the previous wallet's value.
+ * A key whose read fails keeps its cached value; the others still update.
+ */
+export async function invalidateStorageCache(): Promise<void> {
+  await Promise.allSettled(
+    [...cachedKeys].map(key => {
+      preloadReads.delete(key);
+      // With data, not a bare mutate(key), which SWR only turns into a revalidation of a mounted hook.
+      return mutateCache(key, fetchFromStorage(key), { revalidate: false });
+    })
+  );
 }
