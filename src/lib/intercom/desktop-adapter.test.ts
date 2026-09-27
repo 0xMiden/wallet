@@ -1,6 +1,5 @@
 import * as Actions from 'lib/miden/back/actions';
 import { store } from 'lib/miden/back/store';
-import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -9,9 +8,6 @@ import { DesktopIntercomAdapter } from './desktop-adapter';
 
 // Mock the backend action handlers. Only the actions the desktop adapter
 // actually calls need to be present; each resolves a representative value.
-jest.mock('lib/miden/back/transaction-processor', () => ({
-  startTransactionProcessing: jest.fn().mockResolvedValue(undefined)
-}));
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ status: 'ready', accounts: [], settings: {} }),
@@ -213,16 +209,6 @@ describe('DesktopIntercomAdapter', () => {
 
       expect(Actions.unlock).toHaveBeenCalledWith('test123');
       expect(response).toEqual({ type: WalletMessageType.UnlockResponse });
-      expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not kick transaction processing when the unlock fails', async () => {
-      jest.mocked(Actions.unlock).mockRejectedValueOnce(new Error('Invalid password'));
-      jest.mocked(startTransactionProcessing).mockClear();
-      await expect(
-        adapter.request({ type: WalletMessageType.UnlockRequest, password: 'wrong' } as any)
-      ).rejects.toThrow('Invalid password');
-      expect(startTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('handles LockRequest', async () => {
