@@ -2941,34 +2941,38 @@ describe('HomePrompts', () => {
 
   it('marks the copy action failed when the clipboard rejects', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    mockClipboardWrite.mockRejectedValue(new Error('denied'));
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
+    try {
+      mockClipboardWrite.mockRejectedValue(new Error('denied'));
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({
+          storage: {
+            version: 1,
+            prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+            pendingNotesDismissedIds: []
+          },
+          isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+        })
+      );
 
-    render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => {
-      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
-    });
-    errorSpy.mockRestore();
+      fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+      await waitFor(() => {
+        expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+      });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {

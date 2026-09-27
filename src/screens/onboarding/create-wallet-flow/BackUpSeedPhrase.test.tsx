@@ -293,15 +293,21 @@ describe('BackUpSeedPhraseScreen', () => {
     // used to report success without awaiting it, on the one value where that costs the most.
     it('says nothing was copied when the write fails', async () => {
       mockClipboardWrite.mockRejectedValueOnce(new Error('denied'));
-      renderComponent();
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        renderComponent();
 
-      await act(async () => {
-        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
-      });
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+        });
 
-      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
-      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+        expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
 
     // The local version armed a timeout it never cleared, so a Continue inside the window left it

@@ -175,36 +175,45 @@ describe('reduced motion', () => {
 
 it('shows no success when the clipboard write rejects', async () => {
   mockWrite.mockRejectedValue(new Error('denied'));
-  render(<CopyButton text="0xabc123" data-testid="copy" icon="leading" />);
-  const button = screen.getByTestId('copy');
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    render(<CopyButton text="0xabc123" data-testid="copy" icon="leading" />);
+    const button = screen.getByTestId('copy');
 
-  await tap(button);
+    await tap(button);
 
-  expect(presentLabel(button)).toHaveTextContent(/^copy$/);
-  expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
-  expect(button).toHaveAttribute('data-copied', 'false');
-  expect(button.querySelector('[data-copy-state="copied"]')).toBeNull();
+    expect(presentLabel(button)).toHaveTextContent(/^copy$/);
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
+    expect(button).toHaveAttribute('data-copied', 'false');
+    expect(button.querySelector('[data-copy-state="copied"]')).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 it('reads "Copy" again as soon as a failed tap lands inside the window of a successful one', async () => {
   jest.useFakeTimers();
   const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-  render(<CopyButton text="0xabc123" data-testid="copy" />);
-  const button = screen.getByTestId('copy');
+  try {
+    render(<CopyButton text="0xabc123" data-testid="copy" />);
+    const button = screen.getByTestId('copy');
 
-  await tap(button);
-  expect(button).toHaveAttribute('data-copied', 'true');
+    await tap(button);
+    expect(button).toHaveAttribute('data-copied', 'true');
 
-  act(() => {
-    jest.advanceTimersByTime(COPY_FEEDBACK_MS / 3);
-  });
-  mockWrite.mockRejectedValueOnce(new Error('denied'));
-  await tap(button);
+    act(() => {
+      jest.advanceTimersByTime(COPY_FEEDBACK_MS / 3);
+    });
+    mockWrite.mockRejectedValueOnce(new Error('denied'));
+    await tap(button);
 
-  expect(button).toHaveAttribute('data-copied', 'false');
-  expect(presentLabel(button)).toHaveTextContent(/^copy$/);
-
-  errorSpy.mockRestore();
+    expect(button).toHaveAttribute('data-copied', 'false');
+    expect(presentLabel(button)).toHaveTextContent(/^copy$/);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 it('forwards aria-label and stays disableable', () => {
