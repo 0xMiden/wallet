@@ -98,7 +98,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
   const tabBarMotion = useTabBarMotion();
   // TabLayout keeps the Home pane mounted, hidden, while another tab shows, and hands this bar its new
   // segment only in the commit that shows the Home tab again. That commit takes the new state at once,
-  // as the carousel under it does: the pill sliding over from the segment you left, with every segment
+  // as the carousel under it does: the pill sliding over from the segment you left, with the segments
   // resizing, would read as a glitch. A slide page closing back onto Home is not this case (the carousel
   // animates that reveal too), so this reads the tab-only signal, not the page/layer one. One decision
   // here drives the pill, the segments, the label and (below) the icon's own layout move.
