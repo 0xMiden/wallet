@@ -42,7 +42,7 @@
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
-- [FIX][e2e] Mobile `claimAllNotes` confirms a claim by draining the Pending list to two consecutive empty reads, as Chrome does, instead of reading a balance total that the account's funded native asset already made positive and that a claim below its fee left flat (#1008).
+- [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 
 ## 1.16.2 (2026-09-24)
 
