@@ -38,7 +38,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
       value={item.id}
       asChild
       as="span"
-      className={cn('flex items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
+      // `min-w-0` lets this row shrink with its button, so a label too long for the bar reaches its ellipsis.
+      className={cn('flex min-w-0 items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
     >
       <motion.button
         type="button"
@@ -82,7 +83,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative min-w-0 truncate font-bold text-pill max-[359px]:text-badge"
+            // Clips sideways only: `truncate`'s `overflow: hidden` also cut descenders (the "p" of "Swap").
+            className="relative min-w-0 overflow-x-clip text-ellipsis whitespace-nowrap font-bold text-pill max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}

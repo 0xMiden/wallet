@@ -141,7 +141,7 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Send')).not.toHaveClass('w-28');
     expect(getTab('Send')).not.toHaveClass('max-[359px]:w-24');
     expect(getTab('Send')).not.toHaveClass('flex-none');
-    expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1');
+    expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1', 'min-w-0');
 
     // Inactive: stretches to fill the row with no horizontal padding.
     expect(getTab('Receive')).toHaveClass('flex-1', 'px-0');
@@ -173,7 +173,9 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
 
     expect(screen.getByText('Send')).toHaveClass('font-bold');
     // A label that still cannot fit ends in an ellipsis; the tab's aria-label keeps it whole.
-    expect(screen.getByText('Send')).toHaveClass('min-w-0', 'truncate');
+    // Not `truncate`: its `overflow: hidden` clips a fitting label's descenders.
+    expect(screen.getByText('Send')).toHaveClass('min-w-0', 'overflow-x-clip', 'text-ellipsis', 'whitespace-nowrap');
+    expect(screen.getByText('Send')).not.toHaveClass('truncate');
     expect(getTab('Send')).toHaveAttribute('aria-label', 'Send');
     expect(getTab('Receive')).not.toHaveTextContent('Receive');
   });
