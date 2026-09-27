@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { clearClipboard } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -49,6 +49,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockImportAccount.mockResolvedValue('mtst1imported');
   mockUpdateCurrentAccount.mockResolvedValue(undefined);
+  (clearClipboard as jest.Mock).mockResolvedValue(true);
 });
 
 it('renders an accessible private-key import form', () => {
@@ -146,12 +147,54 @@ it('ignores a second submission while the first import is pending', async () => 
   await waitFor(() => expect(mockUpdateCurrentAccount).toHaveBeenCalledWith('mtst1imported'));
 });
 
-it('clears the clipboard when a secret is pasted', () => {
+it('clears the clipboard when a secret is pasted', async () => {
+  render(<ImportAccount />);
+
+  // The resolved mock drives a state update after the paste; act() flushes it so the update
+  // is not left dangling past the test's end (a warning today, real cross-test pollution once
+  // another test's render is on screen when it lands).
+  await act(async () => {
+    fireEvent.paste(screen.getByLabelText('privateKey'));
+  });
+
+  expect(clearClipboard).toHaveBeenCalledTimes(1);
+});
+
+it('shows a warning notice when a pasted key could not be removed from the clipboard', async () => {
+  (clearClipboard as jest.Mock).mockResolvedValue(false);
   render(<ImportAccount />);
 
   fireEvent.paste(screen.getByLabelText('privateKey'));
 
-  expect(clearClipboard).toHaveBeenCalledTimes(1);
+  const warning = await screen.findByTestId('import-account-clipboard-warning');
+  expect(warning).toHaveTextContent('privateKeyClipboardNotCleared');
+});
+
+it('shows no warning when the pasted key is removed from the clipboard', async () => {
+  (clearClipboard as jest.Mock).mockResolvedValue(true);
+  render(<ImportAccount />);
+
+  // `act` flushes the resolved promise's `.then` before this asserts, so a false positive
+  // (the warning was never rendered because nothing waited for the microtask) is ruled out.
+  await act(async () => {
+    fireEvent.paste(screen.getByLabelText('privateKey'));
+  });
+
+  expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument();
+});
+
+it('hides an earlier warning once a later paste clears the clipboard', async () => {
+  (clearClipboard as jest.Mock).mockResolvedValue(false);
+  render(<ImportAccount />);
+  const field = screen.getByLabelText('privateKey');
+
+  fireEvent.paste(field);
+  await screen.findByTestId('import-account-clipboard-warning');
+
+  (clearClipboard as jest.Mock).mockResolvedValue(true);
+  fireEvent.paste(field);
+
+  await waitFor(() => expect(screen.queryByTestId('import-account-clipboard-warning')).not.toBeInTheDocument());
 });
 
 it('shows an import failure without navigating or logging the secret', async () => {
