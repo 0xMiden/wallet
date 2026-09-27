@@ -11,6 +11,8 @@
 - [CHANGE][ci] Tests pin the usage-data and crash-reporting key defines in every build config that bundles them, and the dApp-bridge debug flag and update-flag define tests check the same way: deleting a define, commenting it out with // or adding a second entry for the same key fails a test, as does changing a telemetry key's empty default (#1118, #1147).
 - [CHANGE][ci] The Activity lists' paging tests now fail if a list stops handing the scroller its page loader, its scroll parent, whether more pages remain, or the setting that makes it listen on that parent (#1103).
 - [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
+- [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
+- [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
 
 ### Fixes
 
