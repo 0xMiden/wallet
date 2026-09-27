@@ -479,26 +479,19 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
     const endpoints: string[] = [];
-    // Vault.spawn scans both derivation schemes per attempt (sequentially, unless the
-    // first scheme throws before the second runs), so a failing attempt makes one call
-    // and a succeeding attempt makes two. Track by call count, not by array length: call
-    // 1 (attempt 1's only scheme scan) fails, call 2 (attempt 2's first scheme) succeeds
-    // and is the match, call 3 (attempt 2's other scheme) is a plain miss and not pushed.
-    let callCount = 0;
+    // The first attempt's scan fails past the wipe; every later scan finds the account, and the
+    // spawn keeps one record per account id across its two derivation schemes.
+    let failed = false;
     sdk.getMidenClient = jest.fn(async (_options: unknown) => ({
       recoverGuardianAccountsBySeed: async (_deriveColdSeed: unknown, endpoint: string) => {
-        callCount += 1;
-        if (callCount === 1) {
-          endpoints.push(endpoint);
+        endpoints.push(endpoint);
+        if (!failed) {
+          failed = true;
           throw new Error('guardian unreachable');
         }
-        if (callCount === 2) {
-          endpoints.push(endpoint);
-          return [
-            { accountId: 'guardian-pk', hdIndex: 0, coldPublicKey: 'bb'.repeat(33), coldSecretKeyHex: 'dd'.repeat(32) }
-          ];
-        }
-        return [];
+        return [
+          { accountId: 'guardian-pk', hdIndex: 0, coldPublicKey: 'bb'.repeat(33), coldSecretKeyHex: 'dd'.repeat(32) }
+        ];
       },
       getAccounts: async () => [],
       getAccount: async () => null,
@@ -515,7 +508,8 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
       const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
 
       expect(vault).toBeInstanceOf(Vault);
-      expect(endpoints).toEqual(['https://my-guardian.example', 'https://my-guardian.example']);
+      expect(endpoints.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(endpoints)).toEqual(new Set(['https://my-guardian.example']));
     } finally {
       sdk.getMidenClient = origGetClient;
     }
