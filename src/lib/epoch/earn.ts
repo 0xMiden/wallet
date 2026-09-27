@@ -33,13 +33,6 @@ import type { IntentResult } from './types';
  * `marketUid`/`action`/`payAsset` extraData, and a non-zero `protocolHashIdentifier`.
  */
 
-export {
-  getEarnCollateralFaucet,
-  MIDEN_USDC_DECIMALS,
-  MIDEN_USDC_FAUCET,
-  setEarnCollateralFaucetForTest
-} from './collateral';
-
 export function getEarnCollateralFaucetId(): string {
   return ifHextoBech32(getEarnCollateralFaucet());
 }

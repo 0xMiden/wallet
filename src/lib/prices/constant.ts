@@ -18,7 +18,7 @@
  * `PRICE_MAX_AGE_SECONDS` (600s) partway through a long journey - trading this gap for a flakier
  * one.
  */
-export const E2E_FIXTURE_SYMBOL = 'TST';
+const E2E_FIXTURE_SYMBOL = 'TST';
 export const isE2eFixtureSymbol = (symbol: string): boolean =>
   process.env.MIDEN_E2E_TEST === 'true' && symbol === E2E_FIXTURE_SYMBOL;
 
