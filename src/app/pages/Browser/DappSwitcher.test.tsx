@@ -45,8 +45,8 @@ jest.mock('framer-motion', () => {
 });
 
 describe('DappSwitcher', () => {
-  // A bare `layout` scales a card whose size changes (the grid's width on a rotation or split view),
-  // drawing its corners, shadow and contents stretched for the spring; the reflow only needs to move it.
+  // A bare `layout` would scale a card on any render that changed its size, drawing its corners, shadow
+  // and contents stretched for the spring; the reflow when a card closes only needs to move it.
   it('animates each card by position only, so a resize never scales it', () => {
     render(<DappSwitcher open onClose={jest.fn()} />);
 

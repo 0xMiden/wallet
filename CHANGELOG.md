@@ -18,6 +18,7 @@
 - [CHORE][all] The clipboard comments in the dApp actions sheet, the copy button and the recovery phrase backup test now point at useClipboardCopy's description of what @capacitor/clipboard does on each surface, instead of promising the call works where the Clipboard API is missing (#1088).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
+- [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 
 ### Fixes
 
@@ -40,7 +41,6 @@
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
-- [FIX][mobile] The open-dApps switcher's cards no longer stretch their corners, shadow and contents while the grid resizes (rotating the device, split view): a card takes its new size at once and only its position animates (#1048).
 
 ## 1.16.2 (2026-09-24)
 
