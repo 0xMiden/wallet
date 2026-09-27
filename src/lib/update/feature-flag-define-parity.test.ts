@@ -13,6 +13,11 @@ const read = (relative: string) =>
 // A key defined twice in one config: the later entry wins in the object literal, so it must appear once.
 const occurrences = (content: string, token: string) => content.split(token).length - 1;
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A define's whole entry, key through the closing parenthesis, with any whitespace a wrapped entry adds.
+const defineEntry = (key: string, expression: string) =>
+  new RegExp(`'process\\.env\\.${key}':\\s*JSON\\.stringify\\(\\s*${escapeRegExp(expression)}\\s*\\)`);
+
 const CONFIGS = fs
   .readdirSync(REPO_ROOT)
   .filter(file => /^vite\..+\.config\.ts$/.test(file))
@@ -35,7 +40,9 @@ describe('update notification build-time flag', () => {
   it.each(Object.entries(EXPECTED_DEFAULTS))('%s defines the supported-platform default', (config, defaultValue) => {
     const source = read(config);
     expect(occurrences(source, `'process.env.MIDEN_UPDATE_NOTIFICATIONS':`)).toBe(1);
-    expect(source).toContain(`process.env.MIDEN_UPDATE_NOTIFICATIONS ?? ${defaultValue}`);
+    expect(source).toMatch(
+      defineEntry('MIDEN_UPDATE_NOTIFICATIONS', `process.env.MIDEN_UPDATE_NOTIFICATIONS ?? ${defaultValue}`)
+    );
   });
 
   it('declares the flag in ProcessEnv', () => {
@@ -50,7 +57,7 @@ describe('update notification build-time flag', () => {
     config => {
       const source = read(config);
       expect(occurrences(source, `'process.env.MIDEN_E2E_TEST':`)).toBe(1);
-      expect(source).toContain(`process.env.MIDEN_E2E_TEST ?? 'false'`);
+      expect(source).toMatch(defineEntry('MIDEN_E2E_TEST', `process.env.MIDEN_E2E_TEST ?? 'false'`));
     }
   );
 });
