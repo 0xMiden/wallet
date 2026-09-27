@@ -72,7 +72,7 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
-// guardian/native-http is cycle-safe (it only pulls constants + platform).
+// guardian/native-http is cycle-safe (it only pulls constants, effective-endpoints + platform).
 import {
   getSignerDetailsFromAccount,
   insertGuardianAccountMonotonically,
