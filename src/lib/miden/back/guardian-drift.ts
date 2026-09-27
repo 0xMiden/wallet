@@ -4,7 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -373,7 +373,10 @@ export async function resolveGuardianDrift(
     );
     return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
   }
-  if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
+  // A respelling of the stored pointer (host case, a default port, a trailing
+  // slash) is the same operator and must not cut its cooldown short.
+  const probedEndpoint = driftProbeEndpoint.get(accountPublicKey);
+  if (probedEndpoint === undefined || !sameGuardianEndpoint(probedEndpoint, storedEndpoint)) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts
     // the new endpoint on its own window — whereas clearing the run from here
@@ -628,10 +631,12 @@ export async function resolveGuardianDrift(
       // A window continues the run only if it is about the same endpoint and lands
       // inside the contiguity band — no sooner than the cooldown (realm churn
       // clears the in-memory one, so without this five popup opens in ten seconds
-      // would buy the accusation) and no later than the maximum gap.
+      // would buy the accusation) and no later than the maximum gap. The run keeps
+      // the raw spelling it was written with, so "the same endpoint" is compared as
+      // an endpoint, never as text.
       const continues =
         previous !== undefined &&
-        previous.endpoint === storedEndpoint &&
+        sameGuardianEndpoint(previous.endpoint, storedEndpoint) &&
         now - previous.lastAt >= DRIFT_PROBE_COOLDOWN_MS &&
         now - previous.lastAt <= SILENT_DRIFT_RUN_MAX_GAP_MS;
       // Too SOON is not a restart — the evidence stands, this observation simply
@@ -639,7 +644,7 @@ export async function resolveGuardianDrift(
       // restart erase a genuine run.
       if (
         previous !== undefined &&
-        previous.endpoint === storedEndpoint &&
+        sameGuardianEndpoint(previous.endpoint, storedEndpoint) &&
         now - previous.lastAt < DRIFT_PROBE_COOLDOWN_MS
       )
         return unchanged;
@@ -714,38 +719,6 @@ export async function applyUserGuardianEndpoint(
 function normalizedEqual(a: string, b: string): boolean {
   const n = (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
   return n(a) === n(b);
-}
-
-/**
- * Are these two spellings the same Guardian endpoint?
- *
- * `sanitizeGuardianUrl` is the comparison the rest of the wallet uses (see
- * `RotateGuardian`), and it is not enough on its own here: a built-in
- * operator's endpoint is a literal in wallet config while the stored one may
- * have been typed by a user or written by an older build, so the two can differ
- * in host case as well as in a trailing slash. Reading a difference in case as
- * "a different operator" would rewrite the account's endpoint to an equivalent
- * URL and report `changed` for a tick that changed nothing real.
- *
- * Case is folded via `URL`, which lowercases only the scheme and host — the two
- * parts that ARE case-insensitive. A blanket `toLowerCase()` would also fold the
- * path, and a look-alike endpoint differing from a built-in only in path case
- * would then pass as that built-in and keep its self-report unchallenged. An
- * unparseable value can't be a working endpoint; compare it as plain text so it
- * still matches an identical spelling of itself.
- */
-function sameGuardianEndpoint(a: string, b: string): boolean {
-  return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
-}
-
-function canonicalGuardianEndpoint(raw: string): string {
-  const trimmed = sanitizeGuardianUrl(raw);
-  try {
-    const url = new URL(trimmed);
-    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}`;
-  } catch {
-    return trimmed.toLowerCase();
-  }
 }
 
 export { verifyEndpointMatchesCommitment };
