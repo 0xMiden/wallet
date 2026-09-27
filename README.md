@@ -65,12 +65,11 @@ Download the latest release: **https://miden.fi/**
 git clone https://github.com/0xMiden/miden-wallet.git
 cd miden-wallet
 
-# Copy environment file
-cp .env.example .env
-
 # Install dependencies
 yarn install
 ```
+
+Builds read the usage-data and crash-reporting keys only from the shell environment, never from `.env`. Set `APTABASE_APP_KEY` and `SENTRY_DSN` on a release build's own command line or in the release job's environment, or it ships with both off; a shell-wide `export` would carry them into every later dev and E2E build. Leave `APTABASE_HOST` unset unless the key is a self-hosted (`A-SH-*`) or development (`A-DEV-*`) one. See `.env.example`.
 
 ### Browser Extension
 
