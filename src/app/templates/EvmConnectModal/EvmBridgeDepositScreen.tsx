@@ -673,7 +673,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={quotedDeposit ? (formatBridgeOutputAmount(quotedDeposit) ?? quotedDeposit) : amount}
+              amount={formatBridgeOutputAmount(quotedDeposit) ?? amount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
               fiat={token === 'USDC' ? Number(depositAmount) : undefined}
               route={route}
