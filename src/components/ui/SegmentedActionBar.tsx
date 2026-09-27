@@ -58,8 +58,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
         style={{ borderRadius: '9999px' }}
         className={cn(
           // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
-          // pill's shadow off at the segment's edge. The active segment takes its label's width with
-          // today's width as the floor, so a longer translation grows it instead of spilling (#1069).
+          // pill's shadow off at the segment's edge. The active segment takes its label's width, never
+          // less than 112px (96px below 360px), so a longer translation grows it instead of spilling.
           'group flex h-12 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
@@ -84,7 +84,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
             key={`${item.id}-label`}
             layout="position"
             // Clips sideways only: `truncate`'s `overflow: hidden` also cut descenders (the "p" of "Swap").
-            className="relative min-w-0 overflow-x-clip text-ellipsis whitespace-nowrap font-bold text-pill max-[359px]:text-badge"
+            // Without `overflow: clip` (iOS 15) it falls back to hidden on a 20px line, which keeps them.
+            className="relative min-w-0 overflow-x-clip text-ellipsis whitespace-nowrap font-bold text-pill not-supports-[overflow:clip]:overflow-hidden not-supports-[overflow:clip]:leading-5 max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}

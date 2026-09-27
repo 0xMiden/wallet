@@ -147,14 +147,14 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Receive')).toHaveClass('flex-1', 'px-0');
     expect(getTab('Receive')).not.toHaveClass('w-28');
     // 44px keeps every inactive segment a touch target when the active one grows.
-    expect(getTab('Receive')).toHaveClass('min-w-11', 'flex-1');
+    expect(getTab('Receive')).toHaveClass('min-w-11');
     expect(getTab('Receive')).not.toHaveClass('min-w-28');
   });
 
-  it('keeps the 20px icon, so a label that fits today keeps its width', () => {
+  it('keeps the 20px icon unshrunk, so a label within the 112px floor keeps that width', () => {
     renderBar();
 
-    expect(iconOf(getTab('Send'))).toHaveClass('h-5', 'w-5');
+    expect(iconOf(getTab('Send'))).toHaveClass('h-5', 'w-5', 'shrink-0');
   });
 
   it('renders the pill and the label only inside the active tab', () => {
@@ -175,6 +175,11 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     // A label that still cannot fit ends in an ellipsis; the tab's aria-label keeps it whole.
     // Not `truncate`: its `overflow: hidden` clips a fitting label's descenders.
     expect(screen.getByText('Send')).toHaveClass('min-w-0', 'overflow-x-clip', 'text-ellipsis', 'whitespace-nowrap');
+    // Where `overflow: clip` is missing (iOS 15), hidden on a 20px line still ends in an ellipsis.
+    expect(screen.getByText('Send')).toHaveClass(
+      'not-supports-[overflow:clip]:overflow-hidden',
+      'not-supports-[overflow:clip]:leading-5'
+    );
     expect(screen.getByText('Send')).not.toHaveClass('truncate');
     expect(getTab('Send')).toHaveAttribute('aria-label', 'Send');
     expect(getTab('Receive')).not.toHaveTextContent('Receive');
