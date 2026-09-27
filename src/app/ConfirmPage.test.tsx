@@ -205,9 +205,15 @@ jest.mock('./templates/AccountBanner', () => ({
   __esModule: true,
   default: ({ networkRpc }: any) => <div data-testid="account-banner" data-rpc={networkRpc} />
 }));
+// The origin-clipping case sets this to walk the real banner inside ConfirmDAppForm.
+let mockRealConnectBanner = false;
 jest.mock('./templates/ConnectBanner', () => ({
   __esModule: true,
-  default: ({ origin }: any) => <div data-testid="connect-banner" data-origin={origin} />
+  default: (props: any) => {
+    if (!mockRealConnectBanner) return <div data-testid="connect-banner" data-origin={props.origin} />;
+    const RealConnectBanner = jest.requireActual('./templates/ConnectBanner').default;
+    return <RealConnectBanner {...props} />;
+  }
 }));
 jest.mock('./templates/PrivateDataPermissionBanner', () => ({
   __esModule: true,
@@ -1051,6 +1057,33 @@ describe('request origin banner', () => {
     expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), container, [
       { element: scroller, classes: ['overflow-y-auto'] }
     ]);
+  });
+
+  describe('on the connect prompt', () => {
+    beforeEach(() => {
+      mockRealConnectBanner = true;
+    });
+    afterEach(() => {
+      mockRealConnectBanner = false;
+    });
+
+    it('keeps the registrable domain unclipped up to the form root', () => {
+      setPayload({
+        type: 'connect',
+        ...baseFields(LONG_ORIGIN),
+        privateDataPermission: UPON_REQUEST,
+        existingPermission: false,
+        allowedPrivateData: ['balance']
+      });
+      render(<ConfirmPage />);
+
+      const shown = screen.getByTestId('connect-origin');
+      expect(shown.textContent).toBe(LONG_ORIGIN);
+      const scroller = shown.closest('[style*="width: 380px"]')!;
+      expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), scroller, [
+        { element: scroller, classes: ['overflow-y-auto'] }
+      ]);
+    });
   });
 });
 
