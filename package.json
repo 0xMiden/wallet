@@ -232,6 +232,7 @@
     "swr": "2.2.4",
     "threads": "^1.7.0",
     "tippy.js": "6.2.6",
+    "tldts": "^6.1.86",
     "ts-proto": "^1.166.3",
     "typescript": "^5.4.5",
     "use-debounce": "7.0.1",
