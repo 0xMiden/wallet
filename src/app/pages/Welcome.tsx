@@ -762,6 +762,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'retry-guardian-probe':
+        // A new detection run retires the lookup failure shown against the last one.
+        setGuardianLookupFailure(null);
         if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
         break;

@@ -748,6 +748,13 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
   });
 
+  it('a re-run of guardian detection retires the lookup failure', async () => {
+    await renderWelcome();
+    await failGuardianImport();
+    await dispatch({ id: 'retry-guardian-probe' });
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
+  });
+
   it('a pasted key retires the lookup failure of the seed before it', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
