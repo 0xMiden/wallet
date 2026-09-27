@@ -26,10 +26,9 @@ import { accountsUpdated, withUnlocked } from './store';
 // and leaves the wallet stuck on the splash screen.
 //
 // Fix: load the polyfill lazily and ONLY from within the functions
-// that actually need it. startTransactionProcessing also runs off the
-// extension (the in-process unlock and dApp kicks), where the import
-// rejects and its catch drops the keep-alive alarm; the others are
-// service-worker paths.
+// that actually need it. Those functions are service-worker-only
+// code paths that never run on mobile / desktop, so the await
+// never happens outside the extension build.
 type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
@@ -56,8 +55,7 @@ let isProcessing = false;
 let processingRequested = false;
 
 /**
- * Sign callback for the realm that owns the vault: the service worker on the
- * extension, the app itself on mobile and desktop.
+ * Sign callback that runs in the service worker.
  * Re-acquires the vault on each call (same pattern as dapp.ts).
  *
  * Exported for testing. `withUnlocked` → `assertUnlocked` refuses to run the
@@ -79,7 +77,7 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
 }
 
 /**
- * Vault-backed Guardian account provider for the realm that owns the vault.
+ * Vault-backed Guardian account provider for service worker context.
  * Uses the Vault directly instead of the Zustand store.
  */
 export const vaultGuardianProvider: GuardianAccountProvider = {
@@ -144,8 +142,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 };
 
 /**
- * Start processing queued transactions in the realm that owns the vault: the
- * service worker on the extension, the app itself on mobile and desktop.
+ * Start processing queued transactions in the service worker.
  * One run at a time: a call made while a run is in flight starts no loop of
  * its own but is recorded and honoured with one more run when this one ends
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.

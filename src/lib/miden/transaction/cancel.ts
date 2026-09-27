@@ -488,31 +488,6 @@ export const failInterruptedTransactions = async () => {
   );
 };
 
-let interruptedSweep: Promise<void> | undefined;
-
-/**
- * `failInterruptedTransactions`, at most once per JS realm, for the realms with no service
- * worker (mobile, desktop), where a fresh realm is a fresh app process. The sweep is sound
- * only before this realm's first loop pass has moved a row to GeneratingTransaction, so every
- * off-extension pass awaits this (`safeGenerateTransactionsLoop`) and so does
- * `OrphanedTransactionRecovery`; whichever asks first runs it (#924).
- *
- * A failed sweep is logged and never retried: a retry could fail a row this realm has since
- * started, and a rejection would stop every poller that awaits it. Its orphans are left to the
- * loop's age-gated reaper.
- */
-export const sweepInterruptedTransactionsOnce = (): Promise<void> => {
-  interruptedSweep ??= failInterruptedTransactions().catch(err => {
-    console.warn('[cold-start sweep] failed; orphans are left to the age-gated reaper', err);
-  });
-  return interruptedSweep;
-};
-
-/** Test-only: forget this realm's sweep. */
-export const __resetInterruptedSweepForTests = (): void => {
-  interruptedSweep = undefined;
-};
-
 /**
  * TEMPORARY: Force cancel ALL in-progress transactions regardless of time.
  * Used for debugging stuck transactions on mobile.

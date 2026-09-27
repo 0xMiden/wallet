@@ -5,12 +5,15 @@ import { isExtension } from 'lib/platform';
 import { useMidenContext } from './client';
 
 /**
- * Module-scope one-shot latch for this startup recovery.
+ * Module-scope one-shot latch for the AGE-INDEPENDENT cold-start sweep.
  *
- * The sweep itself is once per realm on its own (`sweepInterruptedTransactionsOnce`,
- * which every off-extension loop pass also awaits, so it cannot fail a row this realm
- * has started). The latch keeps a provider remount inside a live app process from
- * starting a second recovery poller; a component ref would reset on that remount.
+ * It must be module scope, not a component ref: `failInterruptedTransactions`
+ * fails EVERY `GeneratingTransaction` row regardless of age, which is only sound
+ * on a genuine cold start. A component ref resets when the provider tree
+ * remounts inside a live app process, and a second run would then kill a
+ * transaction that is actively processing. A module binding lives exactly as long
+ * as the JS realm — and off-extension a fresh realm IS a fresh app process — so it
+ * gives the same guarantee the extension gets from `browser.runtime.onStartup`.
  */
 let coldStartSweepDone = false;
 
@@ -57,13 +60,12 @@ export function OrphanedTransactionRecovery(): null {
     void (async () => {
       try {
         const [
-          { getAllUncompletedTransactions, startBackgroundTransactionProcessing, sweepInterruptedTransactionsOnce },
+          { failInterruptedTransactions, getAllUncompletedTransactions, startBackgroundTransactionProcessing },
           { zustandProvider }
         ] = await Promise.all([import('../transaction'), import('./guardian-sync')]);
         if (disposed) return;
 
-        // The realm's one sweep (the first loop pass may already have run it): fail
-        // every row still `GeneratingTransaction`, AGE-INDEPENDENTLY:
+        // Fail every row still `GeneratingTransaction`, AGE-INDEPENDENTLY —
         // exactly what the extension does from `browser.runtime.onStartup`
         // (src/background.ts, issue #282). Off-extension this effect runs in a
         // fresh JS realm, i.e. a fresh app process, so whatever was driving such a
@@ -86,13 +88,12 @@ export function OrphanedTransactionRecovery(): null {
         // purpose: each replays an identical request — a spent nullifier or the
         // persisted `requestBytes` — which the node rejects rather than duplicates.
         // See REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
-        await sweepInterruptedTransactionsOnce();
+        await failInterruptedTransactions();
         if (disposed) return;
 
-        // After a sweep that ran, only Queued rows remain and the loop's in-progress
-        // guard no longer blocks it; a sweep that failed leaves its orphans to the
-        // loop's age-gated reaper. Drive the FIFO loop the same way the dApp and
-        // auto-consume flows do.
+        // Only Queued rows can remain after that sweep, so the loop's in-progress
+        // guard no longer blocks it — drive the FIFO loop the same way the dApp
+        // and auto-consume flows do.
         const uncompleted = await getAllUncompletedTransactions();
         if (disposed || uncompleted.length === 0) return;
         startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);

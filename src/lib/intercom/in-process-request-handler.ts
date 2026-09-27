@@ -62,8 +62,6 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
       // Claims requeued while the vault was locked have nothing else to restart them (#924).
-      // In a fresh realm its first pass waits for the cold-start sweep, so the sweep
-      // cannot fail a row this kick has started.
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.UnlockResponse };
 
