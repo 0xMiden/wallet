@@ -1,6 +1,7 @@
-import React, { Suspense } from 'react';
+import React, { SetStateAction, Suspense } from 'react';
 
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 
@@ -66,12 +67,15 @@ const PassiveReader = ({ storageKey }: { storageKey: string }) => {
   return <div data-testid="value">{value}</div>;
 };
 
-let setStored!: (value: string) => Promise<void> | void;
+type Setter = (value: SetStateAction<string>) => Promise<void> | void;
+let setStored!: Setter;
+const setters: Record<string, Setter> = {};
 
-const Writer = ({ storageKey }: { storageKey: string }) => {
+const Writer = ({ storageKey, id = 'value' }: { storageKey: string; id?: string }) => {
   const [value, setValue] = useStorage<string>(storageKey, 'fallback-value');
   setStored = setValue;
-  return <div data-testid="value">{value}</div>;
+  setters[id] = setValue;
+  return <div data-testid={id}>{value}</div>;
 };
 
 const PassiveWriter = ({ storageKey }: { storageKey: string }) => {
@@ -585,6 +589,13 @@ describe('storage hooks (#1148)', () => {
       expect(mockStored['extension-race-key']).toBe('other');
       expect(screen.getByTestId('value').textContent).toBe('other');
       expect(mockGet.mock.calls.length - callsBefore).toBe(2);
+
+      await act(async () => {
+        await setStored(prev => prev + '!');
+      });
+      await settle();
+      expect(mockStored['extension-race-key']).toBe('other!');
+      expect(screen.getByTestId('value').textContent).toBe('other!');
     } finally {
       jest.mocked(isExtension).mockReturnValue(false);
     }
@@ -747,6 +758,12 @@ describe('storage hooks (#1148)', () => {
     first.unmount();
     renderReader('setter-order-key');
     expect(screen.getByTestId('value').textContent).toBe('other');
+
+    await act(async () => {
+      await setStored(prev => prev + '!');
+    });
+    expect(screen.getByTestId('value').textContent).toBe('other!');
+    expect(mockStored['setter-order-key']).toBe('other!');
   });
 
   it('keeps a preload that read storage after a setter write began over that write when the write finishes last', async () => {
@@ -771,5 +788,152 @@ describe('storage hooks (#1148)', () => {
     });
 
     expect(screen.getByTestId('value').textContent).toBe('other');
+  });
+
+  it('keeps an earlier setter write when a later one fails to reach storage', async () => {
+    mockStored['failed-later-write-key'] = 'old';
+    await preloadStorage(['failed-later-write-key']);
+    const first = renderReader('failed-later-write-key', Writer);
+    await settle();
+
+    const release = heldWrite();
+    let earlier: Promise<void> | void;
+    await act(async () => {
+      earlier = setStored('new');
+    });
+    mockSet.mockRejectedValueOnce(new Error('write failed'));
+    await act(async () => {
+      await expect(setStored('other')).rejects.toThrow('write failed');
+    });
+    await act(async () => {
+      release();
+      await earlier;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+    first.unmount();
+    renderReader('failed-later-write-key');
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('keeps a setter write when a preload that started after it fails', async () => {
+    mockStored['failed-later-preload-key'] = 'old';
+    await preloadStorage(['failed-later-preload-key']);
+    renderReader('failed-later-preload-key', Writer);
+    await settle();
+
+    const release = heldWrite();
+    let write: Promise<void> | void;
+    await act(async () => {
+      write = setStored('new');
+    });
+    const read = heldFailingRead();
+    const preload = preloadStorage(['failed-later-preload-key']);
+    await act(async () => {
+      release();
+      await write;
+    });
+    await act(async () => {
+      read.fail();
+      await expect(preload).rejects.toThrow('read failed');
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("keeps a setter write over the older value of a preload it overtook when a later reader's read fails", async () => {
+    // No dedupe window, so the remount's revalidation reads storage instead of reusing the mount's read.
+    const renderUndeduped = (Component: typeof Reader) =>
+      render(
+        <SWRConfig value={{ dedupingInterval: 0 }}>
+          <Suspense fallback={<div data-testid="suspended" />}>
+            <Component storageKey="overtaken-preload-key" />
+          </Suspense>
+        </SWRConfig>
+      );
+    mockStored['overtaken-preload-key'] = 'old';
+    await preloadStorage(['overtaken-preload-key']);
+    const first = renderUndeduped(Writer);
+    await settle();
+
+    const releasePreload = deferredRead('overtaken-preload-key', 'old');
+    const preload = preloadStorage(['overtaken-preload-key']);
+    await act(async () => {
+      await setStored('new');
+    });
+    first.unmount();
+    const read = heldFailingRead();
+    renderUndeduped(Reader);
+    await settle();
+    expect(read.started()).toBe(true);
+
+    await act(async () => {
+      releasePreload();
+      await preload;
+    });
+    await act(async () => {
+      read.fail();
+    });
+    await settle();
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("builds a functional update on the previous setter call's value on the extension", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    try {
+      mockStored['extension-functional-key'] = 'old';
+      await preloadStorage(['extension-functional-key']);
+      renderReader('extension-functional-key', Writer);
+      await settle();
+
+      await act(async () => {
+        await setStored('a');
+        await setStored(prev => prev + '!');
+      });
+      await settle();
+
+      expect(mockStored['extension-functional-key']).toBe('a!');
+      expect(screen.getByTestId('value').textContent).toBe('a!');
+    } finally {
+      jest.mocked(isExtension).mockReturnValue(false);
+    }
+  });
+
+  it("builds a functional update on another instance's later write of the key", async () => {
+    mockStored['twin-writer-key'] = 'old';
+    await preloadStorage(['twin-writer-key']);
+    render(
+      <Suspense fallback={<div data-testid="suspended" />}>
+        <Writer storageKey="twin-writer-key" id="a" />
+        <Writer storageKey="twin-writer-key" id="b" />
+      </Suspense>
+    );
+    await settle();
+
+    await act(async () => {
+      await setters.a!('Y');
+      await setters.b!('old');
+    });
+    await act(async () => {
+      await setters.a!(prev => prev + '!');
+    });
+
+    expect(mockStored['twin-writer-key']).toBe('old!');
+    expect(screen.getByTestId('a').textContent).toBe('old!');
+    expect(screen.getByTestId('b').textContent).toBe('old!');
+  });
+
+  it('builds a functional update on the fallback when the key holds no value', async () => {
+    await preloadStorage(['absent-functional-key']);
+    renderReader('absent-functional-key', Writer);
+    await settle();
+
+    await act(async () => {
+      await setStored(prev => prev + '!');
+    });
+
+    expect(mockStored['absent-functional-key']).toBe('fallback-value!');
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value!');
   });
 });

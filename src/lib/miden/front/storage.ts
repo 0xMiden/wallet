@@ -1,12 +1,13 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { mutate as mutateCache } from 'swr';
+import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
+  const { cache } = useSWRConfig();
   const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
@@ -16,7 +17,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   useEffect(
     () =>
       onStorageChanged<T>(key, newValue => {
-        supersedeReads(key);
+        applySeq(key, supersedeReads(key));
         mutate(newValue);
       }),
     [key, mutate]
@@ -24,18 +25,15 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
 
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
-  const valueRef = useRef(value);
-  useEffect(() => {
-    valueRef.current = value;
-  }, [value]);
-
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
-      const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
-      await writeThrough(key, nextValue);
-      valueRef.current = nextValue;
+      // The key's cache entry, not this render's value: another instance, a passive write, a preload or a change event
+      // may have replaced it since, and a superseded write of this hook's own never reached it.
+      const cached: T | undefined = cache.get(key)?.data;
+      const current = fallback !== undefined ? (cached ?? fallback) : cached!;
+      await writeThrough(key, typeof val === 'function' ? (val as any)(current) : val);
     },
-    [key]
+    [cache, key, fallback]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
@@ -106,47 +104,54 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
 }
 
 // Each key's preload read still in flight, with its value once it lands. A hook read, a write, a change event or a
-// later preload removes or replaces the entry, so a preload still holding it when it lands is the key's newest read
-// and replaces whatever the cache holds.
+// later preload takes the entry away when it starts, even one that then fails: a failed hook read falls back to the
+// entry's landed value, which must be no older than anything started since.
 interface PreloadRead {
   landed?: { value: unknown };
 }
 const preloadReads = new Map<string, PreloadRead>();
 
-// Bumped by every write, change event and preload start of a key, so an action that finishes late can tell whether
-// a newer one of the key happened meanwhile.
-const epochs = new Map<string, number>();
+// Per key, the newest write, change event or preload started, and the newest of them whose value reached the cache.
+// An action updates the cache only when newer than the newest applied, so a newer one that failed leaves an older
+// one's value in place. Change events count only for keys a mounted useStorage subscribes to.
+const startedSeqs = new Map<string, number>();
+const appliedSeqs = new Map<string, number>();
 
-function bumpEpoch(key: string) {
-  const epoch = (epochs.get(key) ?? 0) + 1;
-  epochs.set(key, epoch);
-  return epoch;
+function startSeq(key: string) {
+  const seq = (startedSeqs.get(key) ?? 0) + 1;
+  startedSeqs.set(key, seq);
+  return seq;
+}
+
+function applySeq(key: string, seq: number) {
+  if (seq <= (appliedSeqs.get(key) ?? 0)) return false;
+  appliedSeqs.set(key, seq);
+  return true;
 }
 
 function supersedeReads(key: string) {
   preloadReads.delete(key);
-  return bumpEpoch(key);
+  return startSeq(key);
 }
 
 async function writeThrough(key: string, value: unknown) {
-  const epoch = supersedeReads(key);
+  const seq = supersedeReads(key);
   await putToStorage(key, value);
-  // The cache backs every reader of this key; off the extension no change event updates it. A newer write, change
-  // event or preload of the key carries a newer value than this one, even when this write finishes last.
-  if (epochs.get(key) === epoch) await mutateCache(key, value, { revalidate: false });
+  // The cache backs every reader of this key; off the extension no change event updates it.
+  if (applySeq(key, seq)) await mutateCache(key, value, { revalidate: false });
 }
 
 async function fetchForHook(key: string): Promise<unknown> {
   const preload = preloadReads.get(key);
-  const epoch = epochs.get(key);
+  const seq = startedSeqs.get(key);
   preloadReads.delete(key);
   try {
     return await fetchFromStorage(key);
   } catch (error) {
     // Only a value already read: awaiting a preload still in flight could hang this reader with it.
     if (preload?.landed) return preload.landed.value;
-    // Handed back, its landing fills the cache for a retry or remount, unless something newer reached the key.
-    if (preload && epochs.get(key) === epoch) preloadReads.set(key, preload);
+    // Handed back, its landing fills the cache for a retry or remount, unless another action of the key started since.
+    if (preload && startedSeqs.get(key) === seq) preloadReads.set(key, preload);
     throw error;
   }
 }
@@ -164,14 +169,14 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
-      bumpEpoch(key);
+      const seq = startSeq(key);
       const read = fetchFromStorage(key);
       const entry: PreloadRead = {};
       preloadReads.set(key, entry);
       try {
         const value = await read;
         entry.landed = { value };
-        if (preloadReads.get(key) !== entry) return;
+        if (preloadReads.get(key) !== entry || !applySeq(key, seq)) return;
         await mutateCache(key, value, { revalidate: false });
       } finally {
         if (preloadReads.get(key) === entry) preloadReads.delete(key);
