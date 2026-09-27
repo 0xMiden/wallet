@@ -19,8 +19,9 @@ export type ClipAllowance = { element: Element; classes: string[] };
 export function expectDomainNeverClipped(domainEl: Element, container: Element, allow: ClipAllowance[] = []): void {
   expect(container.contains(domainEl)).toBe(true);
 
-  const chain: Element[] = [domainEl];
-  while (chain[chain.length - 1] !== container) chain.push(chain[chain.length - 1].parentElement!);
+  const chain: Element[] = [];
+  for (let node: Element = domainEl; node !== container; node = node.parentElement!) chain.push(node);
+  chain.push(container);
 
   const clipping = chain.flatMap(node => {
     const allowed = allow.filter(a => a.element === node).flatMap(a => a.classes);
@@ -30,10 +31,10 @@ export function expectDomainNeverClipped(domainEl: Element, container: Element, 
   });
   expect(clipping).toEqual([]);
 
-  // `node` is chain[i + 1], so its parent is chain[i + 2].
+  // Every element strictly between the domain and the container has a parent in the chain.
   const unshrinkable = chain
     .slice(1, -1)
-    .filter((node, i) => isRowFlex(chain[i + 2]) && !node.classList.contains('min-w-0'))
+    .filter(node => isRowFlex(node.parentElement!) && !node.classList.contains('min-w-0'))
     .map(node => `<${node.tagName.toLowerCase()} class="${node.className}"> in a row flex parent without min-w-0`);
   expect(unshrinkable).toEqual([]);
 }
