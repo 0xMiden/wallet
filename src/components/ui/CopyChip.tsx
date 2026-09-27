@@ -3,6 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { cn } from 'lib/ui/util';
 
 import { AnimatedCopyIcon } from './AnimatedCopyIcon';
 import { Pill, PillSize } from './Pill';
@@ -14,6 +15,11 @@ export interface CopyChipProps {
   children: React.ReactNode;
   size?: PillSize;
   className?: string;
+  /**
+   * The tap target is the chip's own 24px box, not the 44px hit area: for a chip with neighbours
+   * closer than that area reaches (a note-id list), so a tap near its edge cannot copy the next one.
+   */
+  compactHitArea?: boolean;
   'data-testid'?: string;
   /**
    * A screen reader label; the copy glyph itself has no text of its own. A function receives the
@@ -21,6 +27,11 @@ export interface CopyChipProps {
    */
   'aria-label'?: string | ((copied: boolean) => string);
 }
+
+// A 44px-tall tap target on the 24px chip, drawn nowhere: 10px above and below, the InfoHint
+// pattern, height set directly so Pill's border cannot shorten it. Pill's root is already
+// `relative`, so the extension sits on the chip's own button.
+const HIT_AREA = 'before:absolute before:inset-x-0 before:top-1/2 before:h-11 before:-translate-y-1/2';
 
 /**
  * A Pill that copies `text` to the clipboard on tap: the hash/address chip variant of `Copy`
@@ -34,6 +45,7 @@ export const CopyChip: React.FC<CopyChipProps> = ({
   children,
   size = 'sm',
   className,
+  compactHitArea = false,
   'data-testid': dataTestId,
   'aria-label': ariaLabel
 }) => {
@@ -48,7 +60,7 @@ export const CopyChip: React.FC<CopyChipProps> = ({
         // Fills the Pill's own glyph box; the morph is the one every copy control shares.
         icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
         onClick={() => void copy()}
-        className={className}
+        className={cn(!compactHitArea && HIT_AREA, className)}
         aria-label={typeof ariaLabel === 'function' ? ariaLabel(copied) : ariaLabel}
         data-testid={dataTestId}
       >
