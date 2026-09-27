@@ -65,6 +65,13 @@ export interface GuardianFaultPolicy {
   target?: GuardianFaultTarget;
   /** URL path segment to match. */
   path: GuardianFaultPath;
+  /**
+   * HTTP method to match. Omit to match any method on the path -- most
+   * `/delta*` sub-routes share the same path segment across GET (poll) and
+   * POST/PUT (push/propose/sign) traffic, so a count-limited fault armed for
+   * one of them would otherwise also spend its count on the other.
+   */
+  method?: string;
   mode: GuardianFaultMode;
   /** Delay (ms) before continuing the request. Only used by 'delay' (default 3000). */
   delayMs?: number;
@@ -89,7 +96,7 @@ export interface GuardianFaultControls {
  * no BrowserContext/browser required.
  */
 export interface GuardianRouteLike {
-  request(): { url(): string };
+  request(): { url(): string; method(): string };
   continue(): Promise<void>;
   abort(errorCode?: string): Promise<void>;
   fulfill(response: { status: number; body: string }): Promise<void>;
@@ -153,6 +160,7 @@ export type GuardianFaultAction =
  */
 export function decideGuardianFault(
   url: string,
+  method: string,
   policy: GuardianFaultPolicy | null,
   hits: number,
   origins: GuardianOrigins
@@ -161,6 +169,7 @@ export function decideGuardianFault(
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
+  if (policy.method && policy.method !== method) return { action: { kind: 'continue' }, hits };
   if ((policy.mode === 'failFirstN' || policy.mode === 'conflictPendingDelta') && hits >= (policy.count ?? 1)) {
     return { action: { kind: 'continue' }, hits };
   }
@@ -244,7 +253,7 @@ export function installGuardianFaults(context: BrowserContext, origins: Guardian
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
-    const decision = decideGuardianFault(url, policy, hits, origins);
+    const decision = decideGuardianFault(url, route.request().method(), policy, hits, origins);
     hits = decision.hits;
     await applyGuardianFaultAction(route, decision.action);
   });

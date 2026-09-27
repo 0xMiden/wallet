@@ -69,7 +69,13 @@ test.describe('infra resilience — transient guardian conflict', () => {
       async () => {
         // The next few delta round-trips answer 409 conflict_pending_delta, then
         // clear — exactly a guardian mid-canonicalization.
-        walletA.armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 2 });
+        walletA.armGuardianFault({
+          target: 'A',
+          path: 'delta',
+          method: 'POST',
+          mode: 'conflictPendingDelta',
+          count: 2
+        });
 
         await walletA.sendTokens({
           recipientAddress: addressB,

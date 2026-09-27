@@ -335,10 +335,11 @@ export function installNetworkFaults(
       return;
     }
 
-    const guardian = decideGuardianFault(url, guardianPolicy, guardianHits, origins.guardian);
+    const method = route.request().method();
+    const guardian = decideGuardianFault(url, method, guardianPolicy, guardianHits, origins.guardian);
     guardianHits = guardian.hits;
     const ledger = guardianLedger;
-    const read = ledger ? guardianCommitmentReadOf(route.request().method(), url, origins.guardian) : null;
+    const read = ledger ? guardianCommitmentReadOf(method, url, origins.guardian) : null;
     await applyGuardianFaultAction(
       route,
       guardian.action,

@@ -1,6 +1,5 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
-import { pathOf, targetOf } from '../harness/guardian-fault';
 import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // The wallet's guardian operator for the active network: the local container on
@@ -443,20 +442,18 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
     await steps.step(
       'recover_and_wait_out_pending_delta_conflict',
       async () => {
-        // The fault answers the first two `/delta*` requests to A whatever their method, and
-        // pending-note recovery's `GET /delta/proposal` is one, so this log says which two it
-        // answered. Context events include the service worker's requests, in route order.
-        const deltaRequests: string[] = [];
-        walletB.page.context().on('request', request => {
-          const url = request.url();
-          if (targetOf(url, { a: A }) === 'A' && pathOf(url) === 'delta') {
-            deltaRequests.push(`${request.method()} ${new URL(url).pathname}`);
-          }
-        });
+        // Scoped to POST: pending-note recovery's own `GET /delta/proposal` shares the
+        // same path segment, and a path-only fault could spend its count on that GET
+        // instead of the rotation's proposal POSTs (#904).
         // Armed before the recovery, so the rotation's first two proposal POSTs, expected to
-        // be the first `/delta*` calls the recovered wallet makes (checked below), both
-        // answer the real 409.
-        walletB.armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 2 });
+        // be the first `/delta*` POSTs the recovered wallet makes, both answer the real 409.
+        walletB.armGuardianFault({
+          target: 'A',
+          path: 'delta',
+          method: 'POST',
+          mode: 'conflictPendingDelta',
+          count: 2
+        });
 
         await walletB.recoverGuardianFromSeed(seed, { viaUI: false, guardianUrl: A });
 
@@ -464,12 +461,6 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
         await walletB.completeHotKeyRotation();
 
         expect(walletB.guardianFaultHits(), 'the armed fault must have answered two requests with its 409').toBe(2);
-        expect(
-          deltaRequests.slice(0, 2),
-          'the 409s answer the first two /delta* requests to guardian A after arming; both must be proposal ' +
-            "POSTs (B's only proposals here are the rotation's), not other /delta traffic such as pending-note " +
-            "recovery's GET /delta/proposal"
-        ).toEqual(['POST /delta/proposal', 'POST /delta/proposal']);
         await walletB.clearFaults();
 
         const addressB = await walletB.getAccountAddress();

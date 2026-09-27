@@ -52,7 +52,7 @@ test.describe('infra resilience — transient guardian 5xx during a consume', ()
       'consume_survives_transient_guardian_5xx',
       async () => {
         // First couple of guardian /delta round-trips 500, then clear.
-        walletA.armGuardianFault({ target: 'A', path: 'delta', mode: 'failFirstN', count: 2 });
+        walletA.armGuardianFault({ target: 'A', path: 'delta', method: 'POST', mode: 'failFirstN', count: 2 });
 
         // The co-signed consume must still drive the note into the vault.
         await walletA.claimAllNotes(180_000);
