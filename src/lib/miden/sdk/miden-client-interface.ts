@@ -649,11 +649,14 @@ export class MidenClientInterface {
   /**
    * Create a 3-key Guardian account. Returns the account ID alongside the hot
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
-   * both before writing them to storage).
+   * both before writing them to storage). `assertLive` is the caller's hold
+   * re-check, forwarded to createGuardianAccount, whose guardian 429 waits park
+   * inside that hold.
    */
   async createGuardianMidenWallet(
     coldSeed?: Uint8Array,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    assertLive: AssertLive = noAssertLive
   ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
     // Forward the caller's picked endpoint as the override so the account binds
@@ -664,7 +667,7 @@ export class MidenClientInterface {
       account,
       keys,
       guardianEndpoint: usedEndpoint
-    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint, assertLive);
     return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 

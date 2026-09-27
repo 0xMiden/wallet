@@ -1357,16 +1357,24 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const result = await client.createGuardianMidenWallet(new Uint8Array([9]), 'https://picked-guardian.example');
+      const assertLive = jest.fn();
+      const result = await client.createGuardianMidenWallet(
+        new Uint8Array([9]),
+        'https://picked-guardian.example',
+        assertLive
+      );
 
       // The picked endpoint is forwarded as createGuardianAccount's
       // guardianEndpointOverride (4th arg) so the new account binds to it
-      // (stage 1 of #408). skipRegistration (3rd arg) stays false.
+      // (stage 1 of #408). skipRegistration (3rd arg) stays false. The caller's
+      // hold re-check goes through as itself: any other function drops every
+      // re-check the vault's hold relies on.
       expect(createGuardianAccount).toHaveBeenCalledWith(
         fakeMidenClient,
         expect.any(Uint8Array),
         false,
-        'https://picked-guardian.example'
+        'https://picked-guardian.example',
+        assertLive
       );
       expect(result).toEqual({ accountId: 'guardian-id', keys });
     });

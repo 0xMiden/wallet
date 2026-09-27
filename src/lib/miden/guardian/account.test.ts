@@ -7,9 +7,12 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
+import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+
 import {
   assertGuardianKeyCommitment,
   createGuardianAccount,
+  GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
@@ -124,6 +127,26 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     }
   };
 });
+
+// Only isExtension is steered; the rest of the module (isMobile for the native
+// HTTP origin) stays real.
+const mockIsExtension = jest.fn(() => false);
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: () => mockIsExtension()
+}));
+
+const mockAlarmsCreate = jest.fn(async (_name: string, _info: { periodInMinutes?: number }) => {});
+const mockAlarmsClear = jest.fn(async (_name: string) => true);
+jest.mock('webextension-polyfill', () => ({
+  __esModule: true,
+  default: {
+    alarms: {
+      create: (name: string, info: { periodInMinutes?: number }) => mockAlarmsCreate(name, info),
+      clear: (name: string) => mockAlarmsClear(name)
+    }
+  }
+}));
 
 // secure-hot-key facade — generateHotKey is the only entry createGuardianAccount uses.
 const mockGenerateHotKey = jest.fn();
@@ -388,6 +411,7 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsExtension.mockReturnValue(false);
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
@@ -422,7 +446,8 @@ describe('createGuardianAccount', () => {
     );
     // The deploy proposal is signed by cold (we hand the cold AuthSecretKey to EcdsaSigner).
     expect(ecdsaSignerCtor).toHaveBeenCalledWith(stubKeyByTag['s1-2-3-4']);
-    expect(multisig.registerOnGuardian).toHaveBeenCalled();
+    expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
     expect(webClient.sync).toHaveBeenCalled();
     // Only the cold key is inserted into the SDK keystore — hot lives outside.
     expect(webClient.keystore.insert).toHaveBeenCalledTimes(1);
@@ -503,6 +528,258 @@ describe('createGuardianAccount', () => {
     await expect(createGuardianAccount(webClient as never, new Uint8Array(32))).rejects.toThrow(
       'Failed to create Guardian account'
     );
+  });
+
+  describe('a guardian answering 429 (#906)', () => {
+    const rateLimited = (retryAfterSecs = 1) =>
+      Object.assign(new Error('GUARDIAN HTTP error 429: Too Many Requests'), {
+        status: 429,
+        code: 'rate_limit_exceeded',
+        meta: { retryable: true, retryAfterSecs }
+      });
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('waits out a 429 on registration and creates the account', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited());
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits out a 429 on the pubkey fetch on the import path too', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32), true);
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('gives up after 8 registration calls with the 429 as the cause', async () => {
+      const multisig = makeMultisig();
+      const last = rateLimited();
+      multisig.registerOnGuardian.mockRejectedValue(last);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: last
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
+    });
+
+    // The creation holds the WASM client lock, so its waits are bounded by one
+    // deadline rather than by the attempt count alone.
+    it('gives up at the creation deadline instead of starting a wait that would pass it', async () => {
+      const multisig = makeMultisig();
+      const last = rateLimited(60);
+      multisig.registerOnGuardian.mockRejectedValue(last);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const startedAt = performance.now();
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: last
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(performance.now() - startedAt).toBe(60_000);
+    });
+
+    it('counts the pubkey wait against the same deadline as the registration', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited(60));
+      const multisig = makeMultisig();
+      const registrationLimited = rateLimited(60);
+      multisig.registerOnGuardian.mockRejectedValue(registrationLimited);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const startedAt = performance.now();
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: registrationLimited
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(performance.now() - startedAt).toBe(60_000);
+      expect(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS).toBeLessThan(WASM_LOCK_WATCHDOG_MS / 2);
+    });
+
+    it('still fails at once on a registration error that is not a 429', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(
+        Object.assign(new Error('GUARDIAN HTTP error 500'), { status: 500 })
+      );
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      await expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toThrow(
+        'Failed to create Guardian account'
+      );
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    // The creation runs inside a WASM lock hold and its waits park there; an
+    // eviction abandons the flow rather than cancelling it, so the flow must stop
+    // at its next re-check and surface the poison error unwrapped.
+    it('stops at the re-check after a wait once the hold is evicted, with the poison error itself', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited());
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const webClient = makeWebClient();
+      const poison = new WasmClientPoisonedError('watchdog', new Error('evicted during a 429 wait'));
+      let evicted = false;
+      // Queued before the creation's 1 s wait, so it fires first at the same instant.
+      setTimeout(() => {
+        evicted = true;
+      }, 1000);
+      const assertLive = () => {
+        if (evicted) throw poison;
+      };
+
+      await Promise.all([
+        expect(
+          createGuardianAccount(webClient as never, new Uint8Array(32), false, undefined, assertLive)
+        ).rejects.toBe(poison),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(webClient.sync).not.toHaveBeenCalled();
+      expect(webClient.keystore.insert).not.toHaveBeenCalled();
+    });
+
+    // Chrome stops an idle MV3 service worker after ~30 s, so a minute's wait
+    // there needs a keepalive alarm, as the transaction processor arms for its loop.
+    it('keeps the extension service worker alive with an alarm for the length of a wait', async () => {
+      mockIsExtension.mockReturnValue(true);
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockAlarmsCreate).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsCreate).toHaveBeenCalledWith(expect.any(String), { periodInMinutes: 0.4 });
+      const alarmName = mockAlarmsCreate.mock.calls[0]?.[0];
+      expect(alarmName).not.toBe('miden-tx-processor');
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(mockAlarmsClear).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsClear).toHaveBeenCalledWith(alarmName);
+    });
+
+    it('touches no alarm API off the extension and still waits', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(59_999);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(mockAlarmsCreate).not.toHaveBeenCalled();
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+    });
+
+    // Each re-check guards the step after it: an eviction seen there must stop the
+    // flow before that step runs, so every checkpoint is pinned on its own.
+    it.each([
+      ['before the account build', 'build'],
+      ['before guardian registration', 'registration'],
+      ['before the sync', 'sync'],
+      ['before the cold key insert', 'insert']
+    ] as const)('stops %s once the hold is evicted, skipping the %s', async (checkpoint, step) => {
+      const multisig = makeMultisig();
+      if (step !== 'build') multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const webClient = makeWebClient();
+      const poison = new WasmClientPoisonedError('watchdog', new Error(`evicted ${checkpoint}`));
+      const assertLive = (where?: string) => {
+        if (where === checkpoint) throw poison;
+      };
+
+      await expect(
+        createGuardianAccount(webClient as never, new Uint8Array(32), false, undefined, assertLive)
+      ).rejects.toBe(poison);
+      expect(multisigClientConfig.create).toHaveBeenCalledTimes(step === 'build' ? 0 : 1);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(step === 'build' || step === 'registration' ? 0 : 1);
+      expect(webClient.sync).toHaveBeenCalledTimes(step === 'insert' ? 1 : 0);
+      expect(webClient.keystore.insert).not.toHaveBeenCalled();
+    });
+
+    it('stops at the re-check after a pubkey wait once the hold is evicted', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const poison = new WasmClientPoisonedError('watchdog', new Error('evicted during a pubkey 429 wait'));
+      let evicted = false;
+      // Queued before the creation's 1 s wait, so it fires first at the same instant.
+      setTimeout(() => {
+        evicted = true;
+      }, 1000);
+      const assertLive = () => {
+        if (evicted) throw poison;
+      };
+
+      await Promise.all([
+        expect(
+          createGuardianAccount(makeWebClient() as never, new Uint8Array(32), false, undefined, assertLive)
+        ).rejects.toBe(poison),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps the extension service worker alive through a pubkey wait too', async () => {
+      mockIsExtension.mockReturnValue(true);
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited(60));
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockAlarmsCreate).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(mockAlarmsClear).toHaveBeenCalledWith(mockAlarmsCreate.mock.calls[0]?.[0]);
+    });
   });
 });
 
