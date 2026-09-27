@@ -2747,6 +2747,10 @@
     "message": "Це підписується вашим ключем відновлення (холодним). Ваша фраза відновлення не потрібна, а ваші кошти та рахунок залишаються без змін. Продовжити?",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "Це підписується вашим ключем відновлення (холодним). Вам буде запропоновано ввести фразу відновлення для підписання, а ваші кошти та рахунок залишаться без змін. Продовжити?",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "Підтвердити поворот",
     "englishSource": "Confirm rotation"

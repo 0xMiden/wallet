@@ -616,6 +616,7 @@
   "newDeviceKey": "Nueva clave diaria",
   "replaceHotKeyDescription": "Genera una nueva clave diaria y sustituye la actual en la cadena de bloques. Resulta útil si sospechas que tu dispositivo ha sido comprometido.",
   "replaceHotKeyConfirmation": "Esto se firma con tu clave de recuperación (en frío). No es necesario introducir tu frase de recuperación, y tus fondos y tu cuenta permanecen igual. ¿Continuar?",
+  "replaceHotKeyConfirmationSeedRequired": "Esto se firma con tu clave de recuperación (en frío). Se te pedirá tu frase de recuperación para firmarlo, y tus fondos y tu cuenta seguirán siendo los mismos. ¿Continuar?",
   "confirmReplaceHotKey": "Confirmar la rotación",
   "hotKeyRotationOverlayTitle": "Rotación de tu clave de uso diario",
   "hotKeyRotationOverlayBody": "Tu clave de uso diario se está rotando. Esto es necesario al configurar una cuenta recuperada para que pueda sincronizarse y realizar transacciones.",
