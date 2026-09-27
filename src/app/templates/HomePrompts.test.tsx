@@ -1100,6 +1100,17 @@ describe('HomePrompts', () => {
           [base, faucetByAccount, setFaucetStatus]
         );
       };
+      // No native balance: on a fee-charging chain the dismissed card comes back.
+      const brokeNative: TokenBalanceData[] = [
+        {
+          tokenId: NATIVE_FAUCET_ID,
+          tokenSlug: NATIVE_FAUCET_ID,
+          metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' },
+          balance: 0,
+          fiatPrice: 0,
+          change24h: 0
+        }
+      ];
       const renderAt = (notes: PendingNoteValue[], balances: TokenBalanceData[]) => (
         <HomePrompts
           account={account}
@@ -1139,16 +1150,6 @@ describe('HomePrompts', () => {
       it('still plays the Funded beat when the fee-broke rule shows it again', async () => {
         mockUseWalletPromptStorage.mockImplementation(promptStorageFrom(WalletPromptStatus.Dismissed));
         markerStore.set('accountA', unresolvedMarker);
-        const brokeNative: TokenBalanceData[] = [
-          {
-            tokenId: NATIVE_FAUCET_ID,
-            tokenSlug: NATIVE_FAUCET_ID,
-            metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' },
-            balance: 0,
-            fiatPrice: 0,
-            change24h: 0
-          }
-        ];
         try {
           mockBaseFee = 10000;
           const { rerender } = render(renderAt([baselineNote], brokeNative));
@@ -1160,6 +1161,60 @@ describe('HomePrompts', () => {
 
           await waitFor(() => expect(findFaucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunded'));
           expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+        } finally {
+          mockBaseFee = 0;
+        }
+      });
+
+      it('stops naming it once its funds land as a balance, so a later fee-broke card sends without asking', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mockUseWalletPromptStorage.mockImplementation(promptStorageFrom(WalletPromptStatus.Pending));
+        markerStore.set('accountA', unresolvedMarker);
+        const { rerender } = render(renderAt([baselineNote], zeroBalance));
+        await act(async () => {});
+        fireEvent.click(within(findFaucetCard()!).getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
+        await act(async () => {});
+        rerender(renderAt([baselineNote], fundedBalance));
+        await act(async () => {});
+        await act(async () => {});
+        expect(markerStore.has('accountA')).toBe(false);
+        // The balance is then spent to nothing, and the returning card's read fails, which keeps what it
+        // held: only the settle can have let the request go.
+        mockFetchFaucetFundingMarker.mockRejectedValueOnce(new Error('storage unreadable'));
+        try {
+          mockBaseFee = 10000;
+          rerender(renderAt([baselineNote], brokeNative));
+          await act(async () => {});
+
+          expect(findFaucetCard()).toHaveTextContent('insufficientFeeAsset');
+          expect(findFaucetCard()).not.toHaveTextContent('faucetPromptUnresolvedBody');
+          tapFund();
+          await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+          expect(mockConfirm).not.toHaveBeenCalled();
+        } finally {
+          mockBaseFee = 0;
+        }
+      });
+
+      it('stops naming it once storage no longer holds it, so a later fee-broke card sends without asking', async () => {
+        mockUseWalletPromptStorage.mockImplementation(promptStorageFrom(WalletPromptStatus.Pending));
+        markerStore.set('accountA', unresolvedMarker);
+        const { rerender } = render(renderAt([baselineNote], zeroBalance));
+        await act(async () => {});
+        fireEvent.click(within(findFaucetCard()!).getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
+        await act(async () => {});
+        // Another surface saw the funds land and cleared the record, with no balance showing here.
+        markerStore.delete('accountA');
+        try {
+          mockBaseFee = 10000;
+          rerender(renderAt([baselineNote], brokeNative));
+          await act(async () => {});
+
+          expect(findFaucetCard()).toHaveTextContent('insufficientFeeAsset');
+          expect(findFaucetCard()).not.toHaveTextContent('faucetPromptUnresolvedBody');
+          tapFund();
+          await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+          expect(mockConfirm).not.toHaveBeenCalled();
         } finally {
           mockBaseFee = 0;
         }
@@ -2171,6 +2226,8 @@ describe('HomePrompts', () => {
       />
     );
     await act(async () => {});
+    // Stored since this card's read, as the sent record the lock refuses over.
+    markerStore.set('accountA', { ...record, submitted: true });
     mockGetInFlightFaucetRequest.mockReturnValue(null);
     await act(async () => {
       refuse();

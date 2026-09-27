@@ -644,13 +644,20 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     withFaucetFundingMarkerLock(address, async () => {
       const marker = await fetchFaucetFundingMarker(address);
       if (cancelled) return;
-      if (marker !== null) {
+      // Storage holds the record: one it no longer holds as a sent request past its window
+      // landed, failed or was replaced elsewhere, and is not named here either.
+      const dropUnresolved = () =>
+        setUnresolvedRequest(current => (current !== null && current.address === address ? null : current));
+      if (marker === null) {
+        dropUnresolved();
+      } else {
         // An unflagged marker past its request timeout, with nothing running here, was
         // left by a realm that died before the token request went out (an extension
         // popup closed during the proof of work, an app killed), so nothing was minted.
         // A younger one is waited on; the backstop re-decides it once that timeout passes.
         const settledAt = getFaucetRequestSettledAt(address, marker.requestedAt);
         if (isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })) {
+          dropUnresolved();
           setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
         } else if (marker.submitted) {
           // Its window ended with no funds, perhaps while the app was closed: named and kept,
@@ -663,6 +670,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             );
           }
         } else {
+          dropUnresolved();
           await clearFaucetFundingMarker(address).catch(error =>
             console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
           );
@@ -703,6 +711,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       if (marker === null || getInFlightFaucetRequest(address) !== null) return;
       if (!marker.submitted && isFaucetFundingMarkerLive(marker, { runningHere: false, settledAt: null })) return;
       await clearFaucetFundingMarker(address);
+      // Settled, so no longer named, even on a dismissed card the arrival below skips. Another
+      // account on screen has already had this one's record dropped by the switch.
+      if (accountKeyRef.current === address) {
+        setUnresolvedRequest(current => (current !== null && current.address === address ? null : current));
+      }
     }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
   }, [account.publicKey, awaitingFaucetFunds, balancesLoading, hasBalance, isLoaded]);
 
