@@ -23,7 +23,6 @@
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
-- [FIX][all] dApp approval screens keep the site's registrable domain visible: a long origin gives up its scheme and leading subdomains first, so `https://login.secure.wallet.example.co.uk` can no longer hide `example.co.uk`, on the extension's approval window, the connect prompt and the dApp browser's confirmation (#1072).
 
 ### Fixes
 
@@ -63,6 +62,7 @@
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
+- [FIX][all] dApp approval screens keep the site's registrable domain visible: a long origin elides the labels in front of the domain, never the domain itself, so `https://login.secure.wallet.example.co.uk` can no longer hide `example.co.uk`, on the extension's approval window, the connect prompt and the dApp browser's confirmation (#1072).
 
 ## 1.16.2 (2026-09-24)
 
