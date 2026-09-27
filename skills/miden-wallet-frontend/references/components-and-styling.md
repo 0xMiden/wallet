@@ -9,7 +9,7 @@ Search the active feature before creating a primitive. Then follow this order:
 3. `PageHeader` has no horizontal padding: it takes the page's. In an unpadded parent pass `className="px-4"`.
 4. Reuse the local feature component when it represents the same product behavior and the design system has no row for it.
 5. Use `src/lib/ui` only where the local convention already uses its Radix, Vaul, or shadcn-style primitive. Tooltips are still `components/Tooltip` on tippy.js; the Radix `Tooltip` is pending.
-6. Maintain `src/app/atoms` only when changing an existing legacy flow. ESLint bans new importers of it and every retired module (`lib/ui/button`, `lib/ui/badge`, `components/EmptyState`, `components/flow/FlowDetails`, `NavigationHeader`, `CircleButton`, `NavButton`, …); see `.eslintrc`.
+6. Maintain `src/app/atoms` only when changing an existing legacy flow. ESLint bans new importers of it and every retired module (`lib/ui/button`, `lib/ui/badge`, `lib/ui/useCopyToClipboard`, `components/EmptyState`, `components/flow/FlowDetails`, `NavigationHeader`, `CircleButton`, `NavButton`, …); see `.eslintrc`.
 
 A variant is declared with `class-variance-authority` (`cva`) as a closed, typed set (`Button`, `IconButton`, `Pill`, `Avatar`); `className` is for layout.
 

@@ -61,6 +61,20 @@ function Page() {
   );
 }
 
+// A stand-in for TabLayout's root (#1109: main.css scopes the flow-footer cushion to `[data-tab-layout]`).
+// The real TabLayout needs a mock harness (icons, i18n, BottomNav, the home carousel) this file does not
+// carry, and its own test file's framer-motion stub is a plain-div stand-in that conflicts with the real
+// framer-motion this file mocks in for its slide/cover assertions, so importing it here would mean
+// forking one of the two mocks. A minimal root carrying the same attribute pins the structural premise
+// (a covered layer and the slide page above it are siblings, never nested) without that coupling.
+function CoveredLayerRoot() {
+  return (
+    <div data-tab-layout="docked">
+      <Page />
+    </div>
+  );
+}
+
 function view(pathname: string, slide = false, key = pathname, trigger = HistoryAction.Push) {
   return (
     <MobilePageLayers location={location(pathname, trigger)} pageKey={key} slide={slide}>
@@ -654,4 +668,26 @@ it('marks a page a router Pop reaches with no layer of its own yet, after a relo
   rerender(view('/', false, 'tabs', HistoryAction.Pop));
   await settle();
   expect(container.querySelector('[data-page-layer="/"] button')).toHaveAttribute('data-mounted-by-return', 'true');
+});
+
+it('keeps a slide page above a covered TabLayout root as a sibling layer, never nested inside it (#1109)', async () => {
+  const { container, rerender } = render(
+    <MobilePageLayers location={location('/history')} pageKey="tabs" slide={false}>
+      <CoveredLayerRoot />
+    </MobilePageLayers>
+  );
+  rerender(
+    <MobilePageLayers location={location('/settings')} pageKey="/settings" slide>
+      <FullScreenPage entrance="slide">
+        <div data-flow-footer="" />
+      </FullScreenPage>
+    </MobilePageLayers>
+  );
+  await settle();
+
+  // The covered layer's root is still mounted underneath (inert, not removed) ...
+  expect(container.querySelector('[data-tab-layout]')).toBeInTheDocument();
+  // ... but the slide page's footer is a sibling PageLayer, not a descendant of that root, so it never
+  // inherits the cushion main.css declares on `[data-tab-layout]`.
+  expect(container.querySelector('[data-flow-footer]')?.closest('[data-tab-layout]')).toBeNull();
 });
