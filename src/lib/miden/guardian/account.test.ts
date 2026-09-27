@@ -504,6 +504,85 @@ describe('createGuardianAccount', () => {
       'Failed to create Guardian account'
     );
   });
+
+  describe('a guardian answering 429 (#906)', () => {
+    const rateLimited = () =>
+      Object.assign(new Error('GUARDIAN HTTP error 429: Too Many Requests'), {
+        status: 429,
+        code: 'rate_limit_exceeded',
+        meta: { retryable: true, retryAfterSecs: 1 }
+      });
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('waits out a 429 on registration and creates the account', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited());
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits out a 429 on the pubkey fetch on the import path too', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const multisig = makeMultisig();
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32), true);
+      await jest.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('gives up after 8 registration calls with the 429 as the cause', async () => {
+      const multisig = makeMultisig();
+      const last = rateLimited();
+      multisig.registerOnGuardian.mockRejectedValue(last);
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      await Promise.all([
+        expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toMatchObject({
+          message: 'Failed to create Guardian account',
+          cause: last
+        }),
+        jest.runAllTimersAsync()
+      ]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
+    });
+
+    it('still fails at once on a registration error that is not a 429', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(
+        Object.assign(new Error('GUARDIAN HTTP error 500'), { status: 500 })
+      );
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      await expect(createGuardianAccount(makeWebClient() as never, new Uint8Array(32))).rejects.toThrow(
+        'Failed to create Guardian account'
+      );
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe('resolveGuardianEndpoint', () => {

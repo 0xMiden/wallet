@@ -11,6 +11,7 @@ import type { GuardianProvider } from 'lib/shared/types';
 import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
+import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
 
 /**
@@ -324,7 +325,12 @@ export async function createGuardianAccount(
       guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
+    // Both guardian calls count against its per-IP rate limit, which users
+    // behind a shared egress IP (NAT, VPN) share; a 429 is waited out, not
+    // turned into a failed wallet creation (#906).
+    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(() =>
+      client.guardianClient.getPubkey('ecdsa')
+    );
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(
@@ -362,7 +368,7 @@ export async function createGuardianAccount(
     );
 
     if (!skipRegistration) {
-      await multisig.registerOnGuardian();
+      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian());
     }
     await webClient.sync();
 
