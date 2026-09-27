@@ -145,6 +145,13 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'execute'
 ]);
 
+// Minus `execute`, only ever a dApp request: the dApp reads its five-minute wait running out as a failure, while a
+// requeued row can land up to MAX_QUEUED_AGE later. A dApp `send` is awaited too and stays, as on the 409, 429 and
+// prover arms, because its row carries no origin to tell it from the user's own.
+const GUARDIAN_UNREACHABLE_REQUEUEABLE: ReadonlySet<ITransactionType> = new Set<ITransactionType>(
+  [...REQUEUEABLE_ON_PENDING_CONFLICT].filter(type => type !== 'execute')
+);
+
 // Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
 // Slice 6a routed the four value-moving types (send / consume / swap / execute);
 // slice 6b adds the three STRUCTURAL types (switch-guardian / replace-hot-key /
@@ -1297,7 +1304,7 @@ const generateTransactionWithProvider = async (
       // wrote one Failed row per auto-consume retry (#779).
       if (
         isGuardianUnreachableError(error) &&
-        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
         (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
       ) {
         console.warn(

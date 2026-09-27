@@ -294,10 +294,18 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 // would be in the temporal dead zone at that point.
 // eslint-disable-next-line no-var
 var mockPlatformIsMobile = false;
-jest.mock('lib/platform', () => ({
-  ...jest.requireActual('lib/platform'),
-  isMobile: () => mockPlatformIsMobile
-}));
+// Undefined (the default) keeps the real answer, which the webextension mock's runtime id makes "on the extension";
+// a test sets false to see the requeue wake, which is a no-op on the extension.
+// eslint-disable-next-line no-var
+var mockPlatformIsExtension: boolean | undefined;
+jest.mock('lib/platform', () => {
+  const actual = jest.requireActual<typeof import('lib/platform')>('lib/platform');
+  return {
+    ...actual,
+    isMobile: () => mockPlatformIsMobile,
+    isExtension: () => mockPlatformIsExtension ?? actual.isExtension()
+  };
+});
 
 jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
@@ -3953,6 +3961,56 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
     warnSpy.mockRestore();
+  });
+
+  it('Guardian execute: an unreachable guardian at creating-proposal fails at once and is never requeued (#779)', async () => {
+    // A dApp waits five minutes on its execute row and reads "timed out" as failed, while a requeued row can land up to
+    // 30 minutes later. Off the extension, so a requeue would also arm its wake.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      const txId = 'execute-unreachable';
+      const requestBytes = new Uint8Array([3, 3]);
+      txStore.push({
+        id: txId,
+        type: 'execute',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        requestBytes,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw new TypeError('Failed to fetch');
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      await generateTransaction(
+        { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+      expect(row.nextEligibleAt).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = undefined;
+    }
   });
 
   it('Guardian replace-hot-key: an unreachable guardian at creating-proposal still fails (#779)', async () => {
