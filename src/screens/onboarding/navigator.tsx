@@ -51,7 +51,8 @@ export interface OnboardingFlowProps {
   isHardwareSecurityAvailable?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
-  guardianLookupError?: boolean;
+  /** The last Guardian lookup failure's display text, or `null`. */
+  guardianLookupFailure?: string | null;
   /** Registration/recovery failure text to surface on the confirmation step (#630). */
   recoveryError?: string | null;
   /**
@@ -134,7 +135,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isHardwareSecurityAvailable = false,
   biometricAttempts = 0,
   biometricError = null,
-  guardianLookupError = false,
+  guardianLookupFailure = null,
   recoveryError = null,
   guardianProbe,
   confirmCreating = false,
@@ -325,7 +326,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen
-            isError={guardianLookupError}
+            error={guardianLookupFailure}
             probe={guardianProbe}
             guardianOnly={importViaKey}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
@@ -362,7 +363,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onBiometricChange,
     biometricAttempts,
     biometricError,
-    guardianLookupError,
+    guardianLookupFailure,
     recoveryError,
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".

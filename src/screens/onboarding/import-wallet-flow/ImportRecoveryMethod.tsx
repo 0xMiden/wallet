@@ -28,7 +28,8 @@ import { GuardianProbeState, WalletType } from '../types';
 const PROBE_ESCAPE_HATCH_MS = 10_000;
 
 export interface ImportRecoveryMethodScreenProps {
-  isError?: boolean;
+  /** The last lookup failure's display text; `undefined`/`null` for none. */
+  error?: string | null;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
   /**
@@ -41,7 +42,7 @@ export interface ImportRecoveryMethodScreenProps {
 }
 
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
-  isError,
+  error,
   probe,
   guardianOnly = false,
   onRetryProbe,
@@ -82,7 +83,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     return () => clearTimeout(timer);
   }, [isProbing]);
 
-  const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
+  const showError = Boolean(error) && !dirty && selected === WalletType.Guardian;
 
   const sanitizedEndpoint = sanitizeGuardianUrl(endpointInput);
   const canContinue =
@@ -318,7 +319,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           {renderGuardianBody()}
           {showError && (
             <Notice tone="negative" role="alert">
-              {t('guardianAccountNotFound')}
+              {error}
             </Notice>
           )}
         </div>

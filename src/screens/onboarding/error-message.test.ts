@@ -1,4 +1,6 @@
-import { errorToMessage } from './error-message';
+import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+
+import { errorToMessage, isGuardianNotFound } from './error-message';
 
 describe('errorToMessage', () => {
   it.each([
@@ -24,5 +26,21 @@ describe('errorToMessage', () => {
     ['undefined', undefined]
   ])('returns undefined for %s', (_label, error) => {
     expect(errorToMessage(error)).toBeUndefined();
+  });
+});
+
+describe('isGuardianNotFound', () => {
+  it('is true for an error carrying the not-found code', () => {
+    expect(isGuardianNotFound({ code: GUARDIAN_ACCOUNT_NOT_FOUND })).toBe(true);
+  });
+
+  it.each([
+    ['an error with a different code', { code: 'TIMEOUT' }],
+    ['an Error with no code', new Error('This key is no longer active for the account.')],
+    ['a string', 'guardian not found'],
+    ['null', null],
+    ['undefined', undefined]
+  ])('is false for %s', (_label, error) => {
+    expect(isGuardianNotFound(error)).toBe(false);
   });
 });

@@ -892,7 +892,7 @@ export class MidenClientInterface {
     });
 
     if (adopted.length === 0) {
-      throw new Error(getMessage('importHotKeyNoAccount'));
+      throw new NoGuardianAccountsFoundError(getMessage('importHotKeyNoAccount'));
     }
 
     return adopted.map(accountId => ({ accountId, hotPublicKey }));
