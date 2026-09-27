@@ -68,6 +68,11 @@ const DERIVED_LOCALES = fs
       fs.existsSync(path.join(LOCALES_DIR, dir, `${dir}.json`))
   );
 
+/** Every locale dir Chrome ships a messages.json from, `en` included. */
+const ALL_LOCALES = fs
+  .readdirSync(LOCALES_DIR)
+  .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
 // Read a required entry's message; throws (failing the test with a clear reason)
 // if the key is absent. Keeps indexed access type-safe under
 // `noUncheckedIndexedAccess`, which treats `Record` lookups as possibly-undefined.
@@ -124,11 +129,11 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(unpropagated).toEqual([]);
   });
 
-  it.each(['en', ...DERIVED_LOCALES])('%s keeps no key that outlived its English source', locale => {
+  it.each(ALL_LOCALES)('%s keeps no key that outlived its English source', locale => {
     // The missing direction, and the one a removal needs. Deleting a key from en.json makes its
-    // stored `englishSource` unmatchable, so `staleKeys` lists it for every locale and both tests
-    // above then treat its absence from the flat bundle as a permitted gap and its presence in
-    // messages.json as invisible: `receiveTestFundsTitle` survived in all 14 bundles that way, with
+    // stored `englishSource` unmatchable, so the flatten test above filters it out of messages.json as
+    // stale, and the completeness test below (`staleKeys`) treats its absence from the flat bundle as a
+    // permitted gap: `receiveTestFundsTitle` survived in all 14 bundles that way, with
     // every gate green, queued for re-translation against English text that no longer exists.
     const orphans = Object.keys(loadMessages(locale)).filter(key => !(key in enSource));
     expect(orphans).toEqual([]);
@@ -142,7 +147,7 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
   });
 
-  it.each(RUNTIME_LOCALES)('%s uses $-delimited placeholders, never {{…}}', locale => {
+  it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {
     // `src/i18n.ts` configures `interpolation.prefix/suffix = '$'`, so a stale
     // `{{origin}}` renders literally — e.g. the "reset permissions for X?" prompt
     // asking the user to confirm without naming the site.
@@ -233,10 +238,6 @@ describe('es locale parity with en (#469)', () => {
 // `yarn lint:i18n` (which lints `src`, not `public/_locales`) are all blind to it;
 // this is the only gate that sees it.
 describe('Chrome i18n placeholder declarations', () => {
-  const ALL_LOCALES = fs
-    .readdirSync(LOCALES_DIR)
-    .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
-
   it.each(ALL_LOCALES)('%s declares every $placeholder$ its messages use', locale => {
     const undeclared: string[] = [];
     for (const [key, entry] of Object.entries(loadMessages(locale))) {
