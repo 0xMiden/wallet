@@ -392,4 +392,20 @@ describe('useConnectivityState', () => {
       expect(result.current.state.network.active).toBe(false);
     });
   });
+
+  it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), and dismiss on an active category still hides it locally', async () => {
+    // No Web Locks at all: `navigator.locks.request(...)` throws synchronously rather than rejecting. Off-extension
+    // (the default here) `merged` comes from the in-process machine, so `markConnectivityIssue` below actually
+    // makes a category active for `dismiss` to act on.
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+    storedDismissedActivations = { network: 123 };
+
+    const { result } = renderHook(() => useConnectivityState());
+    await settle();
+
+    act(() => markConnectivityIssue('node'));
+    act(() => result.current.dismiss('node'));
+
+    expect(result.current.state.node.active).toBe(false);
+  });
 });

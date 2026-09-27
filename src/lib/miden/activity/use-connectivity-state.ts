@@ -35,7 +35,12 @@ function readDismissedActivations(raw: unknown): DismissedActivations {
 // One read-modify-write of the stored record inside a Web Lock that every extension surface (popup, side panel,
 // tabs) shares, so a window never puts back a category another window just changed (#1158), as
 // lib/wallet-prompts.ts does for its record. A change that returns the record as it is writes nothing.
-function updateDismissedActivations(change: (current: DismissedActivations) => DismissedActivations): Promise<void> {
+// Declared `async` so a synchronous throw from `navigator.locks.request` itself (no Web Locks, e.g. iOS 15.0-15.3)
+// becomes a rejection the caller's `.catch(ignoreFailedWrite)` can reach, instead of escaping past it and crashing
+// the render.
+async function updateDismissedActivations(
+  change: (current: DismissedActivations) => DismissedActivations
+): Promise<void> {
   return navigator.locks.request(`turn:${CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY}`, async () => {
     const current = readDismissedActivations(await fetchFromStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY));
     const next = change(current);
