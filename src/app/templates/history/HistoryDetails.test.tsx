@@ -2692,13 +2692,14 @@ describe('HistoryDetails', () => {
         ...bridgedSendTx,
         extraInputs: {
           ...(bridgedSendTx.extraInputs as Record<string, unknown>),
-          outputAmount: '151.500000000000000001'
+          outputAmount: '151.505000000000000001'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
     });
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
@@ -2770,13 +2771,14 @@ describe('HistoryDetails', () => {
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          sourceAmount: '151.500000000000000001'
+          sourceAmount: '151.505000000000000001'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
       expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
