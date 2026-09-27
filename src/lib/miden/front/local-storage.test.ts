@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 
-import { useLocalStorage, readLocalStorage } from './local-storage';
+import { useLocalStorage, readLocalStorage, writeLocalStorage } from './local-storage';
 
 // Mock the logger
 jest.mock('shared/logger', () => ({
@@ -131,5 +131,18 @@ describe('readLocalStorage', () => {
     localStorage.setItem('read-key', JSON.stringify(6));
     expect(result.current[0]).toBe(1);
     expect(readLocalStorage('read-key', 1)).toBe(6);
+  });
+});
+
+describe('writeLocalStorage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('stores JSON a later read returns', () => {
+    writeLocalStorage('write-key', { attempt: 4 });
+
+    expect(localStorage.getItem('write-key')).toBe(JSON.stringify({ attempt: 4 }));
+    expect(readLocalStorage('write-key', null)).toEqual({ attempt: 4 });
   });
 });

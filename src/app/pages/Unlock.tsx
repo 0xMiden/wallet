@@ -10,7 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
 import type { BiometricAvailability } from 'lib/biometric';
-import { readLocalStorage, useLocalStorage, useMidenContext } from 'lib/miden/front';
+import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -264,18 +264,26 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       setIsError(false);
       setBiometricError(false);
 
+      let provisionalStamp: number | null = null;
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
         if (stored.attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
 
-        // Another window may have armed a lockout while this one slept; re-check before spending the
-        // guess, or two close submits could both reach unlock() (#1192).
+        // The final check and the record are one synchronous step right before unlock(), so another window
+        // checking while this guess is in flight finds it counted, and at the threshold locked out (#1192).
         const preUnlock = readStoredLockout();
         if (preUnlock.locked) {
           adoptLockout(preUnlock);
           setCode('');
           setIsSubmitting(false);
           return;
+        }
+        // Storage only: through this window's state, a correct guess at the threshold would disable its own
+        // form while still in flight. Success resets the count, which makes the provisional stamp inert.
+        writeLocalStorage(MidenSharedStorageKey.PasswordAttempts, preUnlock.attempt + 1);
+        if (preUnlock.attempt >= LAST_ATTEMPT) {
+          provisionalStamp = Date.now();
+          writeLocalStorage(MidenSharedStorageKey.TimeLock, provisionalStamp);
         }
 
         await unlock(passcode);
@@ -290,16 +298,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        // A failure another window recorded while this one slept must not be overwritten by the
-        // pre-sleep count; arm and count from the live stored total instead (#1192).
-        const currentAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
-        if (currentAttempt >= LAST_ATTEMPT) {
-          const stamp = Date.now();
-          timelockRef.current = stamp;
-          setTimeLock(stamp);
+        // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
+        // provisional stamp: a different one is another window's lockout (#1192).
+        if (
+          provisionalStamp !== null &&
+          readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) === provisionalStamp
+        ) {
+          writeLocalStorage(MidenSharedStorageKey.TimeLock, Date.now());
         }
-        setAttempt(currentAttempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), lockLevelOf(currentAttempt + 1)));
+        adoptLockout(readStoredLockout());
 
         console.error(err);
 
@@ -312,7 +319,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         endUnlock();
       }
     },
-    [isSubmitting, unlock, setAttempt, setTimeLock, beginUnlock, endUnlock, adoptLockout]
+    [isSubmitting, unlock, setAttempt, beginUnlock, endUnlock, adoptLockout]
   );
 
   useEffect(() => {

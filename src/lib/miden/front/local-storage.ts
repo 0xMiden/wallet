@@ -15,6 +15,15 @@ export const readLocalStorage = <T>(key: string, fallback: T): T => {
   }
 };
 
+/** Stores `value` under `key` as JSON, for a later read in any window; no hook's state changes with it. */
+export const writeLocalStorage = <T>(key: string, value: T) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    logger.error('Failed to store item in local storage', error);
+  }
+};
+
 // TODO: reuse in other places (eg. saving.ts & popup-mode/index.ts)
 export const useLocalStorage = <T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] => {
   const [storedValue, setStoredValue] = React.useState<T>(() => readLocalStorage(key, initialValue));
@@ -23,7 +32,7 @@ export const useLocalStorage = <T>(key: string, initialValue: T): [T, (value: T 
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
       setStoredValue(valueToStore);
-      localStorage.setItem(key, JSON.stringify(valueToStore));
+      writeLocalStorage(key, valueToStore);
     } catch (error) {
       logger.error('Failed to store item in local storage', error);
     }
