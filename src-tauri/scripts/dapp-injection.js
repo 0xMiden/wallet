@@ -139,8 +139,8 @@
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
-  // The wallet's own fields are the only state, so a throw after they are set cannot freeze the watch. Such a throw
-  // comes from a mobile listener; desktop's _emit isolates its listeners.
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
   function watchPermission(wallet) {
     stopPermissionWatch();
     let stopped = false;

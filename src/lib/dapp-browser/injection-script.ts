@@ -50,9 +50,16 @@ export const INJECTION_SCRIPT = `
       if (!this._events[event]) return;
       this._events[event] = this._events[event].filter(l => l !== listener);
     }
+    // A listener that throws stops neither the listeners after it nor the code that emitted, as on desktop.
     emit(event, ...args) {
       if (!this._events[event]) return;
-      this._events[event].forEach(listener => listener(...args));
+      this._events[event].slice().forEach(listener => {
+        try {
+          listener(...args);
+        } catch (e) {
+          console.error('[MidenWallet] Error in ' + event + ' listener:', e);
+        }
+      });
     }
   }
 
@@ -145,8 +152,8 @@ export const INJECTION_SCRIPT = `
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
-  // The wallet's own fields are the only state, so a throw after they are set cannot freeze the watch. Such a throw
-  // comes from a mobile listener; desktop's _emit isolates its listeners.
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
   function watchPermission(wallet) {
     stopPermissionWatch();
     let stopped = false;
@@ -229,7 +236,7 @@ export const INJECTION_SCRIPT = `
       this.network = network;
       this.publicKey = decodedPublicKey;
 
-      // The watch starts first, so a throwing listener cannot leave it unstarted and one that disconnects stops it.
+      // The watch starts first, so a listener that disconnects from this emission stops it.
       watchPermission(this);
 
       // Emit connect event for wallet adapters that listen to events

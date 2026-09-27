@@ -895,30 +895,46 @@ describe('account switch (#174)', () => {
     expect(win.midenWallet.address).toBe('0xdef');
   });
 
-  it('a throwing accountChange listener hears a switch once, and the switch back still lands', async () => {
+  it('a throwing accountChange listener and the one after it each hear a switch once, and the switch back', async () => {
     const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failure = new Error('listener failed');
     const listener = jest.fn(() => {
-      throw new Error('listener failed');
+      throw failure;
     });
+    const after = jest.fn();
     win.midenWallet.on('accountChange', listener);
+    win.midenWallet.on('accountChange', after);
     const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
     await answerPoll(win, next);
     await answerPoll(win, next);
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
     await answerPoll(win, { ...PERM, publicKey: btoa('abc') });
     expect(win.midenWallet.address).toBe('0xabc');
     expect(listener).toHaveBeenCalledTimes(2);
+    expect(after.mock.calls).toEqual([
+      [expect.objectContaining({ address: '0xdef' })],
+      [expect.objectContaining({ address: '0xabc' })]
+    ]);
+    expect(error).toHaveBeenCalledWith(expect.any(String), failure);
+    error.mockRestore();
   });
 
-  it('a throwing accountChange listener hears two null polls once', async () => {
+  it('a throwing accountChange listener and the one after it each hear two null polls once', async () => {
     const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const listener = jest.fn(() => {
       throw new Error('listener failed');
     });
+    const after = jest.fn();
     win.midenWallet.on('accountChange', listener);
+    win.midenWallet.on('accountChange', after);
     await answerPoll(win, null);
     await answerPoll(win, null);
     expect(listener.mock.calls).toEqual([[null]]);
+    expect(after.mock.calls).toEqual([[null]]);
+    error.mockRestore();
   });
 
   it('stops on disconnect, and a poll answered after disconnect changes nothing', async () => {
@@ -954,6 +970,23 @@ describe('account switch (#174)', () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(60000);
     expect(polls(win)).toHaveLength(0);
+  });
+
+  it('a refused disconnect rejects with its own error when a disconnect listener throws, and clears the account', async () => {
+    const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    win.midenWallet.on('disconnect', () => {
+      throw new Error('listener failed');
+    });
+    const disconnecting = win.midenWallet.disconnect();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'NOT_FOUND' });
+    await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+    expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ]);
+    error.mockRestore();
   });
 
   // A fresh wallet whose connect() request is still pending when disconnect() runs.
@@ -1013,17 +1046,19 @@ describe('account switch (#174)', () => {
     expect(polls(win)).toHaveLength(1);
   });
 
-  it('keeps watching when a connect listener throws', async () => {
+  it('a connect listener that throws neither rejects connect nor stops the watch', async () => {
     const win = makeWindow();
     inject(win);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     win.midenWallet.on('connect', () => {
       throw new Error('listener failed');
     });
     await expect(
       callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT)
-    ).rejects.toThrow('listener failed');
+    ).resolves.toMatchObject({ address: '0xabc' });
     jest.advanceTimersByTime(10000);
     expect(polls(win)).toHaveLength(1);
+    error.mockRestore();
   });
 
   it('a poll that times out is followed by the next one', async () => {

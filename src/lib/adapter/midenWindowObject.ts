@@ -155,7 +155,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
       this.address = undefined;
       this.publicKey = undefined;
       this.permission = undefined;
-      this.emit('accountChange', null);
+      this.emitAccountChange(null);
       return;
     }
     const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
@@ -163,7 +163,22 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.permission = permission;
     this.address = perm.address;
     this.publicKey = publicKey;
-    this.emit('accountChange', permission);
+    this.emitAccountChange(permission);
+  }
+
+  // eventemitter3's emit stops at a listener that throws and rethrows into the poll, so each listener
+  // runs on its own, as in the injected providers. A once-listener is removed before its call, as
+  // eventemitter3 does, so one that throws is removed too. listeners() drops a registered context, so
+  // each runs with this object as `this`, eventemitter3's default.
+  private emitAccountChange(permission: NonNullable<MidenWindowObject['permission']> | null) {
+    for (const listener of this.listeners('accountChange')) {
+      this.removeListener('accountChange', listener, undefined, true);
+      try {
+        listener.call(this, permission);
+      } catch (e) {
+        console.error('[MidenWallet] Error in accountChange listener:', e);
+      }
+    }
   }
 
   /**

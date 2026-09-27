@@ -364,6 +364,42 @@ describe('MidenWindowObject', () => {
         expect(obj.publicKey).toBe(permission.publicKey);
       });
 
+      it('every accountChange listener hears the switch and the null, whatever an earlier one throws', async () => {
+        const { obj, fire } = await connectCapturing();
+        const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const failure = new Error('listener failed');
+        const throwing = jest.fn(() => {
+          throw failure;
+        });
+        const second = jest.fn();
+        const once = jest.fn();
+        const throwingOnce = jest.fn(() => {
+          throw failure;
+        });
+        obj.on('accountChange', throwing);
+        obj.on('accountChange', second);
+        obj.once('accountChange', once);
+        obj.once('accountChange', throwingOnce);
+        const next = {
+          rpc: 'rpc',
+          address: 'mtst1qnext',
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('xyz')
+        };
+        expect(() => fire(next)).not.toThrow();
+        const taken = { ...next, publicKey: new Uint8Array([120, 121, 122]) };
+        expect(second.mock.calls).toEqual([[taken]]);
+        expect(second.mock.contexts[0]).toBe(obj);
+        expect(() => fire(null)).not.toThrow();
+        expect(second.mock.calls).toEqual([[taken], [null]]);
+        expect(throwing).toHaveBeenCalledTimes(2);
+        expect(once.mock.calls).toEqual([[taken]]);
+        expect(throwingOnce.mock.calls).toEqual([[taken]]);
+        expect(error).toHaveBeenCalledWith(expect.any(String), failure);
+        error.mockRestore();
+      });
+
       it('a second connect keeps one poll', async () => {
         mockClient.requestPermission.mockResolvedValue(permission);
         const firstStop = jest.fn();
