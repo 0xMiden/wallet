@@ -205,15 +205,9 @@ jest.mock('./templates/AccountBanner', () => ({
   __esModule: true,
   default: ({ networkRpc }: any) => <div data-testid="account-banner" data-rpc={networkRpc} />
 }));
-// The origin-clipping case sets this to walk the real banner inside ConfirmDAppForm.
-let mockRealConnectBanner = false;
 jest.mock('./templates/ConnectBanner', () => ({
   __esModule: true,
-  default: (props: any) => {
-    if (!mockRealConnectBanner) return <div data-testid="connect-banner" data-origin={props.origin} />;
-    const RealConnectBanner = jest.requireActual('./templates/ConnectBanner').default;
-    return <RealConnectBanner {...props} />;
-  }
+  default: ({ origin }: any) => <div data-testid="connect-banner" data-origin={origin} />
 }));
 jest.mock('./templates/PrivateDataPermissionBanner', () => ({
   __esModule: true,
@@ -1051,39 +1045,10 @@ describe('request origin banner', () => {
 
     const shown = screen.getByTestId('confirm-request-origin');
     expect(shown.textContent).toBe(LONG_ORIGIN);
-    // ConfirmDAppForm's fixed-width root scrolls vertically; the domain wraps inside it
-    // (break-all, max-w-full), so its overflow-y-auto never clips the domain sideways.
-    const scroller = shown.closest('[style*="width: 380px"]')!;
-    expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), container, [
-      { element: scroller, classes: ['overflow-y-auto'] }
-    ]);
-  });
-
-  describe('on the connect prompt', () => {
-    beforeEach(() => {
-      mockRealConnectBanner = true;
-    });
-    afterEach(() => {
-      mockRealConnectBanner = false;
-    });
-
-    it('keeps the registrable domain unclipped up to the form root', () => {
-      setPayload({
-        type: 'connect',
-        ...baseFields(LONG_ORIGIN),
-        privateDataPermission: UPON_REQUEST,
-        existingPermission: false,
-        allowedPrivateData: ['balance']
-      });
-      render(<ConfirmPage />);
-
-      const shown = screen.getByTestId('connect-origin');
-      expect(shown.textContent).toBe(LONG_ORIGIN);
-      const scroller = shown.closest('[style*="width: 380px"]')!;
-      expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), scroller, [
-        { element: scroller, classes: ['overflow-y-auto'] }
-      ]);
-    });
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 });
 

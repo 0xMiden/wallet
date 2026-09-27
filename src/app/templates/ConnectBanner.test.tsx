@@ -38,7 +38,10 @@ describe('ConnectBanner', () => {
 
     const shown = screen.getByTestId('connect-origin');
     expect(shown.textContent).toBe(origin);
-    expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), container);
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 
   it('renders the Logo with the forwarded height/margin/filter style', () => {
