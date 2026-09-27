@@ -35,9 +35,12 @@ export interface GuardianLogoEntry {
 // with `dark:`, the same fixed-palette pattern as everywhere else in the wallet
 // (CLAUDE.md's Tailwind notes) — `keepBrandColor` on the entry below already
 // opts this logo out of the blanket grey recolor other providers get.
-const OpenZeppelinLogo: ImportedSVGComponent = ({ className, ...rest }) => (
+// Both roots stay in the DOM whatever the theme, so a caller's `id` goes on one of them only (a second
+// copy is invalid DOM and breaks `aria-labelledby`, which still resolves to a hidden element), while
+// every other prop, the accessible name included, reaches both so the visible root carries it.
+const OpenZeppelinLogo: ImportedSVGComponent = ({ className, id, ...rest }) => (
   <>
-    <OpenZeppelinLogoLight {...rest} className={clsx('block dark:hidden', className)} />
+    <OpenZeppelinLogoLight {...rest} id={id} className={clsx('block dark:hidden', className)} />
     <OpenZeppelinLogoDark {...rest} className={clsx('hidden dark:block', className)} />
   </>
 );
