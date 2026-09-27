@@ -64,6 +64,8 @@ jest.mock('lib/miden/front', () => {
   return {
     __esModule: true,
     useMidenContext: () => ({ unlock: mockUnlock }),
+    readLocalStorage: (key: string, fallback: unknown) =>
+      Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : fallback,
     useLocalStorage: (key: string, initial: unknown) => {
       const [value, setValue] = R.useState(
         Object.prototype.hasOwnProperty.call(mockLsStore, key) ? mockLsStore[key] : initial
@@ -326,6 +328,49 @@ describe('Unlock — extension password form', () => {
     // Typing again clears the error subtitle (onPasswordChange isError branch).
     fireEvent.change(input, { target: { value: 'wrong2' } });
     expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
+  });
+
+  it('refuses a guess while another window holds a lockout, and shows it (#1192)', async () => {
+    const { container } = await renderUnlock();
+    // Another window failed its way into a lockout after this one mounted.
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = BASE;
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(container.querySelector('#unlock-password')).toBeDisabled();
+  });
+
+  it("counts a wrong guess from the stored attempt, not this window's (#1192)", async () => {
+    mockUnlock.mockRejectedValue(new Error('bad'));
+    const { container } = await renderUnlock();
+    // Another window has failed four times; this one still holds 1.
+    mockLsStore.PasswordAttempts = 5;
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(3100);
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(Number(mockLsStore.TimeLock)).toBeGreaterThanOrEqual(BASE);
+  });
+
+  it('does not erase a lockout another window armed when its own old stamp runs out (#1192)', async () => {
+    // This window mounted during an older lockout that has just run out (60 s tier).
+    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 61_000 };
+    await renderUnlock();
+    // Meanwhile another window armed a fresh lockout.
+    mockLsStore.TimeLock = BASE;
+
+    await advance(1100);
+
+    expect(mockLsStore.TimeLock).toBe(BASE);
+    expect(mockLsWrites.filter(([key]) => key === 'TimeLock')).toEqual([]);
   });
 
   // The same clear reaches this arm: the password form's error line derives from the same isError

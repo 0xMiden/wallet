@@ -49,6 +49,7 @@
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
+- [FIX][extension] A passcode lockout armed in one window (popup, side panel or a tab) is honoured by every open window, which no longer takes guesses during it or shortens it (#1192).
 
 ## 1.16.2 (2026-09-24)
 

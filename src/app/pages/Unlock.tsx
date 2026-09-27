@@ -10,7 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
 import type { BiometricAvailability } from 'lib/biometric';
-import { useLocalStorage, useMidenContext } from 'lib/miden/front';
+import { readLocalStorage, useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -216,14 +216,28 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
-      if (isSubmitting || !beginUnlock()) return;
+      if (isSubmitting) return;
+      // Judged from storage, not this window's state: another window may have counted failures or armed a lockout
+      // since this one mounted, and a guess judged from the stale count would skip or shorten the lockout (#1192).
+      const storedAttempt = readLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
+      const storedTimelock = readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
+      const storedLockLevel = LOCK_TIME * Math.floor(storedAttempt / 3);
+      if (Date.now() - storedTimelock <= storedLockLevel) {
+        timelockRef.current = storedTimelock;
+        setTimeLock(storedTimelock);
+        setAttempt(storedAttempt);
+        setTimeleft(getTimeLeft(storedTimelock, storedLockLevel));
+        setCode('');
+        return;
+      }
+      if (!beginUnlock()) return;
       setIsSubmitting(true);
       setIsError(false);
       setBiometricError(false);
 
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
-        if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+        if (storedAttempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
         await unlock(passcode);
 
         setAttempt(1);
@@ -236,13 +250,13 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        if (attempt >= LAST_ATTEMPT) {
+        if (storedAttempt >= LAST_ATTEMPT) {
           const stamp = Date.now();
           timelockRef.current = stamp;
           setTimeLock(stamp);
         }
-        setAttempt(attempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+        setAttempt(storedAttempt + 1);
+        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((storedAttempt + 1) / 3)));
 
         console.error(err);
 
@@ -255,7 +269,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         endUnlock();
       }
     },
-    [isSubmitting, unlock, attempt, setAttempt, setTimeLock, beginUnlock, endUnlock]
+    [isSubmitting, unlock, setAttempt, setTimeLock, beginUnlock, endUnlock]
   );
 
   useEffect(() => {
@@ -346,7 +360,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
       if (stamp !== 0 && Date.now() - stamp > lockLevel) {
         timelockRef.current = 0;
-        setTimeLock(0);
+        // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
+        if (readLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0) === stamp) setTimeLock(0);
       }
       setTimeleft(getTimeLeft(stamp, lockLevel));
     }, 1_000);
