@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CONNECTIVITY_CATEGORIES,
   CONNECTIVITY_STATE_KEY,
+  CategoryState,
   ConnectivityCategory,
   ConnectivityStateSnapshot,
   getConnectivityState,
+  isCategoryState,
   subscribeConnectivityState
 } from './connectivity-state';
 import { isExtension } from '../../platform';
@@ -31,17 +33,24 @@ function readDismissedActivations(raw: unknown): DismissedActivations {
   return record;
 }
 
+// The activation the connectivity mirror names for `category`, or null when the mirror holds no readable entry.
+function readMirroredActivation(raw: unknown, category: ConnectivityCategory): CategoryState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const entry: unknown = Reflect.get(raw, category);
+  return isCategoryState(entry) ? entry : null;
+}
+
 // One read-modify-write of the stored record in its storage turn, which every extension surface (popup, side panel,
 // tabs) shares, so a window never puts back a category another window just changed (#1158). A change that returns the
 // record as it is writes nothing. A failed write is not retried: this window keeps its change, and storage keeps the
 // old record until a later change writes it.
 async function updateDismissedActivations(
-  change: (current: DismissedActivations) => DismissedActivations
+  change: (current: DismissedActivations) => DismissedActivations | Promise<DismissedActivations>
 ): Promise<void> {
   try {
     await inStorageTurn(`turn:${CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY}`, async () => {
       const current = readDismissedActivations(await fetchFromStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY));
-      const next = change(current);
+      const next = await change(current);
       if (next !== current) await putToStorage(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, next);
     });
   } catch {
@@ -136,10 +145,13 @@ export function useConnectivityState(): {
     const { since } = activation;
     // The window where the user tapped always hides what it shows, whatever storage decides.
     setOwnDismissals(current => (current[category] === since ? current : { ...current, [category]: since }));
-    void updateDismissedActivations(current => {
-      const held = current[category];
-      // In storage a dismissal of a later activation (from another window) outranks this one.
-      if (held === since || (typeof held === 'number' && typeof since === 'number' && held > since)) return current;
+    void updateDismissedActivations(async current => {
+      if (current[category] === since) return current;
+      // Decided by the activation the connectivity mirror names now, never by comparing since stamps, which a clock
+      // step back reorders: a window still showing an older activation keeps its dismissal to itself, so it never
+      // replaces another window's dismissal of the current one.
+      const mirrored = readMirroredActivation(await fetchFromStorage(CONNECTIVITY_STATE_KEY), category);
+      if (mirrored?.active && mirrored.since !== since) return current;
       return { ...current, [category]: since };
     });
   }, []);

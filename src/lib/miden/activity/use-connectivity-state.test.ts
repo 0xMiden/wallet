@@ -399,16 +399,20 @@ describe('useConnectivityState', () => {
       expect(locks.requests).toContain('turn:miden-connectivity-dismissed-activations');
     });
 
-    it('never replaces a newer stored dismissal with an older one', async () => {
+    it("never replaces another window's dismissal of the activation the mirror shows", async () => {
+      // This window still renders network's old activation (123); the mirror and another window's dismissal have moved
+      // on to 999.
       storageSnapshot = makeSnapshot({ network: true });
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 456 };
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = { ...makeSnapshot(), network: { active: true, since: 999 } };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
       const { result } = renderHook(() => useConnectivityState());
 
       act(() => result.current.dismiss('network'));
       await settle();
 
-      expect(stored()).toEqual({ network: 456 });
+      expect(stored()).toEqual({ network: 999 });
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
+      expect(result.current.state.network.active).toBe(false);
     });
 
     it('keeps the dismissal when the write fails', async () => {
@@ -497,6 +501,24 @@ describe('useConnectivityState', () => {
 
       expect(hook.result.current.state.network.active).toBe(true);
     });
+
+    it('stores a dismissal of the activation the mirror shows over a stale later since, so a remount keeps it hidden', async () => {
+      // A dismissal from before a clock step back holds a later since (999) than the current outage's (123).
+      storageSnapshot = makeSnapshot({ network: true });
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = storageSnapshot;
+      storedDismissedActivations = { network: 999 };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
+      const first = renderHook(() => useConnectivityState());
+
+      act(() => first.result.current.dismiss('network'));
+      await settle();
+      expect(stored()).toEqual({ network: 123 });
+
+      first.unmount();
+      storedDismissedActivations = stored();
+      const second = renderHook(() => useConnectivityState());
+      expect(second.result.current.state.network.active).toBe(false);
+    });
   });
 
   it('reads a malformed stored record as nothing dismissed, and stores a well-formed one on dismiss', async () => {
@@ -529,6 +551,27 @@ describe('useConnectivityState', () => {
     await settle();
 
     expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({});
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['unreadable', 'not-a-snapshot']
+  ])('stores a dismissal off the extension when the connectivity mirror is %s', async (_state, mirror) => {
+    const { result } = renderHook(() => useConnectivityState());
+    act(() => markConnectivityIssue('network'));
+    await settle();
+    // The mirror write failed, or an older build left another shape under its key; storage also holds a stale later
+    // dismissal of network, as a clock step back leaves one.
+    if (mirror === undefined) delete mockStoredValues[CONNECTIVITY_STATE_KEY];
+    else mockStoredValues[CONNECTIVITY_STATE_KEY] = mirror;
+    mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: Number.MAX_SAFE_INTEGER };
+
+    act(() => result.current.dismiss('network'));
+    await settle();
+
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      network: getConnectivityState().network.since
+    });
   });
 
   it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), hides a dismissed category and stores its dismissal', async () => {

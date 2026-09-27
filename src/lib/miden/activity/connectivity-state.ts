@@ -458,7 +458,7 @@ export function applyConnectivityReport(category: ConnectivityCategory, active: 
  * malformed entry would put a value the banner has to render into `current` and then
  * write it straight back out.
  */
-function isCategoryState(value: unknown): value is CategoryState {
+export function isCategoryState(value: unknown): value is CategoryState {
   if (typeof value !== 'object' || value === null) return false;
   if (!('active' in value) || !('since' in value)) return false;
   const { active, since } = value;
