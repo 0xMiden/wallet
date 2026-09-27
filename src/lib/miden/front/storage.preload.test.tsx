@@ -351,4 +351,79 @@ describe('storage hooks (#1148)', () => {
     expect(await screen.findByTestId('failed')).toBeDefined();
     consoleError.mockRestore();
   });
+
+  it('keeps the cached value when a setter write to storage fails', async () => {
+    mockStored['failing-set-key'] = 'old';
+    await preloadStorage(['failing-set-key']);
+    const first = renderReader('failing-set-key', Writer);
+
+    mockSet.mockRejectedValueOnce(new Error('write failed'));
+    await act(async () => {
+      await expect(setStored('new')).rejects.toThrow('write failed');
+    });
+    first.unmount();
+    renderReader('failing-set-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+
+  it('shows the error screen when both the preload and the reader read fail', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGet.mockImplementationOnce(async () => {
+      throw new Error('preload read failed');
+    });
+    await preloadStorage(['both-fail-key']).catch(() => {});
+
+    mockGet.mockImplementationOnce(async () => {
+      throw new Error('read failed');
+    });
+    render(
+      <Boundary>
+        <Suspense fallback={<div data-testid="suspended" />}>
+          <Reader storageKey="both-fail-key" />
+        </Suspense>
+      </Boundary>
+    );
+
+    expect(await screen.findByTestId('failed')).toBeDefined();
+    consoleError.mockRestore();
+  });
+
+  it('a setter write supersedes a preload still in flight', async () => {
+    mockStored['race-key'] = 'old';
+    await preloadStorage(['race-key']);
+    renderReader('race-key', Writer);
+
+    const release = deferredRead('race-key', 'old');
+    const pending = preloadStorage(['race-key']);
+    await act(async () => {
+      await setStored('new');
+    });
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a usePassiveStorage setter write supersedes a preload still in flight', async () => {
+    mockStored['passive-race-key'] = 'old';
+    await preloadStorage(['passive-race-key']);
+    renderReader('passive-race-key', PassiveWriter);
+
+    const release = deferredRead('passive-race-key', 'old');
+    const pending = preloadStorage(['passive-race-key']);
+    await act(async () => {
+      setStored('new');
+    });
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith({ 'passive-race-key': 'new' }));
+    await act(async () => {});
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
 });

@@ -25,12 +25,13 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
       const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
+      preloadReads.delete(key);
       await putToStorage(key, nextValue);
       // The cache backs every reader of this key; off the extension no change event updates it.
       await mutate(nextValue, { revalidate: false });
       valueRef.current = nextValue;
     },
-    [key]
+    [key, mutate]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
@@ -50,6 +51,7 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   useEffect(() => {
     const put = async () => {
       if (prevValue.current !== value) {
+        preloadReads.delete(key);
         await putToStorage(key, value);
         await mutate(value, { revalidate: false });
       }
