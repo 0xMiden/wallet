@@ -7,10 +7,11 @@ import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
-// Covers only the deposit submission: the tap that turns a quoted/valid amount
-// into a tracked bridge transfer, and the reporter the hosting page wraps it
-// with. Every collaborator beyond the step components is stubbed — this suite is
-// not a test of the bridge itself.
+// Covers the deposit submission (the tap that turns a quoted/valid amount into a
+// tracked bridge transfer, and the reporter the hosting page wraps it with) and
+// the network banner the shell renders over the committing steps. Every
+// collaborator beyond the step components is stubbed - this suite is not a test
+// of the bridge itself.
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -57,6 +58,17 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
   hapticMedium: jest.fn()
+}));
+
+// The banner renders nothing on mainnet: pin a test network so its assertion does not rest on jest.setup's default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+
+// The sheet the banner opens needs a router this suite does not mount; it is never opened here.
+jest.mock('components/NetworkModeSheet', () => ({
+  NetworkModeSheet: () => null
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -271,5 +283,41 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState).toMatchObject({ status: 'idle', flow: null, quote: null });
     expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
     expect(epochState.quoteEVMToMiden()).toBeUndefined();
+  });
+});
+
+describe('EvmBridgeDepositScreen names the network', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+  });
+
+  // The shell's banner names the network on every step of this flow, review included (the
+  // registry in NetworkModeBanner.registry.test.ts points here).
+  it('shows the banner on amount entry, route choice and review', async () => {
+    renderScreen();
+
+    expect(screen.getByTestId('set-amount')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+
+    expect(await screen.findByTestId('pick-slow')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await settle();
+
+    expect(await screen.findByTestId('confirm-deposit')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });
