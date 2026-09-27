@@ -611,11 +611,15 @@ describe('Unlock — mobile passcode numpad', () => {
   const intervalTicks = (spy: jest.SpyInstance) =>
     (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
 
-  // The real useLocalStorage setter is a new function every render, so the 1 s interval is re-created
-  // constantly, and a tick from before the render that armed a lockout still holds the old TimeLock.
-  // The stub's setter is stable, so that tick is captured and run by hand (#1079).
-  it('keeps a lockout armed when a tick from before it lands afterwards', async () => {
-    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+  // The stub's setter is stable, so the interval is not re-created on every render as it is in the
+  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run
+  // by hand, after the catch arms and before React commits (#1079). The stored stamp is 0, or an
+  // expired one from an earlier lockout, which only reading the live stamp survives.
+  it.each([
+    ['0', 0],
+    ['an expired stamp', BASE - 10 * 60_000]
+  ])('keeps a lockout armed against a tick from before it (stored TimeLock %s)', async (_label, stored) => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: stored };
     mockUnlock.mockRejectedValueOnce(new Error('nope'));
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     const { container } = await renderUnlock();
@@ -633,28 +637,6 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
     expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
     expect(screen.getByTestId('digit-2')).toBeDisabled();
-  });
-
-  // The same tick holding an expired stamp from an earlier session instead of 0: the fresh lockout
-  // must survive it too, which only reading the live stamp guarantees.
-  it('keeps a lockout armed when a tick from before it still holds an expired stamp', async () => {
-    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 10 * 60_000 };
-    mockUnlock.mockRejectedValueOnce(new Error('nope'));
-    const setIntervalSpy = jest.spyOn(global, 'setInterval');
-    const { container } = await renderUnlock();
-    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
-
-    type(container, '111111');
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
-      await Promise.resolve();
-      await Promise.resolve(); // the catch has armed; React has not committed
-      staleTick();
-    });
-    await advance(450);
-    expect(mockLsStore.TimeLock).toBe(BASE + 150);
-    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
-    expect(screen.getByTestId('passcode-message')).toHaveTextContent('01:00');
   });
 
   it('writes nothing to storage while no lockout is armed', async () => {
