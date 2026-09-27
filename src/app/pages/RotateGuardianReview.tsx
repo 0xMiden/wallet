@@ -57,10 +57,9 @@ const RotateGuardianReview: FC = () => {
   const newEndpoint = useMemo(() => sanitizeGuardianUrl(new URLSearchParams(search).get('endpoint') ?? ''), [search]);
   // The picker refuses to rotate onto the active guardian, but this screen takes
   // its target from the query string, so backing into it after the rotation landed
-  // would queue a second switch to the endpoint that is now already current. The
-  // two are compared as endpoints, not exact strings: `currentEndpoint` comes from
-  // storage or a built-in default, neither of which is guaranteed to be in the
-  // same spelling.
+  // would queue a second switch to the endpoint that is now already current. The two
+  // are compared as endpoints: `currentEndpoint` comes from storage or a built-in
+  // default, neither of which is guaranteed to be in the same spelling.
   const endpointUnchanged = sameGuardianEndpoint(newEndpoint, currentEndpoint ?? '');
   // The picker validates a custom URL before handing it over (ChooseGuardian),
   // but nothing validates the query string, and a stale or hand-edited review URL
