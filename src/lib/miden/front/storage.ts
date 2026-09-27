@@ -1,39 +1,37 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { mutate as mutateCache, useSWRConfig } from 'swr';
+import { mutate as mutateCache } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { cache } = useSWRConfig();
   const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
   });
 
-  useEffect(
-    () =>
-      onStorageChanged<T>(key, newValue => {
-        applySeq(key, supersedeReads(key));
-        mutate(newValue);
-      }),
-    [key, mutate]
-  );
+  useEffect(() => onStorageChanged(key, mutate), [key, mutate]);
 
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
-      // The key's cache entry, not this render's value: another instance, a passive write, a preload or a change event
-      // may have replaced it since, and a superseded write of this hook's own never reached it.
-      const cached: T | undefined = cache.get(key)?.data;
-      const current = fallback !== undefined ? (cached ?? fallback) : cached!;
-      await writeThrough(key, typeof val === 'function' ? (val as any)(current) : val);
+      const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
+      preloadReads.delete(key);
+      await putToStorage(key, nextValue);
+      // The cache backs every reader of this key; off the extension no change event updates it.
+      await mutateCache(key, nextValue, { revalidate: false });
+      valueRef.current = nextValue;
     },
-    [cache, key, fallback]
+    [key]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
@@ -51,10 +49,15 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   const prevValue = useRef(value);
 
   useEffect(() => {
-    if (prevValue.current !== value) {
-      prevValue.current = value;
-      writeThrough(key, value);
-    }
+    const put = async () => {
+      if (prevValue.current !== value) {
+        prevValue.current = value;
+        preloadReads.delete(key);
+        await putToStorage(key, value);
+        await mutateCache(key, value, { revalidate: false });
+      }
+    };
+    put();
   }, [key, value]);
 
   return [value, setValue];
@@ -103,55 +106,23 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight, with its value once it lands. A hook read, a write, a change event or a
-// later preload takes the entry away when it starts, even one that then fails: a failed hook read falls back to the
-// entry's landed value, which must be no older than anything started since.
+// Each key's preload read still in flight, with its value once it lands. A hook read, a write, or a later preload
+// removes or replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces
+// whatever the cache holds.
 interface PreloadRead {
+  read: Promise<unknown>;
   landed?: { value: unknown };
 }
 const preloadReads = new Map<string, PreloadRead>();
 
-// Per key, the newest write, change event or preload started, and the newest of them whose value reached the cache.
-// An action updates the cache only when newer than the newest applied, so a newer one that failed leaves an older
-// one's value in place. Change events count only for keys a mounted useStorage subscribes to.
-const startedSeqs = new Map<string, number>();
-const appliedSeqs = new Map<string, number>();
-
-function startSeq(key: string) {
-  const seq = (startedSeqs.get(key) ?? 0) + 1;
-  startedSeqs.set(key, seq);
-  return seq;
-}
-
-function applySeq(key: string, seq: number) {
-  if (seq <= (appliedSeqs.get(key) ?? 0)) return false;
-  appliedSeqs.set(key, seq);
-  return true;
-}
-
-function supersedeReads(key: string) {
-  preloadReads.delete(key);
-  return startSeq(key);
-}
-
-async function writeThrough(key: string, value: unknown) {
-  const seq = supersedeReads(key);
-  await putToStorage(key, value);
-  // The cache backs every reader of this key; off the extension no change event updates it.
-  if (applySeq(key, seq)) await mutateCache(key, value, { revalidate: false });
-}
-
 async function fetchForHook(key: string): Promise<unknown> {
   const preload = preloadReads.get(key);
-  const seq = startedSeqs.get(key);
   preloadReads.delete(key);
   try {
     return await fetchFromStorage(key);
   } catch (error) {
     // Only a value already read: awaiting a preload still in flight could hang this reader with it.
     if (preload?.landed) return preload.landed.value;
-    // Handed back, its landing fills the cache for a retry or remount, unless another action of the key started since.
-    if (preload && startedSeqs.get(key) === seq) preloadReads.set(key, preload);
     throw error;
   }
 }
@@ -160,7 +131,7 @@ async function fetchForHook(key: string): Promise<unknown> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A key that a hook read, a write, a change event or a later preload reached meanwhile is left to that newer one.
+ * A key whose read a hook, a write, or a later preload started meanwhile is left to that newer read.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -169,14 +140,12 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
-      const seq = startSeq(key);
-      const read = fetchFromStorage(key);
-      const entry: PreloadRead = {};
+      const entry: PreloadRead = { read: fetchFromStorage(key) };
       preloadReads.set(key, entry);
       try {
-        const value = await read;
+        const value = await entry.read;
         entry.landed = { value };
-        if (preloadReads.get(key) !== entry || !applySeq(key, seq)) return;
+        if (preloadReads.get(key) !== entry) return;
         await mutateCache(key, value, { revalidate: false });
       } finally {
         if (preloadReads.get(key) === entry) preloadReads.delete(key);

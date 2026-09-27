@@ -1,5 +1,4 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { mutate } from 'swr';
 
 import { fetchFromStorage, putToStorage, onStorageChanged, usePassiveStorage, useStorage } from './storage';
 
@@ -117,18 +116,17 @@ describe('storage utilities', () => {
       expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'next-value' });
     });
 
-    it("stores functional updates against the key's cached value", async () => {
+    it('stores functional updates against the latest value ref', async () => {
       mockStorage.local.set.mockResolvedValue(undefined);
       mockUseRetryableSWR.mockReturnValue({ data: 'current-value', mutate: jest.fn() });
-      await mutate('functional-key', 'current-value', { revalidate: false });
 
-      const { result } = renderHook(() => useStorage<string>('functional-key'));
+      const { result } = renderHook(() => useStorage<string>('settings-key'));
 
       await act(async () => {
         await result.current[1](prev => `${prev}-updated`);
       });
 
-      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'functional-key': 'current-value-updated' });
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'current-value-updated' });
     });
   });
 
