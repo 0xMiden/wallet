@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 
+import type { ProveMarker } from './prove-telemetry-probe';
+
 /**
  * Does a page keep painting while the offscreen document proves locally (#945)?
  *
@@ -10,14 +12,8 @@ import type { Page } from '@playwright/test';
  * largest gap between frames inside that window is the freeze a user saw.
  */
 
-/** 32768 frames at 60 fps is about nine minutes, longer than any E2E prove. */
-const FRAME_CAPACITY = 32768;
-
-/** One `[prove-timing]` marker with its recording time, as `readRealmMarkers` returns them. */
-export interface ProveMarker {
-  ts: number;
-  line: string;
-}
+/** 32768 frames at 120 Hz is about four and a half minutes, longer than any E2E prove. */
+export const FRAME_CAPACITY = 32768;
 
 export interface ProveWindow {
   openTs: number;
@@ -79,8 +75,18 @@ export function findProveWindow(markers: ProveMarker[], armedAt: number): ProveW
  * The longest stretch without a frame inside [openTs, closeTs]: the lead-in from open
  * to the first frame, every gap between frames, and the tail to close. A window with
  * no frame at all is one gap as long as the window.
+ *
+ * Throws if `frames` is exactly `FRAME_CAPACITY` long: the recorder stopped stamping
+ * once its preallocated buffer filled, so the true tail is missing and any gap this
+ * would report is an artifact of the saturated buffer, not a real freeze.
  */
 export function measureFrameGap(frames: number[], openTs: number, closeTs: number): FrameGap {
+  if (frames.length === FRAME_CAPACITY) {
+    throw new Error(
+      `frame recorder buffer saturated: all ${FRAME_CAPACITY} preallocated slots filled, so the reported ` +
+        'gap would be measuring a full buffer, not a real freeze'
+    );
+  }
   const inWindow = frames.filter(ts => ts >= openTs && ts <= closeTs);
   const windowMs = closeTs - openTs;
   if (inWindow.length === 0) return { windowMs, framesInWindow: 0, maxGapMs: windowMs };

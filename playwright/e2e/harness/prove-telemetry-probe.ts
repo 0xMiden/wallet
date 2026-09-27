@@ -1,7 +1,5 @@
 import type { Page } from '@playwright/test';
 
-import type { ProveMarker } from './frame-gap-probe';
-
 /**
  * Report what the OFFSCREEN realm has been doing when proving — the one realm the
  * harness cannot observe directly, and the one every wallet write runs in.
@@ -51,6 +49,12 @@ const STORAGE_KEY = 'miden_prove_telemetry';
 
 /** The realms `proveMarkerStorageKey` in `src/lib/miden/sdk/prove-telemetry.ts` keys by. */
 const MARKER_REALMS: ReadonlyArray<'offscreen' | 'inline'> = ['offscreen', 'inline'];
+
+/** One `[prove-timing]` marker with its recording time, as `readRealmMarkers` returns them. */
+export interface ProveMarker {
+  ts: number;
+  line: string;
+}
 
 /**
  * Read one realm's `[prove-timing]` marker trail via the service worker, each line

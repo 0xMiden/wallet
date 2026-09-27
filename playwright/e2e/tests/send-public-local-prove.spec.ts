@@ -3,11 +3,10 @@ import {
   findProveWindow,
   installFrameRecorder,
   measureFrameGap,
-  type ProveMarker,
   readFrameTimes,
   readyWorkerThreads
 } from '../harness/frame-gap-probe';
-import { readRealmMarkers } from '../harness/prove-telemetry-probe';
+import { type ProveMarker, readRealmMarkers } from '../harness/prove-telemetry-probe';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from '../helpers/balance-truth';
 
@@ -194,17 +193,22 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
         ).toBe(expectedThreads);
         // Offscreen documents get chrome.runtime but never chrome.storage, so
         // prove-telemetry.ts's persist() finds no storage there and silently
-        // skips the write -- the settled entry never reaches miden_prove_telemetry.
-        // The relayed `[prove-timing] path=local` marker is the observable record.
+        // skips the write; the settled entry never reaches miden_prove_telemetry.
+        // The relayed `[prove-timing] path=` marker is the observable record.
+        //
+        // Take the FIRST `path=` line after THIS window's close (not any `path=local`
+        // line after arming), so a non-local measured prove followed by a later local
+        // one still fails here instead of matching the wrong attempt.
+        let proveMarkers: ProveMarker[] = [];
         let proveLine: ProveMarker | undefined;
         await expect
           .poll(
             async () => {
-              markers = await readRealmMarkers(walletA.page, 'offscreen');
-              proveLine = markers.find(m => m.ts >= armedAt && m.line.includes('path=local '));
+              proveMarkers = await readRealmMarkers(walletA.page, 'offscreen');
+              proveLine = proveMarkers.find(m => m.ts >= proveWindow.closeTs && m.line.includes('path='));
               return proveLine !== undefined;
             },
-            { message: 'no local prove recorded in the relayed offscreen marker trail', timeout: 30_000 }
+            { message: 'no measured prove recorded in the relayed offscreen marker trail', timeout: 30_000 }
           )
           .toBe(true);
         expect(proveLine?.line).toMatch(/^\[prove-timing\] path=local duration_ms=[\d.]+ platform=\w+$/);

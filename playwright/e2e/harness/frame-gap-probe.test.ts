@@ -1,4 +1,4 @@
-import { findProveWindow, measureFrameGap, readyWorkerThreads } from './frame-gap-probe';
+import { findProveWindow, FRAME_CAPACITY, measureFrameGap, readyWorkerThreads } from './frame-gap-probe';
 
 const open = (ts: number) => ({ ts, line: '[prove-timing] local-prove-window open' });
 const close = (ts: number) => ({ ts, line: '[prove-timing] local-prove-window close' });
@@ -38,6 +38,11 @@ describe('measureFrameGap', () => {
   it('treats a window with no frame as one gap as long as the window', () => {
     expect(measureFrameGap([50, 950], 100, 900)).toEqual({ windowMs: 800, framesInWindow: 0, maxGapMs: 800 });
   });
+
+  it('fails loudly on a saturated buffer instead of reporting a gap', () => {
+    const saturated = Array.from({ length: FRAME_CAPACITY }, (_, i) => i);
+    expect(() => measureFrameGap(saturated, 0, FRAME_CAPACITY - 1)).toThrow(/saturated/);
+  });
 });
 
 describe('readyWorkerThreads', () => {
@@ -48,5 +53,10 @@ describe('readyWorkerThreads', () => {
     ];
     expect(readyWorkerThreads(markers, 15)).toBe(6);
     expect(readyWorkerThreads(markers, 25)).toBeUndefined();
+  });
+
+  it('rejects a ready marker with coi=false rather than reporting its thread count', () => {
+    const markers = [{ ts: 10, line: '[prove-timing] prove-worker ready threads=6 coi=false ms=50' }];
+    expect(readyWorkerThreads(markers, 0)).toBeUndefined();
   });
 });
