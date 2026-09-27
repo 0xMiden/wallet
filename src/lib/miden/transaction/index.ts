@@ -455,14 +455,16 @@ const MAX_REQUEUE_WAKE_LIFETIME_MS = (MAX_QUEUED_AGE + 60) * 1000;
 /**
  * Keep a requeued row moving, OFF-extension only.
  *
- * The extension has a service worker driving the queue on its own timer, so a
- * Queued row is always picked back up. Mobile and desktop do not: the only
- * driver for a send is the generating-transaction screen's interval, cleared on
- * unmount, and the screen's own copy invites the user to leave. Before this arm
- * existed a failure here ended the row terminally inside the same call, so
- * nothing needed to come back for it; now it is Queued, and without a wake it
- * would sit untouched until the next app launch's orphan recovery — a send that
- * silently does nothing, which is worse than the failure it replaced.
+ * The extension's service worker drives the queue itself: each kick runs the loop
+ * for at most sixty passes, 5 s apart, and a later kick (a new transaction, the
+ * guardian-sync kick when an outage clears) starts it again. Mobile and desktop
+ * have none: the only driver for a send is the generating-transaction screen's
+ * interval, cleared on unmount, and the screen's own copy invites the user to
+ * leave. Before this arm existed a failure here ended the row terminally inside
+ * the same call, so nothing needed to come back for it; now it is Queued, and
+ * without a wake it would sit untouched until the next app launch's orphan
+ * recovery: a send that silently does nothing, which is worse than the failure
+ * it replaced.
  *
  * A single fire is not enough, because firing does not imply progress. The wake
  * can be swallowed three ways that all look identical from here:
@@ -683,11 +685,13 @@ function scheduleRequeueWake(
 }
 
 /**
- * Return a value-moving tx to the Queued state for a later generateTransactionsLoop
- * cycle instead of terminal-failing it, backing it off with `nextEligibleAt` so it
- * doesn't starve other accounts' queued txs. Shared by the guardian pending-delta
- * 409 requeue, the remote-prover-outage requeue (#419) and the guardian
- * unauthorized-at-execution requeue. Clearing `processingStartedAt` avoids
+ * Return a tx to the Queued state for a later generateTransactionsLoop cycle
+ * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
+ * doesn't starve other accounts' queued txs. Called by the guardian arms for a
+ * pending-delta 409, a remote-prover outage (#419) and a rate-limit 429, by
+ * `requeueWithWake` for the unreachable-guardian (#779) and
+ * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
+ * locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
@@ -772,6 +776,24 @@ async function requeueTransactionForRetry(
     ...carriedDeadline,
     ...extraValues
   });
+}
+
+/**
+ * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
+ * arm its wake. The wake fires a beat past eligibility, so the loop does not
+ * re-read the row while `nextEligibleAt` still excludes it and go straight back
+ * to sleep.
+ */
+async function requeueWithWake(
+  txId: string,
+  txType: ITransactionType,
+  cooldownSec: number,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider,
+  extraValues?: { unauthorizedRetryUntil?: number }
+): Promise<void> {
+  await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  scheduleRequeueWake(txId, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
 }
 
 /**
@@ -1257,6 +1279,8 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate — this is the
       // invariant made local rather than inherited from that adjacency.)
       const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
+      // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
+      const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
@@ -1298,11 +1322,7 @@ const generateTransactionWithProvider = async (
       // staying locked until the guardian worker confirms. A leftover candidate
       // surfaces as a 409 on the next cycle, which the pending-conflict requeue
       // above already handles.
-      if (
-        isGuardianRateLimited(error) &&
-        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
-        (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
-      ) {
+      if (isGuardianRateLimited(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && failedAtProposal) {
         const cooldown = Math.min(
           Math.max(
             guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
@@ -1317,24 +1337,15 @@ const generateTransactionWithProvider = async (
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
       // also call, is down rather than refusing. A kernel failure a 5xx carries is not an outage and fails at once.
       // Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend (#779).
-      if (
-        isGuardianOutage(error) &&
-        GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
-        (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
-      ) {
+      if (isGuardianOutage(error) && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) && failedAtProposal) {
         console.warn(
           `[Guardian] guardian unreachable pre-submit, requeueing in ${GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC}s`,
           error
         );
-        await requeueTransactionForRetry(
+        await requeueWithWake(
           transaction.id,
           transaction.type,
-          'creating-proposal',
-          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC
-        );
-        scheduleRequeueWake(
-          transaction.id,
-          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC * 1000 + 1000,
+          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC,
           signCallback,
           guardianProvider
         );
@@ -1415,12 +1426,9 @@ const generateTransactionWithProvider = async (
             `${unauthorizedDeadline - nowSec}s of retry budget left`,
           error
         );
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldownSec, {
+        await requeueWithWake(transaction.id, transaction.type, cooldownSec, signCallback, guardianProvider, {
           unauthorizedRetryUntil: unauthorizedDeadline
         });
-        // A beat past eligibility, so the loop does not re-read the row while
-        // `nextEligibleAt` still excludes it and go straight back to sleep.
-        scheduleRequeueWake(transaction.id, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
         return;
       }
       // Same error, retries exhausted. Said out loud because the two outcomes are
