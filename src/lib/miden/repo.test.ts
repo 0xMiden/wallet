@@ -892,7 +892,7 @@ describe('writing a transaction row', () => {
       await transactions.where({ id: 'hook-6' }).modify({ status: ITransactionStatus.Completed });
       expect(reads).toBe(1);
     } finally {
-      db.unuse(counter);
+      db.unuse({ stack: 'dbcore', name: 'get-many-counter' });
       db.close();
       await db.open();
     }
