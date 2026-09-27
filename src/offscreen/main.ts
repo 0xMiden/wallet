@@ -236,11 +236,14 @@ function ensureEndpointOverrides(): Promise<void> {
 // `window`, so it takes the page branch, and it never loads the React app, so
 // nothing installs a transport — every event would be dropped on the floor.
 //
-// That matters here specifically because proving happens in this realm whenever
-// the offscreen client is on, which is the default for the extension. Without
-// this, `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
-// events never leave the device: exactly the signals that answer "was the remote
-// prover down when this failed".
+// That matters here specifically because this realm's writes are the ones that
+// prove, whenever the offscreen client is on, which is the default for the
+// extension: locally, in this document's own prove worker (#945), or delegated
+// to a remote prover as a network call the document awaits. Either way the
+// document itself only executes, signs, submits and applies. Without this,
+// `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
+// events never leave the device: exactly the signals that answer "was the
+// remote prover down when this failed".
 setOperationTransport(async event => {
   await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
 });
@@ -982,9 +985,9 @@ const DISPATCH: Record<string, DispatchFn> = {
         // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
         // dead code on the shipping path. Two independent failures rode on that:
         //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
-        //      requires an initialized client and so never dispatches from a
-        //      prover-only realm — the remote prover logs no request at all and the
-        //      await never settles (#718).
+        //      requires an initialized client and so never dispatches from one that
+        //      never called createClient() - the remote prover logs no request at all
+        //      and the await never settles (#718).
         //   2. There was no client-side ceiling, unlike both fixed call sites, so
         //      nothing could convert that silence into the rejection the local
         //      fallback below needs. The write simply held the offscreen WASM mutex

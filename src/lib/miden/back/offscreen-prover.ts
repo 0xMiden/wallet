@@ -198,9 +198,10 @@ export type ProveViaOffscreenResult = {
  * Send an executed `TransactionResult` (serialized bytes) to the offscreen
  * prover and await the proven `ProvenTransaction` (serialized bytes).
  *
- * `proverDescriptor` is the string returned by `TransactionProver.serialize()`
- * — `"local"` or `"remote|<endpoint>[|<timeout_ms>]"`. Pass `null` to make
- * the offscreen doc construct a fresh local prover (the common case).
+ * `proverDescriptor` is `null` or `"local"`: either way the offscreen document
+ * proves in its own prove worker (#945). The one caller always passes `null`.
+ * Any other descriptor answers `ok: false` with `unsupported-prover`, since the
+ * worker accepts local proves only.
  */
 export async function proveViaOffscreen(
   txResultBytes: Uint8Array,

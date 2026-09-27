@@ -47,9 +47,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       constructor() {
         g.__off.webClientCtorCount++;
       }
-      proveTransaction(...a: any[]) {
-        return g.__off.proveTransaction(...a);
-      }
     },
     TransactionResult: {
       deserialize: (...a: any[]) => g.__off.deserializeTxResult(...a)
@@ -279,11 +276,18 @@ const mockProveTransport = {
     proven: new Uint8Array([1, 2, 3]),
     durationMs: 42
   })),
-  prewarm: jest.fn()
+  prewarm: jest.fn(),
+  // How many `ProveWorkerClient` instances main.ts constructed. main.ts builds exactly
+  // one at module top and reuses it for every OFFSCREEN_PROVE, so this stays 1 per
+  // `loadModule()` regardless of how many prove requests a test sends.
+  ctorCount: 0
 };
 
 jest.mock('./prove-worker-client', () => ({
   ProveWorkerClient: class {
+    constructor() {
+      mockProveTransport.ctorCount++;
+    }
     prove(request: { txResult: Uint8Array; proverDescriptor: string }, options?: object) {
       return mockProveTransport.prove(request, options);
     }
@@ -313,7 +317,6 @@ function resetControl() {
     hasInitThreadPool: true,
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
-    proveTransaction: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) })),
     deserializeTxResult: jest.fn(() => ({ __txResult: true })),
     // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
@@ -584,6 +587,7 @@ beforeEach(() => {
   resetControl();
   mockProveTransport.prove.mockClear();
   mockProveTransport.prewarm.mockClear();
+  mockProveTransport.ctorCount = 0;
   G.__off.clientIsDisposed = false;
   G.__off.disposedBuilds = new Set<number>();
   G.__off.listBuilds = [];
@@ -847,6 +851,8 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
     expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    // The one worker client: both proves went through the same construction, not one each.
+    expect(mockProveTransport.ctorCount).toBe(1);
     expect(G.__off.webClientCtorCount).toBe(0);
   });
 
