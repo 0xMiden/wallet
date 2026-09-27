@@ -827,8 +827,9 @@ describe('Unlock — mobile passcode numpad', () => {
   });
 
   it('applies the random back-off delay and time-lock past the last attempt', async () => {
-    // attempt 5 (> LAST_ATTEMPT) triggers the randomized pre-unlock delay and,
-    // on failure, sets the time-lock (attempt >= LAST_ATTEMPT).
+    // attempt 5 (> LAST_ATTEMPT) triggers the randomized pre-unlock delay; the guess then
+    // records the count and, as attempt >= LAST_ATTEMPT, a provisional stamp through
+    // writeLocalStorage before unlock(), and the rejection re-stamps it.
     jest.spyOn(Math, 'random').mockReturnValue(0); // delay -> 1000ms
     mockUnlock.mockRejectedValue(new Error('nope'));
     mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
@@ -837,13 +838,13 @@ describe('Unlock — mobile passcode numpad', () => {
     type(container, '222222');
     // 150 auto-submit + 1000 back-off + 300 error = ~1450ms. Stay under 2000ms
     // so the once-per-second interval (which resets an *expired* time-lock)
-    // can't fire again after the failure sets it.
+    // can't fire again after the rejection re-stamps it.
     await advance(1700);
 
     expect(mockUnlock).toHaveBeenCalledWith('222222');
     expect(mockLsStore.PasswordAttempts).toBe(6);
     expect(typeof mockLsStore.TimeLock).toBe('number');
-    expect(mockLsStore.TimeLock).not.toBe(0); // setTimeLock(Date.now()) ran
+    expect(mockLsStore.TimeLock).not.toBe(0); // recorded before unlock(), re-stamped at the rejection
   });
 
   it('clears the incorrect-passcode error when a digit is deleted', async () => {
