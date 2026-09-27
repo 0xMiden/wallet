@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 
 import { Route } from './Route';
@@ -21,25 +22,14 @@ describe('Route', () => {
     expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
   });
 
-  it('applies the default footer padding, and a footerClassName override', () => {
-    const { rerender } = render(
-      <Route route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} onConfirm={jest.fn()} />
-    );
-    let footer = screen.getByTestId('bridge-route-confirm').parentElement!;
-    expect(footer).toHaveClass('pt-4');
-    expect(footer).toHaveClass('pb-24');
+  // #1109: the CTA's bottom padding is the shared cushion, never a literal of its own, so it follows the tab bar
+  // (and drops to 1rem on the slide page this step lives on) instead of pinning a fixed 6rem.
+  it('pins its CTA on the shared cushion', () => {
+    render(<Route route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} onConfirm={jest.fn()} />);
 
-    rerender(
-      <Route
-        route="epoch"
-        onRouteChange={jest.fn()}
-        fastQuoteLoading={false}
-        onConfirm={jest.fn()}
-        footerClassName="pt-2 pb-6"
-      />
-    );
-    footer = screen.getByTestId('bridge-route-confirm').parentElement!;
-    expect(footer).toHaveClass('pb-6');
+    const footer = screen.getByTestId('bridge-route-confirm').parentElement!;
+    expect(footer).toHaveClass('pt-4');
+    expect(footer).toHaveClass(stepFooterCushionClass());
     expect(footer.className).not.toContain('pb-24');
   });
 });

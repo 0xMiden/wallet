@@ -2,14 +2,17 @@ import fs from 'fs';
 import path from 'path';
 
 const REPO_ROOT = path.join(__dirname, '../../..');
-const read = (relative: string) => fs.readFileSync(path.join(REPO_ROOT, relative), 'utf8');
 
-// Strip whole-line // comments so a commented-out define fails the test.
-const stripComments = (content: string) =>
-  content
+// Every read drops whole-line // comments, so a define, spread or env read commented out with // counts as absent.
+const read = (relative: string) =>
+  fs
+    .readFileSync(path.join(REPO_ROOT, relative), 'utf8')
     .split('\n')
     .filter(line => !line.trim().startsWith('//'))
     .join('\n');
+
+// A key defined twice in one config: the later entry wins in the object literal, so it must appear once.
+const occurrences = (content: string, token: string) => content.split(token).length - 1;
 
 // Discover configs matching /^vite\..+\.config\.ts$/ (every config that bundles telemetry
 // or crash reporting). An env read with no define is rewritten to `{}.X`, i.e. undefined,
@@ -56,8 +59,9 @@ describe('telemetry and crash-reporting key defines', () => {
   });
 
   it.each(CONFIGS.flatMap(config => KEYS.map(key => [config, key])))('%s defines %s', (config, key) => {
-    const content = stripComments(read(config));
+    const content = read(config);
     expect(content).toContain(`'process.env.${key}': JSON.stringify(process.env.${key} ?? '')`);
+    expect(occurrences(content, `'process.env.${key}':`)).toBe(1);
   });
 
   it('vite.extension.config.ts spreads sharedDefine into its define block', () => {
