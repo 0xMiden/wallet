@@ -16,12 +16,6 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   });
   const { cache } = useSWRConfig();
 
-  // Held in a ref, assigned during render rather than an effect (an effect would leave a window where a
-  // child effect calling the setter still reads the old fallback), so the setter's identity below depends
-  // only on `key`, not on whatever fallback value or reference the caller happens to pass this render.
-  const fallbackRef = useRef(fallback);
-  fallbackRef.current = fallback;
-
   // On the extension each commit to the key arrives here, this page's own included; a removal carries no newValue.
   useEffect(() => onStorageChanged<unknown>(key, newValue => settle(key, begin(), newValue ?? null)), [key]);
 
@@ -31,10 +25,10 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
     async (val: SetStateAction<T>) => {
       // The base is the cache, which holds the newest value a numbered operation landed; the rendered value can lag
       // it. A direct putToStorage takes no number (#1177).
-      const current: T = cache.get(key)?.data ?? fallbackRef.current;
+      const current: T = cache.get(key)?.data ?? fallback;
       await writeThrough(key, isUpdater(val) ? val(current) : val);
     },
-    [cache, key]
+    [cache, key, fallback]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
