@@ -141,6 +141,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // which is a one-shot latch against Strict Mode double-running the mount effect and is never
   // released - reusing it here would make every later attempt a no-op.
   const unlockInFlightRef = useRef(false);
+  // The passcode path's share of the guard: the tick leaves a guess to its own catch or success, while a
+  // hardware attempt in flight leaves the tick as it was.
+  const guessInFlightRef = useRef(false);
   // The ref is the synchronous check-and-set; this is what the screen reads. Every path sets it
   // with the guard and clears it on every exit that does not navigate away, so the keypad, the
   // auto-submit and the password form all wait for the attempt in flight instead of starting one
@@ -296,6 +299,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         return;
       }
       if (!beginUnlock()) return;
+      guessInFlightRef.current = true;
       setIsSubmitting(true);
       setIsError(false);
       setBiometricError(false);
@@ -350,6 +354,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         setCode('');
         setIsSubmitting(false);
       } finally {
+        guessInFlightRef.current = false;
         endUnlock();
       }
     },
@@ -444,8 +449,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       // This window's own attempt can be stale (level 0) while it armed from a stored count another
       // window pushed up, so expiry is judged from the stored attempt, not this window's (#1192).
       const stored = readStoredLockout(floorRef.current);
-      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing.
-      if (stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
+      // Only a stamp that has run out is cleared, and only once, so an idle screen writes nothing. A guess in
+      // flight is left to its own catch or success: its provisional stamp is not a lockout (#1192).
+      if (!guessInFlightRef.current && stamp !== 0 && !isLockedAt(stamp, stored.level, Date.now())) {
         if (stored.timelock === stamp) {
           // Only the stamp this window saw: another window may have armed a newer lockout since (#1192).
           timelockRef.current = 0;

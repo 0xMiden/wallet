@@ -655,6 +655,20 @@ describe('Unlock — extension password form', () => {
     expect(mockLsStore.PasswordAttempts).toBe(1);
   });
 
+  // Against the expired stamp this window still holds, its own guess's provisional stamp would read as
+  // another window's lockout; the tick leaves the guess to its own catch or success (#1192).
+  it('keeps the form usable past a tick while its own threshold guess is in flight (#1192)', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+    const { container } = await renderUnlock();
+
+    submitPassword(container, 'right');
+    await advance(1100);
+
+    expect(passwordField(container)).not.toBeDisabled();
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
+  });
+
   // The same clear reaches this arm: the password form's error line derives from the same isError
   // the passcode screen's does, and the lockout interval is shared.
   it('empties the error line once a lockout ends', async () => {
@@ -1590,6 +1604,29 @@ describe('an unlock attempt in flight holds every input, and the latest failure 
       await advance(61_000); // the lockout lifts while the retry is still in flight
       await act(async () => rejectRetry(new Error('cancelled again')));
       await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    // Only a passcode guess holds the tick: through a biometric retry the lockout lifts on time, so the
+    // lift cannot land after the retry fails and wipe its error (#1192).
+    it('keeps a failed retry on screen past the tick after the lockout lifted under it (#1192)', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE };
+      await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      await advance(61_000);
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+      await advance(1100);
 
       expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
     });
