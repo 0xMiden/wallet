@@ -1153,7 +1153,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
     hdIndex: -1,
     authScheme: 'ecdsa',
     hotPublicKey: 'dead',
-    guardianEndpoint: 'http://localhost:3000'
+    guardianEndpoint: 'http://localhost:3000',
+    guardianNoteRecoveryPending: true,
+    evmAddress: '0x0000000000000000000000000000000000000001'
   };
   const seedHotKeyWallet = async (accounts: WalletAccount[]) => {
     const seeded = await seedVault('pw', { accounts });
