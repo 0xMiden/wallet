@@ -129,7 +129,7 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByText('bridgeDepositProcessing')).toBeInTheDocument();
     expect(screen.getByText('bridgeDepositProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('12.5000 USDC → Miden');
+    expect(screen.getByTestId('summary-badge')).toHaveTextContent('12.50 USDC → Miden');
     // A bridge row is the slate wherever it is drawn, so its arrow is too — not the badge's
     // default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
@@ -167,5 +167,27 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('success-layout')).toHaveTextContent('bridgeDepositSubmitted');
     // The same slate as the processing body: one bridge, one colour, either side of submission.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
+  });
+
+  it.each(['submitting', 'failed', 'delivering', 'received'] as const)(
+    'rounds a long quoted amount in the %s state instead of showing every digit',
+    phase => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase, sourceAmount: '151.500000000000000001', outputAmount: '150.00' })),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      const badge = screen.getByTestId('summary-badge');
+      expect(badge).toHaveTextContent('151.50 USDC');
+      expect(badge).not.toHaveTextContent('151.500000000000000001');
+    }
+  );
+
+  it('expands the decimals of a tiny amount instead of showing zero', () => {
+    mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '0.000001234' })), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.0000012 USDC');
   });
 });

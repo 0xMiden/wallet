@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
+import { formatBridgeOutputAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
@@ -32,6 +32,8 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
+  // The row keeps the exact quoted deposit (18 decimals); the screen shows it the way Activity does.
+  const sourceLabel = `${formatBridgeOutputAmount(inputs.sourceAmount)} ${inputs.sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
@@ -61,7 +63,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             arrow does too — the badge's default is the Send blue, which is another flow's colour
             on a screen about money arriving. */}
         <TransactionSummaryBadge
-          lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`}
+          lhs={sourceLabel}
           rhs={inputs.outputAmount ? `${inputs.outputAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
           fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
@@ -95,7 +97,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             name={failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
           />
           <TransactionSummaryBadge
-            lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`}
+            lhs={sourceLabel}
             rhs="Miden"
             fillForArrow={TRANSACTION_COLORS.bridge}
             className="mt-4"
