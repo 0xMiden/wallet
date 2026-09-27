@@ -60,10 +60,15 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
-// The banner renders nothing on mainnet; a test network makes its render assertion mean something.
+// The banner renders nothing on mainnet: pin a test network so its assertion does not rest on jest.setup's default.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => 'testnet'
+}));
+
+// The sheet the banner opens needs a router this suite does not mount; it is never opened here.
+jest.mock('components/NetworkModeSheet', () => ({
+  NetworkModeSheet: () => null
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
