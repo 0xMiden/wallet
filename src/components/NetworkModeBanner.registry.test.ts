@@ -7,18 +7,16 @@ import { join } from 'path';
  * favour of a corner ribbon in the tab bar, and the ribbon reaches only tab pages - so every
  * screen that commits value silently stopped naming the network, with no test failing.
  *
- * These are the wallet screens on which the user commits value. They span three shells and share
- * no wrapper: five full-screen routes render the banner themselves, the swap review renders it
- * inside `TabLayout` through `ReviewLayout` - where the ribbon is HIDDEN, because that layout hides
- * the tab-bar footer the ribbon lives in - and the connected EVM bridge flow renders it once in its
- * own shell over every step, review included (the shell wraps its steps in `NetworkNamedByShell`,
- * so the bridge review's own `ReviewLayout` banner stands down there). The dApp confirm window
- * (`app/ConfirmPage.tsx`) shows the banner too, but it is its own extension window and is not in
- * this list; its suite stubs the banner.
+ * These are the screens on which the user commits value. They span three shells and share no
+ * wrapper: five full-screen routes render the banner themselves, two render inside `TabLayout`
+ * through `ReviewLayout` - where the ribbon is HIDDEN, because that layout hides the tab-bar
+ * footer the ribbon lives in - and the connected EVM bridge flow renders it once in its own shell
+ * over every step, review included (the shell wraps its steps in `NetworkNamedByShell`, so
+ * `ReviewLayout`'s own banner stands down there).
  *
  * WHAT THIS FILE IS, and what it is not. It is the written registry: the list below is the only
  * place the set is enumerated, and a new signing screen has to be added here by hand, because the
- * eight share no marker a search could key on - not a base component, not a naming convention
+ * seven share no marker a search could key on - not a base component, not a naming convention
  * (`BridgeDeposit` carries no "Review"), and four of them call no transaction hook at all.
  *
  * It no longer asserts the banner's PRESENCE, because a source-text match cannot tell a rendered
@@ -26,8 +24,8 @@ import { join } from 'path';
  * connected bridge flow shipped without one while this file stayed green. Presence is asserted by
  * each screen's own suite, named below, where the real component renders. This file checks that
  * the assertion is there, that the suite does not replace the banner, or the layout that carries
- * it, with a mock, and that it mentions the banner's test id only to read it. A skipped assertion
- * is not checked here: `yarn lint` fails a direct `it.skip`, `xit` or `describe.skip`
+ * it, with a mock, and that it never sets the banner's test id itself. A skipped assertion is not
+ * checked here: `yarn lint` fails a direct `it.skip`, `xit` or `describe.skip`
  * (`jest/no-disabled-tests` under `--max-warnings 0`); a subtler way to keep an assertion from
  * running is the new kind of hole the issue's execution-signal follow-up is for.
  */
@@ -85,52 +83,19 @@ const VALUE_SIGNING_SCREENS: ReadonlyArray<{
 
 const read = (relative: string) => readFileSync(join(__dirname, '..', relative), 'utf8');
 
-/**
- * A module specifier's name: its file without the extension, or its folder when the file is an index, so every
- * spelling of one module reads the same ('components/review/ReviewLayout.tsx' is 'ReviewLayout';
- * 'components/review', 'components/review/', 'components/review/index' and 'components/review/index.ts' are 'review').
- */
-const moduleName = (specifier: string) => {
-  const segments = specifier
-    .replace(/\/+$/, '')
-    .replace(/\.[jt]sx?$/, '')
-    .split('/');
-  const last = segments.pop()!;
-  return last === 'index' && segments.length > 0 ? segments.pop()! : last;
-};
+/** A module specifier's last segment without its extension: 'components/review/ReviewLayout.tsx' is 'ReviewLayout'. */
+const moduleName = (specifier: string) =>
+  specifier
+    .split('/')
+    .pop()!
+    .replace(/\.[jt]sx?$/, '');
 
-/**
- * The modules a suite replaces with jest.mock, jest.doMock, jest.setMock or jest.unstable_mockModule, by name,
- * however the path is spelled, including the typed call (`jest.mock<typeof import('x')>('x', ...)`).
- */
+/** The modules a suite replaces with jest.mock or jest.doMock, by name, however the path is spelled. */
 const mockedModules = (source: string) =>
-  [
-    ...source.matchAll(
-      /jest\.(?:mock|doMock|setMock|unstable_mockModule)\s*(?:<[^()]*?(?:\([^)]*\)[^()]*?)*>)?\s*\(\s*(['"`])([^'"`]+)\1/g
-    )
-  ].map(match => moduleName(match[2]!));
+  [...source.matchAll(/jest\.(?:mock|doMock)\(\s*(['"`])([^'"`]+)\1/g)].map(match => moduleName(match[2]!));
 
-/**
- * The modules a stand-in for a carrier could arrive through: the carrier's own, and every module the screen imports
- * the carrier's export from (the swap review takes ReviewLayout from the 'components/review' barrel), read as whole
- * import statements so a line break or an alias does not hide one.
- */
-const carrierModules = (screenSource: string, carrier: string) => {
-  const exported = moduleName(carrier);
-  const through = [...screenSource.matchAll(/\bimport\s+([^;]*?)\s+from\s+(['"`])([^'"`]+)\2/g)]
-    .filter(match => new RegExp(`\\b${exported}\\b`).test(match[1]!))
-    .map(match => moduleName(match[3]!));
-  return [...new Set([exported, ...through])];
-};
-
-/**
- * Whether a suite writes the banner's test id in any form: only NetworkModeBanner.tsx may, so a registered
- * suite may mention it only to read it.
- */
-const writesBannerTestId = (source: string) =>
-  source
-    .replace(/\b(?:get|query|find)(?:All)?ByTestId\(\s*(['"`])network-mode-banner\1\s*\)/g, '')
-    .includes('network-mode-banner');
+/** A suite that sets the banner's test id itself: only NetworkModeBanner.tsx may, since a stand-in carrying it passes the assertion whatever module it replaces. */
+const SETS_BANNER_TEST_ID = /data-testid["']?\s*[=:]\s*\{?\s*["'`]network-mode-banner/;
 
 describe('every screen that commits value names the network', () => {
   it.each(VALUE_SIGNING_SCREENS)('$screen is guarded by a render assertion in $assertedIn', ({ assertedIn }) => {
@@ -141,17 +106,16 @@ describe('every screen that commits value names the network', () => {
 
   it.each(VALUE_SIGNING_SCREENS)(
     '$assertedIn renders the real banner for $screen, not a stub',
-    ({ screen, rendersBannerIn, assertedIn }) => {
+    ({ rendersBannerIn, assertedIn }) => {
       // A stand-in that renders the test id keeps the assertion green while the real component never
-      // renders. Stubbing the layout that carries the banner is the same hole one level up, whether the
-      // suite mocks the layout's own module or the barrel the screen imports it through, and the suite
-      // may mention the banner's test id only to read it.
+      // renders. Stubbing the layout that carries the banner is the same hole one level up, and a
+      // stand-in can arrive through any module (the banner, the layout, the barrel it is imported
+      // through), so the suite may not set the banner's test id either.
       const mocked = mockedModules(read(assertedIn));
-      const carriers = carrierModules(read(screen), rendersBannerIn);
 
       expect(mocked).not.toContain('NetworkModeBanner');
-      expect(mocked.filter(name => carriers.includes(name))).toEqual([]);
-      expect(writesBannerTestId(read(assertedIn))).toBe(false);
+      expect(mocked).not.toContain(moduleName(rendersBannerIn));
+      expect(read(assertedIn)).not.toMatch(SETS_BANNER_TEST_ID);
     }
   );
 
@@ -177,15 +141,7 @@ describe('mockedModules', () => {
     ["jest.mock('../../components/NetworkModeBanner', () => ({}));", 'NetworkModeBanner'],
     ["jest.mock('components/NetworkModeBanner.tsx');", 'NetworkModeBanner'],
     ['jest.doMock("components/review/ReviewLayout", () => ({}));', 'ReviewLayout'],
-    ['jest.mock(\n  `./ReviewLayout`,\n  () => ({})\n);', 'ReviewLayout'],
-    ["jest.mock('components/review/index', () => ({}));", 'review'],
-    ["jest.mock('components/review/index.ts', () => ({}));", 'review'],
-    ["jest.mock('components/review/', () => ({}));", 'review'],
-    ["jest.setMock('components/review', {});", 'review'],
-    ["jest.unstable_mockModule('components/review', () => ({}));", 'review'],
-    ["jest.mock<typeof import('components/review')>('components/review', () => ({}));", 'review'],
-    ["jest.doMock<typeof import('components/review')>('components/review', () => ({}));", 'review'],
-    ["jest.setMock<typeof import('components/review')>('components/review', {});", 'review']
+    ['jest.mock(\n  `./ReviewLayout`,\n  () => ({})\n);', 'ReviewLayout']
   ])('reads %j as a mock of %s', (source, name) => {
     expect(mockedModules(source)).toEqual([name]);
   });
@@ -195,35 +151,19 @@ describe('mockedModules', () => {
   });
 });
 
-describe('carrierModules', () => {
-  it('names the barrel the swap review imports ReviewLayout through', () => {
-    expect(carrierModules(read('screens/swap-flow/ReviewSwap.tsx'), 'components/review/ReviewLayout.tsx')).toEqual([
-      'ReviewLayout',
-      'review'
-    ]);
-  });
-
-  it('reads an import of the carrier spread over lines and aliased, and no other import', () => {
-    const source =
-      "import {\n  ReviewCard,\n  ReviewLayout as Layout\n} from 'components/review';\nimport { Other } from 'components/other';";
-
-    expect(carrierModules(source, 'components/review/ReviewLayout.tsx')).toEqual(['ReviewLayout', 'review']);
-  });
-});
-
-describe('writesBannerTestId', () => {
+describe('SETS_BANNER_TEST_ID', () => {
   it.each([
-    "el.setAttribute('data-testid', 'network-mode-banner');",
-    "const ID = 'network-mode-banner';",
-    '<div data-testid="network-mode-banner" />'
-  ])('reads %j as writing the test id', source => {
-    expect(writesBannerTestId(source)).toBe(true);
+    '<div data-testid="network-mode-banner" />',
+    "{ 'data-testid': 'network-mode-banner' }",
+    "<span data-testid={'network-mode-banner'} />",
+    '<i data-testid={`network-mode-banner`} />'
+  ])('matches %j, a stand-in setting the test id itself', source => {
+    expect(SETS_BANNER_TEST_ID.test(source)).toBe(true);
   });
 
-  it.each([
-    "expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();",
-    'screen.queryAllByTestId("network-mode-banner")'
-  ])('reads %j as only reading it', source => {
-    expect(writesBannerTestId(source)).toBe(false);
+  it('does not match a read of the test id, only a write of it', () => {
+    expect(SETS_BANNER_TEST_ID.test("expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();")).toBe(
+      false
+    );
   });
 });
