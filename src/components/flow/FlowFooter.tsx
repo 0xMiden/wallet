@@ -6,9 +6,10 @@ import { stepFooterCushionClass } from './footer-cushion';
 import { useSlideOnReflow } from './useSlideOnReflow';
 
 export interface FlowFooterProps {
-  /** Layout: how the footer arranges the buttons it holds (a row, a stack, its gutter). Merged in
-   *  after the default cushion via `cn` (tailwind-merge): a class here that conflicts with it (e.g.
-   *  a snugger padding-bottom while the navbar is hidden) replaces it; anything else just coexists. */
+  /** Layout only: how the footer arranges the buttons it holds (a row, a stack, its gutter). Never a
+   *  padding-bottom: it is merged after the cushion via `cn` (tailwind-merge), so a `pb-*` here would
+   *  replace the cushion and pin the CTA at a fixed height whatever the tab bar does (#1109). Opt out of
+   *  the bar's room with `navbarCushion={false}` instead. */
   className?: string;
   /** Names the footer for a caller's tests, so a page can find its own pinned row. */
   'data-slot'?: string;
