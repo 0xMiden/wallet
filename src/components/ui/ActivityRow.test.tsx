@@ -361,12 +361,15 @@ describe('ActivityRow', () => {
       expect(button.tagName).toBe('BUTTON');
       expect(button).toHaveAttribute('type', 'button');
       expect(button).toHaveAttribute('data-while-tap', 'on');
+      expect(button).not.toHaveAttribute('tabindex');
     });
 
     it('takes keyboard focus, with the card focus ring, when it opens something', () => {
       renderRow({ onClick: jest.fn() });
 
       const button = screen.getByRole('button');
+      // `focus()` also lands on tabindex=-1, which Tab skips: only the absent attribute proves Tab reaches it.
+      expect(button).not.toHaveAttribute('tabindex');
       button.focus();
       expect(document.activeElement).toBe(button);
       for (const classes of FOCUSABLE_CLASSES) {
@@ -383,6 +386,7 @@ describe('ActivityRow', () => {
         </Card>
       );
 
+      expect(screen.getByRole('button')).not.toHaveAttribute('tabindex');
       const classNames = screen.getByRole('button').className.split(/\s+/);
       expect(classNames).toContain('hover:bg-fill-pressed');
       expect(classNames).toContain('active:bg-fill-pressed');
