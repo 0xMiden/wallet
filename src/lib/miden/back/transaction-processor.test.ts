@@ -126,8 +126,8 @@ describe('startTransactionProcessing — happy path', () => {
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 
-  it('dedupes concurrent calls via the isProcessing flag', async () => {
-    // Make the loop wait long enough that a second caller arrives
+  it('runs one loop at a time and honours calls made during it with one more pass', async () => {
+    // Make the loop wait long enough that more callers arrive
     // while the first is still in flight.
     let release: () => void = () => undefined;
     const gate = new Promise<void>(resolve => {
@@ -141,14 +141,19 @@ describe('startTransactionProcessing — happy path', () => {
     const mod = await import('./transaction-processor');
     const first = mod.startTransactionProcessing();
     // Let the first call progress through its getBrowser / alarms
-    // setup and reach the awaited loop before issuing the second.
+    // setup and reach the awaited loop before issuing the others.
     await flushAsync();
-    // Second call should no-op (isProcessing is true).
+    // Calls during the run start no loop of their own; they are recorded
+    // once and honoured with one more pass when the run ends (#907).
+    await mod.startTransactionProcessing();
+    await mod.startTransactionProcessing();
     await mod.startTransactionProcessing();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
 
     release();
     await first;
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -533,19 +538,6 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     await mod.startTransactionProcessing();
     await flushAsync();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
-  });
-
-  it('coalesces several kicks during one loop into one extra pass', async () => {
-    const mod = await import('./transaction-processor');
-    mockGetAllUncompletedTransactions.mockImplementationOnce(async () => {
-      void mod.startTransactionProcessing();
-      void mod.startTransactionProcessing();
-      void mod.startTransactionProcessing();
-      return [];
-    });
-    await mod.startTransactionProcessing();
-    await flushAsync();
-    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 
   it('runs a third pass when a kick arrives during the restarted run too (#907)', async () => {

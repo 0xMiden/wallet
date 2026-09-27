@@ -44,7 +44,7 @@
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
-- [FIX][all] A device-key rotation queued while the service worker was finishing its transaction loop now starts, instead of staying Queued behind the rotation gate until something else restarts processing (#907).
+- [FIX][all] A transaction queued while the wallet was still processing earlier ones, such as a dApp request, or an everyday-key rotation in the browser extension, now starts instead of waiting until something else restarts processing (#907).
 
 ## 1.16.2 (2026-09-24)
 

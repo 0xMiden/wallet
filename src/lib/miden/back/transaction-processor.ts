@@ -143,7 +143,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 
 /**
  * Start processing queued transactions in the service worker.
- * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
+ * One run at a time: a call made while a run is in flight starts no loop of
+ * its own but is recorded and honoured with one more run when this one ends
+ * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
  */
 export async function startTransactionProcessing(): Promise<void> {
   if (isProcessing) {
@@ -152,35 +154,27 @@ export async function startTransactionProcessing(): Promise<void> {
   }
   isProcessing = true;
 
-  // In the Vite SW build, the activity module's re-export of lib/miden/transaction
-  // doesn't await the async transaction module init (Rolldown treats
-  // `export * from '../transaction'` as synchronous). Wait up to 60s for the
-  // function to become available. The init chain is:
-  // init_transactions → init_store (Zustand) → init_front → various frontend inits
-  // This may take time as module factories resolve asynchronously.
-  if (typeof safeGenerateTransactionsLoop !== 'function') {
-    console.log('[TransactionProcessor] Waiting for transactions module init...');
-    for (let i = 0; i < 120; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (typeof safeGenerateTransactionsLoop === 'function') break;
-    }
-    if (typeof safeGenerateTransactionsLoop !== 'function') {
-      console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
-      isProcessing = false;
-      // A kick during the wait asks for a newly queued transaction, so it gets one
-      // more run, the same as a kick during a loop pass. Bounded: each extra run
-      // needs a new kick.
-      if (processingRequested) {
-        processingRequested = false;
-        void startTransactionProcessing();
-      }
-      return;
-    }
-    console.log('[TransactionProcessor] transactions module ready');
-  }
-
   let browser: BrowserPolyfill | null = null;
   try {
+    // In the Vite SW build, the activity module's re-export of lib/miden/transaction
+    // doesn't await the async transaction module init (Rolldown treats
+    // `export * from '../transaction'` as synchronous). Wait up to 60s for the
+    // function to become available. The init chain is:
+    // init_transactions → init_store (Zustand) → init_front → various frontend inits
+    // This may take time as module factories resolve asynchronously.
+    if (typeof safeGenerateTransactionsLoop !== 'function') {
+      console.log('[TransactionProcessor] Waiting for transactions module init...');
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        if (typeof safeGenerateTransactionsLoop === 'function') break;
+      }
+      if (typeof safeGenerateTransactionsLoop !== 'function') {
+        console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
+        return;
+      }
+      console.log('[TransactionProcessor] transactions module ready');
+    }
+
     try {
       browser = await getBrowser();
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
