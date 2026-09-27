@@ -56,9 +56,12 @@ export type GuardianFaultPath = 'pubkey' | 'configure' | 'delta';
  * failure branch. Like `failFirstN`, it self-clears after `count` matching
  * requests (see the `count` field doc below) -- a real guardian's conflict is
  * transient (it clears once the prior delta canonicalizes), so a fault that
- * never clears wouldn't model the real failure mode.
+ * never clears wouldn't model the real failure mode. `rateLimited` answers
+ * the guardian's real `429 rate_limit_exceeded` envelope (with
+ * `retry_after_secs`), self-clearing after `count` like a limiter whose
+ * window passes.
  */
-export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN' | 'conflictPendingDelta';
+export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN' | 'conflictPendingDelta' | 'rateLimited';
 
 export interface GuardianFaultPolicy {
   /** Guardian instance to fault. Omit to match either A or B. */
@@ -70,7 +73,7 @@ export interface GuardianFaultPolicy {
   delayMs?: number;
   /**
    * Number of matching requests to fail before falling back to continue().
-   * Used by 'failFirstN' and 'conflictPendingDelta' (default 1).
+   * Used by 'failFirstN', 'conflictPendingDelta' and 'rateLimited' (default 1).
    */
   count?: number;
 }
@@ -142,7 +145,8 @@ export type GuardianFaultAction =
   | { kind: 'abort' }
   | { kind: 'delay'; delayMs: number }
   | { kind: 'fulfill500' }
-  | { kind: 'fulfillConflictPendingDelta' };
+  | { kind: 'fulfillConflictPendingDelta' }
+  | { kind: 'fulfillRateLimited' };
 
 /**
  * Pure fault decision for a single request: does the armed policy match
@@ -161,7 +165,10 @@ export function decideGuardianFault(
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
-  if ((policy.mode === 'failFirstN' || policy.mode === 'conflictPendingDelta') && hits >= (policy.count ?? 1)) {
+  if (
+    (policy.mode === 'failFirstN' || policy.mode === 'conflictPendingDelta' || policy.mode === 'rateLimited') &&
+    hits >= (policy.count ?? 1)
+  ) {
     return { action: { kind: 'continue' }, hits };
   }
 
@@ -176,6 +183,8 @@ export function decideGuardianFault(
       return { action: { kind: 'fulfill500' }, hits: nextHits };
     case 'conflictPendingDelta':
       return { action: { kind: 'fulfillConflictPendingDelta' }, hits: nextHits };
+    case 'rateLimited':
+      return { action: { kind: 'fulfillRateLimited' }, hits: nextHits };
   }
 }
 
@@ -205,6 +214,19 @@ const CONFLICT_PENDING_DELTA_BODY = JSON.stringify({
 });
 
 /**
+ * The guardian's real rate-limit rejection, in the `{ code, message, meta }`
+ * envelope `GuardianHttpError` parses: `rate_limit_exceeded`, `retryable`, and
+ * `retry_after_secs`, which the wallet's `guardianRetryAfterSec` reads. One
+ * second keeps a faulted wallet creation fast while still exercising the
+ * Retry-After branch rather than the blind backoff.
+ */
+const RATE_LIMITED_BODY = JSON.stringify({
+  code: 'rate_limit_exceeded',
+  message: 'Too many requests',
+  meta: { retryable: true, retry_after_secs: 1 }
+});
+
+/**
  * Apply a fault decision to a live route (or a unit-test fake satisfying GuardianRouteLike). `passThrough` is how
  * a request that still reaches the guardian (unfaulted or only delayed) is sent on; a caller that observes such
  * requests passes its own, and a request the fault answers or aborts never reaches it.
@@ -226,6 +248,8 @@ export async function applyGuardianFaultAction(
       return route.fulfill({ status: 500, body: 'injected guardian fault' });
     case 'fulfillConflictPendingDelta':
       return route.fulfill({ status: 409, body: CONFLICT_PENDING_DELTA_BODY });
+    case 'fulfillRateLimited':
+      return route.fulfill({ status: 429, body: RATE_LIMITED_BODY });
   }
 }
 

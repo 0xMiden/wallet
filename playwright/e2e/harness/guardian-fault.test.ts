@@ -64,6 +64,7 @@ describe('pathOf', () => {
 const PUBKEY_B = 'http://localhost:3001/pubkey?scheme=ecdsa';
 const PUBKEY_A = 'http://localhost:3000/pubkey?scheme=ecdsa';
 const DELTA_A = 'http://localhost:3000/delta?account_id=abc';
+const CONFIGURE_A = 'http://localhost:3000/configure';
 
 describe('decideGuardianFault', () => {
   it('passes through when no policy is armed', () => {
@@ -187,6 +188,26 @@ describe('decideGuardianFault', () => {
     const second = decideGuardianFault(DELTA_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
     expect(second.action).toEqual({ kind: 'continue' });
   });
+
+  it('rateLimited fulfills a 429 and fails exactly N matching requests, then continues', () => {
+    const policy: GuardianFaultPolicy = { target: 'A', path: 'configure', mode: 'rateLimited', count: 2 };
+    const first = decideGuardianFault(CONFIGURE_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    expect(first).toEqual({ action: { kind: 'fulfillRateLimited' }, hits: 1 });
+    const second = decideGuardianFault(CONFIGURE_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS);
+    expect(second).toEqual({ action: { kind: 'fulfillRateLimited' }, hits: 2 });
+    // A real limiter lets the retried request through once its window passes.
+    const third = decideGuardianFault(CONFIGURE_A, policy, second.hits, LOCAL_GUARDIAN_ORIGINS);
+    expect(third).toEqual({ action: { kind: 'continue' }, hits: 2 });
+  });
+
+  it('rateLimited defaults count to 1 when omitted', () => {
+    const policy: GuardianFaultPolicy = { target: 'A', path: 'configure', mode: 'rateLimited' };
+    const first = decideGuardianFault(CONFIGURE_A, policy, 0, LOCAL_GUARDIAN_ORIGINS);
+    expect(first.action).toEqual({ kind: 'fulfillRateLimited' });
+    expect(decideGuardianFault(CONFIGURE_A, policy, first.hits, LOCAL_GUARDIAN_ORIGINS).action).toEqual({
+      kind: 'continue'
+    });
+  });
 });
 
 // ── applyGuardianFaultAction (fake Route, no browser) ───────────────────────
@@ -299,4 +320,18 @@ describe('applyGuardianFaultAction', () => {
       expect(passedThrough).toBe(0);
     });
   }
+
+  it('fulfillRateLimited answers the guardian 429 envelope the client parses as rate_limit_exceeded', async () => {
+    const route = makeFakeRoute('http://localhost:3000/configure');
+    await applyGuardianFaultAction(route, { kind: 'fulfillRateLimited' });
+    expect(route.fulfillCalls).toHaveLength(1);
+    const call = route.fulfillCalls[0]!;
+    expect(call.status).toBe(429);
+    expect(JSON.parse(call.body)).toEqual({
+      code: 'rate_limit_exceeded',
+      message: expect.any(String),
+      meta: { retryable: true, retry_after_secs: 1 }
+    });
+    expect(route.continueCalls).toBe(0);
+  });
 });
