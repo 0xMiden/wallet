@@ -805,6 +805,44 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
+  it('off-extension, an unreachable guardian requeue arms a wake (#779)', async () => {
+    // Same stranding risk as the unauthorized arm above: off-extension nothing else drives a requeued send.
+    // The wake is timed one second past the fixed 60 s cooldown, so it must not drive the queue before then.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('off-send-unreachable-wake', row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(
+        buildTx('off-send-unreachable-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Failed at the proposal creator, so the requeue came from the creating-proposal gate.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === 'off-send-unreachable-wake')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
   it('comes back after a row read that fails, instead of abandoning the row', async () => {
     // The wake decides whether to re-arm by reading its own row. That read is
     // the only thing standing between the row and being stranded, so a Dexie
