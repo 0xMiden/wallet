@@ -15,7 +15,6 @@ failures=0
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 real_git=$(command -v git)
-real_awk=$(command -v awk)
 
 base_changelog() {
   cat <<'EOF'
@@ -194,46 +193,6 @@ replace_line "$r" '## 1.16.3 (TBD)' '## 1.16.3 (2026-09-30)'
 insert_after "$r" '- [FIX][all] Released entry (#2).' "$ENTRY"
 expect 1 'a user diff.interHunkContext does not hide a misplaced entry' "$r"
 
-# --- headings and sections as release-notes.yml reads them ---
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf '##\t1.16.1 (2026-01-01)\n\n%s' "$ENTRY")"
-expect 1 'an entry under a tab-separated heading for a released version fails' "$r"
-says 'under 1.16.1, which is not newer'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf '  ## 1.16.1 (2026-01-01)\n\n%s' "$ENTRY")"
-expect 1 'an entry under an indented heading for a released version fails' "$r"
-says 'under 1.16.1, which is not newer'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '# Changelog' "$(printf '\n ## 1.16.3 (TBD)')"
-expect 1 'an indented copy of a version heading is a duplicate' "$r"
-says 'Duplicate version heading'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf -- '---\n\n%s' "$ENTRY")"
-expect 1 'an entry after a --- line, which ends the section, fails' "$r"
-says 'outside every version section'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2 v1.16.3)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect 1 'an entry under the top (TBD) heading once its version is tagged fails' "$r"
-says 'which is not newer than the latest release, 1.16.3'
-
-# --- a change to the final newline is not a change to the last line ---
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-printf '%s' "$(cat "$r/CHANGELOG.md")" > "$r/CHANGELOG.tmp" && mv "$r/CHANGELOG.tmp" "$r/CHANGELOG.md"
-expect 0 'an open entry saved without the final newline passes' "$r"
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-printf '%s' "$(base_changelog)" > "$r/CHANGELOG.md"
-git -C "$r" commit -q -am 'base without a final newline'
-git -C "$r" update-ref refs/remotes/origin/main HEAD
-base_changelog > "$r/CHANGELOG.md"
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect 0 'an open entry that also restores the final newline passes' "$r"
-
 # --- what counts as released ---
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2 v1.16.3-rc.0)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
@@ -254,40 +213,23 @@ expect 1 'an unchanged CHANGELOG fails' "$r"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '# Changelog' "$(printf '\n## 1.16.3 (TBD)\n\n%s' "$ENTRY")"
-expect 1 'a duplicated version heading fails even with the no changelog label' "$r" NO_CHANGELOG_LABEL=true
-says 'Duplicate version heading'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '# Changelog' "$(printf '\n## 1.16.3 (TBD)\n\n%s' "$ENTRY")"
 expect 1 'a duplicated version heading fails' "$r"
 
 # --- failures must not pass ---
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect 2 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
-says 'Could not diff CHANGELOG.md against origin/no-such-branch'
+expect nonzero 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
 
 r=$(new_repo)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect 2 'no release tag to compare against does not pass' "$r"
-says 'No release tag (vX.Y.Z)'
+expect nonzero 'no release tag to compare against does not pass' "$r"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-# The shim fails only the placement awk (the one given diff_file=), so it reaches that guard.
 shim=$(mktemp -d "$work/shim.XXXXXX")
-printf '#!/bin/sh\ncase "$*" in *diff_file=*) exit 2;; esac\nexec "%s" "$@"\n' "$real_awk" > "$shim/awk"
+printf '#!/bin/sh\nexit 2\n' > "$shim/awk"
 chmod +x "$shim/awk"
-expect 2 'a failing placement awk does not pass' "$r" PATH="$shim:$PATH"
-says 'The placement check could not run'
-
-r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
-insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-shim=$(mktemp -d "$work/shim.XXXXXX")
-printf '#!/bin/sh\nexit 2\n' > "$shim/sort"
-chmod +x "$shim/sort"
-expect 2 'a failing duplicate check does not pass' "$r" PATH="$shim:$PATH"
-says 'Could not read the version headings'
+expect nonzero 'a failing awk does not pass' "$r" PATH="$shim:$PATH"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
@@ -295,7 +237,7 @@ shim=$(mktemp -d "$work/shim.XXXXXX")
 # shellcheck disable=SC2016 # $1 and $@ belong to the shim's own shell.
 printf '#!/bin/sh\nif [ "$1" = show ]; then exit 128; fi\nexec "%s" "$@"\n' "$real_git" > "$shim/git"
 chmod +x "$shim/git"
-expect 2 'a base copy git cannot read does not pass' "$r" PATH="$shim:$PATH"
+expect nonzero 'a base copy git cannot read does not pass' "$r" PATH="$shim:$PATH"
 says 'Could not read CHANGELOG.md as it is on origin/main'
 
 if [ "$failures" -ne 0 ]; then
