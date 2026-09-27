@@ -76,6 +76,14 @@ describe('defineSource', () => {
   it('throws on an object that never closes', () => {
     expect(() => defineSource("export default { define: { 'process.env.A': 'a'")).toThrow('unbalanced');
   });
+
+  it('throws on a trailing // comment that never closes the line', () => {
+    expect(() => defineSource('export default { define: { // x')).toThrow('unbalanced');
+  });
+
+  it('throws on a /* comment that never closes', () => {
+    expect(() => defineSource('export default { define: { /* x')).toThrow('unbalanced');
+  });
 });
 
 describe('defineEntry', () => {
