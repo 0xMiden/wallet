@@ -28,10 +28,16 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: jest.fn()
 }));
 
-// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different. As the
+// SDK's re-encode does, an id already in that form maps to itself.
+const mockFakeBech32 = (id: unknown): string => {
+  const text = String(id);
+  return text.startsWith('bech32:') ? text : `bech32:${text}`;
+};
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: jest.fn((id: string) => `bech32:${id}`)
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: jest.fn((id: string) => mockFakeBech32(id))
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -43,7 +49,7 @@ const mockNetworkName = jest.mocked(getEffectiveNetworkName);
 
 beforeEach(() => {
   _resetNormalizedFaucetIdsForTest();
-  mockToBech32.mockReset().mockImplementation((id: any) => `bech32:${id}`);
+  mockToBech32.mockReset().mockImplementation(mockFakeBech32);
   mockNetworkName.mockReturnValue('testnet' as any);
 });
 

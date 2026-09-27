@@ -10,10 +10,12 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: () => null
 }));
 
-// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different. As the
+// SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
 }));
 
 const row = (tokenId: string, metadata: Partial<AssetMetadata>, balance = 5) => ({

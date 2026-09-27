@@ -1,3 +1,5 @@
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+
 import { resolveSpendsUsd } from './valuation';
 
 /**
@@ -21,6 +23,8 @@ const BECH32_FAUCET = 'mtst1qtstfaucet00000000000000000000000000000qqqqqqq';
 // The hex form `netOutflowByFaucet` actually emits: `canonicalWalletAccountId` →
 // `accountRefToSdk(bech32).toString()`, i.e. `AccountId.toString()`'s canonical hex.
 const HEX_FAUCET = '0xaabbccddeeff00112233445566778899';
+// The Earn collateral USDC, which the price allowlist names by its hex id (#1131).
+const USDC_BECH32 = 'mtst1qusdcfaucet000000000000000000000000000qqqqqqq';
 
 const TST_METADATA = {
   decimals: 6,
@@ -31,7 +35,14 @@ const TST_METADATA = {
   scaleIsUnknown: false
 };
 
+const USDC_METADATA = { ...TST_METADATA, symbol: 'USDC', name: 'USDC' };
+
 const sentinelAccountId = { __brand: 'faucet-account-id' };
+const usdcAccountId = { __brand: 'usdc-faucet-account-id' };
+const BECH32_BY_ACCOUNT_ID = new Map<unknown, string>([
+  [sentinelAccountId, BECH32_FAUCET],
+  [usdcAccountId, USDC_BECH32]
+]);
 
 const mockFromHex = jest.fn();
 const mockFromBech32 = jest.fn();
@@ -84,14 +95,17 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     // .toBech32(...) -> the SAME bech32 string the cache is keyed under, exactly what
     // `getBech32AddressFromAccountId` already produces for every other faucet id this codebase
     // caches under. Anything else parsing to a different account id is not this faucet.
-    mockFromHex.mockImplementation((hex: string) => (hex === HEX_FAUCET ? sentinelAccountId : { __brand: 'other' }));
+    mockFromHex.mockImplementation((hex: string) =>
+      hex === HEX_FAUCET ? sentinelAccountId : hex === MIDEN_USDC_FAUCET ? usdcAccountId : { __brand: 'other' }
+    );
     mockFromAccountId.mockImplementation((accountId: unknown, iface: string) => ({
-      toBech32: () => (accountId === sentinelAccountId && iface === 'BasicWallet' ? BECH32_FAUCET : 'unexpected')
+      toBech32: () => (iface === 'BasicWallet' ? BECH32_BY_ACCOUNT_ID.get(accountId) : undefined) ?? 'unexpected'
     }));
     // The real SDK's `Address.fromBech32` rejects a non-bech32 string (a hex id included) rather
     // than silently accepting it - the RPC-path parse failure this bug goes through.
     mockFromBech32.mockImplementation((address: string) => {
       if (address === BECH32_FAUCET) return { accountId: () => sentinelAccountId };
+      if (address === USDC_BECH32) return { accountId: () => usdcAccountId };
       throw new Error(`invalid bech32 address: ${address}`);
     });
   });
@@ -109,5 +123,13 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     await expect(resolveSpendsUsd([{ faucetId: HEX_FAUCET, amount: 50_000_000n }], 10)).resolves.toBe(50_000_000n);
     // Resolved straight from cache once canonicalized - no RPC round trip needed.
     expect(mockGetAccountDetails).not.toHaveBeenCalled();
+  });
+
+  it('counts a USDC spend given by its bech32 id toward the total (#1131)', async () => {
+    mockFetchFromStorage.mockImplementation(async (key: string) =>
+      key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [USDC_BECH32]: USDC_METADATA }
+    );
+
+    await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
   });
 });

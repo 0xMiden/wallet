@@ -2,7 +2,7 @@ import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
@@ -130,13 +130,17 @@ const normalizedFaucetIds = new Map<string, string>();
 /** Test-only: forget every cached conversion. */
 export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
 
-/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
+/**
+ * The balance store's key for a faucet id in any encoding (hex, bech32 or the composite
+ * `<address>_<suffix>`), so every spelling of one faucet reduces to one bech32 id; the raw id if the
+ * SDK cannot parse it yet.
+ */
 export function normalizedFaucetId(faucetId: string): string {
   const key = `${getEffectiveNetworkName()}:${faucetId}`;
   const cached = normalizedFaucetIds.get(key);
   if (cached !== undefined) return cached;
   try {
-    const normalized = getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+    const normalized = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
     normalizedFaucetIds.set(key, normalized);
     return normalized;
   } catch {
@@ -161,16 +165,14 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
 }
 
 /**
- * The symbol to look a held token's price up under, matched by faucet id in either encoding as the
- * swap picker matches balances; none for any other faucet, whatever its own symbol. The one
- * exception is the E2E harness's fixture symbol, priced by symbol in E2E builds only.
+ * The symbol to look a held token's price up under, when the faucet and an allowlist entry reduce to
+ * one canonical id, whichever encoding each is spelled in; none for any other faucet, whatever its
+ * own symbol. The one exception is the E2E harness's fixture symbol, priced by symbol in E2E builds
+ * only.
  */
 export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
   const canonical = normalizedFaucetId(faucetId);
-  const priced = pricedFaucets().find(entry => {
-    const entryId = normalizedFaucetId(entry.faucetId);
-    return entry.faucetId === faucetId || entryId === faucetId || entryId === canonical;
-  });
+  const priced = pricedFaucets().find(entry => normalizedFaucetId(entry.faucetId) === canonical);
   if (priced) return priced.priceSymbol;
   return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
