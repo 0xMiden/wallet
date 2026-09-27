@@ -23,8 +23,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
 
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
-      // The base is the cache, which holds the newest value a numbered operation landed; the rendered value can lag
-      // it. A direct putToStorage takes no number (#1177).
+      // The base is the cache, which holds the newest value that landed; the rendered value can lag it.
       const current: T = cache.get(key)?.data ?? fallback;
       await writeThrough(key, isUpdater(val) ? val(current) : val);
     },
@@ -105,10 +104,10 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Every operation the hooks issue on a key (a write, a read, a preload) and every extension change event takes a
-// number, and the cache keeps the value of the highest-numbered one that succeeded: an action gives way only to a
-// newer one that landed, so a failure never blocks an older success. Issue order is storage order, since each
-// backend runs a page's calls in call order. A direct putToStorage takes no number (#1177).
+// Every storage operation on a key takes a number when this page issues or receives it, and the cache keeps the
+// value of the highest-numbered one that succeeded: an action gives way only to a newer one that landed, so a
+// failure never blocks an older success. Issue order is storage order, since each backend runs a page's calls
+// in call order.
 let lastSeq = 0;
 // Per key, the number of the operation whose value the cache entry holds.
 const appliedSeq = new Map<string, number>();
@@ -144,8 +143,8 @@ async function readForHook<T>(key: string): Promise<T | null> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A key's read replaces the cached value unless an operation on the key that started after it (a read, a hook
- * write or a change event) landed first; one that failed does not count.
+ * A key's read replaces the cached value unless an operation on the key that started after it (a read, a write
+ * or a change event) landed first; one that failed does not count.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(

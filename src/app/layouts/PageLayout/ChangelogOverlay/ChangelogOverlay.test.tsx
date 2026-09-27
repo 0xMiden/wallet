@@ -179,7 +179,7 @@ describe('ChangelogOverlay', () => {
     expect(mockSetLastShownVersion).toHaveBeenCalledWith(CURRENT_VERSION);
   });
 
-  it('swallows a failed save of the shown version instead of leaving it unhandled', async () => {
+  it('keeps the overlay when saving the shown version fails', async () => {
     mockChangelogData = fullChangelog();
     mockSetLastShownVersion.mockRejectedValueOnce(new Error('write failed'));
 
@@ -190,6 +190,7 @@ describe('ChangelogOverlay', () => {
     });
 
     expect(mockSetLastShownVersion).toHaveBeenCalledWith(CURRENT_VERSION);
+    expect(screen.getByTestId(ChangelogOverlaySelectors.Continue)).toBeInTheDocument();
   });
 
   it('renders an empty-data version section without crashing (data?.map over [])', () => {
