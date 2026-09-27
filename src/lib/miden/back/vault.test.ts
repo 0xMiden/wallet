@@ -65,7 +65,8 @@ const GUARDIAN_KEYS_FIXTURE = {
 const mockCreateGuardianMidenWallet = jest.fn(
   async (
     _seed: Uint8Array,
-    _guardianEndpoint?: string
+    _guardianEndpoint?: string,
+    _assertLive?: (step?: string) => void
   ): Promise<{ accountId: string; keys: typeof GUARDIAN_KEYS_FIXTURE; guardianEndpoint?: string }> => ({
     accountId: 'guardian-acc-1',
     keys: GUARDIAN_KEYS_FIXTURE
@@ -1141,6 +1142,96 @@ describe('Vault.exportWalletBackupMaterial', () => {
       importedAccountBackupFailure(importedAccount.name)
     );
     expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  // #1114: Vault.spawnFromHotKey's record shape, beside an imported private-key account,
+  // in a wallet that stores no recovery phrase.
+  const hotKeyGuardian: WalletAccount = {
+    publicKey: 'bech32:guardian-hot-account',
+    name: 'Guardian account',
+    isPublic: false,
+    type: WalletType.Guardian,
+    hdIndex: -1,
+    authScheme: 'ecdsa',
+    hotPublicKey: 'dead',
+    guardianEndpoint: 'http://localhost:3000',
+    guardianNoteRecoveryPending: true,
+    evmAddress: '0x0000000000000000000000000000000000000001'
+  };
+  const seedHotKeyWallet = async (accounts: WalletAccount[]) => {
+    const seeded = await seedVault('pw', { accounts });
+    await seeded.insertKeySink(new Uint8Array([0xa1, 0xb2]), new Uint8Array([1, 2, 3, 4]));
+    await removeMany([keys.mnemonic]);
+  };
+
+  it('backs up the imported account and does not restore a hot-key Guardian account beside it (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, importedAccount]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).resolves.toEqual({
+      seedPhrase: '',
+      accounts: [importedAccount],
+      midenClientDbContent: 'miden-db-dump',
+      walletDbContent: '{"transactions":[]}',
+      importedAccounts: [
+        {
+          accountId: importedAccount.publicKey,
+          publicKeyCommitment: 'a1b2',
+          authScheme: 'falcon',
+          secretKeyHex: '01020304'
+        }
+      ]
+    });
+    // Never read as an imported account: nothing of its key travels in the file.
+    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.getAccount).toHaveBeenCalledWith(importedAccount.publicKey);
+    expect(mockExportDb).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a wallet whose every account is a hot-key Guardian, whose file would restore nothing (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian]);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      'Wallet has no accounts an encrypted file can restore'
+    );
+    expect(mockMidenClient.getAccount).not.toHaveBeenCalled();
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('still refuses an imported account it cannot back up when a hot-key Guardian sits beside it (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, { ...importedAccount, isPublic: false }]);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('writes a file whose restore brings back the imported account with its key and no keyless Guardian (#1114)', async () => {
+    await seedHotKeyWallet([hotKeyGuardian, importedAccount]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    const material = await Vault.exportWalletBackupMaterial('pw');
+
+    // The database dump still carries the Guardian's SDK row, and the restore meets it first.
+    const sdkRow = (marker: string) => ({ ...sdkAccount(), id: () => ({ __marker: marker }), isFaucet: () => false });
+    const guardianRow = sdkRow('guardian-hot-account');
+    const importedRow = sdkRow('imported-account-id');
+    mockMidenClient.getAccounts.mockResolvedValueOnce([guardianRow, importedRow]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(guardianRow).mockResolvedValueOnce(importedRow);
+    mockKeystoreInsert.mockClear();
+
+    const restored = await Vault.spawnFromMidenClient(
+      'pw',
+      material.seedPhrase,
+      material.accounts,
+      2,
+      material.importedAccounts
+    );
+
+    await expect(restored.fetchAccounts()).resolves.toEqual([importedAccount]);
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    expect(mockKeystoreInsert).toHaveBeenCalledWith({ __marker: 'imported-account-id' }, expect.any(Object));
+    await expect(Vault.getCurrentAccountPublicKey()).resolves.toBe(importedAccount.publicKey);
   });
 });
 
@@ -3001,7 +3092,8 @@ describe('Vault hardware branches', () => {
     );
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://picked-guardian.example'
+      'https://picked-guardian.example',
+      expect.any(Function)
     );
   });
 
@@ -3078,8 +3170,50 @@ describe('Vault hardware branches', () => {
     // global key — the regression stage 1 would otherwise introduce.
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://resolved-from-sibling.example'
+      'https://resolved-from-sibling.example',
+      expect.any(Function)
     );
+  });
+
+  // Guardian creation waits out guardian 429s inside the hold, and an evicted
+  // flow is abandoned, not cancelled: the hold hands the creation a re-check
+  // bound to itself, live while it owns the mutex and poisoned once it does not.
+  describe('Guardian creation re-checks its own hold (#906)', () => {
+    const recordAssertLive = () => {
+      const outcomes: unknown[] = [];
+      const probe = (assertLive: ((step?: string) => void) | undefined) => {
+        try {
+          assertLive?.('probe');
+          outcomes.push('live');
+        } catch (error) {
+          outcomes.push(error);
+        }
+      };
+      mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async (_seed, _endpoint, assertLive) => {
+        probe(assertLive);
+        revokeWasmHold();
+        probe(assertLive);
+        return { accountId: 'guardian-acc-1', keys: GUARDIAN_KEYS_FIXTURE };
+      });
+      return outcomes;
+    };
+
+    it('in Vault.spawn', async () => {
+      const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const outcomes = recordAssertLive();
+      await Vault.spawn(WalletType.Guardian, 'pw-guardian-hold', VALID_MNEMONIC, false);
+      expect(outcomes[0]).toBe('live');
+      expect(outcomes[1]).toBeInstanceOf(WasmClientPoisonedError);
+    });
+
+    it('in createHDAccount', async () => {
+      const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const vlt = await Vault.spawn(WalletType.OnChain, 'pw-guardian-hd-hold');
+      const outcomes = recordAssertLive();
+      await vlt.createHDAccount(WalletType.Guardian, 'Guardian 1');
+      expect(outcomes[0]).toBe('live');
+      expect(outcomes[1]).toBeInstanceOf(WasmClientPoisonedError);
+    });
   });
 
   it('createHDAccount supports WalletType.OffChain (derivation index 1)', async () => {

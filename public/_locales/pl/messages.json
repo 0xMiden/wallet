@@ -503,6 +503,10 @@
     "message": "np. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Nie udało się usunąć klucza prywatnego ze schowka. Proszę samodzielnie wyczyścić schowek przed kontynuowaniem.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Ustawienia",
     "englishSource": "Settings"
@@ -2842,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Nie udostępnię nikomu mojego zaszyfrowanego pliku portfela, w tym również firmie Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Nie przywrócono z tego pliku: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Konta zaimportowane wraz z kluczami prywatnymi nie mogą zostać przywrócone z pliku portfela, a portfel przywrócony z tego pliku nie może ich dodać. Są one przywracane jako oddzielny portfel, skonfigurowany przy użyciu opcji „Importuj klucze prywatne” oraz ich codziennych kluczy Miden i kluczy prywatnych EVM. Należy bezpiecznie przechowywać te klucze: można je wyświetlić w sekcji Ustawienia → Klucze → Wyświetl klucz prywatny po zaznaczeniu danego konta.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Wprowadź hasło, aby zaszyfrować plik portfela.",

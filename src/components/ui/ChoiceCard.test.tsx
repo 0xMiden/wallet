@@ -159,6 +159,21 @@ describe('ChoiceCardGroup', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
   });
 
+  // #1083: a tap on the card already chosen must still record it as the user's pick,
+  // through the dedicated callback rather than onChange (which stays "once per real change").
+  it('calls onReselect, not onChange or the haptic, for a tap on the chosen card', () => {
+    const onChange = jest.fn();
+    const onReselect = jest.fn();
+    renderGroup({ onChange, onReselect });
+
+    fireEvent.click(radio('OpenZeppelin'));
+
+    expect(onReselect).toHaveBeenCalledWith('oz');
+    expect(onReselect).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+  });
+
   it('disables an option: out of reach, dimmed, and never selected', () => {
     const onChange = jest.fn();
     renderGroup({ onChange });
@@ -266,6 +281,22 @@ describe('ChoiceCardGroup', () => {
     fireEvent.keyDown(group, { key: 'End' });
     expect(onChange).toHaveBeenLastCalledWith('none');
     expect(mockHapticSelection).toHaveBeenCalledTimes(6);
+  });
+
+  // #1083: Home landing back on the already-chosen first card is activation too, the same as a
+  // tap, and must go through onReselect rather than being swallowed.
+  it('calls onReselect, not onChange or the haptic, for Home on the chosen first card', () => {
+    const onChange = jest.fn();
+    const onReselect = jest.fn();
+    renderGroup({ onChange, onReselect });
+
+    radio('OpenZeppelin').focus();
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'Home' });
+
+    expect(onReselect).toHaveBeenCalledWith('oz');
+    expect(onReselect).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
   });
 
   it('ignores other keys', () => {
