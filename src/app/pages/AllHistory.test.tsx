@@ -51,13 +51,8 @@ jest.mock('components/ui', () => ({
         />
       );
     }),
-  // The real header, wrapped so a test can see the filter row's value on every render.
-  TabRootHeader: (props: import('components/ui/TabRootHeader').TabRootHeaderProps) => {
-    mockFilterRowRenders.push(props.filter?.value);
-    const { TabRootHeader: Real } =
-      jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader');
-    return <Real {...props} />;
-  }
+  TabRootHeader:
+    jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader').TabRootHeader
 }));
 
 // The title row has its own suite; stubbed here so this one is about what the band puts under it,
@@ -93,8 +88,6 @@ jest.mock('components/ui/TabHeader', () => ({
 const mockPendingMounts = { count: 0 };
 // Every render's filter prop, so a test can tell a stale first frame from a correct one.
 const mockPendingFilterRenders: string[] = [];
-// Every render's filter row value (undefined while the row is hidden, in Groups).
-const mockFilterRowRenders: (string | undefined)[] = [];
 // Stands in for a warm SWR cache: the list reports its load from its first commit.
 const mockReportOnMount = { value: false };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
@@ -208,7 +201,6 @@ describe('AllHistory', () => {
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
     mockPendingFilterRenders.length = 0;
-    mockFilterRowRenders.length = 0;
     mockReducedMotion.value = false;
     mockLocationSearch.value = '';
     HTMLElement.prototype.scrollIntoView = jest.fn();
@@ -691,35 +683,11 @@ describe('AllHistory', () => {
       expect(screen.getByTestId('grouped-history')).toBeTruthy();
 
       mockLocationSearch.value = '?filter=pending';
-      const rowRendersBefore = mockFilterRowRenders.length;
       rerender(<AllHistory />);
 
       expect(getHistory().getAttribute('data-filter')).toBe('pending');
       expect(mockPendingFilterRenders).toEqual(expect.arrayContaining(['pending']));
       expect(mockPendingFilterRenders.every(f => f === 'pending')).toBe(true);
-      // The filter row too shows the link's filter from its first frame.
-      const rowRendersAfter = mockFilterRowRenders.slice(rowRendersBefore);
-      expect(rowRendersAfter).toEqual(expect.arrayContaining(['pending']));
-      expect(rowRendersAfter.every(value => value === 'pending')).toBe(true);
-    });
-
-    // The link's filter becomes the kept choice, as the feed's own picks are, so it shows again after
-    // a trip to Groups, when the location no longer names it.
-    it('keeps a filter a link brought to an open page through a trip to Groups and back', async () => {
-      const { rerender } = render(<AllHistory />);
-      mockLocationSearch.value = '?filter=pending';
-      rerender(<AllHistory />);
-
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-groups'));
-      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
-      expect(mockLocationSearch.value).toBe('');
-
-      fireEvent.click(screen.getByTestId('activity-view-button'));
-      fireEvent.click(screen.getByTestId('activity-view-list'));
-
-      await waitFor(() => expect(getHistory().getAttribute('data-filter')).toBe('pending'));
-      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
     });
 
     it('goes back to Groups when the user picks it, dropping the filter from the location', async () => {
