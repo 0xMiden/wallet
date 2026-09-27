@@ -356,6 +356,8 @@ describe('useConnectivityState', () => {
 
       expect(stored()).toEqual({ network: 456 });
       expect(mockFetchFromStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY);
+      // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
+      expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
 
     it('forgets a recovered dismissal that storage still holds as this window saw it', async () => {
@@ -379,6 +381,8 @@ describe('useConnectivityState', () => {
 
       expect(stored()).toEqual({ network: 456 });
       expect(mockFetchFromStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY);
+      // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
+      expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
     });
 
     it('keeps the dismissal when the write fails', async () => {
