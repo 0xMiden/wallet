@@ -17,6 +17,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -353,12 +354,25 @@ const RevealSeedPhrase: FC = () => {
     </Drawer>
   );
 
+  // The back action for the screen showing, used by every header and by hardware back (#1042), so
+  // the gesture also goes through `leave` and abandons an in-flight reveal. It follows the render
+  // branches below: the revealed phrase hides first, every other screen leaves.
+  const back = useCallback(() => {
+    if (!(seedStatus && seedStatus !== 'stored') && step !== 'warning' && secret && words.length > 0) handleHide();
+    else leave();
+  }, [seedStatus, step, secret, words.length, handleHide, leave]);
+
+  useMobileBackHandler(() => {
+    back();
+    return true;
+  }, [back]);
+
   if (seedStatus && seedStatus !== 'stored')
     return (
       // The same page the verify flow draws for this state, on the same frame.
       <SubPageLayout
         title={t('recoveryPhrase')}
-        onBack={leave}
+        onBack={back}
         data-testid="reveal-seed-state"
         footer={<Button className="flex-1 max-w-none" title={t('close')} onClick={leave} />}
       >
@@ -385,7 +399,7 @@ const RevealSeedPhrase: FC = () => {
         <SubPageLayout
           key="warning"
           title={t('recoveryPhrase')}
-          onBack={leave}
+          onBack={back}
           focusTitleOnMount
           data-testid="reveal-seed-warning"
           footer={
@@ -440,7 +454,7 @@ const RevealSeedPhrase: FC = () => {
       <SubPageLayout
         key="words"
         title={t('recoveryPhrase')}
-        onBack={handleHide}
+        onBack={back}
         focusTitleOnMount
         data-testid="reveal-seed-review"
         footer={
@@ -484,7 +498,7 @@ const RevealSeedPhrase: FC = () => {
       <SubPageLayout
         key="error"
         title={t('recoveryPhrase')}
-        onBack={leave}
+        onBack={back}
         focusTitleOnMount
         data-testid="reveal-seed-error"
         footer={
@@ -515,7 +529,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <>
-      <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth" />
+      <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={back} data-testid="reveal-seed-auth" />
       {passwordDrawer}
     </>
   );

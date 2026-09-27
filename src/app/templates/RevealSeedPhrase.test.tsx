@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { SeedPhraseStatus } from 'lib/shared/types';
 
 import RevealSeedPhrase from './RevealSeedPhrase';
@@ -143,6 +144,8 @@ jest.mock('lib/mobile/haptics', () => ({
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
+
+jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
 
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
@@ -757,6 +760,33 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed success path -> revealed view.
   // -------------------------------------------------------------------------
+  // #1042: hardware back does what the header back does on the screen showing, through `leave`,
+  // which also abandons an in-flight reveal; a plain history pop would skip it.
+  const hardwareBack = async () => {
+    const calls = jest.mocked(useMobileBackHandler).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    await act(async () => {
+      calls[calls.length - 1]![0]();
+    });
+  };
+
+  it('hardware back on the warning leaves the page, as the header back does', async () => {
+    await render();
+    await hardwareBack();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back on the revealed phrase hides it and leaves, as the header back does', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    await renderAndView();
+    mockHapticLight.mockClear();
+    mockSetSecret.mockClear();
+    await hardwareBack();
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockSetSecret).toHaveBeenCalledWith(null);
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
   it('reveals the seed phrase via hardware unlock after View and shows the numbered word grid', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');

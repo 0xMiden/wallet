@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
@@ -183,6 +184,38 @@ describe('VerifySeedPhraseFlow', () => {
 
   const presentCopyLabel = () =>
     screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
+
+  // The handler the page registered last: the one hardware back would run now.
+  const hardwareBack = () =>
+    act(() => {
+      const calls = jest.mocked(useMobileBackHandler).mock.calls;
+      calls[calls.length - 1]![0]();
+    });
+
+  // #1042: hardware back does what the header back does on the step showing.
+  it('hardware back on the warning leaves the flow', async () => {
+    await renderFlow();
+    hardwareBack();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back on the auth step returns to the warning, as the header back does', async () => {
+    await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back on the quiz step returns to the review, as the header back does', async () => {
+    await reachReview();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-quiz')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
 
   const reachReview = async () => {
     await renderFlow();

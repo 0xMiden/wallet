@@ -170,10 +170,19 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     goBack();
   }, [abandonReveal]);
 
+  // The back action for the screen showing, used by every header and by hardware back (#1042), so
+  // the two cannot disagree. It follows the render branches below.
+  const back = useCallback(() => {
+    if (seedStatus && seedStatus !== 'stored') onExit();
+    else if (step === 'auth') backToWarning();
+    else if (step === 'quiz' || (step === 'review' && words.length !== 12)) setStep('review');
+    else onExit();
+  }, [seedStatus, step, words.length, backToWarning, onExit]);
+
   useMobileBackHandler(() => {
-    onExit();
+    back();
     return true;
-  }, [onExit]);
+  }, [back]);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') {
@@ -203,7 +212,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('recoveryPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-state"
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
@@ -218,7 +227,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('removeSeedPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="remove-seed-confirm"
         footer={
           <>
@@ -246,7 +255,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-warning"
         footer={
           <>
@@ -281,7 +290,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     // get the numpad; extension/desktop use a typed password.
     if (isMobile()) {
       return (
-        <SubPageLayout title={t('verifySeedPhrase')} onBack={backToWarning} data-testid="verify-seed-auth">
+        <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-auth">
           <SubPageSection title={t('enterYourPasscode')} description={t('verifySeedPhrasePasswordBody')} />
           <PasscodeEntry
             onSubmit={code => revealPhrase(code)}
@@ -297,7 +306,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('verifySeedPhrase')}
-        onBack={backToWarning}
+        onBack={back}
         data-testid="verify-seed-auth"
         footer={
           <Button
@@ -336,7 +345,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <SubPageLayout
         title={t('recoveryPhrase')}
-        onBack={onExit}
+        onBack={back}
         data-testid="verify-seed-review"
         footer={
           <Button
@@ -372,7 +381,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   }
 
   return (
-    <SubPageLayout title={t('verifySeedPhrase')} onBack={() => setStep('review')} data-testid="verify-seed-quiz">
+    <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-quiz">
       <SubPageSection
         description={
           <>
