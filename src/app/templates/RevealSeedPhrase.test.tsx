@@ -420,9 +420,9 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
-  // Retry must survive its own click. Clearing the error at the START of a probe
-  // unmounted the block the button lives in, so a read that HANGS rather than
-  // rejecting left a disabled View, no Retry and only Close.
+  // Retry must survive its own click: a read that HANGS rather than rejecting used to leave a
+  // disabled View, no Retry and only Close. The error now stays on screen with a disabled, loading
+  // Retry for the first 5 s; past the deadline the wait notice takes over (see 'swaps the error...').
   it('keeps the error and the Retry on screen while a retry is still in flight', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
@@ -521,10 +521,10 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')!.textContent).toContain(
-        'checkingUnlockMethodSlow'
-      );
+      const slow = container.querySelector('[data-testid="reveal-seed-probe-slow"]');
+      expect(slow!.textContent).toContain('checkingUnlockMethodSlow');
       expect(mockT).toHaveBeenCalledWith('checkingUnlockMethodSlow');
+      expect(slow!.getAttribute('role')).toBe('status');
       expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'retry')).toBeUndefined();
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
@@ -535,7 +535,7 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // The deadline and the failure now raise different surfaces (the wait notice, then the error), so
+  // The deadline and the failure raise different surfaces (the wait notice, then the error), so
   // each gets its own line.
   it('logs the wait and then the failure when a probe times out and then fails', async () => {
     jest.useFakeTimers();
