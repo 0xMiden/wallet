@@ -97,15 +97,15 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
-  // switch — never nudge them onto another operator by default. In the create
-  // flow (no `currentEndpoint`) default to the first provider.
+  // switch, never nudging them onto another operator by default. An account on a
+  // custom Guardian has no listed operator to pre-select, so nothing is (#1083).
+  // In the create flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
       // Compared as endpoints: a stored endpoint can differ from the option's literal
       // by host case, an explicit default port, or trailing slash (RotateGuardian
       // compares them the same way).
-      const current = options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint));
-      if (current) return current.id;
+      return options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint))?.id ?? '';
     }
     return options[0]?.id ?? '';
   }, [currentEndpoint, options]);
@@ -130,13 +130,16 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   //   operator is down. Picking a replacement for the user would nudge them
   //   onto an operator by default, which the pre-selection rule exists to
   //   prevent.
+  // - An explicit pick that goes offline: NOTHING in either flow. The user chose
+  //   that operator; the card's offline badge says why it is not selected, and
+  //   another operator is never substituted for it (#1083).
   const intended = options.find(o => o.id === intendedId);
   const effectiveSelectedId =
     intendedId === NO_GUARDIAN_ID
       ? NO_GUARDIAN_ID
       : intended && !isOfflineEndpoint(intended.endpoint)
         ? intended.id
-        : currentEndpoint
+        : currentEndpoint || pickedId !== null
           ? ''
           : (options.find(o => !isOfflineEndpoint(o.endpoint))?.id ?? '');
 
