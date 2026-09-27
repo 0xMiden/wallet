@@ -21,7 +21,6 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -55,7 +54,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   );
   const { revealMnemonic, revealPrivateKey, revealHotKey } = useMidenContext();
   const account = useAccount();
-  const { fieldRef: secretFieldRef } = useCopyToClipboard();
+  const secretFieldRef = useRef<HTMLTextAreaElement>(null);
 
   const {
     register,

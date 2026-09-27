@@ -123,11 +123,6 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
 
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null } })
-}));
-
 type Reveal = 'private-key' | 'seed-phrase' | 'hot-key';
 
 describe('RevealSecret', () => {
@@ -290,6 +285,8 @@ describe('RevealSecret', () => {
     // words are readable; they go back behind the design system's cover the moment focus leaves.
     expect(field.tagName).toBe('TEXTAREA');
     expect(field.closest('div.bg-fill')).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, field.value.length]);
     expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
     await act(async () => {
       field.blur();
