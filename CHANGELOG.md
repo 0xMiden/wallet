@@ -12,6 +12,8 @@
 - [CHANGE][ci] The Activity lists' paging tests now fail if a list stops handing the scroller its page loader, its scroll parent, whether more pages remain, or the setting that makes it listen on that parent (#1103).
 - [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
 - [CHANGE][ci] The test-network ribbon's popup E2E now runs: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
+- [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
+- [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
 
 ### Fixes
 
@@ -30,6 +32,7 @@
 - [FIX][all] A setting read at startup (display currency, network, last changelog shown) no longer reverts to the value stored before a change made while a slow startup read was still pending (#1119).
 - [FIX][android] The bottom tab bar no longer sits on the system navigation bar: its tabs end 8px above the Back, Home and Recents buttons (and the gesture handle), and the test-network ribbon in its corner can be tapped again (#1121).
 - [FIX][all] Spending limits now count IETH and IBTC at the ETH and BTC price, as the rest of the wallet values them, for sends, swaps, bridges, Earn deposits and dApp requests alike. They were counted as nothing, so moving either could go past the cap without the review stopping it; when the ETH or BTC price cannot be fetched, a limited account now asks for the same approval it asks for any other priced token. IETH and IBTC transfers made before this update were recorded as $0 and are not counted toward the cap, so the cap is exact again once they are more than 24 hours old (#1133).
+- [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110, #1153).
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).

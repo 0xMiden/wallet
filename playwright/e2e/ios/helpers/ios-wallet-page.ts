@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
@@ -570,7 +571,7 @@ export class IosWalletPage implements WalletPage {
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
     // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/history?filter=pending');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
