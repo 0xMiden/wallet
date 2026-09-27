@@ -394,8 +394,8 @@ describe('ForgotPassword', () => {
   });
 
   it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {
-    // clearClientStorage() runs BEFORE registerWallet, so a rejection here leaves
-    // the user with no local wallet. Navigating away would drop them on a wiped
+    // registerWallet wipes the old wallet before it builds the new one, so a
+    // rejection here can leave the user with no local wallet. Navigating away would drop them on a wiped
     // wallet with no explanation, which is indistinguishable from data loss. Stay
     // on the confirmation step so the surfaced error and Retry are reachable.
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
