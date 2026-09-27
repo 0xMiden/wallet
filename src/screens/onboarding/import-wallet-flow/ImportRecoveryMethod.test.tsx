@@ -165,20 +165,27 @@ describe('ImportRecoveryMethodScreen', () => {
     });
   });
 
-  it('shows the not-found error only when isError is set, not dirty, and Guardian is selected', () => {
-    renderScreen({ isError: true });
+  it('shows the not-found error only when error is set, not dirty, and Guardian is selected', () => {
+    renderScreen({ error: 'guardianAccountNotFound' });
 
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
   });
 
-  it('does not show the error when isError is unset', () => {
-    renderScreen({ isError: false });
+  it('does not show the error when error is unset', () => {
+    renderScreen();
 
-    expect(screen.queryByText('guardianAccountNotFound')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the real reason when the failure is not a not-found', () => {
+    renderScreen({ error: 'This key is no longer active for the account. Paste the current everyday key.' });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('This key is no longer active for the account.');
+    expect(screen.queryByText('guardianAccountNotFound')).toBeNull();
   });
 
   it('clears the error once the user interacts (dirty), e.g. picking a preset', () => {
-    renderScreen({ isError: true });
+    renderScreen({ error: 'guardianAccountNotFound' });
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
 
     // Selecting a preset updates the endpoint, activates that preset, and marks
@@ -536,7 +543,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
   });
 
   it('still surfaces the post-register not-found error alongside a detected guardian', () => {
-    renderScreen({ probe: detected(), isError: true });
+    renderScreen({ probe: detected(), error: 'guardianAccountNotFound' });
 
     expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
   });
