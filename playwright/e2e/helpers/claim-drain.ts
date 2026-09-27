@@ -18,7 +18,10 @@ export type AcceptAllState = 'absent' | 'idle' | 'busy';
 export interface PendingSample {
   /** The hash route is `/history` with `filter=pending`. */
   onPending: boolean;
-  /** Listed transfers: pending, failed or claiming cards. A claimed, checking or unavailable note is not listed. */
+  /**
+   * Listed transfers: pending, failed or claiming cards. A claimed, checking or unavailable note is not
+   * listed, and neither is a failed claim whose note has left the claimable set.
+   */
   rows: number;
   /** A claim in flight keeps Accept All mounted in its loading state (`aria-busy`). */
   acceptAll: AcceptAllState;
