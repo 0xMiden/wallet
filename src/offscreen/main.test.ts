@@ -262,6 +262,27 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
   };
 });
 
+// #945: every local prove in this document goes to the prove worker client, which
+// is replaced here by a fake transport. The default proof bytes are [1, 2, 3].
+const mockProveTransport = {
+  prove: jest.fn(async (_request: { txResult: Uint8Array; proverDescriptor: string }, _options?: object) => ({
+    proven: new Uint8Array([1, 2, 3]),
+    durationMs: 42
+  })),
+  prewarm: jest.fn()
+};
+
+jest.mock('./prove-worker-client', () => ({
+  ProveWorkerClient: class {
+    prove(request: { txResult: Uint8Array; proverDescriptor: string }, options?: object) {
+      return mockProveTransport.prove(request, options);
+    }
+    prewarm() {
+      mockProveTransport.prewarm();
+    }
+  }
+}));
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -538,6 +559,8 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  mockProveTransport.prove.mockClear();
+  mockProveTransport.prewarm.mockClear();
   G.__off.clientIsDisposed = false;
   G.__off.disposedBuilds = new Set<number>();
   G.__off.listBuilds = [];
@@ -567,6 +590,16 @@ describe('offscreen/main — startup / init()', () => {
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
     // Message listener registered.
     expect(typeof capturedListener).toBe('function');
+  });
+
+  it('installs the prove worker as the local prove transport without starting it (#945)', async () => {
+    await loadModule();
+    const { getLocalProveTransport } = await import('lib/miden/sdk/local-prove-transport');
+    const transport = getLocalProveTransport();
+    expect(transport).not.toBeNull();
+    expect(transport?.prove).toEqual(expect.any(Function));
+    expect(mockProveTransport.prewarm).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
   });
 
   // The endpoint-override cache lives in module scope, so it is PER REALM: the SW's

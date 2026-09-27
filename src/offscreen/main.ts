@@ -66,6 +66,7 @@ import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransa
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
+import { installLocalProveTransport } from 'lib/miden/sdk/local-prove-transport';
 import {
   type WasmLockHold,
   assertWasmHoldCurrent,
@@ -88,6 +89,7 @@ import {
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
+import { ProveWorkerClient } from './prove-worker-client';
 import { proveThreadCount } from './prove-worker-protocol';
 
 const TAG = '[offscreen-prover]';
@@ -240,6 +242,13 @@ function ensureEndpointOverrides(): Promise<void> {
 setOperationTransport(async event => {
   await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
 });
+
+// Every local prove this document runs goes to its prove worker (#945): a prove on
+// this document's thread spins for its whole length, and the side panel and popup
+// share that thread. Installed at module top, before any handler can reach a prove
+// site; the worker itself is spawned only by the first local prove.
+const proveWorker = new ProveWorkerClient();
+installLocalProveTransport(proveWorker);
 
 let initPromise: Promise<void> | null = null;
 
