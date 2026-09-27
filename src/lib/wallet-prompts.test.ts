@@ -880,7 +880,12 @@ describe('wallet prompts', () => {
   });
 
   it('keeps an unresolved marker stamped in the future: it is never live, so the stamp wedges nothing', async () => {
-    const unresolved = { requestedAt: Date.now() + 60_000, baselineNoteIds: [], submitted: true, unresolved: true };
+    const unresolved: FaucetFundingMarker = {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    };
     await setFaucetFundingMarker('accountClockUnresolved', unresolved);
 
     expect(await fetchFaucetFundingMarker('accountClockUnresolved')).toEqual(unresolved);
