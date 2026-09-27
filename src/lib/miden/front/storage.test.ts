@@ -168,6 +168,39 @@ describe('storage utilities', () => {
       expect(result.current[0]).toBe('second');
       expect(result.current[1]).toBe(setter);
     });
+
+    it('keeps the setter identity when the caller passes a fresh fallback object each render', () => {
+      mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
+      const { result, rerender } = renderHook(({ fb }: { fb: { n: number } }) => useStorage('object-fallback-key', fb), {
+        initialProps: { fb: { n: 1 } }
+      });
+      const setter = result.current[1];
+
+      rerender({ fb: { n: 1 } });
+
+      expect(result.current[1]).toBe(setter);
+    });
+
+    it('keeps the setter identity across a fallback change, and a functional update from the earlier render builds on the latest fallback', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      await mutate('empty-key-for-fallback-swap', null, { revalidate: false });
+      mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
+
+      const { result, rerender } = renderHook(({ fb }: { fb: string }) => useStorage<string>('empty-key-for-fallback-swap', fb), {
+        initialProps: { fb: 'fallback-a' }
+      });
+      const setterFromFirstRender = result.current[1];
+
+      rerender({ fb: 'fallback-b' });
+
+      expect(result.current[1]).toBe(setterFromFirstRender);
+
+      await act(async () => {
+        await setterFromFirstRender(prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'empty-key-for-fallback-swap': 'fallback-b-updated' });
+    });
   });
 
   describe('usePassiveStorage', () => {
