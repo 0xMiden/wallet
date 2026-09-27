@@ -879,6 +879,13 @@ describe('wallet prompts', () => {
     expect(await fetchFaucetFundingMarker('accountClock')).toBeNull();
   });
 
+  it('keeps an unresolved marker stamped in the future: it is never live, so the stamp wedges nothing', async () => {
+    const unresolved = { requestedAt: Date.now() + 60_000, baselineNoteIds: [], submitted: true, unresolved: true };
+    await setFaucetFundingMarker('accountClockUnresolved', unresolved);
+
+    expect(await fetchFaucetFundingMarker('accountClockUnresolved')).toEqual(unresolved);
+  });
+
   it('keeps when a flagged request went out, and ignores a send time it cannot trust', async () => {
     const submittedAt = Date.now() - 30_000;
     await setFaucetFundingMarker('accountSent', {

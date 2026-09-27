@@ -359,8 +359,9 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
   // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
   // a manual change) leaves a stamp in the future, which reads as "always
-  // fresh" and would wedge the wait past its own timeout.
-  if (requestedAt > Date.now()) return null;
+  // fresh" and would wedge the wait past its own timeout. An unresolved marker is never
+  // live, so its stamp wedges nothing, and dropping it would drop the record.
+  if (requestedAt > Date.now() && Reflect.get(raw, 'unresolved') === undefined) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
   const marker: FaucetFundingMarker = {
     requestedAt,
