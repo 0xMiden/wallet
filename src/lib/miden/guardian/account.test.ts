@@ -425,7 +425,8 @@ describe('createGuardianAccount', () => {
     );
     // The deploy proposal is signed by cold (we hand the cold AuthSecretKey to EcdsaSigner).
     expect(ecdsaSignerCtor).toHaveBeenCalledWith(stubKeyByTag['s1-2-3-4']);
-    expect(multisig.registerOnGuardian).toHaveBeenCalled();
+    expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
     expect(webClient.sync).toHaveBeenCalled();
     // Only the cold key is inserted into the SDK keystore — hot lives outside.
     expect(webClient.keystore.insert).toHaveBeenCalledTimes(1);
