@@ -14,6 +14,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
 
 import {
+  MidenDAppCurrentPermission,
   MidenDAppErrorType,
   MidenDAppMessageType,
   MidenDAppMetadata,
@@ -63,9 +64,9 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
   return () => clearTimeout(t);
 }
 
-export function onPermissionChange(callback: (permission: MidenDAppPermission) => void) {
+export function onPermissionChange(callback: (permission: MidenDAppCurrentPermission) => void) {
   let t: any;
-  let currentPerm: MidenDAppPermission = null;
+  let currentPerm: MidenDAppCurrentPermission = null;
   const check = async () => {
     try {
       const perm = await getCurrentPermission();

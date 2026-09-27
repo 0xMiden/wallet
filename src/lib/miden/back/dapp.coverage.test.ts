@@ -171,6 +171,11 @@ describe('getCurrentPermission', () => {
     const res = await dapp.getCurrentPermission('https://miden.xyz');
     expect(res.permission).toBeNull();
   });
+
+  it("carries the account's public key from its session (#174)", async () => {
+    const res = await dapp.getCurrentPermission('https://miden.xyz');
+    expect(res.permission?.publicKey).toBe(SESSION.publicKey);
+  });
 });
 
 // ── requestDisconnect ──────────────────────────────────────────────
