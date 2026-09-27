@@ -262,13 +262,45 @@ export function isValidGuardianUrl(value: string): boolean {
 }
 
 /**
- * Normalize a Guardian endpoint for storage and comparison: trim surrounding
- * whitespace and strip any trailing slashes, so `https://g.example.com/` and
- * `https://g.example.com` are treated as the same endpoint. Apply this to any
- * user-entered Guardian URL before persisting or comparing it.
+ * Normalize a Guardian endpoint for storage: trim surrounding whitespace and
+ * strip any trailing slashes. This is the form persisted and sent, not a
+ * comparison: `sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b)` still misses
+ * two spellings of the same endpoint that differ in host case or an explicit
+ * default port, and it does not tell a different path spelled with a different
+ * case (a different endpoint) from one that only looks different. Compare
+ * endpoints with `sameGuardianEndpoint`.
  */
 export function sanitizeGuardianUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Are these two spellings the same Guardian endpoint? A stored endpoint may have been typed by a user or written by an
+ * older build, and a built-in operator's is a literal in wallet config, so they can differ in host case, an explicit
+ * default port or a trailing slash. `URL` lowercases only the scheme and host, the parts that are case-insensitive: a
+ * blanket lowercase would also fold the path, and a look-alike endpoint differing from a built-in only in path case
+ * would pass as that built-in. An unparseable value can't be a working endpoint; it compares as its trimmed,
+ * lowercased text, so it still matches an identical spelling of itself.
+ */
+export function sameGuardianEndpoint(a: string, b: string): boolean {
+  return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
+}
+
+/** The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. */
+export function canonicalGuardianEndpoint(raw: string): string {
+  const trimmed = sanitizeGuardianUrl(raw);
+  try {
+    const url = new URL(trimmed);
+    // `href`, not a template of the parts: `GuardianHttpClient` sends every request
+    // to `${baseUrl}${path}`, so a query or fragment (even a bare `?` or `#`, which
+    // `search` and `hash` report as '') moves the appended path out of the path,
+    // and any userinfo makes `fetch` throw. A spelling carrying one is not the
+    // working endpoint, and `href` keeps each of them distinct.
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return url.href;
+  } catch {
+    return trimmed.toLowerCase();
+  }
 }
 
 export function setThemeSetting(theme: ThemeSetting) {

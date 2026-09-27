@@ -14,7 +14,7 @@ import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
-import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 import { GuardianProbeState, WalletType } from '../types';
@@ -171,7 +171,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   }));
   const activePreset = isCustomizing
     ? null
-    : (guardianPresets.find(provider => sanitizedEndpoint === provider.endpoint)?.id ?? null);
+    : (guardianPresets.find(provider => sameGuardianEndpoint(sanitizedEndpoint, provider.endpoint))?.id ?? null);
 
   const renderEndpointPicker = (showPresets: boolean) => (
     <>
