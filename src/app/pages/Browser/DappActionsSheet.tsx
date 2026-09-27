@@ -91,12 +91,10 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   const handleCopyLink = useCallback(() => {
     if (!session) return;
     hapticLight();
-    // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
-    // writes through the native bridge on iOS and Android and calls
-    // `navigator.clipboard` on desktop, failing where a direct call would, but
-    // on every surface a failure arrives as a rejection this catch sees, never
-    // a synchronous throw. Swallow errors - the sheet closes either way, and
-    // there is nowhere left on screen to report a failure once it has.
+    // The same `@capacitor/clipboard` write as `useClipboardCopy` (whose doc says what backs it on
+    // each surface); every failure arrives as a rejection this catch sees, never a synchronous
+    // throw. Swallow it - the sheet closes either way and there is nowhere left on screen to
+    // report it.
     void Clipboard.write({ string: session.url }).catch(() => {});
     close();
   }, [session, close]);
