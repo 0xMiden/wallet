@@ -63,7 +63,7 @@ const RevealSeedPhrase: FC = () => {
   // store the mnemonic and swap the rendered branch to the word grid on a page the
   // user has already dismissed. Bumping the generation gives that in-flight promise
   // the same mismatch unmount already produces. Wrapped at the binding rather than
-  // at each call site: there are seven, and a list is one edit away from being six.
+  // at each call site: there are many, and a list is one edit away from missing one.
   const leave = useCallback(() => {
     secretGeneration.current += 1;
     setSecret(null);

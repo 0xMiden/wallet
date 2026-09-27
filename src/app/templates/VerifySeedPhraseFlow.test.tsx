@@ -1,8 +1,9 @@
 import React from 'react';
 
+import { App } from '@capacitor/app';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
@@ -16,7 +17,18 @@ const mockSeedState: { seedPhraseStatus?: SeedPhraseStatus } = {};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockSeedState) => SeedPhraseStatus | undefined) => selector(mockSeedState)
 }));
-jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
+// Hardware back runs through the real hook and registry; only the native listener is stubbed, so a
+// test presses the handler the page registered under its deps (#1042).
+let mockBackButton: (() => void) | undefined;
+jest.mock('@capacitor/app', () => ({
+  App: {
+    addListener: jest.fn((event: string, callback: () => void) => {
+      if (event === 'backButton') mockBackButton = callback;
+      return Promise.resolve({ remove: jest.fn() });
+    }),
+    minimizeApp: jest.fn()
+  }
+}));
 const mockHasHardwareProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
@@ -126,7 +138,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isAndroid: () => true
 }));
 
 jest.mock('lib/wallet-prompts', () => ({
@@ -173,6 +186,11 @@ const clickText = (text: string) => {
 };
 
 describe('VerifySeedPhraseFlow', () => {
+  beforeAll(async () => {
+    mockIsMobile = true;
+    await initMobileBackHandler();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsMobile = false;
@@ -185,25 +203,32 @@ describe('VerifySeedPhraseFlow', () => {
   const presentCopyLabel = () =>
     screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
 
-  // The handler the page registered last: the one hardware back would run now. It must also consume
-  // the press, or it falls through to the next handler or the OS.
+  // Presses the Android back button; the app minimizes only when no handler consumed the press.
   const hardwareBack = () => {
-    let consumed: boolean | void = undefined;
+    expect(mockBackButton).toBeDefined();
     act(() => {
-      const calls = jest.mocked(useMobileBackHandler).mock.calls;
-      consumed = calls[calls.length - 1]![0]();
+      mockBackButton!();
     });
-    expect(consumed).toBe(true);
+    expect(App.minimizeApp).not.toHaveBeenCalled();
+  };
+
+  const reachReviewOnMobile = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('passcode-submit'));
+    await screen.findByText('w1');
   };
 
   // #1042: hardware back does what the header back does on the step showing.
   it('hardware back on the warning leaves the flow', async () => {
+    mockIsMobile = true;
     await renderFlow();
     hardwareBack();
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
   it('hardware back on the auth step returns to the warning, as the header back does', async () => {
+    mockIsMobile = true;
     await renderFlow();
     clickText('continue');
     expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
@@ -213,7 +238,8 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   it('hardware back on the quiz step returns to the review, as the header back does', async () => {
-    await reachReview();
+    mockIsMobile = true;
+    await reachReviewOnMobile();
     clickText('continue');
     expect(screen.getByTestId('verify-seed-quiz')).toBeTruthy();
     hardwareBack();
@@ -222,6 +248,7 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   it('hardware back leaves once the phrase is removed while the auth step shows', async () => {
+    mockIsMobile = true;
     const { rerender } = await renderFlow();
     clickText('continue');
     expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
@@ -236,6 +263,7 @@ describe('VerifySeedPhraseFlow', () => {
   });
 
   it('hardware back while the reveal is pending returns to the warning, and the phrase it returns is dropped', async () => {
+    mockIsMobile = true;
     let resolveReveal: (v: string) => void = () => {};
     mockRevealMnemonic.mockImplementation(
       () =>
@@ -245,8 +273,7 @@ describe('VerifySeedPhraseFlow', () => {
     );
     await renderFlow();
     clickText('continue');
-    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
-    fireEvent.click(screen.getByText('continue'));
+    fireEvent.click(screen.getByTestId('passcode-submit'));
     await flush();
     expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
     hardwareBack();
