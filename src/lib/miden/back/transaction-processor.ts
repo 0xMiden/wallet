@@ -49,6 +49,10 @@ const ALARM_NAME = 'miden-tx-processor';
 const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
 const STUCK_TX_HEAL_PERIOD_MIN = 5;
 let isProcessing = false;
+// Set when a kick arrives while a run is already in flight. A kick that lands
+// after the loop's last pass but before this run clears `isProcessing` would
+// otherwise be silently dropped, leaving a newly-queued tx stuck (#907).
+let processingRequested = false;
 
 /**
  * Sign callback that runs in the service worker.
@@ -142,7 +146,10 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
  * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
  */
 export async function startTransactionProcessing(): Promise<void> {
-  if (isProcessing) return;
+  if (isProcessing) {
+    processingRequested = true;
+    return;
+  }
   isProcessing = true;
 
   // In the Vite SW build, the activity module's re-export of lib/miden/transaction
@@ -211,6 +218,10 @@ export async function startTransactionProcessing(): Promise<void> {
       browser?.alarms.clear(ALARM_NAME);
     } catch {
       // Best effort.
+    }
+    if (processingRequested) {
+      processingRequested = false;
+      void startTransactionProcessing();
     }
   }
 }

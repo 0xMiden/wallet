@@ -497,4 +497,39 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     jest.useRealTimers();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
+
+  it('runs one more pass when a kick arrives while the loop is finishing (#907)', async () => {
+    const mod = await import('./transaction-processor');
+    // The kick lands inside the queue check that ends the loop's only pass,
+    // i.e. after the last safeGenerateTransactionsLoop call but before this
+    // run clears isProcessing - exactly the window issue #907 loses.
+    mockGetAllUncompletedTransactions.mockImplementationOnce(async () => {
+      void mod.startTransactionProcessing();
+      return [];
+    });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs no extra pass when nothing kicks during the loop', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces several kicks during one loop into one extra pass', async () => {
+    const mod = await import('./transaction-processor');
+    mockGetAllUncompletedTransactions.mockImplementationOnce(async () => {
+      void mod.startTransactionProcessing();
+      void mod.startTransactionProcessing();
+      void mod.startTransactionProcessing();
+      return [];
+    });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
 });
