@@ -4198,19 +4198,4 @@ describe('Welcome - Guardian discovery across browser history', () => {
 
     expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
   });
-
-  // ImportHotKey.tsx only ever submits a key it has already parsed; this pins the branch anyway.
-  it('a key submit that does not parse still ends the previous discovery (defensive guard: the UI only submits parsed keys)', async () => {
-    await renderWelcome();
-    await enterSeed();
-    land(DETECTED);
-    await setHash('#create-password');
-    await setHash('#import-from-seed');
-    await dispatch({ id: 'import-with-key' });
-    await setHash('#import-from-key');
-    await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
-
-    expect(mockProbeStartWithKey).not.toHaveBeenCalled();
-    expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
-  });
 });

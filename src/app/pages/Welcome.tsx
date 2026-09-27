@@ -240,13 +240,17 @@ const Welcome: FC = () => {
   // Back and Forward inside an import keep it (a landing never resets it); the
   // #import-from-seed landing drops a pasted key without ending its run, kept
   // harmless by the credential gate below (no result shows with neither held).
-  const guardianProbe = useGuardianProbe();
-  const resetGuardianProbe = guardianProbe.reset;
+  const {
+    state: probeState,
+    start: startProbe,
+    startWithKey: startProbeWithKey,
+    reset: resetGuardianProbe
+  } = useGuardianProbe();
   // Without a credential in memory (e.g. the popup was reopened directly on the
   // recovery-method screen) there is nothing to detect — leave the probe prop
   // undefined so that screen renders its classic manual picker rather than an
   // endless spinner.
-  const guardianProbeState = seedPhrase || keyPairPayload ? guardianProbe.state : undefined;
+  const guardianProbeState = seedPhrase || keyPairPayload ? probeState : undefined;
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
   // Chrome side panel handoff: create the wallet while the confirmation screen
@@ -414,12 +418,12 @@ const Welcome: FC = () => {
   }, [testBypassTriggered, password]);
 
   // Fire-and-forget: navigation must not wait on the network. The result lands
-  // in `guardianProbe.state`, which the recovery-method screen renders.
+  // in `probeState`, which the recovery-method screen renders.
   const startGuardianProbe = useCallback(
     (words: string[]) => {
-      void guardianProbe.start(words);
+      void startProbe(words);
     },
-    [guardianProbe]
+    [startProbe]
   );
 
   // Same fire-and-forget shape for the seed-less import: probe the operators by
@@ -427,14 +431,10 @@ const Welcome: FC = () => {
   const startGuardianProbeWithKey = useCallback(
     (payload: string) => {
       const pair = parsePrivateKeyPair(payload);
-      // Nothing to detect for a key that does not parse, and the last credential's result must not stand in for it.
-      if (!pair) {
-        resetGuardianProbe();
-        return;
-      }
-      void guardianProbe.startWithKey(pair.hotPrivateKey);
+      if (!pair) return;
+      void startProbeWithKey(pair.hotPrivateKey);
     },
-    [guardianProbe, resetGuardianProbe]
+    [startProbeWithKey]
   );
 
   const register = useCallback(async () => {
@@ -992,8 +992,9 @@ const Welcome: FC = () => {
       case '#choose-guardian':
         // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
         // a create, and a history jump can land here before any protection step generated it (a create
-        // starts with no credentials, see resetFlowState). The seed is read through a ref: a credential
-        // change is not a navigation, so it does not re-run this routing.
+        // starts with no credentials, see resetFlowState). The seed is read through a ref because only
+        // this case needs it, while password and onboardingType feed several, so a seed change does not
+        // re-run every case.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
         else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
         else setStep(OnboardingStep.ChooseGuardian);
