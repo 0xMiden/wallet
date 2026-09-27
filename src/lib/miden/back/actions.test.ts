@@ -665,6 +665,53 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: spawned.insertKeySink });
     });
 
+    it('drops the legacy guardian URL once the new wallet is published (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+
+      await registerNewWallet(0 as any, 'pw');
+
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
+    it('keeps the legacy guardian URL when the setup fails after its spawn, so a Retry finds it (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce({
+        ...mockVault,
+        fetchSettings: jest.fn(async () => {
+          throw new Error('settings unreadable');
+        })
+      });
+
+      await expect(registerNewWallet(0 as any, 'pw')).rejects.toThrow('settings unreadable');
+
+      expect(mockStorageRemove).not.toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
+    it('still reports a published wallet as set up when dropping the legacy URL fails (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+      mockStorageRemove.mockRejectedValueOnce(new Error('storage down'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await expect(registerNewWallet(0 as any, 'pw')).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy guardian URL'), expect.any(Error));
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('drops the legacy guardian URL once a hot-key import is published, and keeps it when the import fails (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockRejectedValueOnce(new Error('import failed'));
+      await expect(registerWalletFromHotKey('pw', 'hot:evm')).rejects.toThrow('import failed');
+      expect(mockStorageRemove).not.toHaveBeenCalledWith(['guardian_url_setting']);
+
+      Vault.spawnFromHotKey.mockResolvedValueOnce(mockVault);
+      await registerWalletFromHotKey('pw', 'hot:evm');
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+
     it('an import whose spawn fails leaves the realm sink as the store has it (#878)', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.spawnFromMidenClient.mockRejectedValueOnce(new Error('restore failed'));
@@ -813,6 +860,31 @@ describe('actions', () => {
       // equally satisfied by a run in which it never fired.
       expect(mockStorageRemove).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
+    });
+
+    it('undoes a failed restore down to the endpoint override alone (#1174)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockResolvedValueOnce({
+        fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+        fetchSettings: jest.fn(),
+        getCurrentAccount: jest.fn(),
+        isOwnMnemonic: jest.fn(),
+        retire: jest.fn()
+      });
+      const { get } = jest.requireMock('webextension-polyfill').default.storage.local;
+      get.mockImplementation(async (keys: unknown) =>
+        keys === null
+          ? { DAppEnabled: true, guardian_url_setting: 'https://legacy.example', endpoint_overrides: '{}' }
+          : { DAppEnabled: true }
+      );
+      try {
+        await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+        const removed = mockStorageRemove.mock.calls.flatMap(call => call[0] as string[]);
+        expect(removed).toContain('guardian_url_setting');
+        expect(removed).not.toContain('endpoint_overrides');
+      } finally {
+        get.mockReset().mockResolvedValue({ DAppEnabled: true });
+      }
     });
   });
 

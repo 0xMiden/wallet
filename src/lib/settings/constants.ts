@@ -62,8 +62,10 @@ export const DEFAULT_THEME: ThemeSetting = 'system';
  * final fallback for a legacy account on a custom/self-hosted/rotated guardian
  * that the backfill can't identify — see `resolveGuardianEndpoint` and
  * `useCurrentGuardianEndpoint`. Wallet-setup storage resets keep it
- * (`SETUP_PRESERVED_STORAGE_KEYS`) so every recovery attempt reads it; a full
- * reset drops it. Do not reintroduce writes; fully deleting the key needs a
- * "re-enter your guardian URL" user flow (out of scope).
+ * (`SETUP_PRESERVED_STORAGE_KEYS`) until a setup succeeds, so a Retry after a
+ * failed recovery reads it too; a successful setup (`dropLegacyGuardianUrl`), a
+ * file restore and a full reset drop it. Do not reintroduce writes; deleting it
+ * from a wallet that is only ever unlocked needs a "re-enter your guardian URL"
+ * user flow (out of scope).
  */
 export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';

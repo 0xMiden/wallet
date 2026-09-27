@@ -27,7 +27,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { clearStorage } from 'lib/miden/reset';
+import { clearStorage, dropLegacyGuardianUrl, PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -236,6 +236,7 @@ export function registerNewWallet(
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        await dropLegacyGuardianUrlAfterSetup('registerNewWallet');
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
@@ -244,6 +245,14 @@ export function registerNewWallet(
         syncRealmInsertKeySink();
       }
     })
+  );
+}
+
+// The wallet is already set up, so a failed drop only warns: the key then lingers as it did
+// before #1174, read only by an account that has no guardianEndpoint of its own.
+async function dropLegacyGuardianUrlAfterSetup(caller: string) {
+  await dropLegacyGuardianUrl().catch(err =>
+    console.warn(`[Actions.${caller}] could not drop the legacy guardian URL:`, err)
   );
 }
 
@@ -266,6 +275,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
         syncRealmInsertKeySink();
       }
@@ -317,7 +327,7 @@ export function registerImportedWallet(
           vault.retire();
           // Never let the undo replace the cause: this runs in a finally, so a
           // throw here would surface a storage error instead of the real failure.
-          await clearStorage(false).catch(undoError =>
+          await clearStorage(false, PRESERVED_STORAGE_KEYS).catch(undoError =>
             console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
           );
         }

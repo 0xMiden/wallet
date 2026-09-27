@@ -66,7 +66,13 @@ jest.mock(
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
-import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
+import {
+  clearClientStorage,
+  clearStorage,
+  dropLegacyGuardianUrl,
+  PRESERVED_STORAGE_KEYS,
+  resetStorageDestructive
+} from './reset';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -196,6 +202,19 @@ describe('clearStorage', () => {
     await expect(clearStorage()).rejects.toThrow('quota');
   });
 
+  it('keeps only the list its caller passes: a file restore drops the legacy guardian URL (#1174)', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: OVERRIDE,
+      guardian_url_setting: LEGACY_GUARDIAN,
+      vault_key: 'v'
+    });
+
+    await clearStorage(false, PRESERVED_STORAGE_KEYS);
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['guardian_url_setting', 'vault_key']]]);
+  });
+
   it('rejects when listing the extension keys fails, and removes nothing', async () => {
     jest.mocked(isExtension).mockReturnValue(true);
     mockBrowserStorageGet.mockRejectedValue(new Error('storage down'));
@@ -235,6 +254,28 @@ describe('resetStorageDestructive', () => {
     expect(mockDbOpen).toHaveBeenCalled();
     expect(mockBrowserStorageRemove.mock.calls).toEqual([[['guardian_url_setting', 'vault_key']]]);
     expect(mockBrowserStorageClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('dropLegacyGuardianUrl', () => {
+  it('removes the legacy guardian URL and nothing else', async () => {
+    localStorage.setItem('miden_wallet_guardian_url_setting', 'https://my-guardian.example');
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+
+    await dropLegacyGuardianUrl();
+
+    expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
+  });
+
+  it('rejects when the removal fails, leaving the caller to choose how to degrade', async () => {
+    const removeSpy = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('storage down');
+    });
+    try {
+      await expect(dropLegacyGuardianUrl()).rejects.toThrow('storage down');
+    } finally {
+      removeSpy.mockRestore();
+    }
   });
 });
 

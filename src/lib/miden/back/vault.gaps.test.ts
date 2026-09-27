@@ -94,13 +94,19 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
-// Mirrors the real wallet-setup reset: every key but the kept ones goes.
-jest.mock('lib/miden/reset', () => ({
-  clearStorage: jest.fn(async () => {
-    const { SETUP_PRESERVED_STORAGE_KEYS } = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
-    for (const k of Object.keys(memoryStore)) if (!SETUP_PRESERVED_STORAGE_KEYS.includes(k)) delete memoryStore[k];
-  })
-}));
+jest.mock('lib/miden/reset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+  return {
+    PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    SETUP_PRESERVED_STORAGE_KEYS: actual.SETUP_PRESERVED_STORAGE_KEYS,
+    // Mirrors the real reset: every key but the kept list goes (the setup list by default).
+    clearStorage: jest.fn(
+      async (_clearDb: boolean = true, keep: readonly string[] = actual.SETUP_PRESERVED_STORAGE_KEYS) => {
+        for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+      }
+    )
+  };
+});
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),
@@ -400,7 +406,7 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
 });
 
 describe('Vault.spawn: frozen guardian URL (kept, never written)', () => {
-  it('keeps GUARDIAN_URL_STORAGE_KEY through the wipe and never writes it (#408 stage 3, #1174)', async () => {
+  it('keeps GUARDIAN_URL_STORAGE_KEY through a spawn and never writes it; the action drops it once published (#408 stage 3, #1174)', async () => {
     const { fetchFromStorage } = await import('../front/storage');
     const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
     memoryStore[GUARDIAN_URL_STORAGE_KEY] = 'https://my-guardian.example';

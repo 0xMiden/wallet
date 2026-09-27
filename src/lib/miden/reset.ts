@@ -2,7 +2,7 @@ import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
-import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
+import { DESKTOP_STORAGE_PREFIX, getStorageProvider } from 'lib/platform/storage-adapter';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 // Configuration, not wallet data, so every reset keeps it. The dev-settings endpoint override
@@ -11,8 +11,9 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 // defaults" clears it explicitly.
 export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
-// Wallet setup also keeps the frozen legacy guardian URL: a Guardian recovery with no pick and
-// no probe result falls back to it, and a Retry must find the value the first attempt did.
+// A wallet-setup reset also keeps the frozen legacy guardian URL until a setup succeeds: a
+// Guardian recovery with no pick and no probe result falls back to it, and a Retry after a
+// failed attempt must find the value the first attempt did. See `dropLegacyGuardianUrl`.
 export const SETUP_PRESERVED_STORAGE_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, GUARDIAN_URL_STORAGE_KEY];
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
@@ -49,7 +50,7 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
  * Soft storage reset called during wallet creation / spawn.
  *
  * Empties the `transactions` table and every platform key-value entry except
- * `SETUP_PRESERVED_STORAGE_KEYS`, but deliberately keeps the TridentMain Dexie
+ * `keep` (a setup keeps `SETUP_PRESERVED_STORAGE_KEYS`), but deliberately keeps the TridentMain Dexie
  * connection alive. Using `db.delete()` here would fire a `versionchange` event
  * to every other open handle (notably the page's, which was opened lazily by the
  * onboarding UI), force them closed, and leave no path to reopen them short of a
@@ -60,7 +61,7 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
-export async function clearStorage(clearDb: boolean = true) {
+export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = SETUP_PRESERVED_STORAGE_KEYS) {
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -69,11 +70,17 @@ export async function clearStorage(clearDb: boolean = true) {
     // promises that resetting app data removes both.
     await Repo.spendingLimits.clear();
   }
-  await clearPlatformKeyValueStorage(SETUP_PRESERVED_STORAGE_KEYS);
+  await clearPlatformKeyValueStorage(keep);
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
   primeNativeAssetId();
+}
+
+// Called once a setup has published its vault: every Guardian account it wrote carries its own
+// guardianEndpoint, so the fallback has nothing left to serve. A delete, never a write.
+export async function dropLegacyGuardianUrl(): Promise<void> {
+  await getStorageProvider().remove([GUARDIAN_URL_STORAGE_KEY]);
 }
 
 /**
