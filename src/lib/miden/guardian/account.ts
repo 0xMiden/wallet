@@ -286,10 +286,11 @@ const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
 
 /**
  * Sleep for a guardian 429 wait. Chrome stops an idle MV3 service worker after
- * ~30 s and a wait can last a minute, so on the extension a repeating alarm keeps
- * the worker alive for the wait, as the transaction processor's does for its
- * loop, and is cleared when the wait ends. The polyfill is loaded only there: it
- * throws at load outside an extension, and this module is in the mobile bundle.
+ * ~30 s and a wait can last up to GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, so on the
+ * extension a repeating alarm keeps the worker alive for the wait, as the
+ * transaction processor's does for its loop, and is cleared when the wait ends.
+ * The polyfill is loaded only there: it throws at load outside an extension, and
+ * this module is in the mobile bundle.
  */
 async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
   const browser = isExtension() ? await import('webextension-polyfill').then(m => m.default) : undefined;

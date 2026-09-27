@@ -196,8 +196,9 @@ export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: C
  * Run a guardian call, waiting out `429` rate-limit rejections (#906). The
  * guardian marks them retryable and rejects them before any handler runs, so a
  * retry can never apply a request twice. Before each retry it waits the
- * guardian's own `retry_after_secs` (clamped), or the capped exponential backoff
- * when the 429 carries none: retrying under the cooldown only earns another 429.
+ * guardian's own `retry_after_secs`, or the capped exponential backoff when the
+ * 429 carries none: retrying under the cooldown only earns another 429. Without
+ * a deadline the wait is clamped to a minute; with one, the deadline bounds it.
  * Any other error propagates at once; after GUARDIAN_RETRY_MAX_ATTEMPTS calls the
  * last 429 is rethrown unchanged, so callers still see the guardian's own error.
  * A caller holding a lock bounds the waits with `deadlineMs`, an absolute time on
@@ -228,10 +229,11 @@ export async function withGuardianRateLimitRetry<T>(
         );
         throw err;
       }
+      const waitMs = opts.deadlineMs !== undefined ? cooldownMs : delayMs;
       console.warn(
-        `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); retrying in ${delayMs} ms`
+        `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); retrying in ${waitMs} ms`
       );
-      await wait(delayMs);
+      await wait(waitMs);
       opts.afterWait?.();
     }
   }

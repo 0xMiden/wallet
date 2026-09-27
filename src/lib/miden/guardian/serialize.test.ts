@@ -356,9 +356,31 @@ describe('withGuardianRateLimitRetry (#906)', () => {
       expect(waits).toEqual([60_000]);
     });
 
-    // The clamp shortens the wait, not the guardian's cooldown: a retry after a
-    // clamped 60 s wait would still land inside a 120 s cooldown.
-    it('gives up at once when the stated cooldown ends past the deadline, though the clamped wait fits', async () => {
+    // With a deadline the wait is the stated cooldown itself, not the minute's
+    // clamp: the deadline bounds it, and a retry inside the cooldown earns a 429.
+    it('waits a stated cooldown above a minute in full when the deadline admits it', async () => {
+      jest.spyOn(performance, 'now').mockReturnValue(1_000);
+      const { waits, sleepFn } = recordingSleep();
+      const fn = jest.fn().mockRejectedValueOnce(rateLimited(75)).mockResolvedValueOnce('ok');
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 90_000 })).resolves.toBe('ok');
+      expect(fn).toHaveBeenCalledTimes(2);
+      expect(waits).toEqual([75_000]);
+    });
+
+    it.each([
+      ['no cooldown', undefined],
+      ['a 0 s cooldown', 0]
+    ])('never waits less than the backoff for %s', async (_label, retryAfterSecs) => {
+      jest.spyOn(performance, 'now').mockReturnValue(1_000);
+      const { waits, sleepFn } = recordingSleep();
+      const fn = jest.fn().mockRejectedValueOnce(rateLimited(retryAfterSecs)).mockResolvedValueOnce('ok');
+      await expect(withGuardianRateLimitRetry(fn, { sleepFn, deadlineMs: 1_000 + 90_000 })).resolves.toBe('ok');
+      expect(waits).toEqual([1_000]);
+    });
+
+    // The give-up is judged against the stated cooldown, which is the wait here:
+    // a 120 s cooldown cannot fit a 90 s budget.
+    it('gives up at once when the stated cooldown ends past the deadline, though a minute would fit', async () => {
       let now = 1_000;
       jest.spyOn(performance, 'now').mockImplementation(() => now);
       const waits: number[] = [];
