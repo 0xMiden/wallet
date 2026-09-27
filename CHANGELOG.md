@@ -24,6 +24,7 @@
 - [CHORE][all] The Guardian transition hero's chip comment names the chip's real ink and drops a muted-token colour and contrast ratio that stopped being true (#1045).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
+- [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 
 ### Fixes
 
@@ -65,6 +66,7 @@
 - [FIX][extension] The lockout after too many wrong passwords, once armed in one window (popup, side panel or a tab), is honoured by every open window, which no longer takes guesses during it or shortens it (#1192).
 - [FIX][all] Going Back and then Forward inside an import no longer drops part of it: a wallet file restore resumed that way restores the file, imported accounts included, instead of importing only its recovery phrase, and a resumed recovery phrase or private key import still offers the Guardian it detected instead of the manual picker (#1115).
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
+- [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
 

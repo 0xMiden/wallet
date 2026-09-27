@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { mutate } from 'swr';
 
 import { fetchFromStorage, putToStorage, onStorageChanged, usePassiveStorage, useStorage } from './storage';
 
@@ -116,17 +117,56 @@ describe('storage utilities', () => {
       expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'next-value' });
     });
 
-    it('stores functional updates against the latest value ref', async () => {
+    it('builds a functional update on the cached value, not the rendered one', async () => {
       mockStorage.local.set.mockResolvedValue(undefined);
-      mockUseRetryableSWR.mockReturnValue({ data: 'current-value', mutate: jest.fn() });
+      await mutate('functional-key', 'cached', { revalidate: false });
+      mockUseRetryableSWR.mockReturnValue({ data: 'rendered', mutate: jest.fn() });
 
-      const { result } = renderHook(() => useStorage<string>('settings-key'));
-
+      const { result } = renderHook(() => useStorage<string>('functional-key'));
       await act(async () => {
         await result.current[1](prev => `${prev}-updated`);
       });
 
-      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'current-value-updated' });
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'functional-key': 'cached-updated' });
+    });
+
+    it('builds a functional update on the fallback when the key holds nothing', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      await mutate('functional-empty-key', null, { revalidate: false });
+      mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('functional-empty-key', 'fallback'));
+      await act(async () => {
+        await result.current[1](prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'functional-empty-key': 'fallback-updated' });
+    });
+
+    it('chains awaited functional updates on the value each one wrote', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      await mutate('chained-key', 'base', { revalidate: false });
+      mockUseRetryableSWR.mockReturnValue({ data: 'base', mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('chained-key'));
+      await act(async () => {
+        await result.current[1](prev => `${prev}-1`);
+        await result.current[1](prev => `${prev}-2`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'chained-key': 'base-1-2' });
+    });
+
+    it('keeps the setter identity when the value changes', () => {
+      mockUseRetryableSWR.mockReturnValue({ data: 'first', mutate: jest.fn() });
+      const { result, rerender } = renderHook(() => useStorage<string>('stable-setter-key', 'fallback'));
+      const setter = result.current[1];
+
+      mockUseRetryableSWR.mockReturnValue({ data: 'second', mutate: jest.fn() });
+      rerender();
+
+      expect(result.current[0]).toBe('second');
+      expect(result.current[1]).toBe(setter);
     });
   });
 
