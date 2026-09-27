@@ -630,7 +630,7 @@ describe('ChooseGuardianScreen', () => {
     expect(mockPing).toHaveBeenCalledTimes(2);
   });
 
-  it('drops the verdict for a custom URL when the picker stops being the current page during the check', async () => {
+  it('drops the verdict for a custom URL and frees Continue when the picker stops being the current page', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
     const picker = (active: boolean) => (
@@ -642,7 +642,10 @@ describe('ChooseGuardianScreen', () => {
 
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
+    expect(screen.getByTestId('continue-button')).toHaveAttribute('aria-busy', 'true');
     rerender(picker(false));
+    // A dropped verdict never resets the busy state, so leaving the page has to.
+    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
     await answer(42);
 
     expect(onSubmit).not.toHaveBeenCalled();
