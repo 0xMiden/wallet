@@ -174,3 +174,27 @@ export async function putToStorage<T = any>(key: string, value: T) {
   const storage = getStorageProvider();
   return await storage.set({ [key]: value });
 }
+
+// Each turn name's chain in this realm, used only without Web Locks (iOS before 15.4), where this realm is the only
+// writer, so ordering its own turns is enough.
+const storageTurnTails = new Map<string, Promise<void>>();
+
+/**
+ * Runs `operation` as one turn named `name`: under the Web Lock of that name, which every extension surface (popup,
+ * side panel, tabs, service worker) shares, or, without Web Locks, after this realm's earlier turns of that name. A
+ * turn whose operation fails does not stop the next one. Being `async`, it rejects rather than throws, so a caller's
+ * `.catch` always sees the failure.
+ */
+export async function inStorageTurn<T>(name: string, operation: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    // The type argument: without it @types/web-locks-api's `Promise<undefined>` overload wins over the generic one.
+    return navigator.locks.request<Promise<T>>(name, operation);
+  }
+  const run = (storageTurnTails.get(name) ?? Promise.resolve()).then(operation);
+  const settled = run.then(
+    () => undefined,
+    () => undefined
+  );
+  storageTurnTails.set(name, settled);
+  return run;
+}

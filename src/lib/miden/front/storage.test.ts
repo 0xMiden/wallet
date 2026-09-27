@@ -1,7 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 
-import { fetchFromStorage, putToStorage, onStorageChanged, usePassiveStorage, useStorage } from './storage';
+import { deferred, SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
+
+import {
+  fetchFromStorage,
+  inStorageTurn,
+  putToStorage,
+  onStorageChanged,
+  usePassiveStorage,
+  useStorage
+} from './storage';
 
 // Mock platform detection - default to extension context
 const mockIsExtension = jest.fn(() => true);
@@ -285,6 +294,88 @@ describe('storage utilities', () => {
       expect(typeof cleanup).toBe('function');
       // Should not register listener on mobile/desktop
       expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('inStorageTurn', () => {
+    afterEach(() => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+    });
+
+    it('takes the Web Lock of its name where Web Locks exist, and resolves with what the operation resolves with', async () => {
+      const locks = new SharedEarnLocks();
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+
+      await expect(inStorageTurn('turn:my-key', async () => 'done')).resolves.toBe('done');
+
+      expect(locks.requests).toEqual(['turn:my-key']);
+    });
+
+    it('rejects, never throws, when the lock manager itself throws', async () => {
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: () => {
+            throw new Error('lock manager unavailable');
+          }
+        }
+      });
+
+      const turn = inStorageTurn('turn:my-key', async () => 'done');
+
+      await expect(turn).rejects.toThrow('lock manager unavailable');
+    });
+
+    describe('without Web Locks (iOS before 15.4)', () => {
+      beforeEach(() => {
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      });
+
+      it('runs turns of one name one at a time, in the order they were asked for', async () => {
+        const order: string[] = [];
+        const held = deferred<void>();
+        const first = inStorageTurn('turn:my-key', async () => {
+          order.push('first:start');
+          await held.promise;
+          order.push('first:end');
+        });
+        const second = inStorageTurn('turn:my-key', async () => {
+          order.push('second');
+        });
+        await flushPromises();
+        expect(order).toEqual(['first:start']);
+
+        held.resolve();
+        await Promise.all([first, second]);
+        expect(order).toEqual(['first:start', 'first:end', 'second']);
+      });
+
+      it('starts the next turn after one whose operation failed', async () => {
+        const failed = inStorageTurn('turn:my-key', async () => {
+          throw new Error('quota');
+        });
+        const next = inStorageTurn('turn:my-key', async () => 'ran');
+
+        await expect(failed).rejects.toThrow('quota');
+        await expect(next).resolves.toBe('ran');
+      });
+
+      it('never holds a turn of one name behind a turn of another', async () => {
+        // One account's funding-marker turn must not delay another account's.
+        const held = deferred<void>();
+        const accountA = inStorageTurn('faucet-funding-marker:accountA', () => held.promise);
+        let ranB = false;
+        const accountB = inStorageTurn('faucet-funding-marker:accountB', async () => {
+          ranB = true;
+        });
+        try {
+          await flushPromises();
+          expect(ranB).toBe(true);
+        } finally {
+          held.resolve();
+          await Promise.all([accountA, accountB]);
+        }
+      });
     });
   });
 });
