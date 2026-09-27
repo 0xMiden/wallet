@@ -18,6 +18,7 @@ import {
   getThemeSetting,
   isValidGuardianUrl,
   sanitizeGuardianUrl,
+  sameGuardianEndpoint,
   isAutoConsumeEnabledAsync,
   isDelegateProofEnabledAsync,
   mirrorBackgroundSettings,
@@ -85,6 +86,31 @@ describe('settings helpers', () => {
 
     it('leaves an already-clean URL unchanged', () => {
       expect(sanitizeGuardianUrl('https://guardian.example.com')).toBe('https://guardian.example.com');
+    });
+  });
+
+  describe('sameGuardianEndpoint', () => {
+    it('treats host case, a default port, trailing slashes and whitespace as the same endpoint', () => {
+      expect(sameGuardianEndpoint('https://guardian.example.com', 'https://Guardian.Example.COM')).toBe(true);
+      expect(sameGuardianEndpoint('https://guardian.example.com:443/', 'https://guardian.example.com')).toBe(true);
+      expect(sameGuardianEndpoint('http://localhost:80', 'http://localhost')).toBe(true);
+      expect(sameGuardianEndpoint('  https://guardian.example.com/v1/ ', 'https://guardian.example.com/v1')).toBe(true);
+    });
+
+    it('keeps the scheme, a non-default port, the path case and the query meaningful', () => {
+      expect(sameGuardianEndpoint('http://guardian.example.com', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com:8443', 'https://guardian.example.com')).toBe(false);
+      expect(sameGuardianEndpoint('https://guardian.example.com/Path', 'https://guardian.example.com/path')).toBe(
+        false
+      );
+      expect(sameGuardianEndpoint('https://guardian.example.com/?a=1', 'https://guardian.example.com/?a=2')).toBe(
+        false
+      );
+    });
+
+    it('compares an unparseable value as its own text', () => {
+      expect(sameGuardianEndpoint('not a url', ' NOT A URL/')).toBe(true);
+      expect(sameGuardianEndpoint('not a url', 'https://guardian.example.com')).toBe(false);
     });
   });
 

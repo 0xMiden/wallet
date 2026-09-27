@@ -4,7 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -714,38 +714,6 @@ export async function applyUserGuardianEndpoint(
 function normalizedEqual(a: string, b: string): boolean {
   const n = (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
   return n(a) === n(b);
-}
-
-/**
- * Are these two spellings the same Guardian endpoint?
- *
- * `sanitizeGuardianUrl` is the comparison the rest of the wallet uses (see
- * `RotateGuardian`), and it is not enough on its own here: a built-in
- * operator's endpoint is a literal in wallet config while the stored one may
- * have been typed by a user or written by an older build, so the two can differ
- * in host case as well as in a trailing slash. Reading a difference in case as
- * "a different operator" would rewrite the account's endpoint to an equivalent
- * URL and report `changed` for a tick that changed nothing real.
- *
- * Case is folded via `URL`, which lowercases only the scheme and host — the two
- * parts that ARE case-insensitive. A blanket `toLowerCase()` would also fold the
- * path, and a look-alike endpoint differing from a built-in only in path case
- * would then pass as that built-in and keep its self-report unchallenged. An
- * unparseable value can't be a working endpoint; compare it as plain text so it
- * still matches an identical spelling of itself.
- */
-function sameGuardianEndpoint(a: string, b: string): boolean {
-  return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
-}
-
-function canonicalGuardianEndpoint(raw: string): string {
-  const trimmed = sanitizeGuardianUrl(raw);
-  try {
-    const url = new URL(trimmed);
-    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}`;
-  } catch {
-    return trimmed.toLowerCase();
-  }
 }
 
 export { verifyEndpointMatchesCommitment };

@@ -265,10 +265,33 @@ export function isValidGuardianUrl(value: string): boolean {
  * Normalize a Guardian endpoint for storage and comparison: trim surrounding
  * whitespace and strip any trailing slashes, so `https://g.example.com/` and
  * `https://g.example.com` are treated as the same endpoint. Apply this to any
- * user-entered Guardian URL before persisting or comparing it.
+ * user-entered Guardian URL before persisting or comparing it. For deeper
+ * comparisons (host case, default ports, path case), use `sameGuardianEndpoint`.
  */
 export function sanitizeGuardianUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Are these two spellings the same Guardian endpoint? A stored endpoint may have been typed by a user or written by an
+ * older build, and a built-in operator's is a literal in wallet config, so they can differ in host case, an explicit
+ * default port or a trailing slash. `URL` lowercases only the scheme and host, the parts that are case-insensitive: a
+ * blanket lowercase would also fold the path, and a look-alike endpoint differing from a built-in only in path case
+ * would pass as that built-in. An unparseable value can't be a working endpoint; it compares as its trimmed,
+ * lowercased text, so it still matches an identical spelling of itself.
+ */
+export function sameGuardianEndpoint(a: string, b: string): boolean {
+  return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
+}
+
+function canonicalGuardianEndpoint(raw: string): string {
+  const trimmed = sanitizeGuardianUrl(raw);
+  try {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+  } catch {
+    return trimmed.toLowerCase();
+  }
 }
 
 export function setThemeSetting(theme: ThemeSetting) {
