@@ -93,12 +93,22 @@ jest.mock('app/ErrorBoundary', () => ({
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
-jest.mock('app/pages/Unlock', () => ({
-  __esModule: true,
-  default: ({ openForgotPasswordInFullPage }: any) => (
-    <div data-testid="unlock" data-full-page={String(openForgotPasswordInFullPage)} />
-  )
-}));
+const mockRetireLockoutRecord = jest.fn();
+jest.mock('app/pages/Unlock', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: ({ openForgotPasswordInFullPage }: any) => (
+      <div data-testid="unlock" data-full-page={String(openForgotPasswordInFullPage)} />
+    ),
+    retireLockoutRecord: () => mockRetireLockoutRecord(),
+    // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
+    useRetireLockoutOnReady: (ready: boolean) =>
+      R.useEffect(() => {
+        if (ready) mockRetireLockoutRecord();
+      }, [ready])
+  };
+});
 jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
@@ -335,6 +345,21 @@ describe('ConfirmPage gate', () => {
     expect(banner.compareDocumentPosition(screen.getByTestId('content-container'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+  });
+
+  // The confirm window renders its own Unlock and never mounts PageRouter, so it retires the guess record
+  // itself once the wallet is ready (#1192).
+  it('retires the guess record once the wallet is ready', () => {
+    setPayload({ type: 'assets', ...baseFields() });
+    render(<ConfirmPage />);
+    expect(mockRetireLockoutRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the guess record alone while the wallet is not ready', () => {
+    ctx.ready = false;
+    setPayload({ type: 'assets', ...baseFields() });
+    render(<ConfirmPage />);
+    expect(mockRetireLockoutRecord).not.toHaveBeenCalled();
   });
 });
 

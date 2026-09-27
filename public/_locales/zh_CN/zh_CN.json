@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "在您透露私钥之前",
   "hotKeyRevealWarningBody": "任何拥有这些密钥的人都能控制您的 Miden 和 EVM 资产。轮换您的 Miden 日常密钥并不会改变或保护已泄露的 EVM 密钥。",
   "invalidUrl": "请输入以 http:// 或 https:// 开头的有效网址",
+  "customGuardianUnreachable": "该网址未返回Guardian响应。请检查并重试。",
   "encryptedWalletFileDescription": "请输入密码以访问您的加密钱包文件。",
   "encryptedWalletFileDescriptionHardware": "请使用密码解锁，以访问您的加密钱包文件。",
   "encryptedWalletFileConfirmation": "我不会将我的加密钱包文件分享给任何人，包括Bread。",

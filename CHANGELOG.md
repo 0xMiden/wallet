@@ -21,8 +21,11 @@
 - [CHANGE][ci] The send flow's Add to contacts sheet is covered end to end: a Miden recipient and a 0x recipient are each saved from it, the sheet names the typed address and its network, the recipient step then shows the contact by name, and the address book lists each under its network (#1044).
 - [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
+- [CHORE][all] The Guardian transition hero's chip comment names the chip's real ink and drops a muted-token colour and contrast ratio that stopped being true (#1045).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
+- [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
+- [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 
 ### Fixes
 
@@ -61,8 +64,14 @@
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
+- [FIX][extension] The lockout after too many wrong passwords, once armed in one window (popup, side panel or a tab), is honoured by every open window, which no longer takes guesses during it or shortens it (#1192).
+- [FIX][all] Going Back and then Forward inside an import no longer drops part of it: a wallet file restore resumed that way restores the file, imported accounts included, instead of importing only its recovery phrase, and a resumed recovery phrase or private key import still offers the Guardian it detected instead of the manual picker (#1115).
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 - [FIX][all] dApp approval screens keep the site's registrable domain visible: a long origin elides the labels in front of the domain, never the domain itself, so `https://login.secure.wallet.example.co.uk` can no longer hide `example.co.uk`, on the extension's approval window, the connect prompt and the dApp browser's confirmation, which on mobile and desktop is now titled by the verified origin and never by a name the dApp sends (#1072).
+- [FIX][all] The Home action bar's active segment grows to fit a longer translated label, and ends it with an ellipsis only when the screen is too narrow, instead of letting the label spill past its pill (#1069).
+- [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
+- [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
+- [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
 
 ## 1.16.2 (2026-09-24)
 

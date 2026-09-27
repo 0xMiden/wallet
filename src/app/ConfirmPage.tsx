@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
-import Unlock from 'app/pages/Unlock';
+import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
@@ -43,6 +43,8 @@ import PrivateDataPermissionCheckbox from './templates/PrivateDataPermissionChec
 const ConfirmPage: FC = () => {
   const { t } = useTranslation();
   const { ready } = useMidenContext();
+  // This window renders its own Unlock and never mounts PageRouter, so it retires the record itself.
+  useRetireLockoutOnReady(ready);
 
   const page = useMemo(
     () =>
