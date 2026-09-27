@@ -18,8 +18,10 @@
 - [CHORE][all] The clipboard comments in the dApp actions sheet, the copy button and the recovery phrase backup test now point at useClipboardCopy's description of what @capacitor/clipboard does on each surface, instead of promising the call works where the Clipboard API is missing (#1088).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
 - [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
+- [CHANGE][ci] The send flow's Add to contacts sheet is covered end to end: a Miden recipient and a 0x recipient are each saved from it, the sheet names the typed address and its network, the recipient step then shows the contact by name, and the address book lists each under its network (#1044).
 - [CHANGE][mobile] The open-dApps switcher's cards animate only their position, like the Activity rows, so the reflow when a dApp is closed can never draw a card's corners, shadow or contents stretched (#1048).
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
+- [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
 
 ### Fixes
 
@@ -43,10 +45,12 @@
 - [FIX][all] A pinned button on a page that slides in (Settings pages everywhere; Earn, bridge deposit and the send review on mobile) now sits at its final place for the whole slide instead of dropping by the tab bar's height as the slide lands and lifting as the page slides out (#1109).
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
+- [FIX][extension] A connectivity banner dismissed in one window (popup, side panel or a tab) stays dismissed when another window dismisses a different banner at the same time (#1158).
 - [FIX][all] Copying the recovery phrase, from Settings or from the phrase check, now uses the native clipboard on iOS and Android, like address and hash copies, and a second tap while Copied is showing copies again instead of being ignored (#1049).
 - [FIX][all] Activity rows can be reached and opened from a keyboard: Tab focuses a row, with a visible focus ring, and Enter or Space opens its details (#1070).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
+- [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
 - [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 
