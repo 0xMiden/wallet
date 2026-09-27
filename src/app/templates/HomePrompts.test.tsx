@@ -723,23 +723,20 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
       });
       expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
-      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
       await act(async () => {
         await jest.advanceTimersByTimeAsync(1);
       });
-      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+      // Beat over: the balance hides the faucet card.
+      expect(faucetCard).not.toBeInTheDocument();
     } finally {
       jest.useRealTimers();
     }
   });
 
   it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
-    mockFetchFaucetFundingMarker.mockResolvedValue({
-      requestedAt: Date.now() - 5_000,
-      baselineNoteIds: [],
-      submitted: true
-    });
+    // Stored, so the clear at arrival removes it and the read after the beat finds nothing to resume.
+    markerStore.set('accountA', { requestedAt: Date.now() - 5_000, baselineNoteIds: [], submitted: true });
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
         storage: {
@@ -790,12 +787,12 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
       });
       expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
-      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
       await act(async () => {
         await jest.advanceTimersByTimeAsync(1);
       });
-      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+      // Beat over: the pending-notes card takes the stage.
+      expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
     }
