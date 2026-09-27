@@ -13,6 +13,7 @@
 - [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
 - [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
 - [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
+- [CHANGE][ci] The locale test that catches a key outliving its removal from English checks every shipped bundle, en_GB included, not only the locales the app imports (#1078).
 
 ### Fixes
 

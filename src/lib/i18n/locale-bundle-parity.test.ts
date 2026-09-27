@@ -124,7 +124,7 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(unpropagated).toEqual([]);
   });
 
-  it.each(['en', ...RUNTIME_LOCALES])('%s keeps no key that outlived its English source', locale => {
+  it.each(['en', ...DERIVED_LOCALES])('%s keeps no key that outlived its English source', locale => {
     // The missing direction, and the one a removal needs. Deleting a key from en.json makes its
     // stored `englishSource` unmatchable, so `staleKeys` lists it for every locale and both tests
     // above then treat its absence from the flat bundle as a permitted gap and its presence in
