@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { mutate } from 'swr';
+import { mutate as mutateCache } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -28,17 +28,17 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
       preloadReads.delete(key);
       await putToStorage(key, nextValue);
       // The cache backs every reader of this key; off the extension no change event updates it.
-      await mutate(nextValue, { revalidate: false });
+      await mutateCache(key, nextValue, { revalidate: false });
       valueRef.current = nextValue;
     },
-    [key, mutate]
+    [key]
   );
 
   return useMemo(() => [value, setValue], [value, setValue]);
 }
 
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
-  const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
+  const { data } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -51,14 +51,14 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   useEffect(() => {
     const put = async () => {
       if (prevValue.current !== value) {
+        prevValue.current = value;
         preloadReads.delete(key);
         await putToStorage(key, value);
-        await mutate(value, { revalidate: false });
+        await mutateCache(key, value, { revalidate: false });
       }
-      prevValue.current = value;
     };
     put();
-  }, [key, value, mutate]);
+  }, [key, value]);
 
   return [value, setValue];
 }
@@ -106,23 +106,23 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight, with its value once it lands. A hook read or a later preload removes or
-// replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces whatever the
-// cache holds.
+// Each key's preload read still in flight, with its value once it lands. A hook read, a write, or a later preload
+// removes or replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces
+// whatever the cache holds.
 interface PreloadRead {
   read: Promise<unknown>;
   landed?: { value: unknown };
 }
 const preloadReads = new Map<string, PreloadRead>();
 
-async function fetchForHook<T>(key: string): Promise<T | null> {
+async function fetchForHook(key: string): Promise<unknown> {
   const preload = preloadReads.get(key);
   preloadReads.delete(key);
   try {
-    return await fetchFromStorage<T>(key);
+    return await fetchFromStorage(key);
   } catch (error) {
     // Only a value already read: awaiting a preload still in flight could hang this reader with it.
-    if (preload?.landed) return preload.landed.value as T | null;
+    if (preload?.landed) return preload.landed.value;
     throw error;
   }
 }
@@ -131,7 +131,7 @@ async function fetchForHook<T>(key: string): Promise<T | null> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A key whose read a hook or a later preload started meanwhile is left to that newer read.
+ * A key whose read a hook, a write, or a later preload started meanwhile is left to that newer read.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -146,7 +146,7 @@ export async function preloadStorage(
         const value = await entry.read;
         entry.landed = { value };
         if (preloadReads.get(key) !== entry) return;
-        await mutate(key, value, { revalidate: false });
+        await mutateCache(key, value, { revalidate: false });
       } finally {
         if (preloadReads.get(key) === entry) preloadReads.delete(key);
         onSettled?.(key);
