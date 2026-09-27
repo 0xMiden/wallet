@@ -804,4 +804,23 @@ describe('storage operation order (#1168)', () => {
 
     expect(screen.getByTestId('value').textContent).toBe('other');
   });
+
+  it('keeps a usePassiveStorage value when its write fails', async () => {
+    mockStored['passive-failing-key'] = 'old';
+    await preloadStorage(['passive-failing-key']);
+    const first = renderReader('passive-failing-key', PassiveWriter);
+    await drain();
+
+    mockSet.mockRejectedValueOnce(new Error('write failed'));
+    await act(async () => {
+      setStored('new');
+    });
+    await drain();
+
+    expect(mockSet).toHaveBeenCalledWith({ 'passive-failing-key': 'new' });
+    expect(screen.getByTestId('value').textContent).toBe('new');
+    first.unmount();
+    renderReader('passive-failing-key');
+    expect(screen.getByTestId('value').textContent).toBe('old');
+  });
 });

@@ -48,13 +48,11 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   const prevValue = useRef(value);
 
   useEffect(() => {
-    const put = async () => {
-      if (prevValue.current !== value) {
-        prevValue.current = value;
-        await writeThrough(key, value);
-      }
-    };
-    put();
+    if (prevValue.current === value) return;
+    // Set before the write, so going back to the stored value while it is in flight writes again. The component's
+    // value leads: a failed write leaves it shown and the cache as it was.
+    prevValue.current = value;
+    void writeThrough(key, value).catch(ignoreFailedWrite);
   }, [key, value]);
 
   return [value, setValue];
@@ -119,6 +117,8 @@ function settle(key: string, seq: number, value: unknown) {
   appliedSeq.set(key, seq);
   void mutateCache(key, value, { revalidate: false });
 }
+
+const ignoreFailedWrite = () => {};
 
 async function writeThrough(key: string, value: unknown): Promise<void> {
   const seq = begin();
