@@ -22,10 +22,19 @@ export function splitDappOrigin(origin: string): { lead: string; domain: string 
   if (!hostname) return whole;
 
   const registrable = parse(hostname, { allowPrivateDomains: true }).domain;
-  // The URL parser lowercases the host; tldts drops a trailing dot, which the host keeps.
-  const kept = registrable ? hostname.slice(hostname.lastIndexOf(registrable)) : hostname;
+  let kept = hostname;
+  if (registrable) {
+    // tldts always lowercases; the host keeps its original case for a non-special scheme
+    // (the URL parser only lowercases http/https/etc), so the search has to ignore case too,
+    // or a case mismatch finds no match (-1) and slice(-1) keeps one character of the host.
+    const index = hostname.toLowerCase().lastIndexOf(registrable);
+    if (index === -1) return whole;
+    kept = hostname.slice(index);
+  }
   const tail = port ? `${kept}:${port}` : kept;
-  if (!origin.toLowerCase().endsWith(tail)) return whole;
+  // `kept` can carry the host's original case (see above), so this comparison is
+  // case-insensitive on both sides; the slice below still returns origin's own text.
+  if (!origin.toLowerCase().endsWith(tail.toLowerCase())) return whole;
 
   const cut = origin.length - tail.length;
   return { lead: origin.slice(0, cut), domain: origin.slice(cut) };
