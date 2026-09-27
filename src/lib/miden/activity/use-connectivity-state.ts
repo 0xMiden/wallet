@@ -15,9 +15,8 @@ export const CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY = 'miden-connectivity-dismis
 
 type DismissedActivations = Partial<Record<ConnectivityCategory, number | null>>;
 
-// Stable fallback: an inline `{}` would be a new object every render, and
-// useStorage returns `data ?? fallback`, so the sync effect below would fire
-// on each render and setState forever ("Maximum update depth exceeded").
+// Stable fallback: an inline `{}` would be a new object every render (useStorage returns `data ?? fallback`), so the
+// record read from it, and the cleanup effect that depends on it, would change on every render.
 const NO_DISMISSED_ACTIVATIONS: DismissedActivations = {};
 
 // The stored record as it is, keeping only known categories with a timestamp (or null), so a malformed value reads as
@@ -75,12 +74,13 @@ export function useConnectivityState(): {
   dismiss: (category: ConnectivityCategory) => void;
 } {
   const [storageSnapshot] = useStorage<ConnectivityStateSnapshot | null>(CONNECTIVITY_STATE_KEY, null);
-  const [storedDismissedActivations] = useStorage<DismissedActivations>(
-    CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY,
-    NO_DISMISSED_ACTIVATIONS
-  );
+  const [storedRecord] = useStorage<unknown>(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, NO_DISMISSED_ACTIVATIONS);
+  // Read as the storage turn reads it, so a malformed record hides nothing here either.
+  const storedDismissals = useMemo(() => readDismissedActivations(storedRecord), [storedRecord]);
   const [memorySnapshot, setMemorySnapshot] = useState<ConnectivityStateSnapshot>(() => getConnectivityState());
-  const [dismissedActivations, setDismissedActivations] = useState<DismissedActivations>(storedDismissedActivations);
+  // This window's own dismissals, kept apart from the stored record (every write re-delivers that one), so a dismissal
+  // storage did not take, failed to write or has not written yet still hides its banner here.
+  const [ownDismissals, setOwnDismissals] = useState<DismissedActivations>(NO_DISMISSED_ACTIVATIONS);
 
   useEffect(() => {
     return subscribeConnectivityState(setMemorySnapshot);
@@ -90,44 +90,42 @@ export function useConnectivityState(): {
   // SW's authoritative view in the extension), memory fills the rest. In
   // the non-extension case storage is just a mirror of the same in-process
   // state machine, so the two agree by construction.
-  useEffect(() => {
-    setDismissedActivations(storedDismissedActivations);
-  }, [storedDismissedActivations]);
-
   const merged: ConnectivityStateSnapshot = isExtension() ? (storageSnapshot ?? memorySnapshot) : memorySnapshot;
   const mergedRef = useRef(merged);
   mergedRef.current = merged;
 
   useEffect(() => {
-    const recovered = (Object.keys(dismissedActivations) as ConnectivityCategory[]).filter(
-      category => !merged[category].active
+    const recovered = CONNECTIVITY_CATEGORIES.filter(
+      category => !merged[category].active && (category in ownDismissals || category in storedDismissals)
     );
     if (recovered.length === 0) return;
-    // Forget a recovered dismissal only while it is still the one this window saw: another window may already hold a
-    // dismissal of a newer activation of the same category.
-    const seen: DismissedActivations = {};
-    for (const category of recovered) seen[category] = dismissedActivations[category];
+    // Forget a recovered dismissal only while it is still one this window saw, in either input: another window may
+    // already hold a dismissal of a newer activation of the same category.
     const forget = (current: DismissedActivations): DismissedActivations => {
-      const stale = recovered.filter(category => category in current && current[category] === seen[category]);
+      const stale = recovered.filter(
+        category =>
+          category in current &&
+          (current[category] === ownDismissals[category] || current[category] === storedDismissals[category])
+      );
       if (stale.length === 0) return current;
       const next = { ...current };
       for (const category of stale) delete next[category];
       return next;
     };
-    setDismissedActivations(forget);
+    setOwnDismissals(forget);
     void updateDismissedActivations(forget);
-  }, [dismissedActivations, merged]);
+  }, [merged, ownDismissals, storedDismissals]);
 
   const visible = useMemo(() => {
-    if (Object.keys(dismissedActivations).length === 0) return merged;
-    const next = { ...merged };
-    for (const category of Object.keys(dismissedActivations) as ConnectivityCategory[]) {
-      if (next[category].active && next[category].since === dismissedActivations[category]) {
-        next[category] = { active: false, since: null };
+    let next = merged;
+    for (const category of CONNECTIVITY_CATEGORIES) {
+      const { active, since } = merged[category];
+      if (active && (since === ownDismissals[category] || since === storedDismissals[category])) {
+        next = { ...next, [category]: { active: false, since: null } };
       }
     }
     return next;
-  }, [dismissedActivations, merged]);
+  }, [merged, ownDismissals, storedDismissals]);
 
   const hasAnyIssue =
     visible.network.active || visible.node.active || visible.prover.active || visible.resolving.active;
@@ -136,14 +134,14 @@ export function useConnectivityState(): {
     const activation = mergedRef.current[category];
     if (!activation.active) return;
     const { since } = activation;
-    const record = (current: DismissedActivations): DismissedActivations => {
+    // The window where the user tapped always hides what it shows, whatever storage decides.
+    setOwnDismissals(current => (current[category] === since ? current : { ...current, [category]: since }));
+    void updateDismissedActivations(current => {
       const held = current[category];
-      // A dismissal of a later activation (from another window) outranks this one.
+      // In storage a dismissal of a later activation (from another window) outranks this one.
       if (held === since || (typeof held === 'number' && typeof since === 'number' && held > since)) return current;
       return { ...current, [category]: since };
-    };
-    setDismissedActivations(record);
-    void updateDismissedActivations(record);
+    });
   }, []);
 
   return { state: visible, hasAnyIssue, dismiss };
