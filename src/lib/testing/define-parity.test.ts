@@ -120,7 +120,9 @@ describe('defineEntry', () => {
 
 describe('readSource and viteConfigs', () => {
   it('drops whole-line // comments from a repo file', () => {
-    expect(readSource('src/lib/testing/define-parity.ts')).not.toMatch(/^\s*\/\//m);
+    const source = readSource('src/lib/testing/define-parity.ts');
+    expect(source).toContain('export const readSource');
+    expect(source).not.toMatch(/^\s*\/\//m);
   });
 
   it('finds the Vite configs at the repo root', () => {
