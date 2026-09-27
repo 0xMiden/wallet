@@ -32,6 +32,7 @@ import { accountRefToSdk } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { syncUnderBoundedLock } from '../sync-lock';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -642,10 +643,7 @@ export class MultisigService {
    * landed write and would mark a rotation that never submitted Completed.
    */
   private async syncBeforeRotationBuild(): Promise<void> {
-    await withWasmClientLock(async () => midenClientProxy.syncState(), {
-      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-      label: 'replace-hot-key-sync'
-    });
+    await syncUnderBoundedLock('replace-hot-key-sync');
     await this.adoptGuardianStateOnce().catch((error: unknown) => {
       if (!isGuardianCanonicalizationError(error)) throw error;
       console.warn(
