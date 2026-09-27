@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { CopyButton } from './CopyButton';
@@ -183,6 +184,27 @@ it('shows no success when the clipboard write rejects', async () => {
   expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
   expect(button).toHaveAttribute('data-copied', 'false');
   expect(button.querySelector('[data-copy-state="copied"]')).toBeNull();
+});
+
+it('reads "Copy" again as soon as a failed tap lands inside the window of a successful one', async () => {
+  jest.useFakeTimers();
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  render(<CopyButton text="0xabc123" data-testid="copy" />);
+  const button = screen.getByTestId('copy');
+
+  await tap(button);
+  expect(button).toHaveAttribute('data-copied', 'true');
+
+  act(() => {
+    jest.advanceTimersByTime(COPY_FEEDBACK_MS / 3);
+  });
+  mockWrite.mockRejectedValueOnce(new Error('denied'));
+  await tap(button);
+
+  expect(button).toHaveAttribute('data-copied', 'false');
+  expect(presentLabel(button)).toHaveTextContent(/^copy$/);
+
+  errorSpy.mockRestore();
 });
 
 it('forwards aria-label and stays disableable', () => {
