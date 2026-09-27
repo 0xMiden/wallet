@@ -254,7 +254,19 @@ export class AndroidWalletPage implements WalletPage {
 
     // The first click is a precondition, not part of the drain: before it, an empty list only means
     // nothing has arrived yet.
-    await this.pollForCondition(buildClickAcceptAllScript(), 60_000);
+    await this.pollForCondition(buildClickAcceptAllScript(), 60_000).catch(async (error: unknown) => {
+      let list: string;
+      try {
+        list = JSON.stringify(await this.cdp.eval<PendingSample>(buildPendingSampleScript()));
+      } catch {
+        list = 'unreadable';
+      }
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `AndroidWalletPage.claimAllNotes: Accept All never became clickable within 60000ms; ` +
+          `Pending list: ${list}; ${cause}`
+      );
+    });
 
     let lastProveTimingIdx = 0;
     const pumpProveTimings = async () => {

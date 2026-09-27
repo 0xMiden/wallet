@@ -124,7 +124,7 @@ describe('drainPendingClaims', () => {
   function fakeDriver(
     reads: Array<PendingSample | Error>,
     clickLands = true,
-    options?: { onLapThrow?: Error; clickThrow?: Error; openThrow?: Error }
+    overrides?: { onLapThrow?: Error; clickThrow?: Error; openThrow?: Error }
   ) {
     let now = 0;
     let next = 0;
@@ -139,16 +139,16 @@ describe('drainPendingClaims', () => {
       },
       clickAcceptAll: async () => {
         calls.clicks++;
-        if (options?.clickThrow) throw options.clickThrow;
+        if (overrides?.clickThrow) throw overrides.clickThrow;
         return clickLands;
       },
       openPending: async () => {
         calls.reopens++;
-        if (options?.openThrow) throw options.openThrow;
+        if (overrides?.openThrow) throw overrides.openThrow;
       },
-      onLap: options?.onLapThrow
+      onLap: overrides?.onLapThrow
         ? async () => {
-            throw options.onLapThrow;
+            throw overrides.onLapThrow;
           }
         : undefined,
       sync: async () => {
@@ -273,5 +273,32 @@ describe('drainPendingClaims', () => {
     driver.log = (line: string) => logs.push(line);
     await drainPendingClaims(driver, options);
     expect(logs.some(line => line.includes('sample failed: cdp eval failed'))).toBe(true);
+  });
+
+  it('names the last failed step when the drain times out', async () => {
+    const { driver } = fakeDriver([new Error('session closed')]);
+    await expect(drainPendingClaims(driver, { ...options, timeoutMs: 4_000 })).rejects.toThrow(
+      'last sample: null; Accept All clicked 0 time(s); last failure: sample: session closed'
+    );
+  });
+
+  it('counts the clicks that landed', async () => {
+    const { driver } = fakeDriver([waiting]);
+    await expect(drainPendingClaims(driver, { ...options, timeoutMs: 4_000 })).rejects.toThrow(
+      'Accept All clicked 1 time(s)'
+    );
+  });
+
+  it('says nothing about failures when no step failed', async () => {
+    const { driver } = fakeDriver([claiming]);
+    const promise = drainPendingClaims(driver, { ...options, timeoutMs: 4_000 });
+    await expect(promise).rejects.toThrow('did not drain');
+    const error = await promise.catch((error: unknown) => error);
+    expect(String(error)).not.toContain('last failure');
+  });
+
+  it('does not count a click that did not land', async () => {
+    const { driver } = fakeDriver([waiting], false);
+    await expect(drainPendingClaims(driver, { ...options, timeoutMs: 4_000 })).rejects.toThrow('clicked 0 time(s)');
   });
 });

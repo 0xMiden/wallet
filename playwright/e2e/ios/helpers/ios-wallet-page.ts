@@ -584,7 +584,19 @@ export class IosWalletPage implements WalletPage {
     // was too tight on testnet under CI load. The first click is a
     // precondition, not part of the drain: before it, an empty list only
     // means nothing has arrived yet.
-    await this.pollForCondition(buildClickAcceptAllScript(), 120_000);
+    await this.pollForCondition(buildClickAcceptAllScript(), 120_000).catch(async (error: unknown) => {
+      let list: string;
+      try {
+        list = JSON.stringify(await this.cdp.eval<PendingSample>(buildPendingSampleScript()));
+      } catch {
+        list = 'unreadable';
+      }
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `IosWalletPage.claimAllNotes: Accept All never became clickable within 120000ms; ` +
+          `Pending list: ${list}; ${cause}`
+      );
+    });
 
     // TEMPORARY (mobile-MT test): periodically dump
     // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can

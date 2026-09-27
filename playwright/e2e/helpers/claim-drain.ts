@@ -16,14 +16,14 @@ export type AcceptAllState = 'absent' | 'idle' | 'busy';
 export interface PendingSample {
   /** The hash route is `/history` with `filter=pending`. */
   onPending: boolean;
-  /** Listed transfers: pending, failed or claiming cards. A claimed or checking note is not listed. */
+  /** Listed transfers: pending, failed or claiming cards. A claimed, checking or unavailable note is not listed. */
   rows: number;
   /** A claim in flight keeps Accept All mounted in its loading state (`aria-busy`). */
   acceptAll: AcceptAllState;
   /**
    * `ClaimsLoadingBar` is up: notes are still being read or checked, and a note being checked is
-   * hidden, so an empty list now proves nothing. Document-wide: the pending route mounts no other
-   * progressbar, and one from elsewhere could only delay a drain, never fake one.
+   * hidden, so an empty list now proves nothing. A progressbar from elsewhere can only hold a drain
+   * back (up to its deadline), never fake one; the pending route mounts none but ClaimsLoadingBar.
    */
   loading: boolean;
 }
@@ -86,13 +86,15 @@ async function attempt<T>(
   label: string,
   step: string,
   run: () => Promise<T>,
-  fallback: T
+  fallback: T,
+  onFailure?: (failure: string) => void
 ): Promise<T> {
   try {
     return await run();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     driver.log?.(`[${label}] ${step} failed: ${message}`);
+    onFailure?.(`${step}: ${message}`);
     return fallback;
   }
 }
@@ -106,17 +108,22 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
   const deadline = driver.now() + timeoutMs;
   let stableZero = 0;
   let laps = 0;
+  let clicks = 0;
+  let lastFailure: string | undefined;
+  const onFailure = (failure: string): void => {
+    lastFailure = failure;
+  };
 
   while (driver.now() < deadline) {
     laps++;
     await driver.sync();
-    await attempt(driver, label, 'onLap', () => driver.onLap?.() ?? Promise.resolve(), undefined);
-    const sample = await attempt(driver, label, 'sample', () => driver.sample(), null);
+    await attempt(driver, label, 'onLap', () => driver.onLap?.() ?? Promise.resolve(), undefined, onFailure);
+    const sample = await attempt(driver, label, 'sample', () => driver.sample(), null, onFailure);
 
     if (sample && !sample.onPending) {
       stableZero = 0;
       driver.log?.(`[${label}] lap=${laps} off the Pending list; reopening it`);
-      await attempt(driver, label, 'openPending', () => driver.openPending(), undefined);
+      await attempt(driver, label, 'openPending', () => driver.openPending(), undefined, onFailure);
       continue;
     }
     if (sample && isDrained(sample)) {
@@ -127,27 +134,29 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
       continue;
     }
     stableZero = 0;
-    if (
-      sample?.acceptAll === 'idle' &&
-      (await attempt(driver, label, 'clickAcceptAll', () => driver.clickAcceptAll(), false))
-    ) {
-      driver.log?.(`[${label}] lap=${laps} rows=${sample.rows} clicked Accept All`);
-      await driver.sleep(CLICK_HEAD_START_MS);
-      continue;
+    if (sample?.acceptAll === 'idle') {
+      const landed = await attempt(driver, label, 'clickAcceptAll', () => driver.clickAcceptAll(), false, onFailure);
+      if (landed) {
+        clicks++;
+        driver.log?.(`[${label}] lap=${laps} rows=${sample.rows} clicked Accept All`);
+        await driver.sleep(CLICK_HEAD_START_MS);
+        continue;
+      }
     }
     await driver.sleep(POLL_SPACING_MS);
   }
 
   // The deadline is checked only at the top of a lap, so a list that drained during the last lap
   // arrives here short of its second read. Judge it on fresh reads, by the same two-read rule.
-  let last = await attempt(driver, label, 'sample', () => driver.sample(), null);
+  let last = await attempt(driver, label, 'sample', () => driver.sample(), null, onFailure);
   if (last && isDrained(last)) {
     await driver.sleep(ZERO_SPACING_MS);
-    last = await attempt(driver, label, 'sample', () => driver.sample(), null);
+    last = await attempt(driver, label, 'sample', () => driver.sample(), null, onFailure);
     if (last && isDrained(last)) return;
   }
   throw new Error(
     `${label}: the Pending list did not drain within ${timeoutMs}ms after ${laps} lap(s); ` +
-      `last sample: ${JSON.stringify(last)}`
+      `last sample: ${JSON.stringify(last)}; Accept All clicked ${clicks} time(s)` +
+      (lastFailure ? `; last failure: ${lastFailure}` : '')
   );
 }
