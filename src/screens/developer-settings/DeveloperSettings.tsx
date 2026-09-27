@@ -116,6 +116,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
@@ -228,6 +229,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   };
 
   const handleReset = async () => {
+    if (resetting) return;
     // Destructive: wipes the wallet DB and clears the vault/keys. Gate behind an
     // explicit confirmation (shared app-wide confirm dialog, see options.tsx's
     // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
@@ -239,15 +241,28 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     });
     if (!confirmed) return;
 
+    // Set only once confirmed, so a cancelled dialog cannot leave it on. A successful reset
+    // reloads, so only a failed wipe clears it.
+    setResetting(true);
     hapticMedium();
     setError(null);
+    // The wipe goes first: it keeps the override through its blanket clear, so a failed wipe
+    // leaves the live wallet on the endpoints it runs on, and a retry runs it again.
     try {
-      await clearEndpointOverride();
       await resetStorageDestructive();
     } catch (err) {
-      console.warn('[developer-settings] Could not reset the endpoints and wallet storage', err);
+      console.warn('[developer-settings] Could not wipe the wallet storage', err);
       setError(t('devEndpointResetFailed'));
+      setResetting(false);
       return;
+    }
+    // The wipe closed the storage handles and only the reload below reopens them, so a failed
+    // clear must not stop it. The override then survives into onboarding, where the editable
+    // screen can set the endpoints back to the defaults.
+    try {
+      await clearEndpointOverride();
+    } catch (err) {
+      console.warn('[developer-settings] Could not clear the endpoint override', err);
     }
     // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
     // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
@@ -290,6 +305,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               className={actionButton}
               variant={ButtonVariant.Destructive}
               title={t('devEndpointResetAndReonboard')}
+              isLoading={resetting}
               data-testid="dev-endpoints-reset"
               onClick={handleReset}
             />

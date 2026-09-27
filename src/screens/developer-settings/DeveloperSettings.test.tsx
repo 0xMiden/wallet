@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { WalletStatus } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
@@ -594,16 +594,18 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('says the reset did not finish, and does not reload, when clearing the override fails', async () => {
+  // The wipe has closed the storage handles, and only a reload reopens them, so a failed clear
+  // after it must not keep the session on this screen.
+  it('still reloads after the wipe when clearing the override fails', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     clearEndpointOverride.mockRejectedValueOnce(new Error('storage write failed'));
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointResetFailed');
-    expect(resetStorageDestructive).not.toHaveBeenCalled();
-    expect(runtimeReload).not.toHaveBeenCalled();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).toBeNull();
     warn.mockRestore();
   });
 
@@ -615,7 +617,8 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointResetFailed');
-    expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
+    // The live wallet keeps the endpoints it runs on.
+    expect(clearEndpointOverride).not.toHaveBeenCalled();
     expect(runtimeReload).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -628,15 +631,36 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
     await screen.findByRole('alert');
 
-    let finishClear!: () => void;
-    clearEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishClear = resolve)));
+    // Held on the first step, so the error is gone before any of the reset has finished.
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(runtimeReload).not.toHaveBeenCalled();
 
-    finishClear();
+    finishWipe();
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
     warn.mockRestore();
+  });
+
+  it('ignores a second Reset press while the reset runs', async () => {
+    mockIsExtension.value = true;
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
+
+    // Inside act, so an unguarded press gets as far as its confirm and its wipe before the checks.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    finishWipe();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
   });
 
   it('shows a pending health note while a probe is in flight', () => {
