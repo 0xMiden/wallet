@@ -286,7 +286,8 @@ export function sameGuardianEndpoint(a: string, b: string): boolean {
   return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
 }
 
-function canonicalGuardianEndpoint(raw: string): string {
+/** The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. */
+export function canonicalGuardianEndpoint(raw: string): string {
   const trimmed = sanitizeGuardianUrl(raw);
   try {
     const url = new URL(trimmed);
