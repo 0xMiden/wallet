@@ -16,6 +16,7 @@
 - [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
 - [CHANGE][ci] A test fails if the copy confirmation's swap slot stops forwarding its ref to its root, which keeps the leaving and arriving glyph or label in one box while they swap (#1087).
 - [CHANGE][ci] The locale tests that catch a key outliving its removal from English and a `{{...}}` placeholder check every shipped bundle, en and en_GB included, not only the locales the app imports (#1078).
+- [CHANGE][ci] The transaction badge's colour guard fails on any hex colour outside its arrow-ink table, in any case, instead of on four retired hues only (#1074).
 
 ### Fixes
 
