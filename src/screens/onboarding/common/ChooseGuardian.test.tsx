@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -33,6 +33,13 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
   useGuardianAvailability: (...args: unknown[]) => mockUseGuardianAvailability(...args)
 }));
 
+// The Guardian ping a custom URL must pass before it submits (#1084): resolves to a
+// latency when a Guardian answers, `null` when none does. Never rejects, like the real one.
+const mockPing = jest.fn();
+jest.mock('lib/miden/guardian/availability', () => ({
+  pingGuardianEndpointLatency: (...args: unknown[]) => mockPing(...args)
+}));
+
 // Haptics — no-op mock so we can assert taps trigger feedback without dragging
 // in the Capacitor plugin.
 const mockHapticLight = jest.fn();
@@ -48,7 +55,11 @@ const mockIsValidGuardianUrl = jest.fn();
 const mockSanitizeGuardianUrl = jest.fn();
 jest.mock('lib/settings/helpers', () => ({
   isValidGuardianUrl: (...args: unknown[]) => mockIsValidGuardianUrl(...args),
-  sanitizeGuardianUrl: (...args: unknown[]) => mockSanitizeGuardianUrl(...args)
+  sanitizeGuardianUrl: (...args: unknown[]) => mockSanitizeGuardianUrl(...args),
+  // The real comparator, so a host-case difference is meaningful - the other
+  // two mocks above stay canned since nothing here exercises their real rules.
+  sameGuardianEndpoint: (...args: [string, string]) =>
+    jest.requireActual('lib/settings/helpers').sameGuardianEndpoint(...args)
 }));
 
 // `cn` — deterministic class joiner so selected/badge class assertions are
@@ -60,8 +71,18 @@ jest.mock('lib/ui/util', () => ({
 // `Button` — render the title and forward the click so the continue wiring is
 // assertable without the real button internals.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="continue-button" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    isLoading
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    isLoading?: boolean;
+  }) => (
+    <button data-testid="continue-button" onClick={onClick} disabled={disabled} aria-busy={isLoading || undefined}>
       {title}
     </button>
   )
@@ -149,7 +170,27 @@ beforeEach(() => {
   mockUseGuardianAvailability.mockReturnValue({});
   mockIsValidGuardianUrl.mockReturnValue(true);
   mockSanitizeGuardianUrl.mockImplementation((v: string) => v.trim().replace(/\/+$/, ''));
+  mockPing.mockResolvedValue(42);
 });
+
+const deferredPing = () => {
+  let answer: (latency: number | null) => void = () => {};
+  mockPing.mockImplementationOnce(
+    () =>
+      new Promise<number | null>(resolve => {
+        answer = resolve;
+      })
+  );
+  return (latency: number | null) =>
+    act(async () => {
+      answer(latency);
+    });
+};
+
+const enterCustomUrl = (url: string) => {
+  fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+  fireEvent.change(screen.getByTestId('custom-input'), { target: { value: url } });
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -396,6 +437,15 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
   });
 
+  it('recognizes the current provider when the stored endpoint differs in host case', () => {
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint.toUpperCase()} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
+    expect(screen.getByText('currentLabel')).toBeInTheDocument();
+  });
+
   it('falls back to the first provider when currentEndpoint matches nothing', () => {
     const { container } = render(<ChooseGuardianScreen currentEndpoint="https://unknown.example.com" />);
     const [ozBtn] = optionButtons(container);
@@ -453,7 +503,7 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.queryByTestId('custom-input')).not.toBeInTheDocument();
   });
 
-  it('submits a sanitized custom endpoint when the URL is valid', () => {
+  it('submits a sanitized custom endpoint once a Guardian answers at it', async () => {
     const onSubmit = jest.fn();
     render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
 
@@ -465,10 +515,95 @@ describe('ChooseGuardianScreen', () => {
 
     expect(mockSanitizeGuardianUrl).toHaveBeenCalledWith('https://custom.example.com/');
     expect(mockIsValidGuardianUrl).toHaveBeenCalledWith('https://custom.example.com');
-    expect(onSubmit).toHaveBeenCalledWith({
-      guardianId: 'custom',
-      guardianEndpoint: 'https://custom.example.com'
-    });
+    expect(mockPing).toHaveBeenCalledWith('https://custom.example.com');
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        guardianId: 'custom',
+        guardianEndpoint: 'https://custom.example.com'
+      })
+    );
+  });
+
+  it('refuses a custom URL no Guardian answers at, and says so', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    await answer(null);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText('customGuardianUnreachable')).toBeInTheDocument();
+    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('checks a custom URL once while its check is out, and shows Continue busy', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://custom.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    fireEvent.click(screen.getByTestId('continue-button'));
+
+    expect(mockPing).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('continue-button')).toHaveAttribute('aria-busy', 'true');
+    await answer(42);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the verdict for a custom URL the user edited while it was being checked', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://first.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://second.example.com' } });
+    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
+    await answer(42);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('drops the verdict for a custom URL when the user leaves custom mode during the check', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://first.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    await answer(42);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('drops the verdict for a custom URL when the user picks a provider card during the check', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://first.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    fireEvent.click(screen.getByText(GATEWAY.name));
+    await answer(42);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('drops the verdict for a custom URL when the picker unmounts during the check', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    const { unmount } = render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://first.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    unmount();
+    await answer(42);
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('shows an error and blocks submit when the custom URL is invalid, then clears it on edit', () => {
@@ -482,6 +617,7 @@ describe('ChooseGuardianScreen', () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText('invalidUrl')).toBeInTheDocument();
+    expect(mockPing).not.toHaveBeenCalled();
 
     // Editing the field clears the error (customError truthy branch).
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'still-bad' } });
@@ -557,7 +693,7 @@ describe('ChooseGuardianScreen', () => {
   // `selectedId`, so the no-guardian sentinel outlived the mode that superseded
   // it and Continue built a guardian-LESS account while a typed custom URL sat
   // on screen.
-  it('submits the custom URL, not a stale no-guardian selection, when both are offered', () => {
+  it('submits the custom URL, not a stale no-guardian selection, when both are offered', async () => {
     const onSubmit = jest.fn();
     render(<ChooseGuardianScreen allowCustomEndpoint showNoGuardianOption onSubmit={onSubmit} />);
 
@@ -566,7 +702,9 @@ describe('ChooseGuardianScreen', () => {
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
     fireEvent.click(screen.getByTestId('continue-button'));
 
-    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' });
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
+    );
     expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-checked', 'false');
   });
 
@@ -848,7 +986,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
 
   // The custom field is its own escape hatch: a user pointing at their own
   // Guardian is not blocked by the built-in operators being down.
-  it('keeps Continue enabled for a custom URL while every provider is offline', () => {
+  it('keeps Continue enabled for a custom URL while every provider is offline', async () => {
     mockUseGuardianAvailability.mockReturnValue({
       [OZ.endpoint]: 'offline',
       [GATEWAY.endpoint]: 'offline',
@@ -862,7 +1000,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(screen.getByTestId('continue-button')).not.toBeDisabled();
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' });
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
+    );
   });
 });
 

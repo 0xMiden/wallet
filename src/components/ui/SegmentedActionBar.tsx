@@ -1,8 +1,8 @@
-import React, { FC, ReactNode, useEffect, useRef } from 'react';
+import React, { FC, ReactNode } from 'react';
 
 import { motion } from 'framer-motion';
 
-import { useTabActive } from 'app/layouts/page-active';
+import { useTabShownAgain } from 'app/layouts/page-active';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { tabBarSwap, useTabBarMotion, useTabIconPop, type TabBarMotion } from 'lib/animation';
@@ -96,18 +96,9 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
 
 export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
   const tabBarMotion = useTabBarMotion();
-  // TabLayout keeps the Home pane mounted, hidden, while another tab shows, and hands this bar its new
-  // segment only in the commit that shows the Home tab again. That commit takes the new state at once,
-  // as the carousel under it does: the pill sliding over from the segment you left, with the segments
-  // resizing, would read as a glitch. A slide page closing back onto Home is not this case (the carousel
-  // animates that reveal too), so this reads the tab-only signal, not the page/layer one. One decision
+  // The Home tab shown again takes its new segment at once, as the carousel under it does. One decision
   // here drives the pill, the segments, the label and (below) the icon's own layout move.
-  const shown = useTabActive();
-  const wasShown = useRef(shown);
-  const swap = shown && !wasShown.current;
-  useEffect(() => {
-    wasShown.current = shown;
-  }, [shown]);
+  const swap = useTabShownAgain();
   const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
   // A tap on another segment buzzes once, here; a swipe between pages buzzes in HomeSwipeContainer,

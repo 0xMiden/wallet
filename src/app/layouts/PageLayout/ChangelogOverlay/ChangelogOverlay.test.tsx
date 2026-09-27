@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import { ChangelogOverlaySelectors } from './ChangelogOverlay.selectors';
 
@@ -43,7 +43,7 @@ type ChangelogItem = { version: string; data?: React.ReactNode[] };
 let mockChangelogData: ChangelogItem[] = [];
 let mockCompact = false;
 let mockLastShownVersion: string | null | undefined;
-const mockSetLastShownVersion = jest.fn();
+const mockSetLastShownVersion = jest.fn(() => Promise.resolve());
 
 // css module: jest cannot evaluate raw CSS as JS — stub the default export.
 jest.mock('./ChangelogOverlay.module.css', () => ({
@@ -177,6 +177,20 @@ describe('ChangelogOverlay', () => {
 
     expect(mockSetLastShownVersion).toHaveBeenCalledTimes(1);
     expect(mockSetLastShownVersion).toHaveBeenCalledWith(CURRENT_VERSION);
+  });
+
+  it('keeps the overlay when saving the shown version fails', async () => {
+    mockChangelogData = fullChangelog();
+    mockSetLastShownVersion.mockRejectedValueOnce(new Error('write failed'));
+
+    render(<ChangelogOverlay />);
+    // A rejection the component leaves unhandled fails this test through Jest itself.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ChangelogOverlaySelectors.Continue));
+    });
+
+    expect(mockSetLastShownVersion).toHaveBeenCalledWith(CURRENT_VERSION);
+    expect(screen.getByTestId(ChangelogOverlaySelectors.Continue)).toBeInTheDocument();
   });
 
   it('renders an empty-data version section without crashing (data?.map over [])', () => {

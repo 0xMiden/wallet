@@ -2061,7 +2061,7 @@ export class Vault {
   }
 
   /**
-   * Persist a freshly-minted hot key blob produced by createReplaceHotKeyProposal.
+   * Persist the hot key blob a replace-hot-key row minted (resolveRotationHotKey in transaction/index.ts).
    * Called BEFORE the rotation tx is submitted so the new ciphertext is durable
    * even if the app dies after submit but before complete — the on-chain account
    * state determines which hotPublicKey is canonical, and `swapHotKey` (called
