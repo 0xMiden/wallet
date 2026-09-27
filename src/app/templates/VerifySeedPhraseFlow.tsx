@@ -13,7 +13,6 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -21,7 +20,7 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -51,7 +50,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
+  const { copy, copied } = useClipboardCopy(mnemonic ?? '');
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -351,15 +350,13 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
-
               <SeedPhraseGrid words={words} />
 
               {!remove && (
                 <Pill
                   className="mt-3 self-start"
                   icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
-                  onClick={copy}
+                  onClick={() => void copy()}
                   data-testid="verify-seed-copy"
                 >
                   <CopyLabel copied={copied} copiedLabel={t('copied')}>

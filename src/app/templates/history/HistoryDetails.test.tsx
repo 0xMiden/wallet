@@ -2667,6 +2667,54 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('to')).toBeUndefined();
     });
 
+    it('shows a Slow-route bridge-out amount as entered, not cut to two decimals', async () => {
+      // Real base-unit scaling: the default mock ignores decimals (`String(amount)`),
+      // which can never produce a fractional string to assert against.
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 15000n, // 0.015 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xdest',
+          destinationNetwork: 1101,
+          claimStatus: 'not-applicable'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getAllByText('0.015')).toHaveLength(2);
+    });
+
+    it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          outputAmount: '151.505000000000000001'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
+    });
+
+    // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
+    // so it draws only with a fill of its own; unset, the gap between the two amounts is blank.
+    it('draws the bridge hero arrow in the muted ink instead of an invisible or pure-black gap', async () => {
+      setMockRow(bridgedReceiveTx);
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const arrow = document.querySelector('svg[name="arrow-right"]');
+      expect(arrow).toHaveAttribute('fill', 'currentColor');
+      // `currentColor` alone resolves to black with no ancestor setting a text colour; the
+      // auto-flipping token the hero's own symbols already use is what makes it muted ink.
+      expect(arrow).toHaveClass('text-text-muted');
+    });
+
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
       setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });
@@ -2699,6 +2747,38 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('slowRouteLabel')).toBeInTheDocument();
       expect(screen.getByText('0xminednote')).toBeInTheDocument();
       expect(screen.getByText('confirmed')).toBeInTheDocument();
+    });
+
+    it('shows a Slow-route bridge-in amount as entered, not cut to two decimals', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          provider: 'agglayer',
+          sourceAmount: '0.015',
+          sourceSymbol: 'ETH',
+          outputAmount: '0.015',
+          outputSymbol: 'ETH'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getAllByText('0.015')).toHaveLength(2);
+    });
+
+    it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
+          sourceAmount: '151.505000000000000001'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
