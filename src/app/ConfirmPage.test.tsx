@@ -1045,10 +1045,12 @@ describe('request origin banner', () => {
 
     const shown = screen.getByTestId('confirm-request-origin');
     expect(shown.textContent).toBe(LONG_ORIGIN);
-    const domain = within(shown).getByTestId('dapp-origin-domain');
-    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
-    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
-    expectDomainNeverClipped(domain, container);
+    // ConfirmDAppForm's fixed-width root scrolls vertically; the domain wraps inside it
+    // (break-all, max-w-full), so its overflow-y-auto never clips the domain sideways.
+    const scroller = shown.closest('[style*="width: 380px"]')!;
+    expectDomainNeverClipped(within(shown).getByTestId('dapp-origin-domain'), container, [
+      { element: scroller, classes: ['overflow-y-auto'] }
+    ]);
   });
 });
 

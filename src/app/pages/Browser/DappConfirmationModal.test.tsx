@@ -266,6 +266,12 @@ describe('DappConfirmationModal', () => {
 
 describe('DappConfirmationModal origin', () => {
   const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
+  // The card's overflow-hidden rounds its corners but also clips anything wider than the card, so
+  // it is allowed only because the guard checks that every row up to the card can shrink (min-w-0).
+  const expectDomainInsideCard = (domain: HTMLElement) => {
+    const card = screen.getByRole('dialog').firstElementChild!;
+    expectDomainNeverClipped(domain, card, [{ element: card, classes: ['overflow-hidden'] }]);
+  };
 
   it('keeps the registrable domain of a long origin out of the truncating part', () => {
     render(
@@ -278,13 +284,7 @@ describe('DappConfirmationModal origin', () => {
 
     const shown = screen.getByTestId('dapp-confirmation-origin');
     expect(shown.textContent).toBe(LONG_ORIGIN);
-    const domain = within(shown).getByTestId('dapp-origin-domain');
-    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
-    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
-    // The row directly wrapping DappOrigin, not the modal card: the card's own
-    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
-    // never clips text) and would otherwise make this guard fail on every render.
-    expectDomainNeverClipped(domain, shown.parentElement!);
+    expectDomainInsideCard(within(shown).getByTestId('dapp-origin-domain'));
   });
 
   it('shows the origin the same way in the title when the dApp sends no name', () => {
@@ -298,8 +298,7 @@ describe('DappConfirmationModal origin', () => {
 
     const title = screen.getByRole('heading', { level: 2 });
     expect(title.textContent).toBe(LONG_ORIGIN);
-    expect(title).not.toHaveClass('truncate');
-    expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
+    expectDomainInsideCard(within(title).getByTestId('dapp-origin-domain'));
   });
 
   it('keeps a dApp-sent name in the title, truncated as before', () => {
