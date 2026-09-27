@@ -17,6 +17,7 @@ _g.__mainTest = {
   doSync: jest.fn(),
   resetSyncBackoffForEndpointChange: jest.fn(),
   startTransactionProcessing: jest.fn(),
+  resumeProcessingAfterUnlock: jest.fn(),
   resetMidenClient: jest.fn(),
   loadEndpointOverrides: jest.fn(),
   swSignCallback: jest.fn(async () => new Uint8Array([0xab, 0xcd])),
@@ -49,6 +50,7 @@ jest.mock('./sync-manager', () => ({
 
 jest.mock('./transaction-processor', () => ({
   startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing(),
+  resumeProcessingAfterUnlock: () => (globalThis as any).__mainTest.resumeProcessingAfterUnlock(),
   // The reverse-IPC sign handler's fallback signer (issue #260, slice 5).
   swSignCallback: (...a: any[]) => (globalThis as any).__mainTest.swSignCallback(...a)
 }));
@@ -150,6 +152,7 @@ const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
 const mockDoSync = _g.__mainTest.doSync;
 const mockStartTransactionProcessing = _g.__mainTest.startTransactionProcessing;
+const mockResumeProcessingAfterUnlock = _g.__mainTest.resumeProcessingAfterUnlock;
 const mockResetMidenClient = _g.__mainTest.resetMidenClient;
 const mockLoadEndpointOverrides = _g.__mainTest.loadEndpointOverrides;
 const mockClient = _g.__mainTest.client;
@@ -546,6 +549,20 @@ describe('processRequest', () => {
     expect((await dispatch({ type: WalletMessageType.LockRequest })).type).toBe(WalletMessageType.LockResponse);
     expect(Actions.unlock).toHaveBeenCalledWith('p');
     expect(Actions.lock).toHaveBeenCalled();
+  });
+
+  // #924: claims requeued while the vault was locked have nothing else to restart them.
+  it('UnlockRequest resumes transaction processing once the vault has unlocked', async () => {
+    await dispatch({ type: WalletMessageType.UnlockRequest, password: 'p' });
+    expect(mockResumeProcessingAfterUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed unlock does not resume transaction processing', async () => {
+    (Actions.unlock as jest.Mock).mockRejectedValueOnce(new Error('Invalid password'));
+    await expect(dispatch({ type: WalletMessageType.UnlockRequest, password: 'wrong' })).rejects.toThrow(
+      'Invalid password'
+    );
+    expect(mockResumeProcessingAfterUnlock).not.toHaveBeenCalled();
   });
 
   it('CreateAccountRequest forwards walletType + name', async () => {

@@ -31,7 +31,11 @@ import {
 } from 'lib/miden/back/offscreen-codec';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
-import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
+import {
+  resumeProcessingAfterUnlock,
+  startTransactionProcessing,
+  swSignCallback
+} from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
@@ -475,6 +479,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
+      resumeProcessingAfterUnlock();
       return { type: WalletMessageType.UnlockResponse };
     case WalletMessageType.LockRequest:
       await Actions.lock();

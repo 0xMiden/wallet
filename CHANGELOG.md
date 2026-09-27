@@ -43,6 +43,7 @@
 - [FIX][all] A transfer still being accepted reads "from" its sender in Activity, not "to" (#1102).
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
+- [FIX][extension] Transfers queued while the wallet was locked are claimed after it unlocks: an unlock now restarts the background claim processing, which had stopped after about five minutes of retrying against the locked wallet and left them showing Claiming with no way on (#924).
 
 ## 1.16.2 (2026-09-24)
 

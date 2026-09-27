@@ -49,6 +49,8 @@ const ALARM_NAME = 'miden-tx-processor';
 const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
 const STUCK_TX_HEAL_PERIOD_MIN = 5;
 let isProcessing = false;
+// Set by an unlock that lands while a run is going; see resumeProcessingAfterUnlock.
+let unlockedDuringRun = false;
 
 /**
  * Sign callback that runs in the service worker.
@@ -138,6 +140,22 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 };
 
 /**
+ * Resume the queue after the vault unlocks (#924). A claim that met a locked vault was requeued,
+ * and once a run spends its pass budget on such claims nothing else restarts the processor for
+ * them: auto-consume skips a note a queued claim covers, and the extension has no retry wake. So an
+ * unlock starts a run, restarts the budget of one in progress, or, if that run is already past its
+ * last pass, starts the next one when it ends. Only an unlock does this, so other kicks cannot keep
+ * a run going while the vault stays locked.
+ */
+export function resumeProcessingAfterUnlock(): void {
+  if (isProcessing) {
+    unlockedDuringRun = true;
+    return;
+  }
+  startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
+}
+
+/**
  * Start processing queued transactions in the service worker.
  * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
  */
@@ -185,7 +203,12 @@ export async function startTransactionProcessing(): Promise<void> {
     // MAX_WAIT_BEFORE_CANCEL).
     const maxAttempts = 60;
 
-    while (attempts < maxAttempts) {
+    while (true) {
+      if (unlockedDuringRun) {
+        unlockedDuringRun = false;
+        attempts = 0;
+      }
+      if (attempts >= maxAttempts) break;
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
       const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultGuardianProvider);
@@ -211,6 +234,11 @@ export async function startTransactionProcessing(): Promise<void> {
       browser?.alarms.clear(ALARM_NAME);
     } catch {
       // Best effort.
+    }
+    // An unlock that landed after the run's last look at the queue still gets its run.
+    if (unlockedDuringRun) {
+      unlockedDuringRun = false;
+      startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
     }
   }
 }

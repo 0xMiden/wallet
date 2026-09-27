@@ -498,3 +498,60 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 });
+
+// #924: a run that exhausts its pass budget while the vault is locked leaves its claims queued,
+// and nothing else restarts the processor for them. An unlock must.
+describe('resumeProcessingAfterUnlock', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('starts a run when nothing is processing', async () => {
+    const mod = await import('./transaction-processor');
+    mod.resumeProcessingAfterUnlock();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts the pass budget of a run in progress', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'claim' }]);
+    jest.useFakeTimers();
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    // 59 passes, 5 s apart, then waiting before the 60th and last.
+    await jest.advanceTimersByTimeAsync(5000 * 58);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(59);
+    mod.resumeProcessingAfterUnlock();
+    await jest.advanceTimersByTimeAsync(5000 * 200);
+    await run;
+    // The unlock counts as a fresh start: a full budget of 60 passes after the 59 already run.
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(59 + 60);
+  });
+
+  it('keeps a run going when the unlock lands after its last pass', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'claim' }]);
+    jest.useFakeTimers();
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 59);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    // The budget is spent; the run is in its final wait before it would stop.
+    mod.resumeProcessingAfterUnlock();
+    await jest.advanceTimersByTimeAsync(5000 * 200);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60 + 60);
+  });
+
+  it('starts the next run when the unlock lands as a run is ending', async () => {
+    const mod = await import('./transaction-processor');
+    // The unlock arrives during the run's last read of the queue, which finds it empty, so the
+    // run ends: the unlock must still be honoured.
+    mockGetAllUncompletedTransactions.mockImplementationOnce(async () => {
+      mod.resumeProcessingAfterUnlock();
+      return [];
+    });
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
+});
