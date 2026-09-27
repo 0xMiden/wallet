@@ -2937,12 +2937,12 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn surfaces a not-found from BOTH scans as a PublicError with the lookup reason', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    const { NoGuardianAccountsFoundError } = require('../sdk/guardian-recovery-errors');
     mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-none', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
     await expect(spawning).rejects.toThrow('No Guardian accounts found at this guardian endpoint for this seed');
+    await expect(spawning).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
     expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
   });
 
