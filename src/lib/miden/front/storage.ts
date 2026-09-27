@@ -7,7 +7,7 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
+  const { data, mutate } = useRetryableSWR<T | null>(key, readForHook<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -25,10 +25,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
       const nextValue = typeof val === 'function' ? (val as any)(valueRef.current) : val;
-      preloadReads.delete(key);
-      await putToStorage(key, nextValue);
-      // The cache backs every reader of this key; off the extension no change event updates it.
-      await mutateCache(key, nextValue, { revalidate: false });
+      await writeThrough(key, nextValue);
       valueRef.current = nextValue;
     },
     [key]
@@ -38,7 +35,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
 }
 
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
-  const { data } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
+  const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -52,9 +49,7 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
     const put = async () => {
       if (prevValue.current !== value) {
         prevValue.current = value;
-        preloadReads.delete(key);
-        await putToStorage(key, value);
-        await mutateCache(key, value, { revalidate: false });
+        await writeThrough(key, value);
       }
     };
     put();
@@ -106,32 +101,44 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Each key's preload read still in flight, with its value once it lands. A hook read, a write, or a later preload
-// removes or replaces the entry, so a preload still holding it when it lands is the key's newest read and replaces
-// whatever the cache holds.
-interface PreloadRead {
-  read: Promise<unknown>;
-  landed?: { value: unknown };
-}
-const preloadReads = new Map<string, PreloadRead>();
+// Every storage operation on a key takes a number when this page issues or receives it, and the cache keeps the
+// value of the highest-numbered one that succeeded: an action gives way only to a newer one that landed, so a
+// failure never blocks an older success. Issue order is storage order, since each backend runs a page's calls
+// in call order.
+let lastSeq = 0;
+// Per key, the number of the operation whose value the cache entry holds.
+const appliedSeq = new Map<string, number>();
+const begin = () => ++lastSeq;
 
-async function fetchForHook(key: string): Promise<unknown> {
-  const preload = preloadReads.get(key);
-  preloadReads.delete(key);
-  try {
-    return await fetchFromStorage(key);
-  } catch (error) {
-    // Only a value already read: awaiting a preload still in flight could hang this reader with it.
-    if (preload?.landed) return preload.landed.value;
-    throw error;
-  }
+// The only writer of a storage key's SWR cache entry. A plain-value mutate writes before its first await, so the
+// check and the write are one step.
+function settle(key: string, seq: number, value: unknown) {
+  if (seq <= (appliedSeq.get(key) ?? 0)) return;
+  appliedSeq.set(key, seq);
+  void mutateCache(key, value, { revalidate: false });
+}
+
+async function writeThrough(key: string, value: unknown): Promise<void> {
+  const seq = begin();
+  await putToStorage(key, value);
+  settle(key, seq, value);
+}
+
+// SWR keeps a fetch result only when no mutate touched the key after the fetch began. Here one always did: this
+// read's own settle, or the newer operation that outnumbered it, so the cache only ever takes settle's value.
+async function readForHook<T>(key: string): Promise<T | null> {
+  const seq = begin();
+  const value = await fetchFromStorage<T>(key);
+  settle(key, seq, value);
+  return value;
 }
 
 /**
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
- * A key whose read a hook, a write, or a later preload started meanwhile is left to that newer read.
+ * A key's read replaces the cached value unless an operation on the key that started after it (a read, a write
+ * or a change event) landed first; one that failed does not count.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -140,15 +147,10 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
-      const entry: PreloadRead = { read: fetchFromStorage(key) };
-      preloadReads.set(key, entry);
+      const seq = begin();
       try {
-        const value = await entry.read;
-        entry.landed = { value };
-        if (preloadReads.get(key) !== entry) return;
-        await mutateCache(key, value, { revalidate: false });
+        settle(key, seq, await fetchFromStorage(key));
       } finally {
-        if (preloadReads.get(key) === entry) preloadReads.delete(key);
         onSettled?.(key);
       }
     })

@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { mutate } from 'swr';
 
 import { isExtension } from 'lib/platform';
 
@@ -121,6 +122,15 @@ const renderReader = (storageKey: string, Component = Reader) =>
     <Suspense fallback={<div data-testid="suspended" />}>
       <Component storageKey={storageKey} />
     </Suspense>
+  );
+
+const renderGuardedReader = (storageKey: string) =>
+  render(
+    <Boundary>
+      <Suspense fallback={<div data-testid="suspended" />}>
+        <Reader storageKey={storageKey} />
+      </Suspense>
+    </Boundary>
   );
 
 const deferredRead = (key: string, value: string) => {
@@ -273,24 +283,41 @@ describe('preloadStorage', () => {
   });
 
   it('keeps the newer of two overlapping preload reads of one key', async () => {
-    mockStored['twice-key'] = 'seed';
-    renderReader('twice-key');
+    mockStored['older-lands-first-key'] = 'seed';
+    const olderFirst = renderReader('older-lands-first-key');
     expect((await screen.findByTestId('value')).textContent).toBe('seed');
-
-    const releaseOlder = deferredRead('twice-key', 'older');
-    const older = preloadStorage(['twice-key']);
-    const releaseNewer = deferredRead('twice-key', 'newer');
-    const newer = preloadStorage(['twice-key']);
-
+    await drain();
+    const releaseOlder = deferredRead('older-lands-first-key', 'older');
+    const older = preloadStorage(['older-lands-first-key']);
+    const releaseNewer = deferredRead('older-lands-first-key', 'newer');
+    const newer = preloadStorage(['older-lands-first-key']);
     await act(async () => {
       releaseOlder();
       await older;
     });
-    expect(screen.getByTestId('value').textContent).toBe('seed');
-
+    expect(screen.getByTestId('value').textContent).toBe('older');
     await act(async () => {
       releaseNewer();
       await newer;
+    });
+    expect(screen.getByTestId('value').textContent).toBe('newer');
+    olderFirst.unmount();
+
+    mockStored['newer-lands-first-key'] = 'seed';
+    renderReader('newer-lands-first-key');
+    expect((await screen.findByTestId('value')).textContent).toBe('seed');
+    await drain();
+    const releaseOlderRead = deferredRead('newer-lands-first-key', 'older');
+    const olderRead = preloadStorage(['newer-lands-first-key']);
+    const releaseNewerRead = deferredRead('newer-lands-first-key', 'newer');
+    const newerRead = preloadStorage(['newer-lands-first-key']);
+    await act(async () => {
+      releaseNewerRead();
+      await newerRead;
+    });
+    await act(async () => {
+      releaseOlderRead();
+      await olderRead;
     });
     expect(screen.getByTestId('value').textContent).toBe('newer');
   });
@@ -543,5 +570,152 @@ describe('storage operation order (#1168)', () => {
 
     expect(screen.getByTestId('value').textContent).toBe('new');
     expect(mockStored['ext-later-key']).toBe('new');
+  });
+
+  it('keeps the later of two setter writes when the earlier finishes last', async () => {
+    mockStored['order-key'] = 'old';
+    await preloadStorage(['order-key']);
+    const first = renderReader('order-key', Writer);
+    await drain();
+
+    const release = holdNextSet();
+    let earlier!: Promise<void> | void;
+    await act(async () => {
+      earlier = setStored('a');
+      await setStored('b');
+    });
+    await act(async () => {
+      release();
+      await earlier;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('b');
+    first.unmount();
+    renderReader('order-key');
+    expect(screen.getByTestId('value').textContent).toBe('b');
+    expect(mockStored['order-key']).toBe('b');
+  });
+
+  it('keeps an older write when a newer write fails', async () => {
+    mockStored['failed-newer-key'] = 'old';
+    await preloadStorage(['failed-newer-key']);
+    renderReader('failed-newer-key', Writer);
+    await drain();
+
+    const release = holdNextSet();
+    mockSet.mockRejectedValueOnce(new Error('write failed'));
+    let older!: Promise<void> | void;
+    await act(async () => {
+      older = setStored('a');
+      await expect(setStored('b')).rejects.toThrow('write failed');
+    });
+    await act(async () => {
+      release();
+      await older;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('a');
+  });
+
+  it('keeps a write when a preload started after it fails', async () => {
+    mockStored['write-then-preload-key'] = 'old';
+    await preloadStorage(['write-then-preload-key']);
+    renderReader('write-then-preload-key', Writer);
+    await drain();
+
+    const release = holdNextSet();
+    let write!: Promise<void> | void;
+    act(() => {
+      write = setStored('new');
+    });
+    mockGet.mockRejectedValueOnce(new Error('read failed'));
+    await expect(preloadStorage(['write-then-preload-key'])).rejects.toThrow('write-then-preload-key');
+    await act(async () => {
+      release();
+      await write;
+    });
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('fills the cache from a pending preload when the first hook read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const releasePreload = deferredRead('pending-fill-key', 'preloaded');
+      const preload = preloadStorage(['pending-fill-key']);
+      mockGet.mockRejectedValue(new Error('read failed'));
+      const first = renderGuardedReader('pending-fill-key');
+      expect(await screen.findByTestId('failed')).toBeDefined();
+      first.unmount();
+
+      await act(async () => {
+        releasePreload();
+        await preload;
+      });
+      renderGuardedReader('pending-fill-key');
+
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('preloaded');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('writes the last value when a passive hook goes A -> B -> A', async () => {
+    mockStored['aba-key'] = 'old';
+    await preloadStorage(['aba-key']);
+    const first = renderReader('aba-key', PassiveWriter);
+    await drain();
+
+    const release = holdNextSet();
+    await act(async () => {
+      setStored('new');
+    });
+    await act(async () => {
+      setStored('old');
+    });
+    release();
+    await drain();
+
+    expect(mockSet).toHaveBeenLastCalledWith({ 'aba-key': 'old' });
+    first.unmount();
+    renderReader('aba-key');
+    expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+
+  it('a hook read landing after a newer write does not replace it', async () => {
+    mockStored['read-then-write-key'] = 'old';
+    await preloadStorage(['read-then-write-key']);
+    renderReader('read-then-write-key', Writer);
+    await drain();
+
+    const releaseRead = deferredRead('read-then-write-key', 'old');
+    act(() => {
+      void mutate('read-then-write-key');
+    });
+    await act(async () => {
+      await setStored('new');
+    });
+    releaseRead();
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('keeps rendering the cached value when a revalidation read fails', async () => {
+    mockStored['failed-revalidation-key'] = 'old';
+    await preloadStorage(['failed-revalidation-key']);
+    renderGuardedReader('failed-revalidation-key');
+    await drain();
+
+    const reads = mockGet.mock.calls.length;
+    mockGet.mockRejectedValueOnce(new Error('read failed'));
+    await act(async () => {
+      await mutate('failed-revalidation-key');
+    });
+
+    expect(mockGet).toHaveBeenCalledTimes(reads + 1);
+    expect(screen.queryByTestId('failed')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('old');
   });
 });
