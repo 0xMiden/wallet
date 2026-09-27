@@ -85,16 +85,43 @@ const VALUE_SIGNING_SCREENS: ReadonlyArray<{
 
 const read = (relative: string) => readFileSync(join(__dirname, '..', relative), 'utf8');
 
-/** A module specifier's last segment without its extension: 'components/review/ReviewLayout.tsx' is 'ReviewLayout'. */
-const moduleName = (specifier: string) =>
-  specifier
-    .split('/')
-    .pop()!
-    .replace(/\.[jt]sx?$/, '');
+/**
+ * A module specifier's name: its file without the extension, or its folder when the file is an index, so every
+ * spelling of one module reads the same ('components/review/ReviewLayout.tsx' is 'ReviewLayout';
+ * 'components/review', 'components/review/', 'components/review/index' and 'components/review/index.ts' are 'review').
+ */
+const moduleName = (specifier: string) => {
+  const segments = specifier
+    .replace(/\/+$/, '')
+    .replace(/\.[jt]sx?$/, '')
+    .split('/');
+  const last = segments.pop()!;
+  return last === 'index' && segments.length > 0 ? segments.pop()! : last;
+};
 
-/** The modules a suite replaces with jest.mock or jest.doMock, by name, however the path is spelled. */
+/**
+ * The modules a suite replaces with jest.mock, jest.doMock, jest.setMock or jest.unstable_mockModule, by name,
+ * however the path is spelled, including the typed call (`jest.mock<typeof import('x')>('x', ...)`).
+ */
 const mockedModules = (source: string) =>
-  [...source.matchAll(/jest\.(?:mock|doMock)\(\s*(['"`])([^'"`]+)\1/g)].map(match => moduleName(match[2]!));
+  [
+    ...source.matchAll(
+      /jest\.(?:mock|doMock|setMock|unstable_mockModule)\s*(?:<[^()]*?(?:\([^)]*\)[^()]*?)*>)?\s*\(\s*(['"`])([^'"`]+)\1/g
+    )
+  ].map(match => moduleName(match[2]!));
+
+/**
+ * The modules a stand-in for a carrier could arrive through: the carrier's own, and every module the screen imports
+ * the carrier's export from (the swap review takes ReviewLayout from the 'components/review' barrel), read as whole
+ * import statements so a line break or an alias does not hide one.
+ */
+const carrierModules = (screenSource: string, carrier: string) => {
+  const exported = moduleName(carrier);
+  const through = [...screenSource.matchAll(/\bimport\s+([^;]*?)\s+from\s+(['"`])([^'"`]+)\2/g)]
+    .filter(match => new RegExp(`\\b${exported}\\b`).test(match[1]!))
+    .map(match => moduleName(match[3]!));
+  return [...new Set([exported, ...through])];
+};
 
 /**
  * Whether a suite writes the banner's test id in any form: only NetworkModeBanner.tsx may, so a registered
@@ -114,15 +141,16 @@ describe('every screen that commits value names the network', () => {
 
   it.each(VALUE_SIGNING_SCREENS)(
     '$assertedIn renders the real banner for $screen, not a stub',
-    ({ rendersBannerIn, assertedIn }) => {
+    ({ screen, rendersBannerIn, assertedIn }) => {
       // A stand-in that renders the test id keeps the assertion green while the real component never
-      // renders. Stubbing the layout that carries the banner is the same hole one level up, and a
-      // stand-in can arrive through any module (the banner, the layout, the barrel it is imported
-      // through), so the suite may mention the banner's test id only to read it.
+      // renders. Stubbing the layout that carries the banner is the same hole one level up, whether the
+      // suite mocks the layout's own module or the barrel the screen imports it through, and the suite
+      // may mention the banner's test id only to read it.
       const mocked = mockedModules(read(assertedIn));
+      const carriers = carrierModules(read(screen), rendersBannerIn);
 
       expect(mocked).not.toContain('NetworkModeBanner');
-      expect(mocked).not.toContain(moduleName(rendersBannerIn));
+      expect(mocked.filter(name => carriers.includes(name))).toEqual([]);
       expect(writesBannerTestId(read(assertedIn))).toBe(false);
     }
   );
@@ -149,13 +177,37 @@ describe('mockedModules', () => {
     ["jest.mock('../../components/NetworkModeBanner', () => ({}));", 'NetworkModeBanner'],
     ["jest.mock('components/NetworkModeBanner.tsx');", 'NetworkModeBanner'],
     ['jest.doMock("components/review/ReviewLayout", () => ({}));', 'ReviewLayout'],
-    ['jest.mock(\n  `./ReviewLayout`,\n  () => ({})\n);', 'ReviewLayout']
+    ['jest.mock(\n  `./ReviewLayout`,\n  () => ({})\n);', 'ReviewLayout'],
+    ["jest.mock('components/review/index', () => ({}));", 'review'],
+    ["jest.mock('components/review/index.ts', () => ({}));", 'review'],
+    ["jest.mock('components/review/', () => ({}));", 'review'],
+    ["jest.setMock('components/review', {});", 'review'],
+    ["jest.unstable_mockModule('components/review', () => ({}));", 'review'],
+    ["jest.mock<typeof import('components/review')>('components/review', () => ({}));", 'review'],
+    ["jest.doMock<typeof import('components/review')>('components/review', () => ({}));", 'review'],
+    ["jest.setMock<typeof import('components/review')>('components/review', {});", 'review']
   ])('reads %j as a mock of %s', (source, name) => {
     expect(mockedModules(source)).toEqual([name]);
   });
 
   it('reads nothing from a suite that mocks nothing', () => {
     expect(mockedModules("import { NetworkModeBanner } from 'components/NetworkModeBanner';")).toEqual([]);
+  });
+});
+
+describe('carrierModules', () => {
+  it('names the barrel the swap review imports ReviewLayout through', () => {
+    expect(carrierModules(read('screens/swap-flow/ReviewSwap.tsx'), 'components/review/ReviewLayout.tsx')).toEqual([
+      'ReviewLayout',
+      'review'
+    ]);
+  });
+
+  it('reads an import of the carrier spread over lines and aliased, and no other import', () => {
+    const source =
+      "import {\n  ReviewCard,\n  ReviewLayout as Layout\n} from 'components/review';\nimport { Other } from 'components/other';";
+
+    expect(carrierModules(source, 'components/review/ReviewLayout.tsx')).toEqual(['ReviewLayout', 'review']);
   });
 });
 
