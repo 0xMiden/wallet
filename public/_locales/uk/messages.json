@@ -503,6 +503,10 @@
     "message": "наприклад, APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ваш приватний ключ не вдалося видалити з буфера обміну. Очистіть його самостійно, перш ніж продовжувати.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "Введіть дійсну URL-адресу, що починається з http:// або https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "За цією URL-адресою не відповідає жоден сервер Guardian. Перевірте її та спробуйте ще раз.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Я нікому не буду надавати доступ до свого зашифрованого файлу гаманця, у тому числі й компанії Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Не відновлено з цього файлу: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Акаунти, імпортовані з приватними ключами, не можна відновити з файлу гаманця, а гаманець, відновлений з цього файлу, не може їх додати. Вони відновлюються як окремий гаманець, налаштований за допомогою «Імпортувати приватні ключі» та їхніх щоденних ключів Miden і приватних ключів EVM. Зберігайте ці ключі в безпеці: розкривайте їх у «Налаштування» → «Ключі» → «Розкрити приватний ключ», вибравши цей акаунт.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Введіть пароль для шифрування файлу гаманця.",

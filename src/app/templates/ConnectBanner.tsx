@@ -4,6 +4,7 @@ import classNames from 'clsx';
 
 import Logo from 'app/atoms/Logo';
 import { Icon, IconName } from 'app/icons/v2';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { DappMetadata } from 'lib/miden/types';
 
 type ConnectBannerProps = {
@@ -31,9 +32,11 @@ const ConnectBanner: FC<ConnectBannerProps> = ({ origin }) => {
       </div>
       {/* The only thing on the connect prompt that identifies WHO is asking —
           hooked for E2E so a wrong/spoofed origin fails a test, not just review. */}
-      <span className="font-medium text-center text-[16px] items-center font-semibold" data-testid="connect-origin">
-        {origin}
-      </span>
+      <DappOrigin
+        origin={origin}
+        className="justify-center text-center text-[16px] font-semibold"
+        data-testid="connect-origin"
+      />
     </div>
   );
 };

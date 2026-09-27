@@ -236,7 +236,11 @@ jest.mock('../AddressChip', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
+  default: ({ hash, compactHitArea }: { hash: string; compactHitArea?: boolean }) => (
+    <span data-testid="hash-chip" data-compact-hit-area={String(Boolean(compactHitArea))}>
+      {hash}
+    </span>
+  )
 }));
 
 jest.mock('components/ui/DetailCard', () => ({
@@ -1407,6 +1411,38 @@ describe('HistoryDetails', () => {
 
       expect(chips()).toEqual(noteIds);
       expect(screen.queryByTestId('history-consumed-notes-show-all')).toBeNull();
+      // Expanded, every chip still keeps its own tap target (#1046).
+      expect(
+        Array.from(screen.getByTestId('history-consumed-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          chip => chip.getAttribute('data-compact-hit-area')
+        )
+      ).toEqual(Array(8).fill('true'));
+    });
+
+    it('gives each chip of a two-note list a compact hit area, while a lone row chip keeps the taller one', async () => {
+      // Two notes is the smallest list with a neighbour, so it pins where the opt-out starts.
+      setMockRow(consumeTx({ noteId: 'note-0', noteIds: ['note-0', 'note-1'] }));
+      await renderAndLoad();
+
+      const list = () => screen.getByTestId('history-consumed-notes');
+      const compactFlags = () =>
+        Array.from(list().querySelectorAll('[data-testid="hash-chip"]')).map(chip =>
+          chip.getAttribute('data-compact-hit-area')
+        );
+      expect(compactFlags()).toEqual(['true', 'true']);
+
+      // The external-tx-id row renders a chip of its own, outside the list.
+      const rowChips = screen.getAllByTestId('hash-chip').filter(chip => !list().contains(chip));
+      expect(rowChips.length).toBeGreaterThan(0);
+      rowChips.forEach(chip => expect(chip).toHaveAttribute('data-compact-hit-area', 'false'));
+    });
+
+    it('leaves a one-note list its taller hit area, since it has no neighbour to protect', async () => {
+      setMockRow(consumeTx({ noteId: 'note-0', noteIds: ['note-0'] }));
+      await renderAndLoad();
+
+      const chip = screen.getByTestId('history-consumed-notes').querySelector('[data-testid="hash-chip"]');
+      expect(chip).toHaveAttribute('data-compact-hit-area', 'false');
     });
 
     it('shows no expand affordance at exactly the preview count', async () => {

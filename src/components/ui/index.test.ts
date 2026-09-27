@@ -26,6 +26,7 @@ import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
+import { DappOrigin } from './DappOrigin';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
 import { ErrorLine } from './ErrorLine';
@@ -133,7 +134,8 @@ describe('components/ui barrel', () => {
     TextAction,
     SubPageLayout,
     ErrorLine,
-    SeedPhraseGrid
+    SeedPhraseGrid,
+    DappOrigin
   } as const;
 
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,
