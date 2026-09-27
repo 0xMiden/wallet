@@ -446,14 +446,14 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
   });
 
-  it('falls back to the first provider when currentEndpoint matches nothing', () => {
+  // An account on a custom Guardian has no listed operator to pre-select, and a built-in is not its default (#1083).
+  it('pre-selects nothing and badges no default when the current Guardian is not a listed provider', () => {
     const { container } = render(<ChooseGuardianScreen currentEndpoint="https://unknown.example.com" />);
-    const [ozBtn] = optionButtons(container);
 
-    expect(isHighlighted(ozBtn!)).toBe(true);
-    // No "current" badge (nothing matched); the default badge is shown instead.
+    optionButtons(container).forEach(btn => expect(isHighlighted(btn)).toBe(false));
     expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
-    expect(screen.getByText('default')).toBeInTheDocument();
+    expect(screen.queryByText('default')).not.toBeInTheDocument();
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
   });
 
   // RotateGuardian's current endpoint hydrates from storage after the first render;
@@ -875,8 +875,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
   });
 
   // The 30 s re-probe can flip an explicitly picked card offline while the user
-  // is still on the screen. The pick is an intent; the verdict wins.
-  it('drops an explicit selection that goes offline on a later probe round', () => {
+  // is still on the screen. The pick is not honoured while its card is offline, and it is never swapped for another
+  // operator (#1083): the selection clears and the card's offline badge says why.
+  it('clears an explicit pick that goes offline instead of substituting another operator', () => {
     const onSubmit = jest.fn();
     const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
     const [ozBtn, gwBtn] = optionButtons(container);
@@ -889,10 +890,67 @@ describe('ChooseGuardianScreen — offline banner', () => {
 
     expect(gwBtn).toBeDisabled();
     expect(gwBtn).toHaveAttribute('aria-checked', 'false');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // #1083: re-tapping the already-checked default card must record it as an explicit pick, the
+  // same as tapping any other card, so it is honoured (or cleared, never swapped) by that rule too.
+  it('clears a re-tap of the already-checked default card when it goes offline (create flow)', () => {
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [ozBtn] = optionButtons(container);
     expect(ozBtn).toHaveAttribute('aria-checked', 'true');
 
+    fireEvent.click(ozBtn!);
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // Same rule for the card the FALLBACK highlighted rather than the default: re-tapping it is
+  // still the user's explicit pick, so it is not skipped past to the next online provider either.
+  it('clears a re-tap of the fallback-highlighted card when it goes offline too (create flow)', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [, gwBtn] = optionButtons(container);
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(gwBtn!);
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline', [GATEWAY.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('selects an explicit pick again when its operator comes back online', () => {
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [, gwBtn] = optionButtons(container);
+    fireEvent.click(gwBtn!);
+
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'online' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
   });
 
   // A card that recovers is selected again without a tap: the intent never
