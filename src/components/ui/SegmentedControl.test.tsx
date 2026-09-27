@@ -482,6 +482,11 @@ describe('SegmentedControl - shown again after its pane was hidden', () => {
     expect(popOf(pending)).toHaveAttribute('data-pop', 'rest');
     expect(scrollSpy).toHaveBeenCalledTimes(1);
     expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    // The labels and the outline take their new colours at once, instead of cross-fading.
+    for (const name of ['All', 'Pending']) {
+      expect(getRadio(name)).toHaveClass('transition-none');
+      expect(getRadio(name)).not.toHaveClass('transition-colors');
+    }
     expect(JSON.parse(getRadio('Sent').getAttribute('data-while-tap')!)).toEqual({
       scale: 0.92,
       transition: springs.snappy
@@ -497,6 +502,7 @@ describe('SegmentedControl - shown again after its pane was hidden', () => {
     rerender(control(true, 'sent'));
 
     const sent = getRadio('Sent');
+    expect(sent).not.toHaveClass('transition-none');
     expect(JSON.parse(bubbleIn(sent)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
     expect(popOf(sent)).toHaveAttribute('data-pop', 'pop');
     expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });

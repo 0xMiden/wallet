@@ -128,7 +128,8 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
-        className={segment({ size, layout, active })}
+        // Shown again, the new selection's colours land at once instead of cross-fading.
+        className={cn(segment({ size, layout, active }), swap && 'transition-none')}
       >
         <motion.span
           data-pop={pop.phase}
