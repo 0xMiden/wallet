@@ -503,6 +503,10 @@
     "message": "örn. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Özel anahtarınız panodan kaldırılamadı. Devam etmeden önce panoyu kendiniz temizleyin.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Ayarlar",
     "englishSource": "Settings"

@@ -94,6 +94,7 @@
   "accountNameInputInvalid": "1～16文字で入力し、空白またはハイフンで始めないでください。",
   "privateKeyInputDescription": "インポートするアカウントの秘密鍵。",
   "privateKeyInputPlaceholder": "例: APrivateKey1zkp...",
+  "privateKeyClipboardNotCleared": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
   "settings": "設定",
   "authorizedDApps": "承認済みDApps",
   "versionLabel": "バージョン：$version$",
