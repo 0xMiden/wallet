@@ -1,5 +1,5 @@
 /**
- * Address book → send-to-contact → delete.
+ * Address book: save from the send flow's add-contact sheet; send-to-contact → delete.
  *
  * WHAT THIS COVERS THAT NOTHING ELSE DOES
  *
@@ -11,11 +11,17 @@
  * the wrong address, listed them under the wrong name, or refused to delete them
  * would pass the entire existing suite.
  *
- * This spec walks the human path: save wallet B under a NAME, then choose that
+ * The send test walks the human path: save wallet B under a NAME, then choose that
  * NAME from the send flow's contact sheet, and prove the address the product put
  * on the wire is B's.
  *
- * WHERE THIS SPEC STOPS, AND WHY IT DOES NOT SUBMIT
+ * The add-contact sheet test covers the other save path: a Miden and a 0x recipient
+ * saved from the send flow's "Add to contacts?" sheet (AddContactDrawer). The sheet
+ * names the typed address and shows the network as a static label, the recipient
+ * step then shows the contact by name, and the address book lists each under its
+ * network. Its describe says why it runs first.
+ *
+ * WHERE THE SEND TEST STOPS, AND WHY IT DOES NOT SUBMIT
  *
  * It ends at the review route rather than broadcasting. `send-public.spec.ts`
  * already proves review → chain → recipient credited → sender debited, in full,
@@ -32,7 +38,7 @@
  * tokens with a settled vault balance, so an unfunded wallet cannot leave the
  * amount step.
  *
- * SCOPE NOTE — the review screen shows the ADDRESS, not the contact name.
+ * SCOPE NOTE (the send test): the review screen shows the ADDRESS, not the contact name.
  * `ReviewTransaction` parses `to` off `#/send/review?to=…` and performs no
  * contact lookup; `selectedContact` lives only in `SendManager` and only feeds
  * the recipient step. So the contact NAME is asserted where it actually renders

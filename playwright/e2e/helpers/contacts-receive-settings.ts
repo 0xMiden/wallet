@@ -452,7 +452,7 @@ export async function addContactFromSend(
     await sheetAddress.waitFor({ state: 'hidden', timeout: timeoutMs });
   } catch {
     // A rejected save keeps the sheet open and says why in its alert; there may be none, so the
-    // read is bounded rather than left to wait out the test.
+    // read gets 2 s rather than the 30 s action timeout.
     const alert = await sheet
       .getByRole('alert')
       .textContent({ timeout: 2_000 })
