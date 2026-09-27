@@ -40,10 +40,13 @@ describe('defineSource', () => {
       "    /* a lone } */ 'process.env.D': JSON.stringify(`}`),",
       '    \'process.env.E\': JSON.stringify("}"), // a lone {',
       "    'process.env.F': JSON.stringify('f')",
-      '  }',
+      '  },',
+      "  plugins: ['after-define']",
       '};'
     ].join('\n');
-    expect(defineSource(source)).toContain("'process.env.F'");
+    const defines = defineSource(source);
+    expect(defines).toContain("'process.env.F'");
+    expect(defines).not.toContain('after-define');
   });
 
   it('throws when the config has no define object', () => {
