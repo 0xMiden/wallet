@@ -88,6 +88,8 @@ import {
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
+import { proveThreadCount } from './prove-worker-protocol';
+
 const TAG = '[offscreen-prover]';
 
 // Mark THIS realm as the offscreen document (issue #260 flip-prep #4). Set at
@@ -268,29 +270,8 @@ async function init() {
   }
   const initThreadPool = (sdk as any).initThreadPool;
   if (typeof initThreadPool === 'function') {
-    // Cap the rayon pool at 6 threads. Spawning one per logical core is
-    // counter-productive: the pool competes with this document's own main thread
-    // and the browser compositor, and on Apple Silicon `hardwareConcurrency`
-    // counts efficiency cores that are ~2-3x slower than the performance ones.
-    // rayon splits work evenly, so a chunk landing on an E-core becomes the
-    // critical path the whole proof waits on.
-    //
-    // Measured, web-sdk proving benchmark (single-sig ECDSA consume, MT dist,
-    // quiet machine, 4P+6E so hardwareConcurrency = 10), three sweeps:
-    //    threads   2      4      6      8      10
-    //    ms      7280   5428   5386   5802   6424   (sweep 1)
-    //                   5530   5524   5860          (sweep 2)
-    //                   5367   5401   5742          (sweep 3)
-    // 4 and 6 are indistinguishable (ranges overlap); 8 is consistently worse
-    // with no overlap; 10 is ~19% worse than 6. Scaling saturates at the
-    // performance-core count and goes NEGATIVE beyond it.
-    //
-    // 6 rather than 4 because the error is asymmetric — too high measurably
-    // hurts, too low costs nothing here — and 6 leaves headroom on machines with
-    // more fast cores. CAVEAT: this curve is from ONE heterogeneous machine. A
-    // homogeneous many-core desktop is untested and might prefer more.
-    const cores = navigator.hardwareConcurrency ?? 4;
-    const threads = Math.min(cores, 6);
+    // The #847 cap; the benchmark behind it lives with `proveThreadCount`.
+    const threads = proveThreadCount(navigator.hardwareConcurrency);
     const t = performance.now();
     await initThreadPool(threads);
     console.log(`${TAG} initThreadPool(${threads}) took ${(performance.now() - t).toFixed(0)}ms`);
