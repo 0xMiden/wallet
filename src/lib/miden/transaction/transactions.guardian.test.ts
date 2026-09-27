@@ -3824,6 +3824,7 @@ describe('generateTransaction — Guardian routing', () => {
         client: makeClientApi(makeResult())
       });
 
+      const before = Math.floor(Date.now() / 1000);
       const pending = generateTransaction(
         {
           id: txId,
@@ -3841,6 +3842,9 @@ describe('generateTransaction — Guardian routing', () => {
 
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.error).toBeUndefined();
+      expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
+      expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
     } finally {
       jest.useRealTimers();
     }

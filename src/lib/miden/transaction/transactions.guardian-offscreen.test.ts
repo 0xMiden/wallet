@@ -1005,7 +1005,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // `GeneratingTransaction` is not an ending. The attempt that claimed the row
     // can finish by requeueing rather than completing — through the 409, 429,
     // prover-outage or locked-wallet arms, none of which schedules a wake, since
-    // only the unauthorized arm does. A chain that stopped on any non-Queued
+    // only the unauthorized and unreachable arms do. A chain that stopped on any non-Queued
     // status would hand the row back to a queue with no driver off-extension,
     // which is the strand it exists to prevent, and the row would look healthy
     // on the way there.

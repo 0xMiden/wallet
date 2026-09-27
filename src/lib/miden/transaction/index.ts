@@ -276,8 +276,9 @@ const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
 // temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
 const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
-// Cooldown (seconds) for a tx requeued because the guardian gave no HTTP response (#779). A connection refusal
-// answers in milliseconds, so a shorter wait would only hammer a dead operator.
+// Cooldown (seconds) for a tx requeued because `isGuardianUnreachableError` reads the guardian as down (#779): a
+// transport failure with no HTTP response (refused, DNS, TLS, a timeout), any 5xx, or a 2xx whose body does not parse
+// as JSON. A connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
@@ -1299,9 +1300,9 @@ const generateTransactionWithProvider = async (
         await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
         return;
       }
-      // No HTTP response at all (connection refused, DNS, TLS, a timeout) or a 5xx: the operator is down, not
-      // refusing. Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend; failing instead
-      // wrote one Failed row per auto-consume retry (#779).
+      // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
+      // also call, is down rather than refusing. Same pre-submit stage gate as the 429 arm above, so a retry cannot
+      // double-spend (#779).
       if (
         isGuardianUnreachableError(error) &&
         GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&

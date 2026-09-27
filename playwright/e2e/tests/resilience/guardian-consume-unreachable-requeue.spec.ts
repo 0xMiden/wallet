@@ -33,8 +33,10 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *   - no sample of the row back in Queued at 'creating-proposal': the loop never ran it into the guardian, which would
  *     leave the three checks above passing on a row nobody touched. A first pickup writes 'syncing' while Queued and
  *     reaches 'creating-proposal' only after flipping to GeneratingTransaction, so Queued at 'creating-proposal'
- *     exists only after a requeue at proposal creation. The 409 and 429 arms requeue there too, but both need an
- *     HTTP answer a refused connection never gives;
+ *     exists only after a requeue at proposal creation. The 409, 429, prover-outage and unauthorized arms requeue
+ *     there too, but none can fire under a refused connection: the 409 and 429 need an HTTP answer, and the prover
+ *     arm needs the row at 'proving' and the unauthorized arm an executed transaction, both of which follow a
+ *     guardian co-signature the refusal never lets through;
  *   - zero `networkFaultHits()`: the refusal reached no guardian request. The frontend's guardian sync counts too,
  *     so on its own this proves less than the requeue sample;
  *   - after `clearFaults()`, a drain that never finishes, a vault short of the mint, or anything but one Completed
@@ -57,9 +59,6 @@ const REQUEUE_COOLDOWN_SLACK_MS = 70_000;
 // The 5xx spec's claim budget, for the attempt that runs once the guardian answers.
 const LANDING_BUDGET_MS = 180_000;
 const CLAIM_DRAIN_BUDGET_MS = FIRST_REQUEUE_TIMEOUT_MS + OUTAGE_HOLD_MS + REQUEUE_COOLDOWN_SLACK_MS + LANDING_BUDGET_MS;
-// Sample spacing, matched to the processing loop's 5 s pass. Every sample asserts, so this spaces checks rather than
-// standing in for one.
-const ROW_POLL_MS = 5_000;
 const ROW_READ_ATTEMPTS = 10;
 
 const isConsume = (row: TransactionRowSnapshot): boolean => row.type === 'consume';
@@ -164,7 +163,10 @@ test.describe('infra resilience - a consume while the guardian refuses connectio
                 `checks above held on a row nobody attempted:\n  ${describeRows(rows)}`
             );
           }
-          await walletA.page.waitForTimeout(ROW_POLL_MS);
+          // Sample spacing, matched to the processing loop's 5 s pass. Every sample asserts, so this spaces checks
+          // rather than standing in for one.
+          // eslint-disable-next-line no-long-bare-wait -- inter-sample spacer, every lap re-asserts the rows
+          await walletA.page.waitForTimeout(5_000);
         }
 
         // Read before clearFaults(), which resets the counter.
