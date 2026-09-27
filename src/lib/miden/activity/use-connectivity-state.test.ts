@@ -309,6 +309,7 @@ describe('useConnectivityState', () => {
   // category another window just changed.
   describe('across windows', () => {
     const stored = () => mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY];
+    const putCallsFor = (key: string) => mockPutToStorage.mock.calls.filter(([k]) => k === key);
 
     beforeEach(() => {
       mockIsExtension.mockReturnValue(true);
@@ -394,6 +395,19 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(result.current.state.network.active).toBe(false);
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
+    });
+
+    it('does not retry the cleanup write when it fails', async () => {
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
+      storedDismissedActivations = { network: 100 };
+      storageSnapshot = makeSnapshot();
+      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
+
+      renderHook(() => useConnectivityState());
+      await settle();
+
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
     });
   });
 
