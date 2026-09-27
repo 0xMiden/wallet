@@ -75,10 +75,20 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
     // that grows with total history - on the write path, inside the rw lock, deserializing every
     // row's request/result blobs. A future-dated row is still at or above this bound, so the
     // policy's own timestamp handling still sees it.
-    return await Repo.transactions
+    const window = await Repo.transactions
       .where('initiatedAt')
       .aboveOrEqual(now - MAX_WINDOW_SECONDS)
       .toArray();
+    // The index cannot place a row whose `initiatedAt` is not a key (missing, NaN, null) and sorts
+    // a negative one below every window, so neither ever reaches the policy's fatal timestamp
+    // guard through the read above. When any exist, this assessment reads the whole table so the
+    // guard judges exactly the rows it was written for (#1007).
+    const [total, indexed, negative] = await Promise.all([
+      Repo.transactions.count(),
+      Repo.transactions.orderBy('initiatedAt').count(),
+      Repo.transactions.where('initiatedAt').below(0).count()
+    ]);
+    return total - indexed + negative > 0 ? await Repo.transactions.toArray() : window;
   } catch {
     throw unavailable('transaction history read failed');
   }
