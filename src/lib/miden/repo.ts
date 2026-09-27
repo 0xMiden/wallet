@@ -195,6 +195,16 @@ export const db = new Dexie('TridentMain');
 defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+// Every writer of this table goes through here (the send, claim, bridge and earn paths, the
+// spending-limit queue, backup import). A row whose `initiatedAt` the index cannot place is
+// invisible to the spending-limit window read, so none is written (#1007).
+transactions.hook('creating', (_primaryKey, row) => {
+  if (!Number.isSafeInteger(row.initiatedAt) || row.initiatedAt < 0) {
+    throw new Error(`transaction ${row.id} has an unplaceable initiatedAt`);
+  }
+});
+
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
 
 /**

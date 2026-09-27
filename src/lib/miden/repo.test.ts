@@ -801,3 +801,33 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
     await Dexie.delete(name);
   });
 });
+
+describe('writing a transaction row', () => {
+  it.each([
+    ['missing', undefined],
+    ['NaN', Number.NaN],
+    ['negative', -1],
+    ['fractional', 1_700_000_000.5]
+  ])('refuses a row with a %s initiatedAt, and writes nothing', async (_label, value) => {
+    const row: Record<string, unknown> = { id: 'hook-1', accountId: 'a', status: 0 };
+    if (value !== undefined) row.initiatedAt = value;
+
+    await expect(transactions.add(row as never)).rejects.toThrow(/initiatedAt/);
+    await expect(transactions.get('hook-1')).resolves.toBeUndefined();
+  });
+
+  it('refuses a bulkAdd that carries one unplaceable row, and writes none of them', async () => {
+    await expect(
+      transactions.bulkAdd([
+        { id: 'hook-2', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 },
+        { id: 'hook-3', accountId: 'a', status: 0 }
+      ] as never)
+    ).rejects.toThrow();
+    await expect(transactions.get('hook-3')).resolves.toBeUndefined();
+  });
+
+  it('writes a row with a non-negative safe-integer initiatedAt', async () => {
+    await transactions.add({ id: 'hook-4', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 } as never);
+    await expect(transactions.get('hook-4')).resolves.toMatchObject({ initiatedAt: 1_700_000_000 });
+  });
+});
