@@ -436,12 +436,11 @@ describe('Unlock — extension password form', () => {
     await advance(3100);
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
 
-    // A guess during the live lockout is refused, so another window's own failure can only land once
-    // it runs out: it records 7 and arms a fresh stamp. NEW_STAMP is the earliest that failure could
-    // land - a guess submitted right at expiry, with the minimum 1000ms back-off - and the level stays
-    // two minutes anyway: floor(7/3) is still 2.
-    const NEW_STAMP = BASE + 121_000;
-    mockLsStore.PasswordAttempts = 7;
+    // The stamp this window adopted is another window's provisional one, for a guess still in flight
+    // (count >= 3 records it before unlock(), :323-327). That guess's rejection re-stamps it later and
+    // leaves the count at 6 (:344-346), so storage has moved on before this window's tick finds its
+    // own stamp expired.
+    const NEW_STAMP = Date.now();
     mockLsStore.TimeLock = NEW_STAMP;
 
     // To just after the tick at BASE + 121s, the first past the ORIGINAL stamp's two-minute level:
@@ -449,10 +448,11 @@ describe('Unlock — extension password form', () => {
     await advance(118_000);
 
     expect(mockLsStore.TimeLock).toBe(NEW_STAMP); // adopted, not erased
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(mockLsStore.PasswordAttempts).toBe(6);
     expect(container.querySelector('#unlock-password')).toBeDisabled();
-    // The adopting tick counts down from the stamp it adopted, not the expired one it replaced.
-    expect(screen.getByTestId('unlock-error')).not.toHaveTextContent('00:00');
+    // The adopting tick counts down from the stamp it adopted (NEW_STAMP + 120000 - the tick's own
+    // BASE + 121000), not the expired one it replaced.
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 00:02');
   });
 
   // submitPasscode reads storage once, before the 1-3s post-lockout sleep; without a re-check just
