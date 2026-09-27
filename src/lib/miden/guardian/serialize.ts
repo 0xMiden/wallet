@@ -175,3 +175,34 @@ export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: C
     }
   }
 }
+
+// Same call budget as the rotation re-register (`MAX_GUARDIAN_REGISTER_RETRIES`
+// in ./index); the waits come from the same `guardianRegisterBackoffMs`.
+export const GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS = 8;
+
+/**
+ * Run a guardian call, waiting out `429` rate-limit rejections (#906). The
+ * guardian marks them retryable and rejects them before any handler runs, so a
+ * retry can never apply a request twice. Before each retry it waits the
+ * guardian's own `retry_after_secs` (clamped), or the capped exponential backoff
+ * when the 429 carries none: retrying under the cooldown only earns another 429.
+ * Any other error propagates at once; after `maxAttempts` calls the last 429 is
+ * rethrown unchanged, so callers still see the guardian's own error.
+ */
+export async function withGuardianRateLimitRetry<T>(
+  fn: () => Promise<T>,
+  opts: { maxAttempts?: number; sleepFn?: (ms: number) => Promise<void> } = {}
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? GUARDIAN_RATE_LIMIT_MAX_ATTEMPTS;
+  const wait = opts.sleepFn ?? sleep;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= maxAttempts || !isGuardianRateLimited(err)) throw err;
+      const delayMs = guardianRegisterBackoffMs(err, attempt);
+      console.warn(`[guardian] rate limited (429, attempt ${attempt}/${maxAttempts}); retrying in ${delayMs} ms`);
+      await wait(delayMs);
+    }
+  }
+}
