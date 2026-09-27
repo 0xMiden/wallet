@@ -17,6 +17,7 @@ import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
+  type FaucetFundingMarker,
   WalletPromptStatus,
   WalletPromptType,
   __resetInFlightFaucetRequestsForTest,
@@ -745,6 +746,36 @@ describe('wallet prompts', () => {
     });
   });
 
+  it("sends over an unresolved request, and the new request's marker replaces the record", async () => {
+    // Sent 30 s ago by this clock, yet already flagged unresolved by the surface whose wait ended.
+    await setFaucetFundingMarker('accountUnresolved', {
+      requestedAt: Date.now() - 60_000,
+      baselineNoteIds: ['note-1'],
+      submitted: true,
+      submittedAt: Date.now() - 30_000,
+      unresolved: true
+    });
+    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+    const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
+        await beforeSubmit?.();
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    await faucet('accountUnresolved', marker);
+
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([marker]);
+    expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+      ...marker,
+      submitted: true,
+      submittedAt: expect.any(Number)
+    });
+  });
+
   it('does not send a request another surface already ended as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
@@ -929,6 +960,50 @@ describe('wallet prompts', () => {
       baselineNoteIds: [],
       submitted: true
     });
+  });
+
+  it('keeps the unresolved flag, and reads any stored value of it as unresolved', async () => {
+    await setFaucetFundingMarker('accountUnresolved', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+
+    // Read as absent, a garbled flag would let a second surface send again without asking.
+    await putToStorage('faucet_funding_v2:accountUnresolvedGarbled', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: 'yes'
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolvedGarbled')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('never reads an unresolved request as live, unless it still runs here', () => {
+    const now = Date.now();
+    // Sent 30 s ago, so its arrival window has not ended by this clock: the flag alone ends the wait.
+    const marker: FaucetFundingMarker = {
+      requestedAt: now - 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      submittedAt: now - 30_000,
+      unresolved: true
+    };
+
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: false, settledAt: null })).toBe(false);
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: true, settledAt: null })).toBe(true);
   });
 
   it('stores the funding marker per account', async () => {

@@ -20,6 +20,7 @@ import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useConfirm } from 'lib/ui/dialog';
 import useIsMounted from 'lib/ui/useIsMounted';
 import {
   fetchActiveBridgePrompts,
@@ -38,6 +39,7 @@ import {
   getPendingNotesUsdTotal,
   isFaucetFundingMarkerLive,
   type PendingNoteValue,
+  setFaucetFundingMarker,
   useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
@@ -145,6 +147,18 @@ const clearOwnFundingMarker = (address: string, requestedAt: number) =>
     const stored = await fetchFaucetFundingMarker(address);
     if (stored?.requestedAt === requestedAt) await clearFaucetFundingMarker(address);
   }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
+// A sent request whose wait ended with no funds: they may still land, so the card names it,
+// watches for them and asks before a second request.
+type UnresolvedRequest = Pick<FundingWait, 'address' | 'requestedAt' | 'baselineNoteIds'>;
+// Keeps the stored marker as an unresolved request, only while it is still this request's,
+// under the lock for the same reason as the clear above.
+const markOwnFundingUnresolved = (address: string, requestedAt: number) =>
+  withFaucetFundingMarkerLock(address, async () => {
+    const stored = await fetchFaucetFundingMarker(address);
+    if (stored?.requestedAt === requestedAt) {
+      await setFaucetFundingMarker(address, { ...stored, submitted: true, unresolved: true });
+    }
+  }).catch(error => console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error));
 
 const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
 
@@ -196,6 +210,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const { storage, isLoaded, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
@@ -211,6 +226,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // pre-existing claimable note can't fake an instant success).
   const [fundingWait, setFundingWait] = useState<FundingWait | null>(null);
   const awaitingFaucetFunds = fundingWait !== null && fundingWait.address === account.publicKey;
+  // Tagged with its account like `fundingWait`, and read back from the persisted marker on each visit.
+  const [unresolvedRequest, setUnresolvedRequest] = useState<UnresolvedRequest | null>(null);
+  const unresolvedHere =
+    unresolvedRequest !== null && unresolvedRequest.address === account.publicKey ? unresolvedRequest : null;
+  const unresolvedHereRef = useRef(unresolvedHere);
+  unresolvedHereRef.current = unresolvedHere;
   // Brief "Funded!" success beat once the funds land, before the prompt
   // completes and the card hands off.
   // Tagged with the account whose funds landed, exactly like `fundingWait`: an
@@ -467,6 +488,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // resume effect below.
   useEffect(() => {
     setFundingWait(current => (current !== null && current.address !== account.publicKey ? null : current));
+    setUnresolvedRequest(current => (current !== null && current.address !== account.publicKey ? null : current));
   }, [account.publicKey]);
 
   // Re-attach to a request still running at module scope after a remount
@@ -536,6 +558,18 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // until the set has loaded (see `fundingReady`), so this is an invariant,
     // not a path a tap can take.
     if (fundingNotes === undefined) return;
+    if (unresolvedHere !== null) {
+      const again = await confirm({
+        title: t('faucetRequestAgainTitle'),
+        children: t('faucetRequestAgainBody'),
+        confirmLabel: t('faucetRequestAgainAction')
+      });
+      // The question stays open for as long as the user takes: act on a yes only while this record
+      // is still the one on screen, since its funds may have landed or the account changed meanwhile.
+      const onScreen = unresolvedHereRef.current;
+      if (!again || onScreen?.address !== address || onScreen.requestedAt !== unresolvedHere.requestedAt) return;
+      setUnresolvedRequest(current => (current !== null && current.address === address ? null : current));
+    }
     // Snapshot the notes that already exist: only a note beyond this baseline
     // (or a balance) counts as the mint landing.
     const baselineNoteIds = fundingNoteIds;
@@ -545,7 +579,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
     setFaucetStatusIndicator('loading');
     setFaucetError(null);
-    // Installed before anything is awaited, so the account on screen is still the
+    // Installed before the request is awaited, so the account on screen is still the
     // one asking - no switch can have happened yet.
     setFundingWait({ address, ...marker });
     try {
@@ -588,7 +622,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
       console.error('[wallet-prompts] faucet request failed:', error);
     }
-  }, [account.publicKey, fundingNoteIds, fundingNotes]);
+  }, [account.publicKey, confirm, fundingNoteIds, fundingNotes, t, unresolvedHere]);
 
   // Resume the "Funding" wait after a remount, app restart, or switch back to
   // this account: a persisted, still-fresh request marker means the mint is in
@@ -621,6 +655,16 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         const settledAt = getFaucetRequestSettledAt(address, marker.requestedAt);
         if (isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })) {
           setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
+        } else if (marker.submitted) {
+          // Its window ended with no funds, perhaps while the app was closed: named and kept,
+          // like a wait this card saw end. The flag is best effort, since any sent marker
+          // past its window reads back as unresolved here.
+          setUnresolvedRequest({ address, requestedAt: marker.requestedAt, baselineNoteIds: marker.baselineNoteIds });
+          if (!marker.unresolved) {
+            await setFaucetFundingMarker(address, { ...marker, unresolved: true }).catch(error =>
+              console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error)
+            );
+          }
         } else {
           await clearFaucetFundingMarker(address).catch(error =>
             console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
@@ -655,22 +699,27 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // a short "Funded!" success beat. Requiring the native faucet keeps an
   // unrelated inbound note — or a pre-existing note whose metadata resolved
   // late and only just joined the list - from faking the success.
+  // The same rule settles this account's unresolved request, whose funds may land after its wait.
+  const watchedRequest: UnresolvedRequest | null = awaitingFaucetFunds ? fundingWait : unresolvedHere;
   useEffect(() => {
-    if (!awaitingFaucetFunds || fundingWait === null) return;
+    if (watchedRequest === null) return;
     // Only the note comparison needs the note set: an unloaded set can't be
     // graded against the baseline. A balance is independent of it, and gating it
     // here held the Funding hero - up to the 3-minute backstop - while spendable
     // funds were already visible.
-    const baseline = new Set(fundingWait.baselineNoteIds);
+    const baseline = new Set(watchedRequest.baselineNoteIds);
     const newMintNotes =
       fundingNotes !== undefined && midenFaucetId !== null
         ? fundingNotes.filter(note => note.faucetId === midenFaucetId && !baseline.has(note.id))
         : [];
     if (newMintNotes.length === 0 && !hasBalance) return;
-    setFundingWait(null);
+    const { address, requestedAt } = watchedRequest;
+    setFundingWait(current => (current !== null && current.address === address ? null : current));
+    // Funded now, so an earlier request left unresolved has nothing left to ask about.
+    setUnresolvedRequest(current => (current !== null && current.address === address ? null : current));
     setFundedMintNotes(newMintNotes);
-    setFundsArrivedFor(fundingWait.address);
-    clearOwnFundingMarker(fundingWait.address, fundingWait.requestedAt);
+    setFundsArrivedFor(address);
+    clearOwnFundingMarker(address, requestedAt);
     // Complete the prompt NOW, in the same pass that clears the marker. Holding
     // completion for the beat's in-memory timer meant closing the app on the
     // "Funds deposited" screen - the natural thing to do - lost it: the marker was
@@ -678,8 +727,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // for a mint that had landed. `fundsArrivedFor` keeps the card on stage for
     // the beat regardless, so this changes nothing on screen.
     // Completed for the account whose funds landed, which is the one on screen.
-    setFaucetStatus(fundingWait.address, WalletPromptStatus.Completed);
-  }, [awaitingFaucetFunds, fundingNotes, fundingWait, hasBalance, midenFaucetId, setFaucetStatus]);
+    setFaucetStatus(address, WalletPromptStatus.Completed);
+  }, [fundingNotes, hasBalance, midenFaucetId, setFaucetStatus, watchedRequest]);
 
   // After the success beat, hand the stage to the pending-notes card / balance.
   // Pure presentation: the prompt was already completed at arrival.
@@ -726,7 +775,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         setFundingWait(current =>
           current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
         );
-        clearOwnFundingMarker(address, requestedAt);
+        // Kept, not cleared: a sent request's outcome is unknown, and a silent second tap could mint twice.
+        setUnresolvedRequest({ address, requestedAt, baselineNoteIds: fundingWait.baselineNoteIds });
+        markOwnFundingUnresolved(address, requestedAt);
         return;
       }
       // Read, decided and cleared under the marker lock, so the owner's submitted flag cannot
@@ -852,9 +903,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             body:
               faucetStatusIndicator === 'failure' && faucetError
                 ? faucetError
-                : cannotPayFee
-                  ? t('insufficientFeeAsset')
-                  : undefined,
+                : unresolvedHere !== null
+                  ? t('faucetPromptUnresolvedBody')
+                  : cannotPayFee
+                    ? t('insufficientFeeAsset')
+                    : undefined,
             // While the account cannot pay a fee this prompt re-arms on every render
             // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
             // and change nothing. Withhold the control rather than ship one that lies.
@@ -929,7 +982,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       rotateHotKey,
       rotationStatusIndicator,
       setFaucetStatus,
-      t
+      t,
+      unresolvedHere
     ]
   );
 

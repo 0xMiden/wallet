@@ -344,6 +344,9 @@ export type FaucetFundingMarker = {
   // When the token request went out, stored with the flag: a request held back for
   // minutes before sending is judged from here, not from when it was asked for.
   submittedAt?: number;
+  // The arrival window ended with the mint's outcome unknown: the card offers Fund
+  // again, but asks first.
+  unresolved?: true;
 };
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
@@ -366,6 +369,8 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   // Any stored value reads as submitted: erring the other way would clear a marker
   // for a mint that could still land.
   if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
+  // Any stored value reads as unresolved: erring the other way would resubmit silently.
+  if (Reflect.get(raw, 'unresolved') !== undefined) marker.unresolved = true;
   // Untrusted like requestedAt; an unusable send time falls back to the request time.
   const submittedAt = Reflect.get(raw, 'submittedAt');
   if (
@@ -423,13 +428,15 @@ export const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
  * it rather than offering Fund. While a request still runs in this realm (`runningHere`:
  * held back, as in a backgrounded app) it has not settled, so its window has not started.
  * Otherwise a marker not flagged submitted is abandoned once its request's timeout has
- * certainly passed, and a flagged one waits out the arrival window from when it went out.
+ * certainly passed, and a flagged one waits out the arrival window from when it went out,
+ * unless a surface already flagged it unresolved when that window ended.
  */
 export function isFaucetFundingMarkerLive(
   marker: FaucetFundingMarker,
   { runningHere, settledAt }: { runningHere: boolean; settledAt: number | null }
 ): boolean {
   if (runningHere) return true;
+  if (marker.unresolved) return false;
   const now = Date.now();
   if (!marker.submitted) return now - marker.requestedAt < FAUCET_UNSUBMITTED_MARKER_MS;
   return now - faucetArrivalWindowStart(marker, settledAt) < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS;

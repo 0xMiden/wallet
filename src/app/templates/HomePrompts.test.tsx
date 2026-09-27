@@ -9,6 +9,7 @@ import type { TokenPrices } from 'lib/prices';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import {
+  FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
   WalletPromptStatus,
@@ -28,6 +29,7 @@ const mockFetchHotKeyHardwareError = jest.fn();
 const mockFetchFaucetFundingMarker = jest.fn();
 const mockSetFaucetFundingMarker = jest.fn();
 const mockClearFaucetFundingMarker = jest.fn();
+const mockConfirm = jest.fn();
 // Backs the two marker mocks by default, so a later read sees what an earlier write
 // left behind, as storage would.
 const markerStore = new Map<string, unknown>();
@@ -127,6 +129,7 @@ jest.mock('lib/wallet-prompts', () => {
 });
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
 
@@ -215,6 +218,8 @@ describe('HomePrompts', () => {
     mockFetchFaucetFundingMarker.mockReset();
     mockSetFaucetFundingMarker.mockReset();
     mockClearFaucetFundingMarker.mockReset();
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
     mockFetchFaucetFundingMarker.mockImplementation(async (address: string) => markerStore.get(address) ?? null);
     mockSetFaucetFundingMarker.mockImplementation(async (address: string, marker: unknown) => {
       markerStore.set(address, marker);
@@ -933,10 +938,235 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(11_000);
       });
       expect(faucetCard).not.toHaveAttribute('data-hero');
-      expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
+      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith(
+        'accountA',
+        expect.objectContaining({ unresolved: true })
+      );
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('a faucet request left unresolved when its wait ends (#709)', () => {
+    const renderWith = (notes: PendingNoteValue[], forAccount: WalletAccount = account) => (
+      <HomePrompts
+        account={forAccount}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    const faucetCard = () =>
+      screen.getAllByTestId('prompt-card').find(card => card.dataset.title === 'faucetPromptTitle')!;
+    const tapFund = () => fireEvent.click(within(faucetCard()).getByRole('button', { name: 'faucetPromptTitle' }));
+    // Sent ten minutes ago and flagged when its wait ended: the note already claimable then is its baseline.
+    const baselineNote: PendingNoteValue = { ...pendingNotes[0]!, id: 'note-before' };
+    const unresolvedMarker = {
+      requestedAt: Date.now() - 10 * 60_000,
+      baselineNoteIds: [baselineNote.id],
+      submitted: true,
+      unresolved: true
+    };
+
+    it('keeps a sent request when its wait ends, and names it on an actionable card', async () => {
+      jest.useFakeTimers();
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+        const requestedAt = Date.now() - 170_000;
+        markerStore.set('accountA', { requestedAt, baselineNoteIds: [], submitted: true });
+        render(renderWith([]));
+        await act(async () => {});
+        expect(faucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunding');
+
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(11_000);
+        });
+
+        expect(faucetCard()).not.toHaveAttribute('data-hero');
+        expect(faucetCard()).toHaveAttribute('data-status', 'idle');
+        expect(faucetCard()).toHaveAttribute('data-actionable', 'true');
+        expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+        expect(markerStore.get('accountA')).toEqual({
+          requestedAt,
+          baselineNoteIds: [],
+          submitted: true,
+          unresolved: true
+        });
+        expect(mockClearFaucetFundingMarker).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps a sent request whose wait ended while the app was closed, and names it', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      const requestedAt = Date.now() - FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - 60_000;
+      markerStore.set('accountA', { requestedAt, baselineNoteIds: [], submitted: true });
+
+      render(renderWith([]));
+      await act(async () => {});
+
+      expect(faucetCard()).not.toHaveAttribute('data-hero');
+      expect(faucetCard()).toHaveAttribute('data-actionable', 'true');
+      expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+      expect(markerStore.get('accountA')).toEqual({
+        requestedAt,
+        baselineNoteIds: [],
+        submitted: true,
+        unresolved: true
+      });
+      expect(mockClearFaucetFundingMarker).not.toHaveBeenCalled();
+    });
+
+    it('names a request already flagged unresolved as the card mounts, without writing it again', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', unresolvedMarker);
+
+      render(renderWith([baselineNote]));
+      await act(async () => {});
+
+      expect(faucetCard()).not.toHaveAttribute('data-hero');
+      expect(faucetCard()).toHaveAttribute('data-actionable', 'true');
+      expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+      expect(markerStore.get('accountA')).toEqual(unresolvedMarker);
+      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalled();
+      expect(mockClearFaucetFundingMarker).not.toHaveBeenCalled();
+    });
+
+    it('still clears a request that never went out, and never names it unresolved', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', {
+        requestedAt: Date.now() - FAUCET_UNSUBMITTED_MARKER_MS - 5_000,
+        baselineNoteIds: []
+      });
+
+      render(renderWith([]));
+      await act(async () => {});
+
+      expect(markerStore.has('accountA')).toBe(false);
+      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalled();
+      expect(faucetCard()).toHaveAttribute('data-actionable', 'true');
+      expect(faucetCard()).not.toHaveTextContent('faucetPromptUnresolvedBody');
+    });
+
+    it('plays the Funded beat and completes the prompt when an unresolved request lands', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({ storage: { faucetByAccount: { accountA: WalletPromptStatus.Pending } } })
+      );
+      markerStore.set('accountA', unresolvedMarker);
+      const { rerender } = render(renderWith([baselineNote]));
+      await act(async () => {});
+      expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+
+      // A native note beyond the record's baseline is the requested mint landing.
+      rerender(renderWith([baselineNote, { ...pendingNotes[0]!, id: 'minted-late' }]));
+
+      await waitFor(() => expect(faucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(faucetCard()).toHaveAttribute('data-status', 'success');
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+      await act(async () => {});
+      expect(markerStore.has('accountA')).toBe(false);
+      expect(mockFaucet).not.toHaveBeenCalled();
+    });
+
+    it('asks before a second request, and sends nothing when the answer is no', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', unresolvedMarker);
+      mockConfirm.mockResolvedValueOnce(false);
+      render(renderWith([baselineNote]));
+      await act(async () => {});
+
+      tapFund();
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+
+      expect(mockConfirm).toHaveBeenCalledWith({
+        title: 'faucetRequestAgainTitle',
+        children: 'faucetRequestAgainBody',
+        confirmLabel: 'faucetRequestAgainAction'
+      });
+      expect(mockFaucet).not.toHaveBeenCalled();
+      expect(markerStore.get('accountA')).toEqual(unresolvedMarker);
+      expect(faucetCard()).not.toHaveAttribute('data-hero');
+      expect(faucetCard()).toHaveTextContent('faucetPromptUnresolvedBody');
+    });
+
+    it('sends one request once the user confirms, and its marker replaces the record', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', unresolvedMarker);
+      mockConfirm.mockResolvedValueOnce(true);
+      render(renderWith([baselineNote]));
+      await act(async () => {});
+
+      tapFund();
+      await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      const sent = { requestedAt: expect.any(Number), baselineNoteIds: [baselineNote.id] };
+      expect(mockFaucet).toHaveBeenCalledWith('accountA', sent);
+      expect(markerStore.get('accountA')).toEqual(sent);
+      expect(markerStore.get('accountA')).not.toMatchObject({ requestedAt: unresolvedMarker.requestedAt });
+      expect(faucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    });
+
+    it('sends at once, without asking, when no request is unresolved', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      render(renderWith([]));
+      await act(async () => {});
+
+      tapFund();
+      await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when the unresolved request lands while the question is open', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', unresolvedMarker);
+      let answer: (accepted: boolean) => void = () => {};
+      mockConfirm.mockImplementationOnce(
+        () =>
+          new Promise<boolean>(resolve => {
+            answer = resolve;
+          })
+      );
+      const { rerender } = render(renderWith([baselineNote]));
+      await act(async () => {});
+      tapFund();
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+
+      rerender(renderWith([baselineNote, { ...pendingNotes[0]!, id: 'minted-late' }]));
+      await waitFor(() => expect(faucetCard()).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      await act(async () => answer(true));
+
+      expect(mockFaucet).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing for an account the user switched away from while the question was open', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', unresolvedMarker);
+      let answer: (accepted: boolean) => void = () => {};
+      mockConfirm.mockImplementationOnce(
+        () =>
+          new Promise<boolean>(resolve => {
+            answer = resolve;
+          })
+      );
+      const { rerender } = render(renderWith([baselineNote]));
+      await act(async () => {});
+      tapFund();
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+
+      rerender(renderWith([], accountB));
+      await act(async () => {});
+      await act(async () => answer(true));
+
+      expect(mockFaucet).not.toHaveBeenCalled();
+      expect(markerStore.get('accountA')).toEqual(unresolvedMarker);
+    });
   });
 
   it('shows a failure state and allows the faucet request to be retried by tapping again', async () => {
@@ -1339,13 +1569,13 @@ describe('HomePrompts', () => {
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-hero', 'faucetPromptFunding');
   });
 
-  it('logs a marker clear that fails when the backstop fires', async () => {
+  it('logs a failed unresolved flag when the backstop fires, and flags it on the next read', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       markerStore.set('accountA', { requestedAt: Date.now() - 170_000, baselineNoteIds: [], submitted: true });
-      mockClearFaucetFundingMarker.mockRejectedValue(new Error('storage unavailable'));
+      mockSetFaucetFundingMarker.mockRejectedValueOnce(new Error('storage unavailable'));
 
       render(
         <HomePrompts
@@ -1362,9 +1592,12 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(11_000);
       });
 
-      // Every other marker clear in this file logs; a silent failure here left an
-      // orphaned marker with no trail.
-      expect(warn).toHaveBeenCalledWith('[wallet-prompts] failed to clear faucet funding marker:', expect.any(Error));
+      // Every other marker write in this file logs; a silent failure here would leave no trail.
+      expect(warn).toHaveBeenCalledWith(
+        '[wallet-prompts] failed to flag faucet funding marker unresolved:',
+        expect.any(Error)
+      );
+      expect(markerStore.get('accountA')).toMatchObject({ unresolved: true });
     } finally {
       jest.useRealTimers();
     }
@@ -1856,7 +2089,12 @@ describe('HomePrompts', () => {
         await jest.advanceTimersByTimeAsync(2 * 60_000);
       });
       expect(screen.getAllByTestId('prompt-card')[0]!).not.toHaveAttribute('data-hero', 'faucetPromptFunding');
-      expect(markerStore.has('accountA')).toBe(false);
+      expect(markerStore.get('accountA')).toEqual({
+        requestedAt,
+        baselineNoteIds: [],
+        submitted: true,
+        unresolved: true
+      });
     } finally {
       jest.useRealTimers();
     }
