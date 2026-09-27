@@ -58,6 +58,7 @@
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
+- [FIX][all] A link that opens Activity with a filter set (the home "transfers waiting" prompt) shows the filter row on that filter at once when the tab was visited before, instead of sliding the selection across, popping it and fading the old one out; the Home action bar, the Home pages and the filter row read one rule for a tab shown again (#1194).
 
 ## 1.16.2 (2026-09-24)
 
