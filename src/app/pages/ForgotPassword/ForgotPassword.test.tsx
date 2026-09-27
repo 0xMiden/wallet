@@ -609,7 +609,7 @@ describe('ForgotPassword', () => {
 
   it('clears the spinner and surfaces the error when restoring the endpoint override fails after the wipe (#1093)', async () => {
     mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
-    mockPutToStorage.mockRejectedValue(new Error('quota exceeded'));
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
@@ -631,11 +631,14 @@ describe('ForgotPassword', () => {
     expect(captured.props?.isLoading).toBe(false);
     expect(captured.props?.recoveryError).toContain('storage unavailable');
     expect(mockNavigate).not.toHaveBeenCalled();
+    // A read that fails aborts before anything destructive runs.
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
   });
 
   it('retries from the start after a failed restore (#1093)', async () => {
     mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
-    mockPutToStorage.mockRejectedValue(new Error('quota exceeded'));
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
@@ -646,6 +649,61 @@ describe('ForgotPassword', () => {
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalled();
+    // Retry restarts from the read, not from wherever the first attempt broke.
+    expect(mockFetchFromStorage).toHaveBeenCalledTimes(2);
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the recover flow fail once and leaves back handled when the override restore fails on the import path (#1093)', async () => {
+    mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota exceeded'));
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    const handle = handleFor('recover');
+    expect(handle.fail).toHaveBeenCalledWith('unknown');
+    expect(handle.fail).toHaveBeenCalledTimes(1);
+    expect(handle.complete).not.toHaveBeenCalled();
+
+    const result = captured.backHandler!();
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('clears the spinner even when telemetry itself throws while reporting a failure (#1093)', async () => {
+    const boom = new Error('register failed');
+    mockRegisterWallet.mockRejectedValueOnce(boom);
+    mockClassifyError.mockImplementationOnce(() => {
+      throw new Error('classify blew up');
+    });
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    // Caught INSIDE act() (rather than via dispatch()/`.rejects`) so React still
+    // commits the pending state updates before this assertion reads them; a
+    // rejection that escapes act() leaves captured.props on its stale, pre-dispatch
+    // render, which would make every assertion below pass vacuously.
+    let caught: unknown;
+    await act(async () => {
+      try {
+        await captured.onAction!({ id: 'confirmation' });
+      } catch (e) {
+        caught = e;
+      }
+    });
+
+    if (!(caught instanceof Error)) throw new Error('expected the confirmation dispatch to reject with an Error');
+    expect(caught.message).toBe('classify blew up');
+    expect(captured.props?.isLoading).toBe(false);
+    // The user's message was set before telemetry ran, so it survives telemetry throwing.
+    expect(captured.props?.recoveryError).toContain('register failed');
   });
 
   // -------------------------------------------------------------------------

@@ -109,8 +109,9 @@ const ForgotPassword: FC = () => {
     return result?.best?.endpoint;
   }, []);
 
-  // 'ok' registered | 'failed' registration threw AFTER the destructive reset |
-  // 'skipped' preconditions absent so nothing ran and nothing was destroyed.
+  // 'ok' registered | 'failed' the guarded branch threw (usually after the
+  // destructive reset) | 'skipped' preconditions absent so nothing ran and
+  // nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
       // `clearClientStorage()` is a blanket `localStorage.clear()`, and on
@@ -161,10 +162,13 @@ const ForgotPassword: FC = () => {
         // empty wallet with no explanation — indistinguishable from data loss.
         // Surface it and stay put so Retry is reachable (#630). The try covers
         // the whole branch above because any step after the wipe leaves the
-        // user with nothing.
+        // user with nothing; a failed read aborts before the wipe, so the
+        // screen still stays put with Retry and nothing is lost.
         console.error(e);
-        settleRecoverFlow(handle => handle.fail(classifyError(e)));
+        // Set the message the user needs BEFORE telling telemetry, so a throw
+        // from classifyError or the flow handle can never suppress it.
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
+        settleRecoverFlow(handle => handle.fail(classifyError(e)));
         return 'failed';
       }
     }
@@ -259,9 +263,10 @@ const ForgotPassword: FC = () => {
             finishMark.arm();
             // Block the exit ONLY on a real failure. 'skipped' means the guarded
             // branch never ran, so nothing was destroyed and the previous
-            // navigate-home behaviour is still right; 'failed' means the reset
-            // already happened, so leaving would strand the user on a wiped
-            // wallet with no explanation (#630).
+            // navigate-home behaviour is still right; 'failed' means the guarded
+            // branch threw (usually after the destructive reset), so leaving
+            // would strand the user on a wiped wallet with no explanation
+            // (#630).
             if (outcome === 'failed') break;
             if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
             // Guardian recovery just completed — hand off to the side panel like
