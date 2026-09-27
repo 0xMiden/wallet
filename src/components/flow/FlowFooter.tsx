@@ -13,9 +13,9 @@ export interface FlowFooterProps {
   /** Names the footer for a caller's tests, so a page can find its own pinned row. */
   'data-slot'?: string;
   /**
-   * `false` on a page no tab bar is ever drawn over (onboarding, before there is a wallet): nothing
-   * raises `body[data-hide-navbar]` there, so the cushion would never collapse and the CTA would
-   * float a bar's height above the bottom. The footer then keeps the flat 16px page margin.
+   * `false` opts a footer out of the bar's room, which matters only inside TabLayout (the room is
+   * real there: 4rem, more on Android). Outside TabLayout the footer already keeps the flat 16px
+   * margin either way (onboarding, before there is a wallet), so the prop makes no difference there.
    */
   navbarCushion?: boolean;
   children: React.ReactNode;
@@ -32,17 +32,18 @@ export interface FlowFooterProps {
  * from main.css's padding transition) and `useSlideOnReflow` animates the move from where the CTA
  * was drawn.
  *
- * The cushion is on whenever a tab bar is mounted, and `data-navbar-cushion` is what drops it. The
- * docked bar draws OVER the page (`z-60`, screen edge), so the only safe rule is that the CTA clears
- * the bar whenever the bar is actually up: `body[data-hide-navbar]` says it is down, and a footer
- * outside TabLayout's root inherits no room at all (main.css declares it only there), so a slide page
- * beside the covered tab layer never reserves it. A page-shape guess in its place ("a pushed step has no bar under it") is really a guess
- * about a flag some OTHER component raises: a send sub-step is pushed but still lives inside
- * TabLayout, so on the frames where that flag failed to land, the bar sat on top of the CTA and
- * swallowed every click on it — a visible, enabled, stable button that could not be clicked.
- * Collapsed, this cushion is the same 1rem the guess resolved to, so nothing moves in the normal
- * case; it moves only when the bar is genuinely there, which is exactly when it must. A pushed
- * settings sub-page pins its CTA through here too, so it inherits the same guarantee.
+ * The cushion is on whenever the footer sits inside a mounted TabLayout, and `data-navbar-cushion` is
+ * what drops it. The docked bar draws OVER the page (`z-60`, screen edge), so the only safe rule is
+ * that the CTA clears the bar whenever the bar is actually up: `body[data-hide-navbar]` says it is
+ * down, and a footer outside TabLayout's root inherits no room at all (main.css declares it only
+ * there), so a slide page beside the covered tab layer never reserves it. A page-shape guess in its
+ * place ("a pushed step has no bar under it") is really a guess about a flag some OTHER component
+ * raises: a send sub-step is pushed but still lives inside TabLayout, so on the frames where that flag
+ * failed to land, the bar sat on top of the CTA and swallowed every click on it - a visible, enabled,
+ * stable button that could not be clicked. Collapsed, this cushion is the same 1rem the guess resolved
+ * to, so nothing moves in the normal case; it moves only when the bar is genuinely there, which is
+ * exactly when it must. A pushed settings sub-page pins its CTA through here too, so it inherits the
+ * same guarantee.
  */
 export const FlowFooter: React.FC<FlowFooterProps> = ({
   className,
