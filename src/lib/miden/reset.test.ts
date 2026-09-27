@@ -119,7 +119,7 @@ describe('clearStorage', () => {
   });
 
   it('rejects when listing the Preferences keys fails, and removes nothing', async () => {
-    (isMobile as jest.Mock).mockReturnValue(true);
+    jest.mocked(isMobile).mockReturnValue(true);
     _g.__resetTest.prefStub.keys.mockRejectedValue(new Error('bridge down'));
 
     await expect(clearStorage()).rejects.toThrow('bridge down');
@@ -127,7 +127,7 @@ describe('clearStorage', () => {
   });
 
   it('rejects when a Preferences removal fails, having never offered a kept key for removal', async () => {
-    (isMobile as jest.Mock).mockReturnValue(true);
+    jest.mocked(isMobile).mockReturnValue(true);
     _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['endpoint_overrides', 'vault_key', 'accounts'] });
     _g.__resetTest.prefStub.remove.mockRejectedValueOnce(new Error('write refused'));
 
@@ -194,6 +194,14 @@ describe('clearStorage', () => {
     mockBrowserStorageRemove.mockRejectedValue(new Error('quota'));
 
     await expect(clearStorage()).rejects.toThrow('quota');
+  });
+
+  it('rejects when listing the extension keys fails, and removes nothing', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockRejectedValue(new Error('storage down'));
+
+    await expect(clearStorage()).rejects.toThrow('storage down');
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
   });
 
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {

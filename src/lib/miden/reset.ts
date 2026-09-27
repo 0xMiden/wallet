@@ -48,14 +48,14 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Empties the `transactions` table and every platform key-value entry but `SETUP_PRESERVED_STORAGE_KEYS`,
- * but deliberately keeps the TridentMain Dexie connection alive. Using
- * `db.delete()` here would fire a `versionchange` event to every other open
- * handle (notably the page's, which was opened lazily by the onboarding UI),
- * force them closed, and leave no path to reopen them short of a page reload
- * — which is how we end up with `DatabaseClosedError` on every subsequent
- * page-side Dexie read and custom-faucet `fetchTokenMetadata` calls racing
- * against a partially-loaded SDK.
+ * Empties the `transactions` table and every platform key-value entry except
+ * `SETUP_PRESERVED_STORAGE_KEYS`, but deliberately keeps the TridentMain Dexie
+ * connection alive. Using `db.delete()` here would fire a `versionchange` event
+ * to every other open handle (notably the page's, which was opened lazily by the
+ * onboarding UI), force them closed, and leave no path to reopen them short of a
+ * page reload - which is how we end up with `DatabaseClosedError` on every
+ * subsequent page-side Dexie read and custom-faucet `fetchTokenMetadata` calls
+ * racing against a partially-loaded SDK.
  *
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
@@ -78,10 +78,10 @@ export async function clearStorage(clearDb: boolean = true) {
 
 /**
  * Hard reset — explicitly what the options-page "Reset Wallet" button wants.
- * Deletes the Dexie database (forcing every live handle closed) AND every platform key-value
- * entry but `PRESERVED_STORAGE_KEYS`. Callers should only use this when the user
- * has explicitly opted into a full wipe; for wallet creation flows use
- * `clearStorage` above instead.
+ * Deletes the Dexie database (forcing every live handle closed) AND every
+ * platform key-value entry except `PRESERVED_STORAGE_KEYS`. Callers should only
+ * use this when the user has explicitly opted into a full wipe; for wallet
+ * creation flows use `clearStorage` above instead.
  */
 export async function resetStorageDestructive() {
   await Repo.db.delete();

@@ -26,7 +26,7 @@ import { Vault } from './vault';
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
-const mockStorageSet = jest.fn(async (items: Record<string, any>) => {
+const mockStorageSet = jest.fn(async (items: Record<string, unknown>) => {
   Object.assign(memoryStore, items);
 });
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -479,8 +479,8 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     // 1 (attempt 1's only scheme scan) fails, call 2 (attempt 2's first scheme) succeeds
     // and is the match, call 3 (attempt 2's other scheme) is a plain miss and not pushed.
     let callCount = 0;
-    sdk.getMidenClient = jest.fn(async (_options: any) => ({
-      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, endpoint: string) => {
+    sdk.getMidenClient = jest.fn(async (_options: unknown) => ({
+      recoverGuardianAccountsBySeed: async (_deriveColdSeed: unknown, endpoint: string) => {
         callCount += 1;
         if (callCount === 1) {
           endpoints.push(endpoint);

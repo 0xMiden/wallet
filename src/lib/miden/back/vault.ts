@@ -950,9 +950,8 @@ export class Vault {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         // Prefer the endpoint the caller probed/picked for this recovery (stage 1
         // of #408). Fall back to the legacy global key (read above; frozen, and kept
-        // by the wipe - #408 stage 3),
-        // then the network default, so a recovery that detected nothing still
-        // resolves exactly as before.
+        // by the wipe - #408 stage 3), then the network default, so a recovery that
+        // detected nothing still resolves exactly as before.
         const resolvedGuardianEndpoint =
           guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
