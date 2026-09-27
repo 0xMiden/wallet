@@ -23,7 +23,7 @@ import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
+import { probeGuardianOrigin, registerGuardianOrigin } from './native-http';
 import { checkEndpointCommitment } from './operator-map';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -309,7 +309,11 @@ export const createDirectSwitchGuardianRequest = async (
     );
   }
 
-  registerGuardianOrigin(newGuardianEndpoint);
+  // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+  const settleProbe = probeGuardianOrigin(newGuardianEndpoint);
+  let commitment: string;
+  let pubkey: string | undefined;
+  let newGuardianPubkey: string;
   // Bounded, like every other guardian call on this path. `GuardianHttpClient`
   // uses bare `fetch` with no `AbortSignal`, so an endpoint that accepts the
   // connection and then goes silent produces no error at all — and this is the
@@ -319,15 +323,20 @@ export const createDirectSwitchGuardianRequest = async (
   // `switch-guardian` is in no requeue set and has no user Retry, so nothing ever
   // frees it. The coordinated arms wrap their outgoing-guardian calls in
   // `withOutgoingGuardianDeadline` for the same reason; this one had nothing.
-  const { commitment, pubkey } = await withTimeout(
-    new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
-    NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
-    `New guardian ${newGuardianEndpoint} pubkey`
-  );
   // Validate before it becomes MASM: this value is unchecked wire data and the
   // SDK splices it into transaction-script SOURCE. See
   // `assertGuardianKeyCommitment`.
-  const newGuardianPubkey = assertGuardianKeyCommitment(commitment, newGuardianEndpoint);
+  try {
+    ({ commitment, pubkey } = await withTimeout(
+      new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
+      NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+      `New guardian ${newGuardianEndpoint} pubkey`
+    ));
+    newGuardianPubkey = assertGuardianKeyCommitment(commitment, newGuardianEndpoint);
+    settleProbe(true);
+  } finally {
+    settleProbe(false);
+  }
   // The commitment is the ONLY field that reaches the chain, and both device keys
   // are about to sign an account update installing it — so a well-formed response
   // whose commitment does not belong to the key the operator actually signs with

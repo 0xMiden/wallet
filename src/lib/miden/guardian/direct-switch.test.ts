@@ -56,7 +56,19 @@ jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
 }));
 
-jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+// Each native-HTTP probe's verdict. The first settle decides, as in native-http.
+const mockProbeVerdicts: [string, boolean][] = [];
+jest.mock('./native-http', () => ({
+  registerGuardianOrigin: jest.fn(),
+  probeGuardianOrigin: (endpoint: string) => {
+    let settled = false;
+    return (isGuardian: boolean) => {
+      if (settled) return;
+      settled = true;
+      mockProbeVerdicts.push([endpoint, isGuardian]);
+    };
+  }
+}));
 
 // `checkEndpointCommitment` reaches the network through `@openzeppelin/guardian-client`'s
 // own HTTP client — a different class from the `miden-multisig-client` one mocked
@@ -224,6 +236,7 @@ const sdkAccount = {
 beforeEach(() => {
   jest.clearAllMocks();
   walletSignerArgs.length = 0;
+  mockProbeVerdicts.length = 0;
   mockWithWasmClientLock.mockImplementation(<T>(fn: () => Promise<T>) => fn());
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
@@ -683,6 +696,43 @@ describe('createDirectSwitchGuardianRequest', () => {
     await expect(createDirectSwitchGuardianRequest(walletAccount(), 'https://g.test', signWord)).rejects.toThrow(
       'not found in local client'
     );
+  });
+
+  // On mobile the new endpoint routes through native HTTP while it is checked, and stays routed
+  // only once its key commitment checks out.
+  it('keeps the new endpoint routed once its key commitment checks out', async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', true]]);
+  });
+
+  it('releases the new endpoint when its pubkey request fails', async () => {
+    mockGuardianGetPubkey.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('Failed to fetch');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+  });
+
+  it('releases the new endpoint when its key commitment is malformed', async () => {
+    mockGuardianGetPubkey.mockResolvedValueOnce({ commitment: '0xdeadbeef' });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('malformed key commitment');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+  });
+
+  it('releases the new endpoint when the Guardian client throws before any request goes out', async () => {
+    mockGuardianGetPubkey.mockImplementationOnce(() => {
+      throw new TypeError('Invalid URL');
+    });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('Invalid URL');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
   });
 });
 

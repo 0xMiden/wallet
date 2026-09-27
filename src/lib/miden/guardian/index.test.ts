@@ -183,6 +183,20 @@ jest.mock('./account', () => ({
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
 
+// Each native-HTTP probe's verdict. The first settle decides, as in native-http.
+const mockProbeVerdicts: [string, boolean][] = [];
+jest.mock('./native-http', () => ({
+  registerGuardianOrigin: jest.fn(),
+  probeGuardianOrigin: (endpoint: string) => {
+    let settled = false;
+    return (isGuardian: boolean) => {
+      if (settled) return;
+      settled = true;
+      mockProbeVerdicts.push([endpoint, isGuardian]);
+    };
+  }
+}));
+
 // atob is globally available on Node 16+ but jsdom stubs can vary — provide
 // a deterministic polyfill for these tests.
 if (typeof global.atob === 'undefined') {
@@ -806,7 +820,11 @@ describe('MultisigService', () => {
     // refuses anything else before it reaches the transaction script.
     const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
 
-    it('createSwitchGuardianProposal consults the new guardian for its commitment and builds the proposal', async () => {
+    beforeEach(() => {
+      mockProbeVerdicts.length = 0;
+    });
+
+    it('createSwitchGuardianProposal builds the proposal from the new guardian commitment and keeps its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
@@ -818,21 +836,24 @@ describe('MultisigService', () => {
       // `createSwitchGuardianProposal` already creates the proposal — it must NOT
       // be re-created via the generic `createProposal` (that would duplicate it).
       expect(multisig.createProposal).not.toHaveBeenCalled();
+      // On mobile the new endpoint stays routed through native HTTP once its key checks out.
+      expect(mockProbeVerdicts).toEqual([['https://new', true]]);
     });
 
-    it('createSwitchGuardianProposal re-throws when the new guardian fetch fails', async () => {
+    it('createSwitchGuardianProposal re-throws when the new guardian fetch fails and releases its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockRejectedValueOnce(new Error('unreachable'));
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('unreachable');
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
     // The SDK interpolates this value into MASM source after a `normalizeHexWord`
     // that only lowercases and left-pads to 64, so an over-long response passes
     // through with whatever followed it — including newlines. The coordinated path
     // has the same sink as the direct one and gets the same guard.
-    it('createSwitchGuardianProposal refuses a malformed commitment from the new guardian', async () => {
+    it('createSwitchGuardianProposal refuses a malformed commitment and releases the new origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockResolvedValueOnce({
@@ -842,6 +863,7 @@ describe('MultisigService', () => {
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('malformed key commitment');
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {

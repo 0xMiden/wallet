@@ -23,7 +23,7 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
+import { probeGuardianOrigin, registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -510,16 +510,23 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
-      registerGuardianOrigin(newGuardianEndpoint);
-      const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      // Fetch the new guardian's ECDSA commitment to match the account's scheme.
-      // Validated before use: the SDK interpolates this wire value into
-      // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
-      // nor length. Same boundary the direct-switch path applies.
-      const commitment = assertGuardianKeyCommitment(
-        (await newGuardian.getPubkey('ecdsa')).commitment,
-        newGuardianEndpoint
-      );
+      // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+      const settleProbe = probeGuardianOrigin(newGuardianEndpoint);
+      let commitment: string;
+      try {
+        const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
+        // Fetch the new guardian's ECDSA commitment to match the account's scheme.
+        // Validated before use: the SDK interpolates this wire value into
+        // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
+        // nor length. Same boundary the direct-switch path applies.
+        commitment = assertGuardianKeyCommitment(
+          (await newGuardian.getPubkey('ecdsa')).commitment,
+          newGuardianEndpoint
+        );
+        settleProbe(true);
+      } finally {
+        settleProbe(false);
+      }
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await withWasmClientLock(() =>

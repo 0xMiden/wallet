@@ -15,7 +15,6 @@
  * `mock`-prefixed module-scope names are what the hoister allows factories to
  * close over.
  */
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import type { KeyDerivation } from 'lib/shared/types';
 
@@ -70,8 +69,20 @@ const mockSeedsRequested: string[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
 
+// The native-HTTP probe each endpoint takes: the endpoints probed, and each probe's verdict. The
+// first settle decides, as in native-http.
+const mockProbedEndpoints: string[] = [];
+const mockProbeVerdicts: [string, boolean][] = [];
 jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: jest.fn()
+  probeGuardianOrigin: (endpoint: string) => {
+    mockProbedEndpoints.push(endpoint);
+    let settled = false;
+    return (isGuardian: boolean) => {
+      if (settled) return;
+      settled = true;
+      mockProbeVerdicts.push([endpoint, isGuardian]);
+    };
+  }
 }));
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
@@ -175,6 +186,8 @@ beforeEach(() => {
   mockSecretKeys.length = 0;
   mockSigners.length = 0;
   mockSeedsRequested.length = 0;
+  mockProbedEndpoints.length = 0;
+  mockProbeVerdicts.length = 0;
   jest.clearAllMocks();
   scriptNonces();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -386,11 +399,53 @@ describe('discoverGuardianForSeed', () => {
     }
   });
 
-  it('registers every probed origin for the mobile CORS bypass', async () => {
+  it('takes a native-HTTP probe of every endpoint, spelled without its trailing slash', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [`${OZ}/`] });
 
-    // Trailing slash stripped before registering / probing.
-    expect(jest.mocked(registerGuardianOrigin)).toHaveBeenCalledWith(OZ);
+    expect(mockProbedEndpoints).toEqual([OZ]);
+  });
+
+  // On mobile an endpoint stays routed through native HTTP only when it answered with the account.
+  it('keeps the origin of an operator that holds the account and releases the others', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY] });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, true],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe is aborted', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+    const controller = new AbortController();
+    controller.abort();
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal: controller.signal });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe throws', async () => {
+    const signal = new AbortController().signal;
+    // An unreadable signal is the one input that makes the probe body itself throw.
+    Object.defineProperty(signal, 'aborted', {
+      get: () => {
+        throw new Error('signal unreadable');
+      }
+    });
+
+    await expect(
+      discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal })
+    ).rejects.toThrow('signal unreadable');
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
   });
 
   it('probes only the single configured operator on devnet', async () => {
