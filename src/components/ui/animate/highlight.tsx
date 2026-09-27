@@ -58,10 +58,17 @@
 
 import * as React from 'react';
 
-import { AnimatePresence, motion, useReducedMotion, type Transition } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion, type Transition, type Variants } from 'framer-motion';
 
 import { resolveTransition } from 'lib/animation';
 import { cn } from 'lib/ui/util';
+
+// A leaving highlight keeps the props of its last render, so its exit resolves against the transition
+// AnimatePresence hands it (`custom`) at the moment it leaves: one leaving on an instant transition (a
+// bar shown again) vanishes at once instead of fading out on the slide it was drawn with.
+const highlightExit: Variants = {
+  exit: (transition: Transition) => ({ opacity: 0, transition })
+};
 
 type HighlightMode = 'children' | 'parent';
 
@@ -550,8 +557,13 @@ const HighlightItem = React.forwardRef<HTMLElement, HighlightItemProps>(function
         }
       : {};
 
+  const exitTransition: Transition = {
+    ...itemTransition,
+    delay: (itemTransition?.delay ?? 0) + (exitDelay ?? contextExitDelay ?? 0) / 1000
+  };
+
   const highlight = (
-    <AnimatePresence initial={false} mode="wait">
+    <AnimatePresence initial={false} mode="wait" custom={exitTransition}>
       {isActive && !isDisabled && (
         <motion.div
           layoutId={`transition-background-${contextId}`}
@@ -566,13 +578,8 @@ const HighlightItem = React.forwardRef<HTMLElement, HighlightItemProps>(function
           transition={itemTransition}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{
-            opacity: 0,
-            transition: {
-              ...itemTransition,
-              delay: (itemTransition?.delay ?? 0) + (exitDelay ?? contextExitDelay ?? 0) / 1000
-            }
-          }}
+          variants={highlightExit}
+          exit="exit"
           {...dataAttributes}
         />
       )}

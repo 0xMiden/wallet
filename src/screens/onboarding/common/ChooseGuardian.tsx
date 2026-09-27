@@ -13,7 +13,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
-import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
 import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
@@ -85,9 +85,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
-      // Sanitized on both sides: a stored endpoint can differ from the option's
-      // literal by a trailing slash (RotateGuardian compares them the same way).
-      const current = options.find(o => sanitizeGuardianUrl(o.endpoint) === sanitizeGuardianUrl(currentEndpoint));
+      // Compared as endpoints: a stored endpoint can differ from the option's literal
+      // by host case, an explicit default port, or trailing slash (RotateGuardian
+      // compares them the same way).
+      const current = options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint));
       if (current) return current.id;
     }
     return options[0]?.id ?? '';
@@ -168,8 +169,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   const items: ChoiceCardItem[] = options.map(option => {
     const isDefault = option.id === defaultId;
-    const isCurrent =
-      currentEndpoint != null && sanitizeGuardianUrl(option.endpoint) === sanitizeGuardianUrl(currentEndpoint);
+    const isCurrent = currentEndpoint != null && sameGuardianEndpoint(option.endpoint, currentEndpoint);
     const isOffline = isOfflineEndpoint(option.endpoint);
     return {
       id: option.id,
