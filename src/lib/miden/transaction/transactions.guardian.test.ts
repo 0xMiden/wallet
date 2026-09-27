@@ -966,6 +966,11 @@ describe('generateTransaction — Guardian routing', () => {
       __anchorFromBytes: Array.from(bytes),
       free: jest.fn()
     }));
+    // Same reason as above: a stale-state-rebuild test queues a `mockResolvedValueOnce`
+    // here, and `clearAllMocks` would leave it queued for whichever later test's first
+    // call happens to land on this mock.
+    mockCommitmentFromPublicKeyHex.mockReset();
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (_publicKeyHex: string) => '0xnewcommit');
     txStore.length = 0;
   });
 
