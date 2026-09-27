@@ -87,6 +87,11 @@ export const TRANSACTION_INTERRUPTED_ON_STARTUP = 'Transaction was interrupted w
 
 export const INVALID_NOTE_ERROR = 'Note is invalid';
 
+// Thrown before anything is minted: only the bytes built at initiate carry the mandate binding, and a note built
+// without it is one the allocator refuses to bind.
+export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
+  'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
+
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**

@@ -1857,6 +1857,30 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx8.status).not.toBe(ITransactionStatus.Queued);
     expect(tx8.nextEligibleAt).toBeUndefined();
     expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(4);
+
+    // ---- Phase 9: an Earn deposit deferred by the pre-flight sync keeps its request ----
+    // Its bytes carry the mandate-binding attachment and nothing on the row can rebuild it.
+    networkUp = false;
+    const earnBytes = new Uint8Array([9, 9]);
+    txStore.push({
+      id: 'tx-9',
+      type: 'earn-deposit',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Depositing',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
+      requestBytes: earnBytes
+    });
+
+    const result9 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result9).toBe(false);
+    const tx9 = txStore.find((t: any) => t.id === 'tx-9');
+    expect(tx9.status).toBe(ITransactionStatus.Queued);
+    expect(tx9.stage).toBe('syncing');
+    expect(tx9.requestBytes).toBe(earnBytes);
   });
 });
 

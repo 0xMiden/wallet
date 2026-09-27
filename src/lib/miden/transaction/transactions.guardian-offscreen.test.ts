@@ -1646,14 +1646,10 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
-  it('an unauthorized earn-deposit stays Failed — its caller is waiting on the result', async () => {
-    // `earn-deposit` is result-awaiting (`isResultAwaitingRow`): the Epoch flow
-    // reads `resultBytes` / `outputNoteIds` back off the finished row. Requeueing
-    // one leaves that caller waiting on a row that will not finish this cycle,
-    // which is the same hang the neighbouring post-submit branch fails the row to
-    // avoid. Its collateral note is also bound to an allocator mandate, so it is
-    // not a transfer that can simply be rebuilt. It must fail rather than retry,
-    // even though the error is the same recoverable race for every other type.
+  it('an unauthorized earn-deposit stays Failed - the unauthorized arm leaves Earn out', async () => {
+    // A scope choice (see UNAUTHORIZED_EXECUTION_REQUEUEABLE): this arm's short retry cap does not extend to
+    // Earn, so a deposit that races a signature fails at once, even though the error is the same recoverable
+    // race that requeues every other value-moving type.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
       new Error(
