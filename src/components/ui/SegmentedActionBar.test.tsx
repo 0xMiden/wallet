@@ -137,10 +137,15 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
 
     // The floor, not a fixed width: the segment grows to fit a longer label and gives width back
     // when the bar runs out (#1069).
-    expect(getTab('Send')).toHaveClass('min-w-28', 'max-[359px]:min-w-24', 'flex-initial', 'px-2.5', 'h-12');
+    expect(getTab('Send')).toHaveClass('min-w-28', 'max-[359px]:min-w-24', 'px-2.5', 'h-12');
     expect(getTab('Send')).not.toHaveClass('w-28');
     expect(getTab('Send')).not.toHaveClass('max-[359px]:w-24');
-    expect(getTab('Send')).not.toHaveClass('flex-none');
+    // No flex, shrink or grow utility: the CSS default (0 1 auto) is what lets it shrink to its ellipsis.
+    expect(
+      Array.from(getTab('Send').classList).filter(c =>
+        /^(flex-(none|auto|initial|\d+)|shrink(-\d+)?|grow(-\d+)?)$/.test(c)
+      )
+    ).toEqual([]);
     expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1', 'min-w-0');
 
     // Inactive: stretches to fill the row with no horizontal padding.
