@@ -4693,6 +4693,24 @@
     "message": "Für die Kontoerstellung ist eine gespeicherte Wiederherstellungsphrase erforderlich. Die Eingabe nur für diesen Vorgang ist noch nicht möglich.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "Ihr Konto konnte nicht wiederhergestellt werden. Ihre Wiederherstellungsphrase ist in Ordnung. Bitte versuchen Sie die Wiederherstellung erneut. Details: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "Das Konto konnte nicht erstellt werden. Bitte versuchen Sie es erneut. Details: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "Für diesen Vorgang benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This action requires your recovery phrase."

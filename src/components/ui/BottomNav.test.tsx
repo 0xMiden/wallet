@@ -110,6 +110,22 @@ describe('BottomNav — exports & structure', () => {
     expect(nav.className).not.toContain('shadow-');
   });
 
+  it('pads a docked bar by the whole inset plus 8px with `clearInset`, so the tabs end above the system bar', () => {
+    const { container } = renderNav({ docked: true, clearInset: true });
+
+    const nav = container.querySelector('nav')!;
+    expect(nav).toHaveClass('w-full', 'border-t', 'pt-2', 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]');
+    expect(nav.className).not.toContain('-16px');
+  });
+
+  it('ignores `clearInset` on the floating pill, which never meets the inset', () => {
+    const { container } = renderNav({ clearInset: true });
+
+    const nav = container.querySelector('nav')!;
+    expect(nav).toHaveClass('rounded-3xl', 'py-2');
+    expect(nav.className).not.toContain('safe-area-inset-bottom');
+  });
+
   it('appends a caller-supplied className to the nav container', () => {
     const { container } = renderNav({ className: 'my-extra-class' });
 
@@ -354,6 +370,37 @@ describe('BottomNav — corner overlay', () => {
 
     expect(container.querySelector('[data-slot="bottom-nav-corner"]')).toBeNull();
     expect(container.querySelector('nav')!.children).toHaveLength(1);
+  });
+
+  it('ends the corner at the inset with `clearInset`, so the ribbon sits above the system bar', () => {
+    renderNav({ docked: true, clearInset: true, corner: <button type="button">Testnet</button> });
+
+    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
+    expect(box).toHaveAttribute('data-slot', 'bottom-nav-corner');
+    expect(box).toHaveClass(
+      'absolute',
+      'inset-x-0',
+      'top-0',
+      'bottom-[env(safe-area-inset-bottom)]',
+      'overflow-hidden'
+    );
+    expect(box).not.toHaveClass('inset-0');
+  });
+
+  it('keeps the corner on the whole docked bar without `clearInset`', () => {
+    renderNav({ docked: true, corner: <button type="button">Testnet</button> });
+
+    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
+    expect(box).toHaveClass('inset-0');
+    expect(box.className).not.toContain('safe-area-inset-bottom');
+  });
+
+  it('ignores `clearInset` on the floating pill corner, which never meets the inset', () => {
+    renderNav({ clearInset: true, corner: <button type="button">Testnet</button> });
+
+    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
+    expect(box).toHaveClass('inset-0');
+    expect(box.className).not.toContain('safe-area-inset-bottom');
   });
 });
 
