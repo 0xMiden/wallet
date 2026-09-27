@@ -3619,8 +3619,8 @@ describe('generateTransaction — Guardian routing', () => {
   });
 
   it('Guardian replace-hot-key: a 429 is NOT requeued — structural ops must not re-mint a hot key (#617)', async () => {
-    // Same exclusion as the 409 case: requeueing a structural op
-    // re-runs the rotation, which mints before its proposal and persists only after it.
+    // Same exclusion as the 409 case: requeueing a structural op re-runs the
+    // rotation, which mints before its proposal and persists only after it.
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const txId = 'replace-hot-rate-limited';
     txStore.push({
