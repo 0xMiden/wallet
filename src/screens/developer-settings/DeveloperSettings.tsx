@@ -116,7 +116,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [saving, setSaving] = useState(false);
+  // A ref, not `saving`: a second tap before the re-render runs a closure that still reads it false.
+  const savingRef = useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [resetFailed, setResetFailed] = useState(false);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
@@ -179,12 +182,15 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setSaveFailed(false);
     try {
       await applyEndpointOverride(form);
     } catch (error) {
       console.warn('[developer-settings] Could not save the endpoint override', error);
+      savingRef.current = false;
       setSaving(false);
       setSaveFailed(true);
       return;
@@ -219,12 +225,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // an in-progress sync/tx. Once a wallet exists, an override change here still
     // applies to this realm but requires an explicit reload to reach the SW,
     // unchanged from before this nudge existed.
-    // The override is stored either way; a worker that missed the nudge reads it when it next starts.
-    if (isExtension() && noWalletYet) {
-      await reloadEndpointOverridesInSW().catch(error =>
-        console.warn('[developer-settings] Could not nudge the service worker to reload endpoints', error)
-      );
-    }
+    if (isExtension() && noWalletYet) await reloadEndpointOverridesInSW();
+    savingRef.current = false;
     setSaving(false);
     navigate('/');
   };
@@ -242,8 +244,15 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     if (!confirmed) return;
 
     hapticMedium();
-    await clearEndpointOverride();
-    await resetStorageDestructive();
+    setResetFailed(false);
+    try {
+      await clearEndpointOverride();
+      await resetStorageDestructive();
+    } catch (error) {
+      console.warn('[developer-settings] Could not reset the endpoints and wallet storage', error);
+      setResetFailed(true);
+      return;
+    }
     // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
     // override cache) can survive it — mirrors the canonical reset in src/options.tsx.
     if (isExtension()) {
@@ -278,14 +287,19 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       footerLayout="stack"
       footer={
         readOnly ? (
-          // Destructive: it wipes the wallet and starts onboarding over.
-          <Button
-            className={actionButton}
-            variant={ButtonVariant.Destructive}
-            title={t('devEndpointResetAndReonboard')}
-            data-testid="dev-endpoints-reset"
-            onClick={handleReset}
-          />
+          <>
+            <ErrorLine data-testid="dev-endpoints-reset-error">
+              {resetFailed ? t('devEndpointResetFailed') : null}
+            </ErrorLine>
+            {/* Destructive: it wipes the wallet and starts onboarding over. */}
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Destructive}
+              title={t('devEndpointResetAndReonboard')}
+              data-testid="dev-endpoints-reset"
+              onClick={handleReset}
+            />
+          </>
         ) : (
           <>
             <ErrorLine data-testid="dev-endpoints-save-error">

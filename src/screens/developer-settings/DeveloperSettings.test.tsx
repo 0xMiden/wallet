@@ -240,30 +240,34 @@ describe('DeveloperSettings', () => {
     applyEndpointOverride.mockResolvedValue(undefined);
   });
 
-  it('clears the error when a later save succeeds', async () => {
+  it('clears the error as soon as a later save starts, and navigates home once it succeeds', async () => {
     applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await screen.findByRole('alert');
 
+    let finishRetry!: () => void;
+    applyEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishRetry = resolve)));
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('dev-endpoints-save')).toHaveAttribute('data-loading', 'true');
+
+    finishRetry();
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     expect(screen.queryByRole('alert')).toBeNull();
-
-    applyEndpointOverride.mockResolvedValue(undefined);
   });
 
-  it('still navigates home when the service-worker nudge fails after the endpoints were saved', async () => {
-    mockIsExtension.value = true;
-    mockWalletState.status = WalletStatus.Idle;
-    reloadEndpointOverridesInSW.mockRejectedValueOnce(new Error('sw unreachable'));
+  it('writes once when Save is pressed again while a save is still running', async () => {
+    let finishSave!: () => void;
+    applyEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishSave = resolve)));
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    expect(applyEndpointOverride).toHaveBeenCalledTimes(1);
 
+    finishSave();
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
-    expect(screen.queryByRole('alert')).toBeNull();
-
-    reloadEndpointOverridesInSW.mockResolvedValue(undefined);
+    expect(applyEndpointOverride).toHaveBeenCalledTimes(1);
   });
 
   it('discards the sync fuse on save, since every conclusion in it was about the OLD node', async () => {
@@ -580,6 +584,51 @@ describe('DeveloperSettings', () => {
     expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('says the reset did not finish, and does not reload, when clearing the override fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    clearEndpointOverride.mockRejectedValueOnce(new Error('storage write failed'));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointResetFailed');
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+    expect(runtimeReload).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('says the reset did not finish, and does not reload, when wiping storage fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointResetFailed');
+    expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(runtimeReload).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('clears the reset error when a new reset starts', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await screen.findByRole('alert');
+
+    let finishClear!: () => void;
+    clearEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishClear = resolve)));
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(runtimeReload).not.toHaveBeenCalled();
+
+    finishClear();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    warn.mockRestore();
   });
 
   it('shows a pending health note while a probe is in flight', () => {
