@@ -503,6 +503,10 @@
     "message": "例: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "http:// または https:// で始まる有効な URL を入力してください",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "このURLにはGuardianへの回答がありません。確認してから再度お試しください。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "暗号化されたウォレットファイルにアクセスするには、パスワードを入力してください。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "私は、Breadを含め、誰に対しても自分の暗号化されたウォレットファイルを共有することはありません。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "このファイルからは復元されませんでした：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 秘密鍵でインポートされたアカウントは、ウォレットファイルから復元することはできません。また、このファイルから復元されたウォレットには、それらを追加することもできません。これらは独立したウォレットとして復元され、「秘密鍵のインポート」機能を使用して、Midenの日常用秘密鍵およびEVM秘密鍵が設定されます。これらの鍵は安全に保管してください。表示するには、そのアカウントを選択した状態で、「設定」→「鍵」→「秘密鍵を表示」を選択してください。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "ウォレットファイルを暗号化するには、パスワードを入力してください。",
@@ -5249,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "このウォレットのロック解除方法の確認に、通常より時間がかかっています。再試行するには、戻ってこのページを再度開いてください。",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",

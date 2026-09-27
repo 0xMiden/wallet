@@ -16,6 +16,7 @@ import {
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS
 } from 'lib/miden-chain/networks-config';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 
 export * from './networks-config';
 
@@ -110,7 +111,7 @@ export function getGuardianOptionsForNetwork(
 
   // Developer override: a custom guardian URL is offered as an extra selectable option.
   const customGuardian = getEffectiveGuardianUrl();
-  if (customGuardian && !options.some(o => o.endpoint === customGuardian)) {
+  if (customGuardian && !options.some(o => sameGuardianEndpoint(o.endpoint, customGuardian))) {
     options.push({
       id: 'custom',
       name: 'Custom',

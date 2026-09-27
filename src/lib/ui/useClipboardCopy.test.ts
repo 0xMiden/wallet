@@ -2,13 +2,17 @@ import React from 'react';
 
 import { act, renderHook } from '@testing-library/react';
 
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
+
 import { useClipboardCopy } from './useClipboardCopy';
 
 let resolveWrite: (() => void) | undefined;
+let rejectWrite: ((error: Error) => void) | undefined;
 const mockWrite = jest.fn(
   (..._args: unknown[]) =>
-    new Promise<void>(resolve => {
+    new Promise<void>((resolve, reject) => {
       resolveWrite = resolve;
+      rejectWrite = reject;
     })
 );
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockWrite(...args) } }));
@@ -16,6 +20,7 @@ jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown
 beforeEach(() => {
   jest.clearAllMocks();
   resolveWrite = undefined;
+  rejectWrite = undefined;
 });
 
 afterEach(() => {
@@ -41,8 +46,9 @@ it('writes the given text and flips copied true, then false after the feedback w
   expect(result.current.copied).toBe(false);
 });
 
-it('leaves copied false and arms no timer when the write is refused', async () => {
+it('leaves copied false and reports a failure that decays when the write is refused', async () => {
   jest.useFakeTimers();
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   mockWrite.mockRejectedValueOnce(new Error('refused'));
   const { result } = renderHook(() => useClipboardCopy('0xabc123'));
 
@@ -51,7 +57,11 @@ it('leaves copied false and arms no timer when the write is refused', async () =
   });
 
   expect(result.current.copied).toBe(false);
-  expect(jest.getTimerCount()).toBe(0);
+  expect(result.current.status).toBe('failure');
+  expect(errorSpy).toHaveBeenCalledWith('[clipboard] failed to copy:', expect.any(Error));
+  // The only timer is the failure's decay back to idle.
+  expect(jest.getTimerCount()).toBe(1);
+  errorSpy.mockRestore();
 });
 
 it('does not arm the revert timer for a write that resolves after unmount', async () => {
@@ -96,4 +106,133 @@ it('resets the mounted guard on a remount, so feedback still works afterward', a
   });
 
   expect(result.current.copied).toBe(true);
+});
+
+it('reports a rejected write as a failure, then idle after the feedback window', async () => {
+  jest.useFakeTimers();
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const { result } = renderHook(() => useClipboardCopy('0xabc123'));
+
+    await act(async () => {
+      const p = result.current.copy();
+      rejectWrite?.(new Error('denied'));
+      await p;
+    });
+
+    expect(result.current.status).toBe('failure');
+    expect(result.current.copied).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+
+    act(() => {
+      jest.advanceTimersByTime(COPY_FEEDBACK_MS - 1);
+    });
+    expect(result.current.status).toBe('failure');
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current.status).toBe('idle');
+  } finally {
+    errorSpy.mockRestore();
+  }
+});
+
+it('keeps a failure that lands inside a success window up for its own full window', async () => {
+  jest.useFakeTimers();
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const { result } = renderHook(() => useClipboardCopy('0xabc123'));
+    const gap = 500;
+
+    await act(async () => {
+      const p = result.current.copy();
+      resolveWrite?.();
+      await p;
+    });
+    expect(result.current.status).toBe('success');
+
+    act(() => {
+      jest.advanceTimersByTime(gap);
+    });
+    await act(async () => {
+      const p = result.current.copy();
+      rejectWrite?.(new Error('denied'));
+      await p;
+    });
+    expect(result.current.status).toBe('failure');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+
+    // The success's timer would fire here had the failure not cleared it.
+    act(() => {
+      jest.advanceTimersByTime(COPY_FEEDBACK_MS - gap);
+    });
+    expect(result.current.status).toBe('failure');
+
+    act(() => {
+      jest.advanceTimersByTime(gap);
+    });
+    expect(result.current.status).toBe('idle');
+  } finally {
+    errorSpy.mockRestore();
+  }
+});
+
+it('does not arm the revert timer for a write that rejects after unmount', async () => {
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+  try {
+    const { result, unmount } = renderHook(() => useClipboardCopy('0xabc123'));
+
+    let copyPromise: Promise<void>;
+    act(() => {
+      copyPromise = result.current.copy();
+    });
+
+    unmount();
+    setTimeoutSpy.mockClear();
+
+    await act(async () => {
+      rejectWrite?.(new Error('denied'));
+      await copyPromise;
+    });
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+  } finally {
+    setTimeoutSpy.mockRestore();
+    errorSpy.mockRestore();
+  }
+});
+
+it('drops a copy made while a write is in flight, and a later copy writes again once that write has rejected', async () => {
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    const { result } = renderHook(() => useClipboardCopy('0xabc123'));
+
+    let first: Promise<void>;
+    act(() => {
+      first = result.current.copy();
+    });
+    act(() => {
+      void result.current.copy();
+    });
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+
+    // Settled by REJECTING: a latch released only on success would still be held after this.
+    await act(async () => {
+      rejectWrite?.(new Error('denied'));
+      await first;
+    });
+    expect(result.current.status).toBe('failure');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+    // The dropped copy is not replayed once the write settles.
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      void result.current.copy();
+    });
+    expect(mockWrite).toHaveBeenCalledTimes(2);
+  } finally {
+    errorSpy.mockRestore();
+  }
 });

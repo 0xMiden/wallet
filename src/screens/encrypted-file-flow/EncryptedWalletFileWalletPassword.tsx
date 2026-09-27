@@ -11,9 +11,12 @@ import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
+import { getCurrentLocale } from 'lib/i18n/core';
 import { Vault } from 'lib/miden/back/vault';
+import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -34,6 +37,10 @@ const getTimeLeft = (start: number, end: number) => {
   return `${checkTime(minutes)}:${checkTime(seconds)}`;
 };
 
+// Intl rejects the underscore tags (en_GB) getCurrentLocale returns.
+const formatNameList = (names: string[]) =>
+  new Intl.ListFormat(getCurrentLocale().replace('_', '-'), { type: 'conjunction' }).format(names);
+
 export interface EncryptedWalletFileWalletPasswordProps {
   onGoNext: () => void;
   onGoBack: () => void;
@@ -48,6 +55,9 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 }) => {
   const { unlock } = useMidenContext();
   const { t } = useTranslation();
+  // The exporter drops these records by the same rule, so the notice matches the file.
+  const accounts = useWalletStore(s => s.accounts);
+  const excludedAccounts = useMemo(() => accounts.filter(isExcludedFromWalletFile), [accounts]);
   const {
     setError,
     clearErrors,
@@ -195,6 +205,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           />
         )}
       </SubPageSection>
+
+      {excludedAccounts.length > 0 && (
+        <Notice
+          tone="warning"
+          title={t('encryptedWalletFileExcludedTitle', {
+            accountNames: formatNameList(excludedAccounts.map(account => account.name))
+          })}
+          data-testid="encrypted-file-excluded-accounts"
+        >
+          {t('encryptedWalletFileExcludedDesc')}
+        </Notice>
+      )}
 
       <CheckboxConsent
         checked={confirmed}

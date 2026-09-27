@@ -503,6 +503,10 @@
     "message": "예: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "클립보드에서 개인 키를 제거할 수 없습니다. 계속하기 전에 직접 지워 주십시오.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "설정",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "http:// 또는 https://로 시작하는 유효한 URL을 입력하세요.",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "이 URL에는 'Guardian'에 대한 답변이 없습니다. 해당 URL을 확인하고 다시 시도해 주십시오.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "암호화된 지갑 파일에 액세스하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "저는 Bread를 포함해 누구에게도 제 암호화된 지갑 파일을 공유하지 않을 것입니다.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "이 파일에서 복원되지 않음: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 개인 키로 가져온 계정은 지갑 파일에서 복원할 수 없으며, 이 파일로 복원한 지갑에는 해당 계정을 추가할 수 없습니다. 이러한 계정은 “개인 키 가져오기”를 통해 설정된 별도의 지갑으로 복원되며, 해당 계정의 Miden everyday 및 EVM 개인 키가 함께 포함됩니다. 해당 키를 안전하게 보관하십시오: 해당 계정을 선택한 상태에서 설정 → 키 → 개인 키 표시를 통해 키를 확인할 수 있습니다.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "지갑 파일을 암호화하려면 비밀번호를 입력하세요.",
@@ -5249,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "이 지갑의 잠금 해제 방법을 확인하는 데 평소보다 시간이 더 오래 걸리고 있습니다. 다시 시도하려면 뒤로 돌아가서 이 페이지를 다시 열어 주세요.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "QR 코드 색상 변경",

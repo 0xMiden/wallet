@@ -503,6 +503,10 @@
     "message": "например, APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ваш приватный ключ не удалось удалить из буфера обмена. Удалите его самостоятельно, прежде чем продолжить.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Настройки",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "По этому URL-адресу не отвечает Guardian. Проверьте его и попробуйте ещё раз.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите пароль, чтобы получить доступ к зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Я не буду никому предоставлять доступ к своему зашифрованному файлу кошелька, в том числе и компании Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Не восстановлено из этого файла: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Учётные записи, импортированные с помощью закрытых ключей, не могут быть восстановлены из файла кошелька, а кошелек, восстановленный из этого файла, не может их добавить. Они восстанавливаются как отдельный кошелек, настроенный с помощью функции «Импорт закрытых ключей» и их ключей Miden everyday и EVM. Храните эти ключи в безопасности: отобразите их в «Настройки» → «Ключи» → «Показать закрытый ключ», выбрав соответствующую учётную запись.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Введите пароль для шифрования файла кошелька.",
@@ -5249,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "Проверка метода разблокировки этого кошелька занимает больше времени, чем обычно. Чтобы повторить попытку, вернитесь назад и заново откройте эту страницу.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "Изменить цвет QR-кода",

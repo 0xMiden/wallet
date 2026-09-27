@@ -2,14 +2,20 @@ import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { AccountInspector, EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
+import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
+import type { AssertLive } from '../sdk/miden-client-interface';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account.
@@ -260,10 +266,40 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
   if (!endpoint) return null;
   for (const option of GUARDIAN_OPTIONS) {
     for (const url of option.endpoint.values()) {
-      if (url === endpoint) return PROVIDER_ID_MAP[option.id] ?? 'custom';
+      if (sameGuardianEndpoint(url, endpoint)) return PROVIDER_ID_MAP[option.id] ?? 'custom';
     }
   }
   return 'custom';
+}
+
+/**
+ * How long a Guardian account creation may spend waiting out guardian 429s,
+ * across both of its guardian calls. The creation runs inside the WASM client
+ * lock, so its waits are held against `WASM_LOCK_WATCHDOG_MS` and block every
+ * other WASM operation in the realm; 90 s covers one full per-minute cooldown
+ * and keeps the onboarding spinner bounded. Moving the waits off the lock is
+ * wallet#1207.
+ */
+export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
+
+const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
+
+/**
+ * Sleep for a guardian 429 wait. Chrome stops an idle MV3 service worker after
+ * ~30 s and a wait can last up to GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, so on the
+ * extension a repeating alarm keeps the worker alive for the wait, as the
+ * transaction processor's does for its loop, and is cleared when the wait ends.
+ * The polyfill is loaded only there: it throws at load outside an extension, and
+ * this module is in the mobile bundle.
+ */
+async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
+  const browser = isExtension() ? await import('webextension-polyfill').then(m => m.default) : undefined;
+  await browser?.alarms.create(GUARDIAN_WAIT_KEEPALIVE_ALARM, { periodInMinutes: 0.4 });
+  try {
+    await new Promise(resolve => setTimeout(resolve, ms));
+  } finally {
+    await browser?.alarms.clear(GUARDIAN_WAIT_KEEPALIVE_ALARM);
+  }
 }
 
 /**
@@ -282,12 +318,17 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  *   derivation. Account ID is a content hash that includes the guardian pubkey
  *   baked into storage, so the import flow passes the effective default
  *   guardian endpoint to reproduce the ID the account originally had.
+ * @param assertLive - The caller's WASM lock hold re-check. The creation runs
+ *   inside that hold and its 429 waits park there; an evicted flow is abandoned,
+ *   not cancelled, so every WASM call and guardian write after a parking await
+ *   runs it first, and the poison error it throws leaves here unwrapped.
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
   coldSeed?: Uint8Array,
   skipRegistration: boolean = false,
-  guardianEndpointOverride?: string
+  guardianEndpointOverride?: string,
+  assertLive: AssertLive = () => {}
 ): Promise<CreatedGuardianAccount> {
   if (!coldSeed) {
     coldSeed = crypto.getRandomValues(new Uint8Array(32));
@@ -323,7 +364,16 @@ export async function createGuardianAccount(
       guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
+    // Both guardian calls count against its per-IP rate limit, which users
+    // behind a shared egress IP (NAT, VPN) share; a 429 is waited out within
+    // GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, one deadline for both calls (#906).
+    const rateLimitDeadline = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
+    const afterWait = () => assertLive('after a guardian 429 wait');
+    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
+      () => client.guardianClient.getPubkey('ecdsa'),
+      { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
+    );
+    assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(
@@ -361,8 +411,14 @@ export async function createGuardianAccount(
     );
 
     if (!skipRegistration) {
-      await multisig.registerOnGuardian();
+      assertLive('before guardian registration');
+      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), {
+        deadlineMs: rateLimitDeadline,
+        sleepFn: sleepKeepingWorkerAlive,
+        afterWait
+      });
     }
+    assertLive('before the sync');
     await webClient.sync();
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
@@ -370,6 +426,7 @@ export async function createGuardianAccount(
     // vault key and stores it at accAuthSecretKeyStrgKey(coldPublicKey).
     // Hot is intentionally NOT inserted here — vault.ts persists the
     // returned hot ciphertext separately under its own envelope.
+    assertLive('before the cold key insert');
     await webClient.keystore.insert(multisig.account.id(), coldSk);
 
     console.log('Guardian account created:', multisig.account.id().toString());
@@ -385,6 +442,9 @@ export async function createGuardianAccount(
       guardianEndpoint
     };
   } catch (e) {
+    // The lock's kill classifiers read the poison error's identity; wrapped, an
+    // abandoned flow would read as a flat failure.
+    if (isWasmClientPoisonedError(e)) throw e;
     console.error('Error creating Guardian account:', e);
     // Preserve the original cause so callers can distinguish guardian-unreachable
     // from node/registration/WASM failures.

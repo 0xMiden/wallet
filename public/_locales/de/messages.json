@@ -503,6 +503,10 @@
     "message": "z. B. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ihr privater Schlüssel konnte nicht aus der Zwischenablage gelöscht werden. Löschen Sie ihn selbst, bevor Sie fortfahren.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Einstellungen",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "Unter dieser URL wurde keine Antwort auf „Guardian“ gefunden. Überprüfen Sie die URL und versuchen Sie es erneut.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Geben Sie Ihr Passwort ein, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Ich werde meine verschlüsselte Wallet-Datei an niemanden weitergeben, auch nicht an Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Nicht aus dieser Datei wiederhergestellt: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Konten, die mit privaten Schlüsseln importiert wurden, können nicht aus einer Wallet-Datei wiederhergestellt werden, und eine aus dieser Datei wiederhergestellte Wallet kann sie nicht hinzufügen. Sie werden als separate Wallet wiederhergestellt, die mit den importierten privaten Schlüsseln sowie deren täglichen Miden- und EVM-Schlüsseln eingerichtet wird. Bewahren Sie diese Schlüssel sicher auf: Zeigen Sie sie unter „Einstellungen“ → „Schlüssel“ → „Privaten Schlüssel anzeigen“ an, nachdem Sie das entsprechende Konto ausgewählt haben.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Geben Sie ein Passwort ein, um Ihre Wallet-Datei zu verschlüsseln.",
@@ -5249,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "Die Überprüfung der Entsperrmethode dieser Wallet dauert länger als gewöhnlich. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "Farbe des QR-Codes ändern",

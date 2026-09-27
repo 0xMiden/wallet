@@ -592,3 +592,26 @@ describe('startTransactionProcessing - module-init timeout honours its own kick 
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
   });
 });
+
+// #924: a run that spends its pass budget on claims queued against a locked vault ends with them still
+// queued, and the unlock's kick is what brings them back. The #907 kick tests above all end through the
+// empty-queue break; this one ends on the budget, the path an unlock actually meets.
+describe('a kick after a run spent its budget on queued claims', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("starts one more full run when it lands in the run's last wait", async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'claim' }]);
+    jest.useFakeTimers();
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 59);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    // The budget is spent and the claim is still queued: the run is in its final wait before it stops.
+    void mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 200);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60 + 60);
+  });
+});

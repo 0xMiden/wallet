@@ -503,6 +503,10 @@
     "message": "por ex., APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Sua chave privada não pôde ser removida da área de transferência. Limpe-a manualmente antes de continuar.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Configurações",
     "englishSource": "Settings"
@@ -2827,6 +2831,10 @@
     "message": "Digite uma URL válida que comece com http:// ou https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "Não há nenhum Guardian respondendo neste URL. Verifique e tente novamente.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Digite sua senha para acessar seu arquivo de carteira criptografado.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Não vou compartilhar meu arquivo de carteira criptografada com ninguém, nem mesmo com a Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Não foi restaurado a partir deste arquivo: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Contas importadas com chaves privadas não podem ser restauradas a partir de um arquivo de carteira, e uma carteira restaurada a partir desse arquivo não pode adicioná-las. Elas são restauradas como uma carteira separada, configurada com a importação das chaves privadas e suas chaves privadas Miden para uso diário e EVM. Mantenha essas chaves em segurança: revele-as em Configurações → Chaves → Revelar Chave Privada com essa conta selecionada.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Digite uma senha para criptografar o arquivo da sua carteira.",
@@ -5249,6 +5270,10 @@
   "couldNotCheckUnlockMethod": {
     "message": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "checkingUnlockMethodSlow": {
+    "message": "A verificação do método de desbloqueio desta carteira está demorando mais do que o normal. Para tentar novamente, volte e reabra esta página.",
+    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
   "receiveQrColorAction": {
     "message": "Alterar a cor do código QR",

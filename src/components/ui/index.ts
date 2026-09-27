@@ -9,6 +9,8 @@ export type { AlertSheetProps } from './AlertSheet';
 export { Button, ButtonVariant } from './Button';
 export type { ButtonProps, ButtonSize } from './Button';
 
+export { DappOrigin } from './DappOrigin';
+
 export { DetailCard, DetailRow } from './DetailCard';
 export type { DetailRowProps } from './DetailCard';
 

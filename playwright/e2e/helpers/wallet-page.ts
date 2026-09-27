@@ -4,10 +4,10 @@ import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
+import { dismissTelemetryConsent } from './telemetry-consent';
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 import { IS_LOCALNET } from '../config/environments';
-import { dismissTelemetryConsent } from './telemetry-consent';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -17,7 +17,7 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 // specialChar, strongLength}). The recovery journey drives that real UI, so a
 // weak all-digit password (the old '123456') leaves the submit button disabled
 // forever. This value passes all five checks. The bypass paths accept any value.
-const PASSWORD = 'Test1234!';
+export const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
 
 /**
