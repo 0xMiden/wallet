@@ -10,8 +10,9 @@ import { join } from 'path';
  * These are the screens on which the user commits value. They span three shells and share no
  * wrapper: five full-screen routes render the banner themselves, two render inside `TabLayout`
  * through `ReviewLayout` - where the ribbon is HIDDEN, because that layout hides the tab-bar
- * footer the ribbon lives in - and the connected EVM bridge flow renders it in its own shell on
- * every step except the review one, which `ReviewLayout` already covers.
+ * footer the ribbon lives in - and the connected EVM bridge flow renders it once in its own shell
+ * over every step, review included (the shell wraps its steps in `NetworkNamedByShell`, so
+ * `ReviewLayout`'s own banner stands down there).
  *
  * WHAT THIS FILE IS, and what it is not. It is the written registry: the list below is the only
  * place the set is enumerated, and a new signing screen has to be added here by hand, because the
@@ -22,9 +23,11 @@ import { join } from 'path';
  * banner from one behind a falsy guard or below an early return - which is exactly how the
  * connected bridge flow shipped without one while this file stayed green. Presence is asserted by
  * each screen's own suite, named below, where the real component renders. This file checks that
- * the assertion is there and that the suite does not replace the banner, or the layout that
- * carries it, with a mock. A skipped assertion is not checked here: `yarn lint` fails it
- * (`jest/no-disabled-tests` under `--max-warnings 0`).
+ * the assertion is there, that the suite does not replace the banner, or the layout that carries
+ * it, with a mock, and that it never sets the banner's test id itself. A skipped assertion is not
+ * checked here: `yarn lint` fails a direct `it.skip`, `xit` or `describe.skip`
+ * (`jest/no-disabled-tests` under `--max-warnings 0`); a subtler way to keep an assertion from
+ * running is the new kind of hole the issue's execution-signal follow-up is for.
  */
 const VALUE_SIGNING_SCREENS: ReadonlyArray<{
   screen: string;
@@ -57,7 +60,9 @@ const VALUE_SIGNING_SCREENS: ReadonlyArray<{
     rendersBannerIn: 'screens/earn-flow/EarnWithdrawReview.tsx',
     assertedIn: 'screens/earn-flow/EarnWithdrawReview.test.tsx'
   },
-  // These two render inside TabLayout via ReviewLayout, which carries the banner for both.
+  // ReviewLayout carries the banner for these two: the swap review shows it inside TabLayout; the
+  // bridge review sits inside the bridge shell, whose banner covers it (last entry), so this row
+  // guards the component itself.
   {
     screen: 'screens/swap-flow/ReviewSwap.tsx',
     rendersBannerIn: 'components/review/ReviewLayout.tsx',
@@ -68,7 +73,7 @@ const VALUE_SIGNING_SCREENS: ReadonlyArray<{
     rendersBannerIn: 'components/review/ReviewLayout.tsx',
     assertedIn: 'app/templates/EvmConnectModal/EvmBridgeDepositReview.test.tsx'
   },
-  // The connected bridge flow: amount entry and route choice, the steps that commit.
+  // The connected bridge flow: the shell's banner covers every step, amount entry, route choice and review.
   {
     screen: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx',
     rendersBannerIn: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx',
@@ -89,6 +94,9 @@ const moduleName = (specifier: string) =>
 const mockedModules = (source: string) =>
   [...source.matchAll(/jest\.(?:mock|doMock)\(\s*(['"`])([^'"`]+)\1/g)].map(match => moduleName(match[2]!));
 
+/** A suite that sets the banner's test id itself: only NetworkModeBanner.tsx may, since a stand-in carrying it passes the assertion whatever module it replaces. */
+const SETS_BANNER_TEST_ID = /data-testid["']?\s*[=:]\s*\{?\s*["'`]network-mode-banner/;
+
 describe('every screen that commits value names the network', () => {
   it.each(VALUE_SIGNING_SCREENS)('$screen is guarded by a render assertion in $assertedIn', ({ assertedIn }) => {
     // The registry records WHERE the real guard lives. If that assertion is deleted, this fails
@@ -100,11 +108,14 @@ describe('every screen that commits value names the network', () => {
     '$assertedIn renders the real banner for $screen, not a stub',
     ({ rendersBannerIn, assertedIn }) => {
       // A stand-in that renders the test id keeps the assertion green while the real component never
-      // renders. Stubbing the layout that carries the banner is the same hole one level up.
+      // renders. Stubbing the layout that carries the banner is the same hole one level up, and a
+      // stand-in can arrive through any module (the banner, the layout, the barrel it is imported
+      // through), so the suite may not set the banner's test id either.
       const mocked = mockedModules(read(assertedIn));
 
       expect(mocked).not.toContain('NetworkModeBanner');
       expect(mocked).not.toContain(moduleName(rendersBannerIn));
+      expect(read(assertedIn)).not.toMatch(SETS_BANNER_TEST_ID);
     }
   );
 
@@ -137,5 +148,22 @@ describe('mockedModules', () => {
 
   it('reads nothing from a suite that mocks nothing', () => {
     expect(mockedModules("import { NetworkModeBanner } from 'components/NetworkModeBanner';")).toEqual([]);
+  });
+});
+
+describe('SETS_BANNER_TEST_ID', () => {
+  it.each([
+    '<div data-testid="network-mode-banner" />',
+    "{ 'data-testid': 'network-mode-banner' }",
+    "<span data-testid={'network-mode-banner'} />",
+    '<i data-testid={`network-mode-banner`} />'
+  ])('matches %j, a stand-in setting the test id itself', source => {
+    expect(SETS_BANNER_TEST_ID.test(source)).toBe(true);
+  });
+
+  it('does not match a read of the test id, only a write of it', () => {
+    expect(SETS_BANNER_TEST_ID.test("expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();")).toBe(
+      false
+    );
   });
 });

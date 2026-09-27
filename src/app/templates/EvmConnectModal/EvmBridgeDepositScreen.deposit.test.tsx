@@ -292,9 +292,8 @@ describe('EvmBridgeDepositScreen names the network', () => {
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
 
-  // The flow commits value on amount entry and route choice, and the shell's banner is what names the
-  // network there (the registry in NetworkModeBanner.registry.test.ts points here). getByTestId also
-  // fails on two banners.
+  // The shell's banner names the network on every step of this flow, review included (the
+  // registry in NetworkModeBanner.registry.test.ts points here).
   it('shows the banner on amount entry, route choice and review', async () => {
     renderScreen();
 
