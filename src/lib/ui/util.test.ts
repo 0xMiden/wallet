@@ -1,46 +1,34 @@
 import { clearClipboard, cn } from './util';
 
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 describe('ui utilities', () => {
-  it('clears the clipboard', () => {
-    const writeText = jest.fn();
-    Object.defineProperty(window.navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText }
-    });
-
-    clearClipboard();
-
-    expect(writeText).toHaveBeenCalledWith('');
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  // The stub above returns undefined, not a promise, which is why the implementation awaits
-  // inside try/catch rather than chaining .catch onto writeText('') - that would be undefined.catch.
+  it('wipes the clipboard through @capacitor/clipboard and resolves true', async () => {
+    mockClipboardWrite.mockResolvedValue(undefined);
 
-  it('does not throw where the Clipboard API is absent, so a paste handler survives it', async () => {
-    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
-    delete (window.navigator as { clipboard?: unknown }).clipboard;
+    await expect(clearClipboard()).resolves.toBe(true);
 
-    try {
-      await expect(clearClipboard()).resolves.toBeUndefined();
-    } finally {
-      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
-    }
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: '' });
   });
 
-  // The half that matters most: a browser refusing the write leaves the secret on the clipboard.
-  // `clearClipboard` returns its settled promise so that outcome is observable at all.
-  it('reports a refused write instead of leaving it unhandled', async () => {
-    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
-    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
-    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
+  // The half that matters most: a refused write leaves the secret on the clipboard, so a caller
+  // has to be able to tell success from failure instead of the promise merely settling either way.
+  it('resolves false and logs when the write rejects, never rejecting itself', async () => {
+    mockClipboardWrite.mockRejectedValue(new Error('denied'));
     const logged = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     try {
-      await expect(clearClipboard()).resolves.toBeUndefined();
-      expect(logged).toHaveBeenCalled();
+      await expect(clearClipboard()).resolves.toBe(false);
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
     } finally {
       logged.mockRestore();
-      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
     }
   });
 

@@ -804,22 +804,29 @@ describe('Receive - Address', () => {
 
     // The fallback used to write to the clipboard unawaited and uncaught, so a rejected write was an
     // unhandled promise rejection. It now goes through the hook the page's copy control uses, which
-    // catches - silently, by design: the address stays on screen to copy by hand. If the write goes
-    // uncaught again, Jest itself fails this test on the unhandled rejection; Node reports one only
-    // after a macrotask, hence the wait. (A process.on('unhandledRejection') listener here would
-    // never fire: each test file gets its own copy of `process`.)
+    // catches and logs: the page itself shows nothing for the failure, and the address stays on
+    // screen to copy by hand. If the write goes uncaught again, Jest itself fails this test on the
+    // unhandled rejection; Node reports one only after a macrotask, hence the wait. (A
+    // process.on('unhandledRejection') listener here would never fire: each test file gets its own
+    // copy of `process`.)
     it('handles a rejected clipboard write in the fallback', async () => {
       mockIsMobile.mockReturnValue(false);
       delete (navigator as { share?: unknown }).share;
       mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
-      const container = await renderReceive();
-      await clickShare(container);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const container = await renderReceive();
+        await clickShare(container);
 
-      await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
-      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 20));
-      });
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 20));
+        });
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
 
     it('copies the address when reading the QR image fails on native', async () => {
