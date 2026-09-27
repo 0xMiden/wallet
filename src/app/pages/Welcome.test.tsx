@@ -569,7 +569,7 @@ describe('Welcome — hash → step routing', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await setHash('#confirmation');
     expect(currentStep()).toBe(OnboardingStep.Confirmation);
-    // Back from Confirmation is offered only to a file restore (importType WalletFile).
+    // Back from Confirmation is offered only to a file restore (a walletFilePayload still held).
     expect(mockFlowProps.current.canGoBack).toBe(false);
 
     // register() checks for a staged file before anything else, so a kept payload would restore it here.
@@ -1317,7 +1317,7 @@ describe('Welcome — create-password-submit', () => {
   it('seed-phrase import routes to recovery-method selection', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' }); // onboardingType = Import
-    await dispatch({ id: 'import-from-seed' }); // importType = SeedPhrase
+    await dispatch({ id: 'import-from-seed' });
     mockNavigate.mockClear();
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
@@ -1565,7 +1565,7 @@ describe('Welcome — confirmation / register', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'select-import-type' }); // onboardingType = Import
-    await dispatch({ id: 'import-from-seed' }); // importType = SeedPhrase
+    await dispatch({ id: 'import-from-seed' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
@@ -3749,7 +3749,6 @@ describe('the onboarding step table has no dead entries', () => {
 // Seed-less Guardian import: the hot-key paste flow.
 // ---------------------------------------------------------------------------
 describe('hot-key import flow', () => {
-  const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
   const ENDPOINT = 'https://guardian.example.com';
 
   it('routes the import-with-key link to the key screen and renders it', async () => {
@@ -4003,5 +4002,68 @@ describe('Welcome - a file restore resumed by browser history', () => {
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+});
+
+const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
+
+describe('Welcome - a file restore is the file it holds', () => {
+  it('sends a seed typed after leaving a file to the recovery method when Back returns to the file password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await setHash('#create-password');
+    await setHash('#import-from-seed');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+  });
+
+  it('imports a key pasted after leaving a file as a key, through the recovery method', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await leaveFileForSeedEntry();
+    await dispatch({ id: 'import-with-key' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    await setHash('#import-select-recovery-method');
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await setHash('#confirmation');
+    expect(mockFlowProps.current.canGoBack).toBe(false);
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWalletFromHotKey).toHaveBeenCalledWith('pw', HOT_KEY_HEX, 'https://g');
+    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+  });
+
+  it('does not resume a file restore left for Welcome when Forward returns to its password step', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await stageFileRestore();
+    await setHash('#create-password');
+    await setHash('#import-from-file');
+    await setHash('#select-import-type');
+    await setHash('');
+    await setHash('#select-import-type');
+    await setHash('#import-from-file');
+    await setHash('#create-password');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
   });
 });

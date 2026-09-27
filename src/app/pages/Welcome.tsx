@@ -26,14 +26,7 @@ import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
 import { errorToMessage, isGuardianNotFound } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import {
-  ImportType,
-  NO_GUARDIAN_ID,
-  OnboardingAction,
-  OnboardingStep,
-  OnboardingType,
-  WalletType
-} from 'screens/onboarding/types';
+import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -185,12 +178,11 @@ const Welcome: FC = () => {
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
   const seedPhraseRef = useRef(seedPhrase);
   seedPhraseRef.current = seedPhrase;
-  // Seed-less Guardian import: the normalized hot:EVM pair. Mutually
-  // exclusive with `seedPhrase` — each submit clears the other, so register()
-  // and back-navigation can branch on which credential is live.
+  // Seed-less Guardian import: the normalized hot:EVM pair. Each import submit sets one credential and clears the
+  // others (a wallet file brings its own seed), so register() and back-navigation can branch on which one is live.
   const [keyPairPayload, setKeyPairPayload] = useState<string | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
-  const [importType, setImportType] = useState<ImportType | null>(null);
+  // An import is a file restore exactly while it holds the file, so no step can see a restore without its file.
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
@@ -268,7 +260,6 @@ const Welcome: FC = () => {
     setKeyPairPayload(null);
     setPassword(null);
     setWalletFilePayload(null);
-    setImportType(null);
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
@@ -563,7 +554,6 @@ const Welcome: FC = () => {
     const generation = transitionGenerationRef.current;
 
     const startCreateFlow = () => {
-      setImportType(null);
       setWalletFilePayload(null);
       setOnboardingType(OnboardingType.Create);
       // Biometric is unavailable on the extension/desktop, so the
@@ -622,7 +612,7 @@ const Welcome: FC = () => {
           // The passcode protects the restored vault; the backup or seed remains unchanged.
           setPassword(action.payload);
           setProtectionMethod('passcode');
-          navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
+          navigate(walletFilePayload ? '/#confirmation' : '/#import-select-recovery-method');
           break;
         }
         setSeedPhrase(generateMnemonic().split(' '));
@@ -673,7 +663,6 @@ const Welcome: FC = () => {
         break;
       case 'import-from-seed':
         // A staged file stays until a new credential replaces it: history can still return to its restore.
-        setImportType(ImportType.SeedPhrase);
         navigate('/#import-from-seed');
         break;
       case 'import-with-key':
@@ -683,8 +672,9 @@ const Welcome: FC = () => {
         // A new key retires a Guardian lookup failure raised for the previous credential.
         setGuardianLookupFailure(null);
         setKeyPairPayload(action.payload);
-        // Mutually exclusive with the seed credential (see the state comment).
+        // The key replaces a seed or a staged file (see the state comment).
         setSeedPhrase(null);
+        setWalletFilePayload(null);
         startGuardianProbeWithKey(action.payload);
         // Same hardware/password branch as import-seed-phrase-submit.
         {
@@ -699,13 +689,11 @@ const Welcome: FC = () => {
         }
         break;
       case 'import-from-file':
-        setImportType(ImportType.WalletFile);
         navigate('/#import-from-file');
         break;
       case 'import-wallet-file-submit':
         setGuardianLookupFailure(null);
         setOnboardingType(OnboardingType.Import);
-        setImportType(ImportType.WalletFile);
         setWalletFilePayload(action.payload);
         setSeedPhrase(action.payload.seedPhrase.split(' '));
         setKeyPairPayload(null);
@@ -723,7 +711,6 @@ const Welcome: FC = () => {
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
         setGuardianLookupFailure(null);
-        setImportType(ImportType.SeedPhrase);
         setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
         setKeyPairPayload(null);
@@ -755,7 +742,7 @@ const Welcome: FC = () => {
           setProtectionMethod('password');
           navigate('/#meet-guardian');
         } else if (onboardingType === OnboardingType.Import) {
-          navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
+          navigate(walletFilePayload ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
           navigate('/#confirmation');
         }
@@ -818,11 +805,7 @@ const Welcome: FC = () => {
           // message on arrival, and the hardware-only branch adds its attempt count.
           const failure = errorToMessage(error) ?? t('smthWentWrong');
           setRegistrationError(failure);
-          if (
-            onboardingType === OnboardingType.Import &&
-            importType !== ImportType.WalletFile &&
-            walletType === WalletType.Guardian
-          ) {
+          if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
             // The page change clears registrationError, so the screen gets its own copy of the reason.
             let lookupFailure: string;
             if (isGuardianNotFound(error)) {
@@ -871,11 +854,7 @@ const Welcome: FC = () => {
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
             navigate(
-              importType === ImportType.WalletFile
-                ? '/#import-from-file'
-                : keyPairPayload
-                  ? '/#import-from-key'
-                  : '/#import-from-seed'
+              walletFilePayload ? '/#import-from-file' : keyPairPayload ? '/#import-from-key' : '/#import-from-seed'
             );
           } else {
             // The choose-protection screen is skipped when biometric is
@@ -905,11 +884,7 @@ const Welcome: FC = () => {
             navigate(target);
           } else {
             navigate(
-              importType === ImportType.WalletFile
-                ? '/#import-from-file'
-                : keyPairPayload
-                  ? '/#import-from-key'
-                  : '/#import-from-seed'
+              walletFilePayload ? '/#import-from-file' : keyPairPayload ? '/#import-from-key' : '/#import-from-seed'
             );
           }
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
@@ -925,7 +900,7 @@ const Welcome: FC = () => {
           // The import-type choice now precedes both, so back goes there rather
           // than out of onboarding entirely.
           navigate('/#select-import-type');
-        } else if (step === OnboardingStep.Confirmation && importType === ImportType.WalletFile) {
+        } else if (step === OnboardingStep.Confirmation && walletFilePayload) {
           // Confirmation is where a rejected file restore lands. Retrying in
           // place is already possible; this is the way out when the file itself
           // is the problem, since the file, not the password, is what the user
@@ -1022,7 +997,6 @@ const Welcome: FC = () => {
         break;
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
-        setImportType(ImportType.SeedPhrase);
         setStep(OnboardingStep.ImportFromSeed);
         // A pasted key must not survive a switch back to seed entry — the two
         // credentials are mutually exclusive.
@@ -1040,7 +1014,6 @@ const Welcome: FC = () => {
         break;
       case '#import-from-file':
         setOnboardingType(OnboardingType.Import);
-        setImportType(ImportType.WalletFile);
         setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
@@ -1111,8 +1084,7 @@ const Welcome: FC = () => {
   // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
   // file choice; see the 'back' action.
   const canLeaveConfirmation =
-    step !== OnboardingStep.Confirmation ||
-    (importType === ImportType.WalletFile && !isLoading && !registrationCommitted);
+    step !== OnboardingStep.Confirmation || (walletFilePayload !== null && !isLoading && !registrationCommitted);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
