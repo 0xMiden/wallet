@@ -16,7 +16,7 @@ import {
   withFaucetFundingMarkerLock
 } from 'lib/wallet-prompts';
 
-import { HomePrompts } from './HomePrompts';
+import { FAUCET_FUNDED_BEAT_MS, HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
 const mockGetInFlightFaucetRequest = jest.fn();
@@ -495,28 +495,45 @@ describe('HomePrompts', () => {
     expect(faucetCard).toHaveAttribute('data-status', 'loading');
     expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
-    // The minted note becomes claimable → Funded! beat, then completion.
-    rerender(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={pendingNotes}
-        fundingNotes={pendingNotes}
-        tokenPrices={tokenPrices}
-      />
-    );
-    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(faucetCard).toHaveAttribute('data-status', 'success');
-    // The prompt is completed AT ARRIVAL, while the beat is still on screen: the
-    // marker is cleared in the same pass, so deferring completion to the beat's
-    // in-memory timer lost it whenever the app closed on this screen.
-    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
-    // The pending-notes card must hold back while the success beat plays —
-    // it sorts first in the carousel and would push the hero off-screen.
-    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
-    // Beat over (FAUCET_FUNDED_BEAT_MS) → the pending-notes card takes the stage.
-    await waitFor(() => expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument(), { timeout: 3500 });
+    // The minted note becomes claimable → Funded! beat, then completion. Fake
+    // timers from here: the beat is what these steps race, and the waits above
+    // are just the faucet mock's own promise resolution.
+    jest.useFakeTimers();
+    try {
+      rerender(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={pendingNotes}
+          fundingNotes={pendingNotes}
+          tokenPrices={tokenPrices}
+        />
+      );
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(faucetCard).toHaveAttribute('data-status', 'success');
+      // The prompt is completed AT ARRIVAL, while the beat is still on screen: the
+      // marker is cleared in the same pass, so deferring completion to the beat's
+      // in-memory timer lost it whenever the app closed on this screen.
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+      // The pending-notes card must hold back while the success beat plays -
+      // it sorts first in the carousel and would push the hero off-screen.
+      expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
+      });
+      expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
+      expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+
+      // Beat over (FAUCET_FUNDED_BEAT_MS) → the pending-notes card takes the stage.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1);
+      });
+      expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('says what the mint brought in dollars, leaving out every note it did not mint', async () => {
@@ -642,20 +659,38 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA', expect.anything()));
     expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
-    rerender(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
-      timeout: 3000
-    });
+    // The balance arrives directly. Fake timers from here: the beat is what
+    // these steps race, and the wait above is the faucet mock's own promise
+    // resolution.
+    jest.useFakeTimers();
+    try {
+      rerender(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      // Completed AT ARRIVAL, not after the beat.
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
+      });
+      expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1);
+      });
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
@@ -690,22 +725,39 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
     expect(mockFaucet).not.toHaveBeenCalled();
 
-    // Funds land → success beat plays and the marker is cleared.
-    rerender(
-      <HomePrompts
-        account={account}
-        balances={zeroBalance}
-        balancesLoading={false}
-        claimableNotes={pendingNotes}
-        fundingNotes={pendingNotes}
-        tokenPrices={tokenPrices}
-      />
-    );
-    await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
-    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
-      timeout: 3500
-    });
+    // Funds land → success beat plays and the marker is cleared. Fake timers
+    // from here: the beat is what these steps race, and the wait above is the
+    // resumed marker's own promise resolution.
+    jest.useFakeTimers();
+    try {
+      rerender(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={pendingNotes}
+          fundingNotes={pendingNotes}
+          tokenPrices={tokenPrices}
+        />
+      );
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(mockClearFaucetFundingMarker).toHaveBeenCalledWith('accountA');
+      // Completed AT ARRIVAL, not after the beat.
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
+      });
+      expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1);
+      });
+      expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps one account Funding wait off another account and resumes it on switch-back', async () => {

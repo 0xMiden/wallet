@@ -150,7 +150,7 @@ const formatUsdTotal = (total: number | null): string | undefined => (total === 
 
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
-const FAUCET_FUNDED_BEAT_MS = 2400;
+export const FAUCET_FUNDED_BEAT_MS = 2400;
 
 // E2E hooks, kebab-case like every other testid in the tree. Only prompts a
 // spec actually reads get one - deriving an id for the whole enum would leave
