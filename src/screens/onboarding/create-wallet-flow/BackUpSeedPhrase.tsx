@@ -26,11 +26,11 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isWordsVisible, setIsWordsVisible] = useState(false);
-  // The shared implementation, not a third one: it writes through @capacitor/clipboard (one call for
-  // every surface, native-backed on mobile), flips `copied` only once the write RESOLVES,
-  // and owns the timer it arms. The local version wrote without awaiting and reported success
-  // unconditionally - on the seed phrase, where a silent failure costs the most - and armed a
-  // timeout it never cleared, so tapping Continue inside the window left it firing into a dead tree.
+  // The shared implementation, not a third one: `useClipboardCopy` (whose doc says what backs it
+  // on each surface) flips `copied` only once the write resolves and owns the timer it arms. The
+  // local version wrote without awaiting and reported success unconditionally - on the seed
+  // phrase, where a silent failure costs the most - and armed a timeout it never cleared, so
+  // tapping Continue inside the window left it firing into a dead tree.
   const { copied: isCopied, copy: onCopyToClipboard } = useClipboardCopy(seedPhrase.join(' '));
 
   // Block screenshots/recordings while the backup phrase is on screen (#417).
