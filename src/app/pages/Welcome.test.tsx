@@ -238,6 +238,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 
 const READY = 2;
 const IDLE = 0;
+const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
 const IMPORTED_ACCOUNT_BACKUP = {
   accountId: 'account-id',
   publicKeyCommitment: 'a1b2',
@@ -4017,8 +4018,6 @@ describe('Welcome - a file restore resumed by browser history', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
   });
 });
-
-const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
 
 describe('Welcome - a file restore is the file it holds', () => {
   it('sends a seed typed after leaving a file to the recovery method when Back returns to the file password step', async () => {
