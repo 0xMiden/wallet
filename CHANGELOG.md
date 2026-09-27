@@ -22,7 +22,6 @@
 
 ### Fixes
 
-- [FIX][all] A device-key rotation queued while the service worker was finishing its transaction loop now starts, instead of staying Queued behind the rotation gate until something else restarts processing (#907).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
@@ -45,6 +44,7 @@
 - [FIX][all] A link to the pending transfers (the home "transfers waiting" prompt, a received-transfer notification) opens Activity's Pending list even when the Groups view was last chosen; the Activity tab still reopens in Groups (#1110).
 - [FIX][all] Going back to the Home tab shows the action bar on the page you return to at once, as the page under it already does, instead of sliding its highlight across from the segment you left and resizing the segments (#1068).
 - [FIX][all] After too many wrong passcode or password attempts, a timer from before the failure no longer clears the lockout (a minute at first, longer after repeated failures) the moment it starts, which left only the short retry delay. The unlock screen also no longer writes to storage every second while nothing is locked (#1079).
+- [FIX][all] A device-key rotation queued while the service worker was finishing its transaction loop now starts, instead of staying Queued behind the rotation gate until something else restarts processing (#907).
 
 ## 1.16.2 (2026-09-24)
 

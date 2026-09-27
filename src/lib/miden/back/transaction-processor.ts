@@ -167,6 +167,10 @@ export async function startTransactionProcessing(): Promise<void> {
     if (typeof safeGenerateTransactionsLoop !== 'function') {
       console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
       isProcessing = false;
+      // A kick recorded during this wait belongs to this abandoned run, not
+      // whatever unrelated run eventually restarts processing; dropping it
+      // here (rather than replaying it) avoids a spurious extra pass later.
+      processingRequested = false;
       return;
     }
     console.log('[TransactionProcessor] transactions module ready');

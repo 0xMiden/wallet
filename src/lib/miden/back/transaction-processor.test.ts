@@ -43,12 +43,22 @@ const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
 
+// Indirection so a test can simulate the Vite SW build's async-init window
+// (`safeGenerateTransactionsLoop` not yet a function) by setting this to
+// `undefined`, then restore it. A getter on the mock (below) reads this on
+// every access, matching the live-binding property read the compiled source
+// does at each `typeof safeGenerateTransactionsLoop` check.
+let mockSafeGenerateTransactionsLoopFn: ((...args: unknown[]) => unknown) | undefined = (...args: unknown[]) =>
+  mockSafeGenerateTransactionsLoop(...args);
+
 // transaction-processor.ts imports directly from lib/miden/transaction
 // (not the activity/index re-export) to avoid a circular init deadlock in the
 // Vite SW bundle. Mock the same path so the real transactions.ts (which pulls
 // in lib/store → real intercom) isn't loaded.
 jest.mock('lib/miden/transaction', () => ({
-  safeGenerateTransactionsLoop: (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args),
+  get safeGenerateTransactionsLoop() {
+    return mockSafeGenerateTransactionsLoopFn;
+  },
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
 }));
@@ -83,6 +93,7 @@ jest.mock('./defaults', () => ({
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
@@ -531,5 +542,39 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     await mod.startTransactionProcessing();
     await flushAsync();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('startTransactionProcessing - module-init timeout drops its own kick (#907 follow-up)', () => {
+  it('does not let a kick recorded while waiting for module init cause a spurious extra pass later', async () => {
+    // Simulate the Vite SW build's async-init window: the export is not yet
+    // a function, so this run enters its 60s wait loop instead of the
+    // isProcessing check ever getting past `typeof ... !== 'function'`.
+    mockSafeGenerateTransactionsLoopFn = undefined;
+    jest.useFakeTimers();
+
+    const mod = await import('./transaction-processor');
+    const firstRun = mod.startTransactionProcessing();
+    // The synchronous prefix of the call above (the isProcessing check, then
+    // setting it true) has already run by this point, so the kick below
+    // correctly hits the "already processing" branch instead of racing it.
+    const kick = mod.startTransactionProcessing();
+
+    // Advance past the full 60s wait; safeGenerateTransactionsLoopFn never
+    // becomes available, so the first run gives up without ever looping.
+    await jest.advanceTimersByTimeAsync(61000);
+    await firstRun;
+    await kick;
+    jest.useRealTimers();
+
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+
+    // Restore the loop function and run normally with an empty queue - the
+    // kick dropped above must not cause an extra pass here.
+    mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    await mod.startTransactionProcessing();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
   });
 });
