@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import {
   getActivityReadState,
   isActivityRead,
+  markActivitiesRead,
   markActivityRead,
   resetActivityReadState,
   useActivityReadState
@@ -76,6 +77,42 @@ describe('marking read', () => {
     markActivityRead('tx:ancient', NOW_S - 500);
 
     expect(stored().ids).toEqual({});
+  });
+
+  it('marks several activities with one write and one re-render', () => {
+    getActivityReadState();
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      return useActivityReadState();
+    });
+    const before = renders;
+    const setItem = jest.spyOn(Storage.prototype, 'setItem');
+
+    act(() =>
+      markActivitiesRead([
+        { id: 'tx:a', timestamp: NOW_S + 10 },
+        { id: 'tx:b', timestamp: NOW_S + 20 },
+        { id: 'note:x', timestamp: Number.NaN }
+      ])
+    );
+
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(stored().ids).toEqual({ 'tx:a': NOW_S + 10, 'tx:b': NOW_S + 20, 'note:x': NOW_S + 1 });
+    expect(renders).toBe(before + 1);
+  });
+
+  it('writes nothing when every activity in the batch is already read', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    const setItem = jest.spyOn(Storage.prototype, 'setItem');
+
+    markActivitiesRead([
+      { id: 'tx:a', timestamp: NOW_S + 10 },
+      { id: 'tx:ancient', timestamp: NOW_S - 500 }
+    ]);
+
+    expect(setItem).not.toHaveBeenCalled();
   });
 });
 
@@ -184,6 +221,16 @@ describe('several windows (#1106)', () => {
     storageEvent('some_other_setting', '{}');
 
     expect(result.current).toBe(before);
+  });
+
+  it('forgets its copy when another window removes the key, and reads the device again', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 10);
+    writeFromOtherWindow({ seenBefore: NOW_S + 100, ids: {} });
+
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, null);
+
+    expect(getActivityReadState()).toEqual({ seenBefore: NOW_S + 100, ids: {} });
   });
 
   it('forgets its copy when another window clears storage, and reads the device again', () => {

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { usdFormatterFor } from 'lib/i18n/numbers';
-import { markActivityRead } from 'lib/settings/activity-read';
+import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
 import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
 
@@ -69,12 +69,12 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
         ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
         : t('activityPendingWaiting', { count: waitingCount });
 
-  // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
-  // button in the row beside Restore is its only caller.
+  // Accepting everything listed: reading them all in one write, then the one batch-claim path.
+  // The Accept All button in the row beside Restore is its only caller.
   const acceptAll = () => {
-    for (const note of claimableNotes) {
-      markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
-    }
+    markActivitiesRead(
+      claimableNotes.map(note => ({ id: pendingNoteUnreadKey(note.id), timestamp: note.receivedAt ?? Number.NaN }))
+    );
     acceptMany(claimableNotes);
   };
 

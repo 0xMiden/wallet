@@ -142,6 +142,14 @@ export function isActivityRead(state: ActivityReadState, id: string, timestamp: 
 
 /** Marks one activity read. `timestamp` is its own, not the current time. */
 export function markActivityRead(id: string, timestamp: number): void {
+  markActivitiesRead([{ id, timestamp }]);
+}
+
+/**
+ * Marks several activities read with one write, so every other window takes one storage event and
+ * re-renders once for the batch. Each `timestamp` is the activity's own, not the current time.
+ */
+export function markActivitiesRead(entries: readonly { id: string; timestamp: number }[]): void {
   let stored: ActivityReadState | undefined;
   try {
     stored = parse(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY));
@@ -149,7 +157,8 @@ export function markActivityRead(id: string, timestamp: number): void {
   // Another window may have written since this one last read: write the union, never this
   // window's copy alone.
   const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
-  if (isActivityRead(current, id, timestamp)) {
+  const unread = entries.filter(({ id, timestamp }) => !isActivityRead(current, id, timestamp));
+  if (unread.length === 0) {
     if (cached && sameState(current, cached)) return;
     cached = current;
     notify();
@@ -157,9 +166,12 @@ export function markActivityRead(id: string, timestamp: number): void {
   }
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp
   // (an incoming transfer that never carried a `receivedAt`) is recorded just past it rather than
-  // at a `now` the mark may already have reached — otherwise the read would be dropped on write.
-  const at = Number.isFinite(timestamp) ? timestamp : Math.max(nowSeconds(), current.seenBefore + 1);
-  persist(compact({ seenBefore: current.seenBefore, ids: { ...current.ids, [id]: at } }));
+  // at a `now` the mark may already have reached, where the write would drop it.
+  const ids = { ...current.ids };
+  for (const { id, timestamp } of unread) {
+    ids[id] = Number.isFinite(timestamp) ? timestamp : Math.max(nowSeconds(), current.seenBefore + 1);
+  }
+  persist(compact({ seenBefore: current.seenBefore, ids }));
   notify();
 }
 
