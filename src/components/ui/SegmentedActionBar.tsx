@@ -63,7 +63,7 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
           'group flex h-12 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-          active ? 'min-w-28 px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
+          active ? 'min-w-28 flex-initial px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
         )}
       >
         <motion.span
