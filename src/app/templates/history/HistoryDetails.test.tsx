@@ -2667,6 +2667,40 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('to')).toBeUndefined();
     });
 
+    it('shows a Slow-route bridge-out amount as entered, not cut to two decimals', async () => {
+      // Real base-unit scaling: the default mock ignores decimals (`String(amount)`),
+      // which can never produce a fractional string to assert against.
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 15000n, // 0.015 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xdest',
+          destinationNetwork: 1101,
+          claimStatus: 'not-applicable'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getAllByText('0.015')).toHaveLength(2);
+    });
+
+    it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          outputAmount: '151.500000000000000001'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
+    });
+
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
       setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });

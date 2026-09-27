@@ -127,13 +127,17 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
   const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
-  // Bridge-out and a Fast-route bridge-in go through the adaptive formatter (2dp, expanding
-  // for dust) so a raw 18-decimal quote never renders with its full precision; a Slow-route
-  // bridge-in's amounts are what was typed (at most 6 decimals) and are shown as stored.
-  // `break-all` + `min-w-0` keep an unexpectedly long value from widening the page (#752).
-  const bridgeInIsSlowRoute = bridgeIn && entry.bridgeInProvider !== 'epoch';
-  const inAmount = (bridgeInIsSlowRoute ? rawInAmount : formatBridgeOutputAmount(rawInAmount)) ?? '-';
-  const displayedOutAmount = (bridgeInIsSlowRoute ? outAmount : formatBridgeOutputAmount(outAmount)) ?? inAmount;
+  // Only a genuine Epoch quote (unbounded precision) is rounded for display here. A
+  // Slow-route bridge-in's amounts, and a bridge-out's Miden-side send amount on EITHER
+  // route (always what was typed, capped by AmountInput at 6 decimals, never a quote), are
+  // shown as stored. `bridgeRowDisplay` already applies this same rule to a bridge-out's OUT
+  // side (it formats `bridgeOutputAmount` only, an Epoch-only field, and passes the
+  // Agglayer/no-quote fallback to `entry.amount` through unformatted), so this component
+  // reformats nothing further for bridge-out. `break-all` + `min-w-0` keep an unexpectedly
+  // long value from widening the page (#752).
+  const isEpochBridgeIn = bridgeIn && entry.bridgeInProvider === 'epoch';
+  const inAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(rawInAmount) : rawInAmount) ?? '-';
+  const displayedOutAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(outAmount) : outAmount) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>

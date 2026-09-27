@@ -566,6 +566,16 @@ describe('bridgeRowDisplay', () => {
       status: 'pending'
     });
   });
+
+  // Proves the value HistoryItem/HistoryView render for a bridge-out list row: neither
+  // reformats `outAmount` themselves, so this function's return is the list row's amount.
+  // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
+  // typed Miden-side send amount and must show as entered, not cut to two decimals.
+  it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
+    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
+      '0.015'
+    );
+  });
 });
 
 describe('isBridgeInEntry', () => {
