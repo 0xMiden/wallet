@@ -896,6 +896,47 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  // #1083: re-tapping the already-checked default card must record it as an explicit pick, the
+  // same as tapping any other card, so it is honoured (or cleared, never swapped) by that rule too.
+  it('clears a re-tap of the already-checked default card when it goes offline (create flow)', () => {
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [ozBtn] = optionButtons(container);
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(ozBtn!);
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // Same rule for the card the FALLBACK highlighted rather than the default: re-tapping it is
+  // still the user's explicit pick, so it is not skipped past to the next online provider either.
+  it('clears a re-tap of the fallback-highlighted card when it goes offline too (create flow)', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [, gwBtn] = optionButtons(container);
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(gwBtn!);
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline', [GATEWAY.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('selects an explicit pick again when its operator comes back online', () => {
     const onSubmit = jest.fn();
     const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
