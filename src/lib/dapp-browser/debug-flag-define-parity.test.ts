@@ -46,9 +46,16 @@ function envReads(source: string): string[] {
 
 const flags = [...new Set(BRIDGE_MODULES.flatMap(module => envReads(read(module))))];
 
+// Each flag's define default: a bridge flag added later fails the mapping case until it is given one.
+const EXPECTED_DEFAULTS: Record<string, string> = { DEBUG_DAPP_BRIDGE: "''" };
+
 describe('dApp-bridge build-time flags', () => {
   it('reads at least one build-time flag (otherwise this suite guards nothing)', () => {
     expect(flags).toContain('DEBUG_DAPP_BRIDGE');
+  });
+
+  it('gives every discovered flag an expected default', () => {
+    expect(Object.keys(EXPECTED_DEFAULTS).sort()).toEqual([...flags].sort());
   });
 
   it('finds every build config', () => {
@@ -69,6 +76,9 @@ describe('dApp-bridge build-time flags', () => {
 
     it.each(flags)('defines process.env.%s', flag => {
       expect(occurrences(source, `'process.env.${flag}':`)).toBe(1);
+      expect(source).toContain(
+        `'process.env.${flag}': JSON.stringify(process.env.${flag} ?? ${EXPECTED_DEFAULTS[flag]})`
+      );
     });
   });
 });
