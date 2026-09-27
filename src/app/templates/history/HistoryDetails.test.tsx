@@ -2701,6 +2701,16 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('151.500000000000000001')).not.toBeInTheDocument();
     });
 
+    // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
+    // so it draws only with a fill of its own; unset, the gap between the two amounts is blank.
+    it('draws the bridge hero arrow instead of leaving an invisible gap', async () => {
+      setMockRow(bridgedReceiveTx);
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const arrow = document.querySelector('svg[name="arrow-right"]');
+      expect(arrow).toHaveAttribute('fill', 'currentColor');
+    });
+
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
       setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });
