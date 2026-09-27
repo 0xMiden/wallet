@@ -1791,6 +1791,11 @@ export class MidenClientInterface {
     onStage?: (stage: ITransactionStage) => Promise<void> | void
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
+    // No re-check of the hold between here and `submitProven`: the helper's own
+    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
+    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
+    // microtask before `markSubmitting()`, not a real parking point. An async
+    // `onStage` would need its own re-check.
     await onStage?.('submitting');
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);

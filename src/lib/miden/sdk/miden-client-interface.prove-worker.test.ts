@@ -176,12 +176,27 @@ describe('send (site 5)', () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
     const stages: string[] = [];
+    // Stages push into the SAME `order` array as the worker/submit/apply steps, not a
+    // separate one: a stage stamp is only pinned relative to the write's other steps
+    // if both live in one timeline (#945 review: a mutant moving the 'submitting'
+    // stamp after `submitProven` left `stages` alone and passed with two arrays).
     const returned = await withWasmClientLock(async () =>
-      client.sendTransaction(sendTx(false), stage => void stages.push(stage))
+      client.sendTransaction(sendTx(false), stage => {
+        stages.push(stage);
+        harness.order.push(`stage:${stage}`);
+      })
     );
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);
-    expect(harness.order).toEqual(['prewarm', 'worker prove', 'submitProven', 'apply']);
+    expect(harness.order).toEqual([
+      'prewarm',
+      'stage:executing',
+      'stage:proving',
+      'worker prove',
+      'stage:submitting',
+      'submitProven',
+      'apply'
+    ]);
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
   });
 
@@ -213,7 +228,7 @@ describe('send (site 5)', () => {
           finish = () => resolve({ proven: new Uint8Array([5]), durationMs: 1 });
         })
     );
-    const { client, withWasmClientLock } = await load(harness);
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
     const sending = withWasmClientLock(async () => client.sendTransaction(sendTx(false))).catch(
       (error: unknown) => error
     );
@@ -221,10 +236,14 @@ describe('send (site 5)', () => {
     expect(harness.transport.prove).toHaveBeenCalledTimes(1);
     // A trap anywhere in the realm evicts the current holder at once (#775).
     window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
-    await sending;
+    const error = await sending;
     finish();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(harness.submitProven).not.toHaveBeenCalled();
+    // Must be WasmClientPoisonedError (abandoned, may have submitted), never
+    // ProveWorkerError (a clean pre-submit failure the pipeline may requeue) - routing
+    // an eviction onto the requeue path would let a corpse's write repeat (CLAUDE.md).
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
   });
 
   it('a worker failure fails the send before submit', async () => {
@@ -258,6 +277,33 @@ describe('newTransaction (site 6)', () => {
     await withWasmClientLock(async () => client.newTransaction('acct', new Uint8Array([4]), true));
     expectWorkerProved(harness);
     expect(harness.executeRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('an eviction during the worker prove stops the write before submit', async () => {
+    const harness = buildHarness();
+    let finish!: () => void;
+    harness.setWorkerProve(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ proven: new Uint8Array([5]), durationMs: 1 });
+        })
+    );
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const running = withWasmClientLock(async () => client.newTransaction('acct', new Uint8Array([4]), false)).catch(
+      (error: unknown) => error
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    // A trap anywhere in the realm evicts the current holder at once (#775).
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    const error = await running;
+    finish();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    // Same gate as the send-side eviction test: the post-prove hold re-check is
+    // `proveInWorker`'s (`local-prove-transport.ts`), shared by every staged site, not
+    // something site 6 duplicates - this pins that sharing, not a second mechanism.
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
   });
 
   it('a worker failure fails the write before submit', async () => {
@@ -323,14 +369,21 @@ describe('ProveAttempt worker members', () => {
 describe('local-prove window markers without a transport', () => {
   const realFlag = process.env.MIDEN_E2E_TEST;
   afterEach(() => {
-    process.env.MIDEN_E2E_TEST = realFlag;
+    // Restore, not overwrite: an unset flag must stay unset, or later suites reading
+    // `process.env.MIDEN_E2E_TEST === 'true'` would see the STRING "undefined" (truthy
+    // is not the bug here, but the literal value leaking into later tests is).
+    if (realFlag === undefined) {
+      delete process.env.MIDEN_E2E_TEST;
+    } else {
+      process.env.MIDEN_E2E_TEST = realFlag;
+    }
   });
 
   it('brackets an in-realm local prove with the window markers the E2E gap check reads', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
     const trail: string[] = [];
     jest.doMock('./prove-telemetry', () => ({
-      ...jest.requireActual('./prove-telemetry'),
+      ...jest.requireActual<typeof import('./prove-telemetry')>('./prove-telemetry'),
       recordProveMarker: (line: string) => trail.push(line)
     }));
     const harness = buildHarness();
@@ -351,5 +404,31 @@ describe('local-prove window markers without a transport', () => {
       'in-realm prove',
       '[prove-timing] local-prove-window close'
     ]);
+  });
+
+  it('emits no local-prove-window markers for a delegated attempt or a disposed client', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const trail: string[] = [];
+    jest.doMock('./prove-telemetry', () => ({
+      ...jest.requireActual<typeof import('./prove-telemetry')>('./prove-telemetry'),
+      recordProveMarker: (line: string) => trail.push(line)
+    }));
+    const harness = buildHarness();
+    const { proveWithFallback } = await load(harness, false);
+    // Delegated: `localProveAttempt` is false, so the gate short-circuits before the
+    // marker regardless of liveness.
+    await proveWithFallback(
+      async (_prover, attempt) => attempt.pauseWatchdogForLocalProve(async () => trail.push('delegated prove')),
+      true,
+      { disposed: false }
+    );
+    // Local but disposed: the same gate's OTHER half - an evicted flow's corpse must
+    // not open a window either.
+    await proveWithFallback(
+      async (_prover, attempt) => attempt.pauseWatchdogForLocalProve(async () => trail.push('disposed prove')),
+      false,
+      { disposed: true }
+    );
+    expect(trail.filter(line => line.includes('local-prove-window'))).toEqual([]);
   });
 });
