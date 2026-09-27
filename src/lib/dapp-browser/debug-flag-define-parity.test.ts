@@ -1,4 +1,4 @@
-import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from '../testing/define-parity';
+import { defineEntry, defineSource, envReads, occurrences, readSource, viteConfigs } from '../testing/define-parity';
 
 /**
  * Every build-time flag the dApp-bridge modules read must be `define`d in every
@@ -23,24 +23,15 @@ const BRIDGE_MODULES = ['src/lib/miden/back/dapp.ts', 'src/lib/dapp-browser/mess
 // Every Vite config, discovered, since the bridge modules are bundled into all of them.
 const CONFIGS = viteConfigs();
 
-/** Flag names read as `process.env.X` / `process.env?.X` by the given source. */
-function envReads(source: string): string[] {
-  return [...source.matchAll(/process\.env\??\.([A-Z0-9_]+)/g)].map(match => match[1]!);
-}
-
 const flags = [...new Set(BRIDGE_MODULES.flatMap(module => envReads(readSource(module))))];
 
 // Each flag's default, as the source expression after `??`. A newly discovered flag fails until it is
-// given one here, rather than being held to ''.
+// given one here, rather than being held to '', and a discovery that finds no flag fails too.
 const EXPECTED_DEFAULTS: Record<string, string> = {
   DEBUG_DAPP_BRIDGE: "''"
 };
 
 describe('dApp-bridge build-time flags', () => {
-  it('reads at least one build-time flag (otherwise this suite guards nothing)', () => {
-    expect(flags).toContain('DEBUG_DAPP_BRIDGE');
-  });
-
   it('gives every discovered flag an expected default', () => {
     expect(Object.keys(EXPECTED_DEFAULTS).sort()).toEqual([...flags].sort());
   });

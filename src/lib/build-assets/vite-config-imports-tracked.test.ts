@@ -21,9 +21,11 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { viteConfigs } from '../testing/define-parity';
+
 const ROOT = path.resolve(__dirname, '../../..');
 
-const viteConfigs = fs.readdirSync(ROOT).filter(f => /^vite\..*\.config\.ts$/.test(f));
+const CONFIGS = viteConfigs();
 
 /** Relative specifiers (`./…` / `../…`) a config imports — the ones that resolve to repo files. */
 function relativeImportsOf(configFile: string): string[] {
@@ -60,10 +62,10 @@ function isTracked(absPath: string): boolean {
 
 describe('vite configs only import git-tracked modules', () => {
   it('finds the vite configs (guards against the glob silently matching nothing)', () => {
-    expect(viteConfigs.length).toBeGreaterThanOrEqual(4);
+    expect(CONFIGS.length).toBeGreaterThanOrEqual(4);
   });
 
-  it.each(viteConfigs)('%s imports only tracked files', configFile => {
+  it.each(CONFIGS)('%s imports only tracked files', configFile => {
     const untracked = relativeImportsOf(configFile)
       .map(spec => ({ spec, file: resolveToFile(configFile, spec) }))
       // A specifier that resolves to nothing is a different failure (the build

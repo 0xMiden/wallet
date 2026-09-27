@@ -1,7 +1,12 @@
-import fs from 'fs';
-import path from 'path';
-
-import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from '../testing/define-parity';
+import {
+  defineEntry,
+  defineSource,
+  envReads,
+  listSources,
+  occurrences,
+  readSource,
+  viteConfigs
+} from '../testing/define-parity';
 
 // Discover configs matching /^vite\..+\.config\.ts$/ (every config that bundles telemetry
 // or crash reporting). An env read with no define is rewritten to `{}.X`, i.e. undefined,
@@ -11,17 +16,7 @@ const CONFIGS = viteConfigs().filter(file => file !== 'vite.contentScripts.confi
 
 // Every env read in the telemetry modules is a key the configs must define. NODE_ENV is defined in
 // every config too, but with a 'development' default rather than ''.
-const TELEMETRY_DIR = 'src/lib/telemetry';
-const KEYS = [
-  ...new Set(
-    fs
-      .readdirSync(path.join(__dirname, '../../..', TELEMETRY_DIR))
-      .filter(file => /\.tsx?$/.test(file) && !file.includes('.test.'))
-      .flatMap(file =>
-        [...readSource(`${TELEMETRY_DIR}/${file}`).matchAll(/process\.env\??\.([A-Z0-9_]+)/g)].map(match => match[1]!)
-      )
-  )
-]
+const KEYS = [...new Set(listSources('src/lib/telemetry').flatMap(file => envReads(readSource(file))))]
   .filter(key => key !== 'NODE_ENV')
   .sort();
 

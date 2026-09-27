@@ -1,4 +1,4 @@
-import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from './define-parity';
+import { defineEntry, defineSource, envReads, listSources, occurrences, readSource } from './define-parity';
 
 describe('defineSource', () => {
   it("returns the config's define object", () => {
@@ -204,14 +204,20 @@ describe('defineEntry', () => {
   });
 });
 
-describe('readSource and viteConfigs', () => {
+describe('discovery', () => {
   it('drops whole-line // comments from a repo file', () => {
     const source = readSource('src/lib/testing/define-parity.ts');
     expect(source).toContain('export const readSource');
     expect(source).not.toMatch(/^\s*\/\//m);
   });
 
-  it('finds the Vite configs at the repo root', () => {
-    expect(viteConfigs()).toEqual(expect.arrayContaining(['vite.extension.config.ts', 'vite.mobile.config.ts']));
+  it('lists the env names a source reads, optional chaining included', () => {
+    expect(envReads('const a = process.env.A;\nconst b = process.env?.B_2;')).toEqual(['A', 'B_2']);
+  });
+
+  it('lists the non-test modules directly in a repo directory', () => {
+    const files = listSources('src/lib/testing');
+    expect(files).toContain('src/lib/testing/define-parity.ts');
+    expect(files.filter(file => file.includes('.test.'))).toEqual([]);
   });
 });

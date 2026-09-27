@@ -20,6 +20,17 @@ export const viteConfigs = () =>
     .filter(file => /^vite\..+\.config\.ts$/.test(file))
     .sort();
 
+/** The env names a source reads as `process.env.X` or `process.env?.X`. */
+export const envReads = (source: string) =>
+  [...source.matchAll(/process\.env\??\.([A-Z0-9_]+)/g)].map(match => match[1]!);
+
+/** The non-test `.ts`/`.tsx` modules directly in a repo-relative directory, as repo-relative paths. */
+export const listSources = (dir: string) =>
+  fs
+    .readdirSync(path.join(REPO_ROOT, dir))
+    .filter(file => /\.tsx?$/.test(file) && !file.includes('.test.'))
+    .map(file => `${dir}/${file}`);
+
 /** A key defined twice in one config: the later entry wins in the object literal, so it must appear once. */
 export const occurrences = (content: string, token: string) => content.split(token).length - 1;
 
