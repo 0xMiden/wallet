@@ -5,12 +5,7 @@ import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
-import {
-  buildClickAcceptAllScript,
-  buildPendingSampleScript,
-  drainPendingClaims,
-  type PendingSample
-} from '../../helpers/claim-drain';
+import { claimFromPendingList } from '../../helpers/claim-drain';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -581,65 +576,8 @@ export class IosWalletPage implements WalletPage {
     // needs (a) at least one auto-sync after the new block lands, (b) the
     // SWR refresh (5s) to actually re-read consumable notes, (c) any
     // additional WASM-lock contention if a prove/sign is in flight. 60s
-    // was too tight on testnet under CI load. The first click is a
-    // precondition, not part of the drain: before it, an empty list only
-    // means nothing has arrived yet.
-    await this.pollForCondition(buildClickAcceptAllScript(), 120_000).catch(async (error: unknown) => {
-      let list: string;
-      try {
-        list = JSON.stringify(await this.cdp.eval<PendingSample>(buildPendingSampleScript()));
-      } catch {
-        list = 'unreadable';
-      }
-      const cause = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `IosWalletPage.claimAllNotes: Accept All never became clickable within 120000ms; ` +
-          `Pending list: ${list}; ${cause}`
-      );
-    });
-
-    // TEMPORARY (mobile-MT test): periodically dump
-    // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
-    // see prove path + duration even when Console.messageAdded doesn't
-    // route console.log. Plain stdout via console.log so they show in
-    // the playwright test log.
-    let lastProveTimingIdx = 0;
-    const pumpProveTimings = async () => {
-      try {
-        const fresh = await this.cdp.eval<string[]>(
-          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
-        );
-        if (Array.isArray(fresh) && fresh.length > 0) {
-          lastProveTimingIdx += fresh.length;
-          for (const line of fresh) {
-            // eslint-disable-next-line no-console
-            console.log(`[prove-timing] ${line}`);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    try {
-      await drainPendingClaims(
-        {
-          sample: () => this.cdp.eval<PendingSample>(buildPendingSampleScript()),
-          clickAcceptAll: () => this.cdp.eval<boolean>(buildClickAcceptAllScript()),
-          openPending: () => this.navigateTo(ACTIVITY_PENDING_PATH),
-          sync: () => this.triggerSync(),
-          sleep,
-          now: () => Date.now(),
-          onLap: pumpProveTimings,
-          // eslint-disable-next-line no-console
-          log: line => console.log(line)
-        },
-        { timeoutMs, label: 'IosWalletPage.claimAllNotes' }
-      );
-    } finally {
-      await pumpProveTimings();
-      await this.navigateHome();
-    }
+    // was too tight on testnet under CI load, so the first click may take 120s.
+    await claimFromPendingList(this, { label: 'IosWalletPage.claimAllNotes', firstClickMs: 120_000, timeoutMs });
   }
 
   /**

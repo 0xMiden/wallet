@@ -1,11 +1,15 @@
 import {
   buildClickAcceptAllScript,
   buildPendingSampleScript,
+  claimFromPendingList,
+  clickFirstAcceptAll,
   drainPendingClaims,
   isDrained,
   type DrainDriver,
+  type MobileClaimPage,
   type PendingSample
 } from './claim-drain';
+import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 
 /** Runs an emitted body the way `cdp.eval` does, against the jsdom document and location. */
 function run<T>(script: string): T {
@@ -112,55 +116,60 @@ describe('isDrained', () => {
   });
 });
 
-describe('drainPendingClaims', () => {
-  const drained: PendingSample = { onPending: true, rows: 0, acceptAll: 'absent', loading: false };
-  const claiming: PendingSample = { onPending: true, rows: 1, acceptAll: 'busy', loading: false };
-  const waiting: PendingSample = { onPending: true, rows: 1, acceptAll: 'idle', loading: false };
-  const loadingEmpty: PendingSample = { onPending: true, rows: 0, acceptAll: 'absent', loading: true };
-  const elsewhere: PendingSample = { onPending: false, rows: 0, acceptAll: 'absent', loading: false };
-  const options = { timeoutMs: 120_000, label: 'TestPage.claimAllNotes' };
+const drained: PendingSample = { onPending: true, rows: 0, acceptAll: 'absent', loading: false };
+const claiming: PendingSample = { onPending: true, rows: 1, acceptAll: 'busy', loading: false };
+const waiting: PendingSample = { onPending: true, rows: 1, acceptAll: 'idle', loading: false };
+const loadingEmpty: PendingSample = { onPending: true, rows: 0, acceptAll: 'absent', loading: true };
+const elsewhere: PendingSample = { onPending: false, rows: 0, acceptAll: 'absent', loading: false };
 
-  /** A driver over a scripted run of reads (the last one repeats) and a clock only sync and sleep move. */
-  function fakeDriver(
-    reads: Array<PendingSample | Error>,
-    clickLands = true,
-    overrides?: { onLapThrow?: Error; clickThrow?: Error; openThrow?: Error }
-  ) {
-    let now = 0;
-    let next = 0;
-    const calls = { samples: 0, clicks: 0, reopens: 0 };
-    const driver: DrainDriver = {
-      sample: async (): Promise<PendingSample> => {
-        calls.samples++;
-        const read = reads[Math.min(next++, reads.length - 1)];
-        if (read === undefined) throw new Error('fake driver ran out of reads');
-        if (read instanceof Error) throw read;
-        return read;
-      },
-      clickAcceptAll: async () => {
-        calls.clicks++;
-        if (overrides?.clickThrow) throw overrides.clickThrow;
-        return clickLands;
-      },
-      openPending: async () => {
-        calls.reopens++;
-        if (overrides?.openThrow) throw overrides.openThrow;
-      },
-      onLap: overrides?.onLapThrow
-        ? async () => {
-            throw overrides.onLapThrow;
-          }
-        : undefined,
-      sync: async () => {
-        now += 3_500;
-      },
-      sleep: async ms => {
-        now += ms;
-      },
-      now: () => now
-    };
-    return { driver, calls };
-  }
+/**
+ * A driver over a scripted run of reads and click answers (the last of each repeats) and a clock only
+ * sync and sleep move.
+ */
+function fakeDriver(
+  reads: Array<PendingSample | Error>,
+  clickLands: boolean | boolean[] = true,
+  overrides?: { onLapThrow?: Error; clickThrow?: Error; openThrow?: Error }
+) {
+  let now = 0;
+  let next = 0;
+  const calls = { samples: 0, clicks: 0, reopens: 0 };
+  const driver: DrainDriver = {
+    sample: async (): Promise<PendingSample> => {
+      calls.samples++;
+      const read = reads[Math.min(next++, reads.length - 1)];
+      if (read === undefined) throw new Error('fake driver ran out of reads');
+      if (read instanceof Error) throw read;
+      return read;
+    },
+    clickAcceptAll: async () => {
+      const answer = Array.isArray(clickLands) ? clickLands[Math.min(calls.clicks, clickLands.length - 1)] : clickLands;
+      calls.clicks++;
+      if (overrides?.clickThrow) throw overrides.clickThrow;
+      return answer === true;
+    },
+    openPending: async () => {
+      calls.reopens++;
+      if (overrides?.openThrow) throw overrides.openThrow;
+    },
+    onLap: overrides?.onLapThrow
+      ? async () => {
+          throw overrides.onLapThrow;
+        }
+      : undefined,
+    sync: async () => {
+      now += 3_500;
+    },
+    sleep: async ms => {
+      now += ms;
+    },
+    now: () => now
+  };
+  return { driver, calls };
+}
+
+describe('drainPendingClaims', () => {
+  const options = { timeoutMs: 120_000, label: 'TestPage.claimAllNotes' };
 
   it('returns once two consecutive reads show the list drained', async () => {
     const { driver, calls } = fakeDriver([claiming, drained, drained]);
@@ -300,5 +309,108 @@ describe('drainPendingClaims', () => {
   it('does not count a click that did not land', async () => {
     const { driver } = fakeDriver([waiting], false);
     await expect(drainPendingClaims(driver, { ...options, timeoutMs: 4_000 })).rejects.toThrow('clicked 0 time(s)');
+  });
+});
+
+describe('clickFirstAcceptAll', () => {
+  const options = { firstClickMs: 2_000, label: 'TestPage.claimAllNotes' };
+
+  it('clicks as soon as Accept All is idle', async () => {
+    const { driver, calls } = fakeDriver([claiming]);
+    await clickFirstAcceptAll(driver, options);
+    expect(calls.clicks).toBe(1);
+    expect(calls.samples).toBe(0);
+  });
+
+  it('keeps polling until a click lands', async () => {
+    const { driver, calls } = fakeDriver([claiming], [false, false, true]);
+    await clickFirstAcceptAll(driver, options);
+    expect(calls.clicks).toBe(3);
+  });
+
+  it('fails with the list when Accept All never becomes clickable', async () => {
+    const { driver } = fakeDriver([claiming], false);
+    await expect(clickFirstAcceptAll(driver, options)).rejects.toThrow(
+      'TestPage.claimAllNotes: Accept All never became clickable within 2000ms; ' +
+        'last sample: {"onPending":true,"rows":1,"acceptAll":"busy","loading":false}'
+    );
+  });
+});
+
+describe('claimFromPendingList', () => {
+  const options = { label: 'TestPage.claimAllNotes', firstClickMs: 2_000, timeoutMs: 10_000 };
+
+  /** A page whose Pending list reads `reads` in order (the last repeats) and whose Accept All takes a click when `clickLands`. */
+  function fakePage(reads: PendingSample | PendingSample[], clickLands: boolean, homeError?: Error) {
+    const list = Array.isArray(reads) ? reads : [reads];
+    let next = 0;
+    const navigateTo = jest.fn(async (_hash: string) => undefined);
+    const navigateHome = jest.fn(async () => {
+      if (homeError) throw homeError;
+    });
+    const page: MobileClaimPage = {
+      evalJs: async js => {
+        if (js === buildClickAcceptAllScript()) return clickLands;
+        if (js === buildPendingSampleScript()) return list[Math.min(next++, list.length - 1)];
+        return [];
+      },
+      navigateTo,
+      navigateHome,
+      triggerSync: async () => undefined
+    };
+    return { page, navigateTo, navigateHome };
+  }
+
+  /** Runs the claim to its end on fake timers; resolves with what it rejected with, if anything. */
+  async function settle(claim: Promise<void>): Promise<unknown> {
+    const outcome = claim.then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.runAllTimersAsync();
+    return outcome;
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('goes home whether the claim passes or fails', async () => {
+    const passes = fakePage(drained, true);
+    expect(await settle(claimFromPendingList(passes.page, options))).toBeUndefined();
+    expect(passes.navigateHome).toHaveBeenCalledTimes(1);
+
+    const fails = fakePage(claiming, false);
+    expect(String(await settle(claimFromPendingList(fails.page, options)))).toContain(
+      'TestPage.claimAllNotes: Accept All never became clickable within 2000ms'
+    );
+    expect(fails.navigateHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('reopens the Pending list at its route when the wallet left it', async () => {
+    const { page, navigateTo } = fakePage([elsewhere, drained], true);
+    expect(await settle(claimFromPendingList(page, options))).toBeUndefined();
+    expect(navigateTo).toHaveBeenCalledWith(ACTIVITY_PENDING_PATH);
+  });
+
+  it('a failed claim keeps its own error when going home fails', async () => {
+    const sessionClosed = new Error('session closed');
+
+    const neverClickable = fakePage(claiming, false, sessionClosed);
+    expect(String(await settle(claimFromPendingList(neverClickable.page, options)))).toContain(
+      'Accept All never became clickable'
+    );
+
+    const neverDrains = fakePage(claiming, true, sessionClosed);
+    expect(String(await settle(claimFromPendingList(neverDrains.page, options)))).toContain('did not drain');
+  });
+
+  it('a claim that passed still reports a failed trip home', async () => {
+    const { page } = fakePage(drained, true, new Error('session closed'));
+    expect(String(await settle(claimFromPendingList(page, options)))).toContain('session closed');
   });
 });

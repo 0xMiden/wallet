@@ -5,12 +5,7 @@ import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
-import {
-  buildClickAcceptAllScript,
-  buildPendingSampleScript,
-  drainPendingClaims,
-  type PendingSample
-} from '../../helpers/claim-drain';
+import { claimFromPendingList } from '../../helpers/claim-drain';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -252,59 +247,7 @@ export class AndroidWalletPage implements WalletPage {
     await this.navigateTo(ACTIVITY_PENDING_PATH);
     await sleep(3_000);
 
-    // The first click is a precondition, not part of the drain: before it, an empty list only means
-    // nothing has arrived yet.
-    await this.pollForCondition(buildClickAcceptAllScript(), 60_000).catch(async (error: unknown) => {
-      let list: string;
-      try {
-        list = JSON.stringify(await this.cdp.eval<PendingSample>(buildPendingSampleScript()));
-      } catch {
-        list = 'unreadable';
-      }
-      const cause = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `AndroidWalletPage.claimAllNotes: Accept All never became clickable within 60000ms; ` +
-          `Pending list: ${list}; ${cause}`
-      );
-    });
-
-    let lastProveTimingIdx = 0;
-    const pumpProveTimings = async () => {
-      try {
-        const fresh = await this.cdp.eval<string[]>(
-          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
-        );
-        if (Array.isArray(fresh) && fresh.length > 0) {
-          lastProveTimingIdx += fresh.length;
-          for (const line of fresh) {
-            // eslint-disable-next-line no-console
-            console.log(`[prove-timing] ${line}`);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    try {
-      await drainPendingClaims(
-        {
-          sample: () => this.cdp.eval<PendingSample>(buildPendingSampleScript()),
-          clickAcceptAll: () => this.cdp.eval<boolean>(buildClickAcceptAllScript()),
-          openPending: () => this.navigateTo(ACTIVITY_PENDING_PATH),
-          sync: () => this.triggerSync(),
-          sleep,
-          now: () => Date.now(),
-          onLap: pumpProveTimings,
-          // eslint-disable-next-line no-console
-          log: line => console.log(line)
-        },
-        { timeoutMs, label: 'AndroidWalletPage.claimAllNotes' }
-      );
-    } finally {
-      await pumpProveTimings();
-      await this.navigateHome();
-    }
+    await claimFromPendingList(this, { label: 'AndroidWalletPage.claimAllNotes', firstClickMs: 60_000, timeoutMs });
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────

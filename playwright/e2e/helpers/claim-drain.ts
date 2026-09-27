@@ -11,6 +11,8 @@
  * `cdp.eval` expects), like `balance-script.ts`.
  */
 
+import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
+
 export type AcceptAllState = 'absent' | 'idle' | 'busy';
 
 export interface PendingSample {
@@ -159,4 +161,109 @@ export async function drainPendingClaims(driver: DrainDriver, { timeoutMs, label
       `last sample: ${JSON.stringify(last)}; Accept All clicked ${clicks} time(s)` +
       (lastFailure ? `; last failure: ${lastFailure}` : '')
   );
+}
+
+const FIRST_CLICK_POLL_MS = 500;
+
+/**
+ * Clicks Accept All once it is idle, polling at the old `pollForCondition` cadence. This is the claim's
+ * precondition, not part of the drain: before a click lands, an empty list only means nothing has
+ * arrived yet. Throws with the list as it stands when no click lands within `firstClickMs`.
+ */
+export async function clickFirstAcceptAll(
+  driver: DrainDriver,
+  { label, firstClickMs }: { label: string; firstClickMs: number }
+): Promise<void> {
+  const deadline = driver.now() + firstClickMs;
+  while (driver.now() < deadline) {
+    if (await attempt(driver, label, 'clickAcceptAll', () => driver.clickAcceptAll(), false)) return;
+    await driver.sleep(FIRST_CLICK_POLL_MS);
+  }
+  const last = await attempt(driver, label, 'sample', () => driver.sample(), null);
+  throw new Error(
+    `${label}: Accept All never became clickable within ${firstClickMs}ms; last sample: ${JSON.stringify(last)}`
+  );
+}
+
+/** What a mobile page object lends the claim; both page objects satisfy it with public methods. */
+export interface MobileClaimPage {
+  evalJs(js: string): Promise<unknown>;
+  navigateTo(hash: string): Promise<void>;
+  navigateHome(): Promise<void>;
+  triggerSync(): Promise<void>;
+}
+
+export interface MobileClaimOptions extends DrainOptions {
+  firstClickMs: number;
+}
+
+function isPendingSample(value: unknown): value is PendingSample {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'onPending' in value &&
+    typeof value.onPending === 'boolean' &&
+    'rows' in value &&
+    typeof value.rows === 'number' &&
+    'acceptAll' in value &&
+    (value.acceptAll === 'absent' || value.acceptAll === 'idle' || value.acceptAll === 'busy') &&
+    'loading' in value &&
+    typeof value.loading === 'boolean'
+  );
+}
+
+/** Streams the wallet's `__PROVE_TIMINGS__` markers to the test log. Diagnostics only: it never throws. */
+function proveTimingsPump(page: MobileClaimPage): () => Promise<void> {
+  let seen = 0;
+  return async () => {
+    try {
+      const fresh = await page.evalJs(`var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${seen});`);
+      if (!Array.isArray(fresh)) return;
+      seen += fresh.length;
+      // eslint-disable-next-line no-console
+      for (const line of fresh) console.log(`[prove-timing] ${String(line)}`);
+    } catch {
+      // ignore
+    }
+  };
+}
+
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * The mobile claim: the first Accept All click, the drain, and the trip home. The drain counts only the
+ * clicks it makes itself.
+ */
+export async function claimFromPendingList(page: MobileClaimPage, options: MobileClaimOptions): Promise<void> {
+  const pumpProveTimings = proveTimingsPump(page);
+  const driver: DrainDriver = {
+    sample: async () => {
+      const value = await page.evalJs(buildPendingSampleScript());
+      if (!isPendingSample(value)) throw new Error(`unreadable sample ${JSON.stringify(value)}`);
+      return value;
+    },
+    clickAcceptAll: async () => (await page.evalJs(buildClickAcceptAllScript())) === true,
+    openPending: () => page.navigateTo(ACTIVITY_PENDING_PATH),
+    sync: () => page.triggerSync(),
+    sleep,
+    now: () => Date.now(),
+    onLap: pumpProveTimings,
+    // eslint-disable-next-line no-console
+    log: line => console.log(line)
+  };
+  try {
+    await clickFirstAcceptAll(driver, options);
+    await drainPendingClaims(driver, options);
+  } catch (error) {
+    await pumpProveTimings();
+    // A dead CDP session fails this navigation too; the claim's own error is the one worth reporting.
+    await page.navigateHome().catch((homeError: unknown) => {
+      driver.log?.(
+        `[${options.label}] navigateHome failed: ${homeError instanceof Error ? homeError.message : String(homeError)}`
+      );
+    });
+    throw error;
+  }
+  await pumpProveTimings();
+  await page.navigateHome();
 }
