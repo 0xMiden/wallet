@@ -128,6 +128,26 @@ jest.mock('@miden-sdk/miden-sdk', () => {
   };
 });
 
+// Only isExtension is steered; the rest of the module (isMobile for the native
+// HTTP origin) stays real.
+const mockIsExtension = jest.fn(() => false);
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: () => mockIsExtension()
+}));
+
+const mockAlarmsCreate = jest.fn(async (_name: string, _info: { periodInMinutes?: number }) => {});
+const mockAlarmsClear = jest.fn(async (_name: string) => true);
+jest.mock('webextension-polyfill', () => ({
+  __esModule: true,
+  default: {
+    alarms: {
+      create: (name: string, info: { periodInMinutes?: number }) => mockAlarmsCreate(name, info),
+      clear: (name: string) => mockAlarmsClear(name)
+    }
+  }
+}));
+
 // secure-hot-key facade — generateHotKey is the only entry createGuardianAccount uses.
 const mockGenerateHotKey = jest.fn();
 jest.mock('lib/secure-hot-key', () => ({
@@ -391,6 +411,7 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsExtension.mockReturnValue(false);
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
@@ -656,6 +677,45 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
       expect(webClient.sync).not.toHaveBeenCalled();
       expect(webClient.keystore.insert).not.toHaveBeenCalled();
+    });
+
+    // Chrome stops an idle MV3 service worker after ~30 s, so a minute's wait
+    // there needs a keepalive alarm, as the transaction processor arms for its loop.
+    it('keeps the extension service worker alive with an alarm for the length of a wait', async () => {
+      mockIsExtension.mockReturnValue(true);
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockAlarmsCreate).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsCreate).toHaveBeenCalledWith(expect.any(String), { periodInMinutes: 0.4 });
+      const alarmName = mockAlarmsCreate.mock.calls[0]?.[0];
+      expect(alarmName).not.toBe('miden-tx-processor');
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(mockAlarmsClear).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsClear).toHaveBeenCalledWith(alarmName);
+    });
+
+    it('touches no alarm API off the extension and still waits', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+      const pending = createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+      await jest.advanceTimersByTimeAsync(59_999);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ account: multisig.account });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(mockAlarmsCreate).not.toHaveBeenCalled();
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
     });
   });
 });

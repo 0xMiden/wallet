@@ -5,6 +5,7 @@ import { Buffer } from 'buffer';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -281,6 +282,25 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  */
 export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 
+const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
+
+/**
+ * Sleep for a guardian 429 wait. Chrome stops an idle MV3 service worker after
+ * ~30 s and a wait can last a minute, so on the extension a repeating alarm keeps
+ * the worker alive for the wait, as the transaction processor's does for its
+ * loop, and is cleared when the wait ends. The polyfill is loaded only there: it
+ * throws at load outside an extension, and this module is in the mobile bundle.
+ */
+async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
+  const browser = isExtension() ? await import('webextension-polyfill').then(m => m.default) : undefined;
+  await browser?.alarms.create(GUARDIAN_WAIT_KEEPALIVE_ALARM, { periodInMinutes: 0.4 });
+  try {
+    await new Promise(resolve => setTimeout(resolve, ms));
+  } finally {
+    await browser?.alarms.clear(GUARDIAN_WAIT_KEEPALIVE_ALARM);
+  }
+}
+
 /**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
@@ -350,7 +370,7 @@ export async function createGuardianAccount(
     const afterWait = () => assertLive('after a guardian 429 wait');
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
       () => client.guardianClient.getPubkey('ecdsa'),
-      { deadlineMs: rateLimitDeadline, afterWait }
+      { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
     );
     assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
@@ -393,6 +413,7 @@ export async function createGuardianAccount(
       assertLive('before guardian registration');
       await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), {
         deadlineMs: rateLimitDeadline,
+        sleepFn: sleepKeepingWorkerAlive,
         afterWait
       });
     }
