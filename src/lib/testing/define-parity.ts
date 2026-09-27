@@ -28,14 +28,19 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 export const defineEntry = (key: string, expression: string) =>
   new RegExp(`'process\\.env\\.${key}':\\s*JSON\\.stringify\\(\\s*${escapeRegExp(expression)}\\s*\\)`);
 
-// The index just past the `}` closing the `{` at `open`. Strings and comments are skipped, since the
-// configs' comments say `{}.X`.
-function closingBrace(source: string, open: number): number {
+// The object literal opening at `open` (`source[open] === '{'`): the index just past its closing `}`,
+// and its text with comments removed. Strings and comments are skipped for brace-depth purposes (the
+// configs' own comments say `{}.X`), and a comment is dropped from the text too, so a define hidden
+// inside `/* */` or a trailing `//` cannot still match a check on the raw slice.
+function scanObject(source: string, open: number): { close: number; text: string } {
   let depth = 0;
+  let text = '';
   for (let i = open; i < source.length; i++) {
     const ch = source[i];
     if (ch === "'" || ch === '"' || ch === '`') {
+      const start = i;
       for (i++; i < source.length && source[i] !== ch; i++) if (source[i] === '\\') i++;
+      text += source.slice(start, i + 1);
     } else if (ch === '/' && source[i + 1] === '/') {
       const end = source.indexOf('\n', i);
       if (end === -1) break;
@@ -44,10 +49,10 @@ function closingBrace(source: string, open: number): number {
       const end = source.indexOf('*/', i + 2);
       if (end === -1) break;
       i = end + 1;
-    } else if (ch === '{') {
-      depth++;
-    } else if (ch === '}' && --depth === 0) {
-      return i + 1;
+    } else {
+      text += ch;
+      if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) return { close: i + 1, text };
     }
   }
   throw new Error(`unbalanced object literal at offset ${open}`);
@@ -57,7 +62,7 @@ function objectAfter(source: string, pattern: RegExp, what: string): string {
   const match = pattern.exec(source);
   if (!match) throw new Error(`no ${what} object in the config`);
   const open = match.index + match[0].length - 1;
-  return source.slice(open, closingBrace(source, open));
+  return scanObject(source, open).text;
 }
 
 /**

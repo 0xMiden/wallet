@@ -49,6 +49,22 @@ describe('defineSource', () => {
     expect(defines).not.toContain('after-define');
   });
 
+  it('drops a define hidden only inside a comment', () => {
+    const source = [
+      'export default {',
+      '  define: {',
+      "    /* 'process.env.X': JSON.stringify('commented') */",
+      "    'process.env.Y': JSON.stringify('y'), // 'process.env.Z': JSON.stringify('z')",
+      "    'process.env.URL': JSON.stringify('https://x')",
+      '  }',
+      '};'
+    ].join('\n');
+    const defines = defineSource(source);
+    expect(defines).not.toContain('process.env.X');
+    expect(defines).not.toContain('process.env.Z');
+    expect(defines).toContain("JSON.stringify('https://x')");
+  });
+
   it('throws when the config has no define object', () => {
     expect(() => defineSource('export default { plugins: [] };')).toThrow('define');
   });
