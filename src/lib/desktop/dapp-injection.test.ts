@@ -153,6 +153,32 @@ describe('account switch (#174)', () => {
     expect(h.win.midenWallet.address).toBe('0xdef');
   });
 
+  it('a throwing accountChange listener hears a switch once, and the switch back still lands', async () => {
+    const h = await connected();
+    const listener = jest.fn(() => {
+      throw new Error('listener failed');
+    });
+    h.win.midenWallet.on('accountChange', listener);
+    const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
+    await answerPoll(h, next);
+    await answerPoll(h, next);
+    expect(listener).toHaveBeenCalledTimes(1);
+    await answerPoll(h, { ...PERM, publicKey: btoa('abc') });
+    expect(h.win.midenWallet.address).toBe('0xabc');
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('a throwing accountChange listener hears two null polls once', async () => {
+    const h = await connected();
+    const listener = jest.fn(() => {
+      throw new Error('listener failed');
+    });
+    h.win.midenWallet.on('accountChange', listener);
+    await answerPoll(h, null);
+    await answerPoll(h, null);
+    expect(listener.mock.calls).toEqual([[null]]);
+  });
+
   it('stops on disconnect, and a poll answered after disconnect changes nothing', async () => {
     const h = await connected();
     const spy = jest.fn();

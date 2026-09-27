@@ -139,26 +139,22 @@
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
 
-  // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
-  function samePermission(a, b) {
-    if (a === null || b === null) return a === b;
-    return a.address === b.address;
-  }
-
-  function watchPermission(wallet, seed) {
+  // The wallet's own fields are the only state, so a listener that throws after they are set cannot freeze the watch.
+  function watchPermission(wallet) {
     stopPermissionWatch();
-    let current = seed;
     let stopped = false;
     let timer;
     const tick = async function() {
       try {
         const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
         const hasPermission = res && typeof res === 'object' && 'permission' in res;
-        if (!stopped && hasPermission && !samePermission(current, res.permission) && wallet._applyPermission(res.permission)) {
-          current = res.permission;
+        if (!stopped && hasPermission) {
+          // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+          const account = res.permission === null ? undefined : res.permission.address;
+          if (account !== wallet.address) wallet._applyPermission(res.permission);
         }
       } catch (e) {
-        // A refused or timed-out poll leaves the account as it was; the next one asks again.
+        // A refused or timed-out poll, or a key that cannot be decoded, leaves the account as it was; the next one asks again.
       }
       if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
     };
@@ -326,7 +322,7 @@
         };
 
         // The watch starts first, so a listener that disconnects from this emission stops it.
-        watchPermission(this, this.permission);
+        watchPermission(this);
 
         // Emit accountChange event (what the adapter listens for)
         this._emit('accountChange', this.permission);
@@ -350,29 +346,21 @@
         return res;
       }
 
-      // Fields follow the new account before listeners hear of it; null clears them. Returns false,
-      // changing nothing, when the key cannot be decoded, so the next poll retries.
+      // Fields follow the new account before listeners hear of it; null clears them. A key that
+      // cannot be decoded throws before anything changes.
       _applyPermission(perm) {
         if (perm === null) {
           this.address = undefined;
           this.publicKey = undefined;
           this.permission = undefined;
           this._emit('accountChange', null);
-          return true;
+          return;
         }
-        let publicKey;
-        if (perm.publicKey) {
-          try {
-            publicKey = base64ToUint8Array(perm.publicKey);
-          } catch (e) {
-            return false;
-          }
-        }
+        const publicKey = perm.publicKey ? base64ToUint8Array(perm.publicKey) : undefined;
         this.permission = perm;
         this.address = perm.address;
         this.publicKey = publicKey;
         this._emit('accountChange', perm);
-        return true;
       }
 
       async requestSend(transaction) {
