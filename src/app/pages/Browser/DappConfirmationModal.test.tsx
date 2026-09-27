@@ -3,6 +3,7 @@ import React from 'react';
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
@@ -279,8 +280,11 @@ describe('DappConfirmationModal origin', () => {
     expect(shown.textContent).toBe(LONG_ORIGIN);
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
-    expect(domain).not.toHaveClass('truncate');
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    // The row directly wrapping DappOrigin, not the modal card: the card's own
+    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
+    // never clips text) and would otherwise make this guard fail on every render.
+    expectDomainNeverClipped(domain, shown.parentElement as HTMLElement);
   });
 
   it('shows the origin the same way in the title when the dApp sends no name', () => {

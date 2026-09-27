@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { DappMetadata } from 'lib/miden/types';
 
 import ConnectBanner from './ConnectBanner';
@@ -33,14 +34,14 @@ const appMeta = { name: 'Test dApp' } as unknown as DappMetadata;
 describe('ConnectBanner', () => {
   it('keeps a long origin whole on the connect prompt, with its registrable domain never truncated', () => {
     const origin = 'https://login.secure.account-verify.wallet.example.co.uk';
-    render(<ConnectBanner type="connect" origin={origin} appMeta={appMeta} />);
+    const { container } = render(<ConnectBanner type="connect" origin={origin} appMeta={appMeta} />);
 
     const shown = screen.getByTestId('connect-origin');
     expect(shown.textContent).toBe(origin);
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
-    expect(domain).not.toHaveClass('truncate');
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 
   it('renders the Logo with the forwarded height/margin/filter style', () => {

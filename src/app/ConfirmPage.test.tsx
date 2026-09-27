@@ -4,6 +4,7 @@ import React from 'react';
 import { Address, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -1040,14 +1041,14 @@ describe('request origin banner', () => {
       note: 'noteblob',
       preview: {}
     });
-    render(<ConfirmPage />);
+    const { container } = render(<ConfirmPage />);
 
     const shown = screen.getByTestId('confirm-request-origin');
     expect(shown.textContent).toBe(LONG_ORIGIN);
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
-    expect(domain).not.toHaveClass('truncate');
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 });
 
