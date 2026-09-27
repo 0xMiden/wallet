@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "Bevor Sie Ihre privaten Schlüssel preisgeben",
   "hotKeyRevealWarningBody": "Jeder, der über diese Schlüssel verfügt, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Das Rotieren Ihres täglichen Miden-Schlüssels ändert nichts an einem durchgesickerten EVM-Schlüssel und schützt diesen auch nicht.",
   "invalidUrl": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
+  "customGuardianUnreachable": "Unter dieser URL wurde keine Antwort auf „Guardian“ gefunden. Überprüfen Sie die URL und versuchen Sie es erneut.",
   "encryptedWalletFileDescription": "Geben Sie Ihr Passwort ein, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
   "encryptedWalletFileDescriptionHardware": "Entsperren Sie das Gerät mit Ihrem Passcode, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
   "encryptedWalletFileConfirmation": "Ich werde meine verschlüsselte Wallet-Datei an niemanden weitergeben, auch nicht an Bread.",

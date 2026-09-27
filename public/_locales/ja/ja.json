@@ -636,6 +636,7 @@
   "hotKeyRevealWarningTitle": "秘密鍵を開示する前に",
   "hotKeyRevealWarningBody": "これらの鍵を所持する者は誰でも、あなたのMidenおよびEVM資産を管理することができます。Midenの日常鍵をローテーションしても、漏洩したEVM鍵は変更も保護もされません。",
   "invalidUrl": "http:// または https:// で始まる有効な URL を入力してください",
+  "customGuardianUnreachable": "このURLにはGuardianへの回答がありません。確認してから再度お試しください。",
   "encryptedWalletFileDescription": "暗号化されたウォレットファイルにアクセスするには、パスワードを入力してください。",
   "encryptedWalletFileDescriptionHardware": "パスコードを入力してロックを解除し、暗号化されたウォレットファイルにアクセスしてください。",
   "encryptedWalletFileConfirmation": "私は、Breadを含め、誰に対しても自分の暗号化されたウォレットファイルを共有することはありません。",
