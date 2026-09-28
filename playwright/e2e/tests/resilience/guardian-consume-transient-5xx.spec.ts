@@ -19,9 +19,20 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  * the 500 during this consume (a claim that drained with zero hits would be a
  * false green). If this goes RED, the co-signed consume does not tolerate a
  * transient guardian 5xx and the product needs the fix.
+ *
+ * A 5xx at proposal creation reads as a guardian outage, so each faulted POST
+ * requeues the consume with a 60 s cooldown instead of failing it (#779). The
+ * claim budget carries one cooldown and one service-worker pass per faulted
+ * POST on top of the landing, or two requeues alone could outlast it.
  */
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 const MINT_BASE_UNITS = 100_000_000_000n; // 1000 TST
+const FAULTED_POSTS = 2;
+// The unreachable arm's requeue cooldown plus one 5 s pass of the service worker's processing loop: the longest one
+// faulted POST can hold the consume back before the loop runs it again.
+const REQUEUE_COOLDOWN_PASS_MS = 65_000;
+const LANDING_BUDGET_MS = 180_000;
+const CLAIM_BUDGET_MS = LANDING_BUDGET_MS + FAULTED_POSTS * REQUEUE_COOLDOWN_PASS_MS;
 
 test.describe('infra resilience — transient guardian 5xx during a consume', () => {
   test.describe.configure({ mode: 'serial' });
@@ -32,7 +43,7 @@ test.describe('infra resilience — transient guardian 5xx during a consume', ()
     steps,
     timeline
   }) => {
-    test.setTimeout(600_000);
+    test.setTimeout(600_000 + FAULTED_POSTS * REQUEUE_COOLDOWN_PASS_MS);
 
     let addressA = '';
 
@@ -53,10 +64,16 @@ test.describe('infra resilience — transient guardian 5xx during a consume', ()
       'consume_survives_transient_guardian_5xx',
       async () => {
         // First couple of A's /delta POSTs 500, then clear.
-        walletA.armGuardianFault({ target: 'A', path: 'delta', method: 'POST', mode: 'failFirstN', count: 2 });
+        walletA.armGuardianFault({
+          target: 'A',
+          path: 'delta',
+          method: 'POST',
+          mode: 'failFirstN',
+          count: FAULTED_POSTS
+        });
 
         // The co-signed consume must still drive the note into the vault.
-        await walletA.claimAllNotes(180_000);
+        await walletA.claimAllNotes(CLAIM_BUDGET_MS);
         await waitForVaultBalance(walletA.page, TOKEN, MINT_BASE_UNITS, {
           timeoutMs: 180_000,
           decimals: TOKEN_DECIMALS
