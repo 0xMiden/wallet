@@ -37,11 +37,13 @@ if (process.env.TARGET_BROWSER === 'chrome') {
 }
 
 // A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
-// still in `GeneratingTransaction` was orphaned when the browser closed — the
-// tab/SW driving it is gone and nothing will resume it. Fail those immediately
-// so a send interrupted mid-prove doesn't sit on "Sending" for up to 30 min
-// waiting on the age-based reaper (issue #282). Registered synchronously at the
-// top level so it survives MV3 SW eviction.
+// an earlier browser session left in `GeneratingTransaction` was orphaned when
+// the browser closed: the tab/SW driving it is gone and nothing will resume it.
+// The sweep fails those and spares rows this session started (the startup kick
+// can start one first). Failing them immediately means a send interrupted
+// mid-prove doesn't sit on "Sending" for up to 30 min waiting on the age-based
+// reaper (issue #282). Registered synchronously at the top level so it survives
+// MV3 SW eviction.
 runtime.onStartup.addListener(() => {
   failInterruptedTransactions().catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });

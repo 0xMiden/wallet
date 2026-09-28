@@ -1296,6 +1296,34 @@ describe('transactions utilities', () => {
       expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
     });
 
+    it('spares a row this session started seconds before the sweep runs (#1202)', async () => {
+      const base = { type: 'send', status: ITransactionStatus.GeneratingTransaction, initiatedAt: SESSION_STARTED_AT };
+      const rows = [
+        { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
+        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 }
+      ];
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+      // The cutoff is when the module loaded, not when the sweep runs.
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + 60) * 1000);
+      try {
+        await failInterruptedTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(modifiedIds).toEqual(['orphan']);
+    });
+
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
       const nowSec = Math.floor(Date.now() / 1000);
       const gen = {
