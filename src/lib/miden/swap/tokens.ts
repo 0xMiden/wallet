@@ -201,6 +201,15 @@ export function priceSymbolForOrThrow(faucetId: string, symbol: string): string 
 }
 
 /**
+ * The distinct price symbols the allowlist matches faucets against - read by a test to catch a
+ * registry token whose `priceSymbol` the feed does not quote before it ships, which would
+ * otherwise drift the spending cap into refusing every spend of that faucet (#1131).
+ */
+export function allowlistedPriceSymbols(): string[] {
+  return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];
+}
+
+/**
  * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it or
  * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */

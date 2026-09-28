@@ -3,8 +3,10 @@ import { MIDEN_USDC_FAUCET, setEarnCollateralFaucetForTest } from 'lib/epoch/col
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { isCoveredSymbol } from 'lib/prices/usd';
 
 import {
+  allowlistedPriceSymbols,
   deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
@@ -117,6 +119,17 @@ describe('swap token price symbols', () => {
   it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
     expect(TOKEN_IUSDT.priceSymbol).toBeUndefined();
     expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
+  });
+
+  // #1131: a registry token whose priceSymbol the feed does not quote would drift the spending
+  // cap into refusing every spend of that faucet; this catches the drift at CI time instead.
+  it('quotes every allowlisted price symbol, including ETH, BTC and USDC', () => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+
+    const symbols = allowlistedPriceSymbols();
+
+    expect(symbols).toEqual(expect.arrayContaining(['ETH', 'BTC', 'USDC']));
+    symbols.forEach(symbol => expect(isCoveredSymbol(symbol)).toBe(true));
   });
 });
 
