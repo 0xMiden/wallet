@@ -714,6 +714,7 @@ describe('HomePrompts', () => {
       await act(async () => {
         await jest.advanceTimersByTimeAsync(FAUCET_FUNDED_BEAT_MS - 1);
       });
+      expect(faucetCard).toBeInTheDocument();
       expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded');
 
       await act(async () => {
