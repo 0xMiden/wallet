@@ -116,7 +116,8 @@ describe('AssetListItem', () => {
     const nameColumn = screen.getByText('A very long token name').parentElement!;
     expect(nameColumn).toHaveClass('min-w-0');
     expect(nameColumn).not.toHaveClass('shrink-0');
-    const leading = nameColumn.parentElement!;
+    // The name row sits inside the name+amount stack, which sits inside the leading group.
+    const leading = nameColumn.parentElement!.parentElement!;
     expect(leading).toHaveClass('min-w-0', 'flex-1');
     const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
     expect(trailing).toHaveClass('shrink-0');
@@ -126,6 +127,22 @@ describe('AssetListItem', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
 
     expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
+  describe('badge rendering', () => {
+    it('renders a badge after the name, outside the truncating name element', () => {
+      renderItem({ name: 'A very long token name', badge: <span data-testid="badge">B</span> });
+
+      const badge = screen.getByTestId('badge');
+      expect(screen.getByText('A very long token name')).not.toContainElement(badge);
+      expect(badge.closest('.shrink-0')).not.toBeNull();
+    });
+
+    it('renders no badge slot content when none is given', () => {
+      renderItem();
+
+      expect(screen.queryByTestId('badge')).toBeNull();
+    });
   });
 
   describe('selection', () => {

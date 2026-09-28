@@ -22,7 +22,7 @@ jest.mock('components/ui', () => ({
   // number goes through the caller's own formatter, anything else renders nothing.
   AnimatedNumber: ({ value, format }: any) =>
     typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
-  AssetListItem: ({ icon, name, amount, chart, price, delta, onClick, 'data-testid': dataTestId }: any) => (
+  AssetListItem: ({ icon, name, amount, chart, price, delta, badge, onClick, 'data-testid': dataTestId }: any) => (
     <div
       data-testid={dataTestId ?? 'asset-list-item'}
       data-name={name}
@@ -33,9 +33,15 @@ jest.mock('components/ui', () => ({
       <span data-testid="row-amount">{amount}</span>
       {price !== undefined && <span data-testid="row-price">{price}</span>}
       {delta && <span data-testid="row-delta">{delta.value}</span>}
+      {badge}
       {icon}
       {chart}
     </div>
+  ),
+  Pill: ({ size, tone, children }: any) => (
+    <span data-testid="pill" data-size={size} data-tone={tone}>
+      {children}
+    </span>
   ),
   Sparkline: ({ points, color, width, height }: any) => (
     <span
@@ -47,6 +53,15 @@ jest.mock('components/ui', () => ({
     />
   )
 }));
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string>) => (values ? `${key}:${Object.values(values).join(':')}` : key)
+  })
+}));
+
+const mockVerify = jest.fn();
+jest.mock('lib/token-list/useTokenVerification', () => ({ useTokenVerification: () => mockVerify }));
 
 // The sparkline hook fetches, so it is stubbed; the price lookup is the real one.
 jest.mock('lib/prices', () => ({
@@ -79,9 +94,23 @@ beforeEach(() => {
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
+  mockVerify.mockReturnValue('unknown');
 });
 
 describe('AssetRow', () => {
+  it.each([
+    ['unverified', true],
+    ['verified', false],
+    ['unknown', false]
+  ])('shows the Unverified mark only for a %s token', (verification, shown) => {
+    mockVerify.mockReturnValue(verification);
+
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByText('unverifiedToken') !== null).toBe(shown);
+    expect(mockVerify).toHaveBeenCalledWith('tok-1');
+  });
+
   it('renders a positive 24h delta with a "+" prefix, positive direction, and status-positive sparkline color', () => {
     tokenPrices = { BTC: priceInfo({ price: 100, percentageChange24h: 5.256 }) };
     mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
