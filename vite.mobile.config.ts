@@ -205,7 +205,7 @@ export default defineConfig({
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
+      process.env.WALLETCONNECT_PROJECT_ID ?? 'd18d112eb50cbe764f03e51a90210611'
     ),
     'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
       process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'

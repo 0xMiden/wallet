@@ -1434,6 +1434,10 @@ describe('actions', () => {
   });
 
   describe('createHDAccount', () => {
+    beforeEach(() => {
+      Object.assign(mockStoreState, { vault: mockVault });
+    });
+
     it('creates HD account without name', async () => {
       const accounts = [{ publicKey: 'pk1', name: 'Account 1' }];
       mockVault.createHDAccount.mockResolvedValueOnce(accounts);
@@ -1458,6 +1462,18 @@ describe('actions', () => {
       const longName = 'a'.repeat(17);
 
       await expect(createHDAccount(WalletType.OnChain, longName)).rejects.toThrow('Invalid name');
+    });
+
+    it('does not publish the new accounts to a store a lock reset while the account was created (#1207)', async () => {
+      const accounts = [{ publicKey: 'pk1', name: 'Guardian 1' }];
+      mockVault.createHDAccount.mockImplementationOnce(async () => {
+        mockLocked();
+        return accounts;
+      });
+
+      await createHDAccount(WalletType.Guardian);
+
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
     });
   });
 

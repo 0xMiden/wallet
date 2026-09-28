@@ -29,7 +29,7 @@ import Explore from './Explore';
 // ---------------------------------------------------------------------------
 
 let mockFaucetId: string | null = 'faucet-native';
-let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
+let mockAccount: { publicKey: string; requiresHotKeyRotation?: boolean } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockClaimableNotesAreCached = false;
@@ -659,6 +659,18 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+      mockAutoConsume = true;
+      mockAccount = { publicKey: 'mtst1account', requiresHotKeyRotation: true };
+      mockClaimableNotes = [makeNote('n1', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('never auto-consumes a native note that only the cached list has shown', async () => {

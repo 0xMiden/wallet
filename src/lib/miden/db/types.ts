@@ -15,6 +15,10 @@ export enum ITransactionStatus {
   Failed
 }
 
+/** The row can still produce a transaction: it is queued or generating. */
+export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
@@ -409,6 +413,15 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
+/** A guardian arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
+export type IRequeueStreakArm = 'guardian-unreachable' | 'guardian-pending-conflict' | 'guardian-rate-limited';
+
+export interface IRequeueStreak {
+  arm: IRequeueStreakArm;
+  /** How many requeues in a row `arm` has made, the latest included. */
+  count: number;
+}
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -423,6 +436,12 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
+   * (#805). Generation signs such a row with the recovery key after proving every note
+   * native; any other consume for a rotation-pending account is refused. Not indexed.
+   */
+  rotationFunding?: true;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -549,6 +568,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * The guardian arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
+   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian that fails every attempt
+   * slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's transaction
+   * would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the row's last
+   * requeue, if any, was not a guardian arm's.
+   */
+  requeueStreak?: IRequeueStreak;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
@@ -797,6 +824,8 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.rotationFunding`. */
+  rotationFunding?: true;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;

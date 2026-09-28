@@ -14,7 +14,10 @@
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -23,6 +26,9 @@ import {
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from './constants';
@@ -34,11 +40,13 @@ import {
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
+  generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction
 } from './index';
 import {
+  ConsumeTransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -3748,6 +3756,264 @@ describe('generateTransaction — Guardian routing', () => {
       expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
       expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("Guardian consume: an unreachable requeue doubles the wait from the row's stored streak (#1223)", async () => {
+    // The doubling itself is pinned once by guardianRequeueBackoffSec's own unit test; this only pins that the
+    // unreachable arm reads its streak from the stored row, as the 409 and 429 arms' tests already pin for theirs.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-unreachable-backoff';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-backoff',
+        requeueStreak: { arm: 'guardian-unreachable', count: 1 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const requeuedFrom = Math.floor(Date.now() / 1000);
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-backoff',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - requeuedFrom).toBe(120);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 2 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("claims a guardian keeps failing slowly stop holding the front of the queue against another account's send (#1223)", async () => {
+    // Three claims on a guardian that answers each proposal with a gateway 504 after its 30 s read timeout, queued
+    // ahead of a send on an account whose guardian answers. Each lap takes the oldest eligible row, and at a flat 60 s
+    // one claim is eligible again by the time the other two have failed, so the send waited until they expired.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startedAt = Date.now();
+      const queuedAt = Math.floor(startedAt / 1000);
+      for (const n of [1, 2, 3]) {
+        txStore.push({
+          id: `dead-claim-${n}`,
+          type: 'consume',
+          accountId: 'dead-guardian-acc',
+          status: ITransactionStatus.Queued,
+          noteId: `note-${n}`,
+          initiatedAt: queuedAt,
+          queuedSeq: n
+        });
+      }
+      txStore.push({
+        id: 'healthy-send',
+        type: 'send',
+        accountId: 'healthy-guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: queuedAt,
+        queuedSeq: 4
+      });
+      const deadService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          jest.setSystemTime(Date.now() + 30_000);
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      let sendProposedAt: number | undefined;
+      const healthyService = {
+        createSendProposal: jest.fn(async () => {
+          sendProposedAt ??= Date.now();
+          return { id: 'prop-healthy' };
+        }),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockImplementation(async (accountId: string) =>
+        accountId === 'dead-guardian-acc' ? deadService : healthyService
+      );
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const provider = makeGuardianProvider(true);
+
+      // The service worker's processing loop: a lap, then 5 s before the next, here for up to ten minutes.
+      while (sendProposedAt === undefined && Date.now() - startedAt < 10 * 60_000) {
+        await generateTransactionsLoop(
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          provider
+        );
+        jest.setSystemTime(Date.now() + 5_000);
+      }
+
+      // The claims fail at 30, 65 and 100 s and wait 60 s; the laps at 105, 140 and 175 s retry them and double the
+      // wait to 120 s, so the lap at 210 s finds none eligible and runs the send.
+      expect(sendProposedAt).toBeDefined();
+      expect(Number(sendProposedAt) - startedAt).toBe(210_000);
+      expect(deadService.createConsumeNotesProposal).toHaveBeenCalledTimes(6);
+      expect(txStore.find(r => r.id === 'healthy-send')?.status).toBe(ITransactionStatus.Completed);
+      // Each dead claim has failed twice by the point the send finally runs, so its stored streak reads count: 2.
+      expect(txStore.find(r => r.id === 'dead-claim-1')?.requeueStreak).toEqual({
+        arm: 'guardian-unreachable',
+        count: 2
+      });
+    } finally {
+      warnSpy.mockRestore();
+      mockGetOrCreateMultisigService.mockReset();
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian consume: a 429 between unreachable requeues starts both doublings over (#1223)', async () => {
+    // Only consecutive requeues down one arm back a row off: an answer of another kind says the last verdict ended.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-streak-reset';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-reset',
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      });
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const outcomes: unknown[] = [rateLimited, rateLimited, new TypeError('Failed to fetch')];
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw outcomes.shift();
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const waits: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const requeuedFrom = Math.floor(Date.now() / 1000);
+        await generateTransaction(
+          {
+            id: txId,
+            type: 'consume',
+            accountId: 'guardian-acc',
+            noteId: 'note-reset',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+        waits.push(Number(txStore.find(r => r.id === txId)?.nextEligibleAt) - requeuedFrom);
+      }
+
+      // The guardian's 45 s, then twice it on the repeat, then the unreachable arm's base again.
+      expect(waits).toEqual([45, 90, 60]);
+      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a second consecutive pending-delta 409 requeue waits 30 s, twice the first (#1223)', async () => {
+    // Each 409 requeue follows ~55 s of in-process retries, so two rows on one stalled account would otherwise take
+    // turns at the front of the queue.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const txId = 'send-conflict-backoff';
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        requeueStreak: { arm: 'guardian-pending-conflict', count: 1 }
+      });
+      const conflict = { status: 409, code: 'conflict_pending_delta' };
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: 2 });
+      // The log states the wait the row got, as the 429 and unreachable arms' do.
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[Guardian] proposal still conflicting after retry budget, requeueing in 30s'
+      );
+    } finally {
+      warnSpy.mockRestore();
       jest.useRealTimers();
     }
   });
@@ -8159,5 +8425,278 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
     releaseCoSign();
     await run;
     jest.useRealTimers();
+  });
+});
+
+describe('generateTransaction: the rotation gate claim (#805)', () => {
+  // What the mocked native-asset discovery above reports.
+  const NATIVE = '0xfee0000000000000000000000000000000';
+  const ACCOUNT = 'acc-recovered';
+
+  const recovered: WalletAccount = {
+    publicKey: ACCOUNT,
+    name: 'Recovered',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 0,
+    guardianEndpoint: 'https://old.guardian',
+    coldPublicKey: 'cold-pub',
+    requiresHotKeyRotation: true
+  };
+
+  const providerFor = (account: WalletAccount): GuardianAccountProvider => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    return {
+      getAccounts: async () => [account],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig'
+    };
+  };
+
+  /** A consumable-note DTO as the client reduces it: one fungible asset per faucet id given. */
+  const listedNote = (noteId: string, faucetIds: string[], standardPayment = true): ConsumableNoteDto => ({
+    noteId,
+    nullifier: `null-${noteId}`,
+    noteType: undefined,
+    senderAccountId: 'sender',
+    state: 2,
+    assets: faucetIds.map(faucetId => ({ faucetId, amount: '20000000' })),
+    swapAttachment: null,
+    standardPayment
+  });
+
+  const makeService = () => ({
+    createConsumeNotesProposal: jest.fn(async (_noteIds: string[]) => ({ id: 'prop-claim' })),
+    signAndCreateTransactionRequest: jest.fn(async (_proposalId: string, _requestBytes?: Uint8Array) => ({
+      serialize: () => new Uint8Array([1]),
+      authArg: () => undefined
+    })),
+    sync: jest.fn(async () => {})
+  });
+
+  /** A row's own consumed-note record; only `id` varies across notes in a batch. */
+  const noteInput = (id: string): ConsumableNote => ({
+    id,
+    faucetId: NATIVE,
+    amount: '20000000',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: 'unknown'
+  });
+
+  const arrange = (
+    listed: ReturnType<typeof listedNote>[],
+    flagged: boolean,
+    notes: ConsumableNote[] = [noteInput('note-1')]
+  ) => {
+    const hotService = makeService();
+    const coldService = makeService();
+    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    const getConsumableNoteDtos = jest.fn(async (_accountId: string, _assertLive?: unknown) => listed);
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => ACCOUNT }) })),
+      getConsumableNoteDtos,
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const row = new ConsumeTransaction(ACCOUNT, notes, false);
+    if (flagged) row.rotationFunding = true;
+    txStore.push({ ...row });
+    const stored = () => txStore.find(r => r.id === row.id);
+    return { row, stored, hotService, coldService, getConsumableNoteDtos, client };
+  };
+
+  const run = (row: ConsumeTransaction, account: WalletAccount) =>
+    generateTransaction(
+      row,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      providerFor(account)
+    );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('proposes, signs and executes a flagged claim on a rotation-pending account with the recovery key', async () => {
+    const { row, coldService, getConsumableNoteDtos, client } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(getConsumableNoteDtos).toHaveBeenCalledWith(ACCOUNT, expect.any(Function));
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-claim', undefined);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an unflagged consume on a rotation-pending account before building any service', async () => {
+    const { row, stored, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], false);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_PENDING_CONSUME_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(getConsumableNoteDtos).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim when any asset of the note is not the native one', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE, '0xother'])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note lists no fungible asset at all', async () => {
+    const { row, stored, coldService } = arrange([listedNote('note-1', [])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim while the native asset is unknown', async () => {
+    jest.mocked(getNativeAssetId).mockRejectedValueOnce(new Error('discovery failed'));
+    const { row, stored, coldService, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(getConsumableNoteDtos).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note the account no longer lists, with no guardian round trip', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-other', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // Two-note rows: the native-only check has to cover every note the row names, not just
+  // the first - a batch claim mixing a good note with a bad one must still be refused.
+  it('refuses a flagged two-note claim whose second note is not native', async () => {
+    const { row, stored, hotService, coldService } = arrange(
+      [listedNote('note-1', [NATIVE]), listedNote('note-2', ['0xother'])],
+      true,
+      [noteInput('note-1'), noteInput('note-2')]
+    );
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged two-note claim whose second note the account no longer lists', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE])], true, [
+      noteInput('note-1'),
+      noteInput('note-2')
+    ]);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // The recovery key and the guardian sign the claim with no user step, so the note's script
+  // has to be a plain payment too, not only its assets.
+  it('refuses a flagged claim whose native-only note runs another script, before building any service', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE], false)], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note carries no standard-payment flag, a missing verdict failing closed', async () => {
+    const { row, stored, coldService } = arrange(
+      [{ ...listedNote('note-1', [NATIVE]), standardPayment: undefined }],
+      true
+    );
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('claims a standard payment note with the recovery key', async () => {
+    const { row, coldService, client } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary consume hot-bound on a flagged account that still holds an everyday key', async () => {
+    const { row, hotService } = arrange([listedNote('note-1', [NATIVE])], false);
+
+    await run(row, { ...recovered, hotPublicKey: 'hot-pub' });
+
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+  });
+
+  it('requeues a flagged claim when the guardian cannot be reached, still flagged (#779)', async () => {
+    // Like any consume. It stays live, so the gate keeps deferring the rotation behind it.
+    jest.useFakeTimers();
+    try {
+      const { row, stored, coldService } = arrange([listedNote('note-1', [NATIVE])], true);
+      coldService.createConsumeNotesProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      const pending = run(row, recovered);
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(stored()).toMatchObject({ status: ITransactionStatus.Queued, rotationFunding: true });
+      expect(stored()?.error).toBeUndefined();
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the hot service for a flagged claim once the account has its everyday key, still checked', async () => {
+    const { row, hotService, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], true);
+    const rotated: WalletAccount = { ...recovered, hotPublicKey: 'hot-pub', requiresHotKeyRotation: false };
+
+    await run(row, rotated);
+
+    expect(getConsumableNoteDtos).toHaveBeenCalledTimes(1);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
   });
 });

@@ -78,12 +78,16 @@ const Explore: FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pullGestureRef = useRef<PullGesture | null>(null);
 
+  // A rotation-pending account's native notes are the rotation gate's to claim (#805).
+  // Narrower than consumeServiceFor's check (flag AND no hotPublicKey) -- deliberate:
+  // the only cost is one auto-claim delayed a sync lap, never a wrong consume.
+  const rotationPending = account.requiresHotKeyRotation === true;
   const midenNotes = useMemo(() => {
-    if (!shouldAutoConsume || !claimableNotes) {
+    if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
     return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
+  }, [claimableNotes, midenFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
