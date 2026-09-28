@@ -1675,6 +1675,30 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.guardianLookupFailure).toBe('smthWentWrong');
   });
 
+  it('routes a failed hardware-only Guardian recovery to its recovery method without counting a biometric attempt', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    mockRegisterWallet.mockRejectedValue(
+      Object.assign(new Error('guardian not found'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
+    );
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' }); // password = HARDWARE_ONLY
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, 'aa bb cc dd', true, 'https://g');
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // The failure belongs to the recovery method; counting it would walk the user towards the password fallback.
+    expect(mockFlowProps.current.biometricAttempts).toBe(0);
+    expect(mockFlowProps.current.biometricError).toBeNull();
+  });
+
   it('does not greet the next confirmation visit with an earlier failure', async () => {
     mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
     await renderWelcome();
