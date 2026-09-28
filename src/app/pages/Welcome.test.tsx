@@ -3332,24 +3332,6 @@ describe('Welcome — side-panel handoff', () => {
     warn.mockRestore();
   });
 
-  it('routes a successful Guardian recovery to the side-panel handoff on arrival, with no tap (#428)', async () => {
-    mockCanHandoff = true;
-    await renderWelcome();
-    // Recover an existing wallet: import seed → password → guardian recovery.
-    await stageSeedRecovery({ walletType: WalletType.Guardian, guardianEndpoint: 'https://g' });
-    mockNavigate.mockClear();
-    await setHash('#confirmation');
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
-    expect(mockNavigate).not.toHaveBeenCalledWith('/');
-  });
-
   it('sends a Guardian recovery whose lookup fails back to its recovery method, whose resubmit registers again', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValue(
@@ -3390,6 +3372,7 @@ describe('Welcome — side-panel handoff', () => {
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
     expect(mockFetchState).not.toHaveBeenCalled();
   });
 
