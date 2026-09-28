@@ -1,8 +1,8 @@
 /* eslint-disable import/first */
 /**
- * Coverage for `src/lib/lock-up/checks.ts` - the lock-up checks moved out of `run-checks.ts` so they
- * have no top-level `await` and can be unit tested (the bootstrap that awaits `runLockUpChecks` at
- * module scope stays untestable; that is what `run-checks.ts` is for).
+ * Coverage for `src/lib/lock-up/checks.ts` - the lock-up checks have no top-level `await`, so they
+ * can be unit tested (the bootstrap that awaits `runLockUpChecks` at module scope stays untestable;
+ * that is what `run-checks.ts` is for).
  *
  * `webextension-polyfill` and `lib/miden/front` are mocked so every storage, messaging and
  * lock-request call is a controllable `jest.fn()`; `globalThis.chrome` is replaced for the
@@ -64,8 +64,15 @@ beforeEach(() => {
   mockOnDisconnectAddListener = jest.fn();
   mockChromeConnect = jest.fn(() => ({ onDisconnect: { addListener: mockOnDisconnectAddListener } }));
   originalChrome = globalThis.chrome;
+  // lastError is an accessor, not a plain value, so a test can spy on reads of it
+  // the way the real chrome.runtime.lastError getter is read.
   Object.defineProperty(globalThis, 'chrome', {
-    value: { runtime: { connect: mockChromeConnect, lastError: undefined } },
+    value: {
+      runtime: Object.defineProperty({ connect: mockChromeConnect }, 'lastError', {
+        get: () => undefined,
+        configurable: true
+      })
+    },
     configurable: true,
     writable: true
   });
@@ -93,8 +100,7 @@ describe('runLockUpChecks', () => {
     await runLockUpChecks();
 
     expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.LockRequest });
-    // A throwing assertResponse inside lock() must surface as a rejection here, not hide behind the
-    // silenced warn spy.
+    // A throwing assertResponse reaches only the silenced warn spy, so assert it stayed silent.
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -116,6 +122,10 @@ describe('runLockUpChecks', () => {
 
     await expect(runLockUpChecks()).resolves.toBeUndefined();
     expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[lock-up] Could not read the closure time; skipping the auto-lock check:',
+      expect.any(Error)
+    );
   });
 
   it('warns when the lock request fails', async () => {
@@ -170,5 +180,15 @@ describe('runLockUpChecks', () => {
     await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST);
 
     expect(mockSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads chrome.runtime.lastError when the background connection disconnects', async () => {
+    await runLockUpChecks();
+    const onDisconnect = mockOnDisconnectAddListener.mock.calls[0][0];
+
+    const lastErrorSpy = jest.spyOn(globalThis.chrome.runtime, 'lastError', 'get');
+    onDisconnect();
+
+    expect(lastErrorSpy).toHaveBeenCalledTimes(1);
   });
 });

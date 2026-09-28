@@ -25,7 +25,11 @@ export const needsLocking = async () => {
  */
 export async function runLockUpChecks(): Promise<void> {
   // An unreadable closure time counts as none, which never locks.
-  if (await needsLocking().catch(() => false)) {
+  const needsLock = await needsLocking().catch(err => {
+    console.warn('[lock-up] Could not read the closure time; skipping the auto-lock check:', err);
+    return false;
+  });
+  if (needsLock) {
     lock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
   }
 

@@ -83,9 +83,9 @@ jest.mock('webextension-polyfill', () => {
     reload: jest.fn(),
     getURL: jest.fn((path: string) => `chrome-extension://test-id/${path}`)
   };
-  const tabs = { create: jest.fn() };
+  const tabs = { create: jest.fn(() => Promise.resolve()) };
   const alarms = { onAlarm: makeEvent() };
-  const notifications = { onClicked: makeEvent(), clear: jest.fn() };
+  const notifications = { onClicked: makeEvent(), clear: jest.fn(() => Promise.resolve()) };
   const browserAction = { onClicked: makeEvent() };
 
   const browser = { runtime, tabs, alarms, notifications, browserAction };
@@ -384,6 +384,28 @@ describe('background.ts — core service-worker listeners', () => {
       url: 'chrome-extension://test-id/fullpage.html#/history?filter=pending&view=list'
     });
   });
+
+  it('warns when clearing the notification fails', async () => {
+    const wep = loadBackground({ target: 'firefox' });
+    const err = new Error('clear failed');
+    wep.notifications.clear.mockRejectedValueOnce(err);
+
+    fire(wep.notifications.onClicked, 'note-123');
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not clear the notification:', err);
+  });
+
+  it('warns when opening the Activity tab fails', async () => {
+    const wep = loadBackground({ target: 'firefox' });
+    const err = new Error('tabs.create failed');
+    wep.tabs.create.mockRejectedValueOnce(err);
+
+    fire(wep.notifications.onClicked, 'note-123');
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the Activity tab:', err);
+  });
 });
 
 // ── Safari browser-action ────────────────────────────────────────────────────
@@ -407,5 +429,16 @@ describe('background.ts — Safari browser action', () => {
     const wep = loadBackground({ target: 'chrome', chrome: makeChromeStub({}, 'resolve') });
 
     expect(wep.browserAction.onClicked.listeners).toHaveLength(0);
+  });
+
+  it('warns when opening the full page fails', async () => {
+    const wep = loadBackground({ target: 'safari' });
+    const err = new Error('tabs.create failed');
+    wep.tabs.create.mockRejectedValueOnce(err);
+
+    fire(wep.browserAction.onClicked);
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith('[Background] Could not open the full page:', err);
   });
 });

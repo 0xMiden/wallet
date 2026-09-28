@@ -50,7 +50,7 @@ export default {
   // - `packages/dapp-browser/` — external package build output.
   // - `lib/lock-up/run-checks.ts` - the extension pages' bootstrap; it holds
   //   the extension-page guard and a top-level `await` of `runLockUpChecks`
-  //   (the moved, tested logic lives in `lib/lock-up/checks.ts`). @swc/jest
+  //   (the tested lock-up logic lives in `lib/lock-up/checks.ts`). @swc/jest
   //   emits bare TLA into a CommonJS wrapper that won't load, so this file
   //   stays untestable.
   // - `lib/miden/assets/stake.ts` — zero-byte placeholder module: no exports,

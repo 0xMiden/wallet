@@ -66,14 +66,20 @@ if (process.env.TARGET_BROWSER === 'safari') {
 }
 
 browser.notifications.onClicked.addListener(notificationId => {
-  browser.notifications.clear(notificationId);
+  browser.notifications
+    .clear(notificationId)
+    .catch((err: Error) => console.warn('[Background] Could not clear the notification:', err));
   // Deep-link to the Activity tab's Pending filter — where an incoming transfer is accepted or
   // declined — matching the mobile handler, not the generic wallet QR/receive page (#467).
-  tabs.create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
+  tabs
+    .create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) })
+    .catch((err: Error) => console.warn('[Background] Could not open the Activity tab:', err));
 });
 
 function openFullPage() {
-  tabs.create({
-    url: runtime.getURL('fullpage.html')
-  });
+  tabs
+    .create({
+      url: runtime.getURL('fullpage.html')
+    })
+    .catch((err: Error) => console.warn('[Background] Could not open the full page:', err));
 }

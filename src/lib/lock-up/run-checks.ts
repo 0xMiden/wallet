@@ -3,5 +3,6 @@ import { runLockUpChecks } from './checks';
 if (window.location.href.includes('extension://') === false)
   throw new Error('Lock-up checks are meant for extension pages only.');
 
-// Top-level await: the pages that import this module render only after the lock check.
+// Top-level await: the pages that import this module statically render only after the lock check
+// (App.tsx's dynamic import does not wait).
 await runLockUpChecks();
