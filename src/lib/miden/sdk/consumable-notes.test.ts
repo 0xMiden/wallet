@@ -46,6 +46,7 @@ function fakeRecord(
     blockNum?: number;
     assets?: FakeAsset[];
     attachments?: FakeAttachmentWord[][]; // outer = attachments, inner = words
+    scriptRoot?: string;
   } = {}
 ): any {
   const {
@@ -54,7 +55,8 @@ function fakeRecord(
     metadata = { sender: 'senderAcct', noteType: 1 },
     state = 2,
     assets = [{ faucetId: 'faucetAcct', amount: 100n }],
-    attachments
+    attachments,
+    scriptRoot
   } = opts;
 
   return {
@@ -77,7 +79,11 @@ function fakeRecord(
             faucetId: () => a.faucetId,
             amount: () => ({ toString: () => a.amount.toString() })
           }))
-      })
+      }),
+      recipient: () => {
+        if (scriptRoot === undefined) throw new Error('no recipient');
+        return { script: () => ({ root: () => ({ toHex: () => scriptRoot }) }) };
+      }
     }),
     attachments: () =>
       (attachments ?? []).map(words => ({
@@ -208,6 +214,16 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
   it('a note with no fungible assets → empty assets array (caller skips)', () => {
     const rec = fakeRecord({ assets: [] });
     expect(reduceConsumableNoteRecord(rec)?.assets).toEqual([]);
+  });
+
+  it('carries the note script root, which the rotation gate claim checks (#805)', () => {
+    expect(reduceConsumableNoteRecord(fakeRecord({ scriptRoot: '0xroot' }))).toMatchObject({ scriptRoot: '0xroot' });
+  });
+
+  it('keeps a note whose script root cannot be read, with no root (#805)', () => {
+    const dto = reduceConsumableNoteRecord(fakeRecord({ id: '0xnoroot' }));
+    expect(dto?.noteId).toBe('0xnoroot');
+    expect(dto?.scriptRoot).toBeUndefined();
   });
 
   it('a note with no swap attachment → swapAttachment null', () => {

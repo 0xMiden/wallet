@@ -296,7 +296,10 @@ export const ROTATION_PENDING_CONSUME_ERROR =
 export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
   'This transfer is no longer available to claim. It may have been claimed on another device.';
 
-/** The gate's claim named a note holding anything the wallet cannot prove is the native asset. */
+/**
+ * The gate's claim named a note holding anything the wallet cannot prove is the native asset, or one
+ * that is not a standard P2ID or P2IDE payment.
+ */
 export const ROTATION_FUNDING_NON_NATIVE_ERROR =
   'The wallet stopped this claim because it could not confirm that the transfer holds only MIDEN.';
 

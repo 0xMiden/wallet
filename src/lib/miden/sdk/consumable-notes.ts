@@ -69,6 +69,8 @@ export type ConsumableNoteDto = {
   swapAttachment: { orderId: string; depth: number } | null;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note. */
   recallableAtMs?: number;
+  /** The note script's root, hex; absent when the recipient cannot be read. */
+  scriptRoot?: string;
 };
 
 /**
@@ -104,6 +106,15 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
     /* malformed attachment — treat as no swap attachment */
   }
   return null;
+}
+
+/** Read on its own: a note whose recipient cannot be read is still listed, only without a root. */
+function scriptRootOf(record: InputNoteRecord): string | undefined {
+  try {
+    return record.details().recipient().script().root().toHex();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -142,6 +153,7 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?:
     const swapAttachment = attachmentOrderAndDepth(record);
     const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
     dto.blockNum = record.inclusionProof?.()?.location().blockNum();
+    dto.scriptRoot = scriptRootOf(record);
     if (syncHeight !== undefined) {
       const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
       if (recallableAtMs !== undefined) dto.recallableAtMs = recallableAtMs;

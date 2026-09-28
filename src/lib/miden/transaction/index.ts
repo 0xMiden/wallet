@@ -1,5 +1,7 @@
 import {
   ChainAnchor,
+  getWasmOrThrow,
+  NoteScript,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -1634,23 +1636,34 @@ const buildColdServiceForAccount = async (
 
 /**
  * The generation-time half of the gate claim's native-only rule (#805): every note the
- * row names must still be listed for the account and hold only the native asset. Read
- * from the consumable-note DTO, which carries every fungible asset of a note where the
- * claimable list keeps only the first. A note with no fungible asset proves nothing, so
- * it is refused too. Throws before any service is built or anything reaches the guardian.
+ * row names must still be listed for the account, hold only the native asset, and be a
+ * standard P2ID or P2IDE payment. Read from the consumable-note DTO, which carries every
+ * fungible asset of a note where the claimable list keeps only the first. A note with no
+ * fungible asset proves nothing, so it is refused too. The script matters because the
+ * recovery key and the guardian sign this claim with no user step, and a note's script
+ * decides what consuming it does. Throws before any service is built or anything reaches
+ * the guardian.
  */
 const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
   const nativeFaucetId = await getFaucetIdSetting();
   if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
-  const listed = await withWasmClientLock(async hold =>
-    midenClientProxy.getConsumableNotes(accountId, step =>
+  // The lazy entry's statics are empty until the module loads, and this realm may not have loaded it.
+  await getWasmOrThrow();
+  const { listed, paymentScriptRoots } = await withWasmClientLock(async hold => {
+    const roots = new Set([NoteScript.p2id().root().toHex(), NoteScript.p2ide().root().toHex()]);
+    const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
       assertWasmHoldCurrent(hold, 'rotation funding: consumable-note read', step)
-    )
-  );
+    );
+    return { listed: notes, paymentScriptRoots: roots };
+  });
   for (const noteId of noteIds) {
     const note = listed.find(candidate => candidate.noteId === noteId);
     if (!note) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
-    if (note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== nativeFaucetId)) {
+    if (
+      note.assets.length === 0 ||
+      note.assets.some(asset => asset.faucetId !== nativeFaucetId) ||
+      !paymentScriptRoots.has(note.scriptRoot ?? '')
+    ) {
       throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
     }
   }
@@ -1664,9 +1677,10 @@ const assertRotationFundingNotesNative = async (accountId: string, noteIds: stri
  * The exception is a seed-recovered account whose rotation has not landed (#805). It has
  * no everyday key, and the rotation pays its fee out of a vault only a claim can fund.
  * The rotation gate's own claim (`rotationFunding`) therefore signs with the recovery
- * key, the signer the rotation itself uses, once its notes are proven native; every other
- * consume for such an account is refused before a service exists. A flagged row whose
- * account gained its everyday key in the meantime takes the hot service, still checked.
+ * key, the signer the rotation itself uses, once its notes are proven native payments;
+ * every other consume for such an account is refused before a service exists. A flagged
+ * row whose account gained its everyday key in the meantime takes the hot service, still
+ * checked.
  */
 const consumeServiceFor = async (
   transaction: ITransaction,

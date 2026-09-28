@@ -14,6 +14,7 @@
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -278,10 +279,27 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 // a WASM ChainAnchor before pinning executeRequest to it.
 // eslint-disable-next-line no-var
 var mockChainAnchorDeserialize = jest.fn();
+// The standard payment scripts' roots, as the rotation gate claim compares a note's against (#805).
+// Like the lazy entry, the statics answer only once the module is loaded.
+const mockP2idRoot = '0xp2id-root';
+const mockP2ideRoot = '0xp2ide-root';
+let mockWasmLoaded = false;
+const mockScript = (root: string) => {
+  if (!mockWasmLoaded) throw new TypeError('WASM module not loaded');
+  return { root: () => ({ toHex: () => root }) };
+};
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
+    getWasmOrThrow: jest.fn(async () => {
+      mockWasmLoaded = true;
+      return {};
+    }),
+    NoteScript: {
+      p2id: () => mockScript(mockP2idRoot),
+      p2ide: () => mockScript(mockP2ideRoot)
+    },
     TransactionProver: {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
@@ -8194,14 +8212,15 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
   };
 
   /** A consumable-note DTO as the client reduces it: one fungible asset per faucet id given. */
-  const listedNote = (noteId: string, faucetIds: string[]) => ({
+  const listedNote = (noteId: string, faucetIds: string[], scriptRoot = mockP2idRoot): ConsumableNoteDto => ({
     noteId,
     nullifier: `null-${noteId}`,
     noteType: undefined,
     senderAccountId: 'sender',
     state: 2,
     assets: faucetIds.map(faucetId => ({ faucetId, amount: '20000000' })),
-    swapAttachment: null
+    swapAttachment: null,
+    scriptRoot
   });
 
   const makeService = () => ({
@@ -8258,6 +8277,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
+    mockWasmLoaded = false;
   });
 
   it('proposes, signs and executes a flagged claim on a rotation-pending account with the recovery key', async () => {
@@ -8360,6 +8380,44 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
     expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
     expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // The recovery key and the guardian sign the claim with no user step, so the note's script
+  // has to be a plain payment too, not only its assets.
+  it('refuses a flagged claim whose native-only note runs another script, before building any service', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE], '0xcustom-root')], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note carries no script root', async () => {
+    const { row, stored, coldService } = arrange([{ ...listedNote('note-1', [NATIVE]), scriptRoot: undefined }], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['P2ID', mockP2idRoot],
+    ['P2IDE', mockP2ideRoot]
+  ])('claims a native %s note with the recovery key', async (_name, scriptRoot) => {
+    const { row, coldService, client } = arrange([listedNote('note-1', [NATIVE], scriptRoot)], true);
+
+    await run(row, recovered);
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
   });
 
   it('leaves an ordinary consume hot-bound on a flagged account that still holds an everyday key', async () => {
