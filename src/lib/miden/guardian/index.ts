@@ -509,7 +509,8 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
-      // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+      // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked,
+      // and this check has no deadline of its own yet (#1252).
       const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
         const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
         // Fetch the new guardian's ECDSA commitment to match the account's scheme.

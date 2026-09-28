@@ -24,8 +24,9 @@ import { isMobile } from 'lib/platform';
  * So an origin the app itself fetches from (the page, the node RPC, the prover,
  * the note transport) is never routed, whoever registered it, judged per request.
  * And an endpoint not yet known to be a Guardian is routed only while a probe of
- * it is in flight (`probeGuardianOrigin`), so a URL that turns out not to be one
- * is not left routed for the session.
+ * it is in flight (`probeGuardianOrigin`), so a URL found not to be one is not
+ * left routed once every check of it has settled; the coordinated switch's check
+ * has no deadline of its own yet (#1252).
  *
  * The guardian API is JSON-only, so reconstructing a `Response` from the
  * native result is lossless. Extension/desktop are unaffected (`isMobile()`

@@ -77,7 +77,7 @@
 - [FIX][all] A custom Guardian URL where no live Guardian answers is refused on the Guardian picker with a clear error after up to 20 seconds, instead of failing in the switch after review and signing. A check that fails leaves Continue usable, and leaving the page drops a verdict still pending (#1084).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
-- [FIX][all] On mobile, checking a custom Guardian URL never sends the app's own traffic through native HTTP, whether to the WebView's own page, the node, the prover or the note transport, and a URL that is not a Guardian stops being routed that way (#1210).
+- [FIX][all] On mobile, checking a custom Guardian URL never sends the app's own traffic through native HTTP, whether to the WebView's own page, the node, the prover or the note transport, and a URL that answers without a Guardian key stops being routed that way (#1210).
 
 ## 1.16.2 (2026-09-24)
 
