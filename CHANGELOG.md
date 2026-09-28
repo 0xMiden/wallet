@@ -65,6 +65,8 @@
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
+- [FIX][all] Every storage reset keeps the developer endpoint override, and every wallet setup, a restore from file included, keeps a legacy custom Guardian address until one succeeds, so a Retry after a failed step no longer recovers on the default network or Guardian (#1174).
+- [FIX][all] Creating a Guardian wallet while the guardian is rate limiting (a 429) waits out the guardian's cooldown and retries for up to 90 seconds, instead of failing with "Failed to create wallet" at the first one (#906, #903).
 - [FIX][all] A wallet holding a Guardian account imported with its everyday and EVM keys writes its Encrypted Wallet File instead of failing: the file backs up the other accounts and the database, and the export screen names the Guardian account it does not restore, which comes back from those keys as a separate wallet (#1114).
 - [FIX][extension] The lockout after too many wrong passwords, once armed in one window (popup, side panel or a tab), is honoured by every open window, which no longer takes guesses during it or shortens it (#1192).
 - [FIX][all] Going Back and then Forward inside an import no longer drops part of it: a wallet file restore resumed that way restores the file, imported accounts included, instead of importing only its recovery phrase, and a resumed recovery phrase or private key import still offers the Guardian it detected instead of the manual picker (#1115).
@@ -74,6 +76,7 @@
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
+- [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
 
 ## 1.16.2 (2026-09-24)

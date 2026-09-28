@@ -1028,7 +1028,7 @@ describe('MultisigService', () => {
         await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(
           'Failed to register account on the new guardian after switching'
         );
-        // MAX_GUARDIAN_REGISTER_RETRIES attempts.
+        // GUARDIAN_RETRY_MAX_ATTEMPTS attempts.
         expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
       } finally {
         restoreTimers();
