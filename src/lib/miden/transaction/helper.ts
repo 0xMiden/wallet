@@ -305,12 +305,13 @@ export const setTransactionStage = async (
     // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
     // are written together only when the writer is reliable and in-order.
     //
-    // The rate-limit and remote-prover-outage gates in `transaction/index.ts` read
-    // `tx.stage` to decide a failed guardian tx is PRE-submit and may therefore be
-    // auto-requeued — "submit is stamped 'submitting' and runs only AFTER prove, so
-    // nothing reached the chain". That inference is only sound if every writer of
-    // `stage` is ordered with respect to the work it describes. (The 409
-    // pending-conflict arm reads only the error and the transaction type.)
+    // The rate-limit, remote-prover-outage and guardian-unreachable gates in
+    // `transaction/index.ts` read `tx.stage` to decide a failed guardian tx is
+    // PRE-submit and may therefore be auto-requeued: "submit is stamped
+    // 'submitting' and runs only AFTER prove, so nothing reached the chain". That
+    // inference is only sound if every writer of `stage` is ordered with respect
+    // to the work it describes. (The 409 pending-conflict arm reads only the
+    // error and the transaction type.)
     //
     // The unauthorized-at-execution gate deliberately does NOT read `stage`: on the
     // shipping path its leaf runs offscreen, so by the rule below the row still
