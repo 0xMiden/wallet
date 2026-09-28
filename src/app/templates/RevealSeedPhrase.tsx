@@ -70,7 +70,7 @@ const RevealSeedPhrase: FC = () => {
     popPage();
   }, [popPage, setSecret]);
   // Probes on mount whatever seedStatus is: the seed-state branch never renders the result, and the
-  // read is one storage lookup.
+  // probe is at most two local storage reads.
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);

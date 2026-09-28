@@ -31,7 +31,7 @@
 
 ### Fixes
 
-- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). Only when neither credential can be read does a page show an error, and it offers no unlock step (#1056).
+- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). When neither credential can be read, a page shows an error instead of an unlock step (#1056).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
@@ -90,7 +90,7 @@
 - [FIX][all] A setting or token metadata written outside the storage hooks, or a wallet reset, no longer leaves the previous value in the storage hooks' cache: every storage write updates it, and every key-value wipe re-reads it (#1177).
 - [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
 - [FIX][all] A single-choice row no longer shows a disabled option as chosen, and its first arrow key now lands on the first option, a copy of a value that appears while an older copy is still being written is written too and "Copied" shows only for the text on screen, a file restore that already created its wallet keeps its back button hidden after browser Back and Forward, and a long error under a text field wraps instead of running off the screen (#1086).
-- [FIX][mobile][desktop] A desktop dApp listener that re-registers itself runs once per emission instead of hanging the page, and a throwing listener is logged; the six screens that check the wallet's unlock method now show an error with a working Retry, instead of telling you to go back and reopen the page, whether the check fails outright or does not answer within 5 s (#1241).
+- [FIX][mobile][desktop] A desktop dApp listener that re-registers itself runs once per emission instead of hanging the page, and a throwing listener is logged; on the six screens that check the wallet's unlock method, a check that fails or does not answer within 5 s now ends in an error with a working Retry instead of leaving the page waiting (#1241).
 
 ## 1.16.2 (2026-09-24)
 

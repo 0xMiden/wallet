@@ -13,9 +13,12 @@ export interface HardwareProtectorProbe {
   hasHardwareProtector: boolean | null;
   /** No answer: both protector reads failed, or the probe missed its deadline. The page shows an error with Retry. */
   probeFailed: boolean;
-  /** A Retry is in flight. `probeFailed` stays set until it settles, so the error stays on screen. */
+  /**
+   * A Retry is in flight: until some attempt answers, the retry fails, or it misses its own deadline (which
+   * hands Retry back while that read may still be pending). `probeFailed` stays set meanwhile.
+   */
   retrying: boolean;
-  /** Probes again. Does nothing unless the probe failed and no Retry is in flight. */
+  /** Probes again. Does nothing unless the probe has failed and Retry has been handed back. */
   retry: () => void;
 }
 

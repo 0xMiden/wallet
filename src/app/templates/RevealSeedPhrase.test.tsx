@@ -565,7 +565,6 @@ describe('RevealSeedPhrase', () => {
 
       expect(getByTestId<HTMLButtonElement>(container, 'protector-probe-retry').disabled).toBe(false);
       expect(getByTestId(container, 'protector-probe-error').textContent).toContain('couldNotCheckUnlockMethod');
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
       // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
       expect(jest.getTimerCount()).toBe(0);
