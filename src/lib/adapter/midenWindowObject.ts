@@ -139,7 +139,8 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     try {
       await requestDisconnect();
     } finally {
-      // A connect answered while this request waited set the fields cleared here, so its watch stops with them.
+      // No connect sets the fields while this request waits: one begun before it is refused by the count, and the
+      // background answers one begun after it later. So this stop is defensive, for a request that ever settles late.
       this.clearAccountChangeInterval?.();
       this.address = undefined;
       this.publicKey = undefined;
