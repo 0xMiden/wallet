@@ -490,10 +490,9 @@ describe('Unlock — extension password form', () => {
     expect(mockUnlock).toHaveBeenCalledTimes(1);
   });
 
-  // A guess is counted from the stored total it reads after the sleep, so a count another window wrote
-  // meanwhile is not overwritten back to the one read before it (#1192). Only the count moves here: the
-  // stamp that window's failure would also write makes the re-check refuse (the test above).
-  it('does not lose a failure another window recorded during the post-lockout sleep (#1192)', async () => {
+  // A guess is counted from the stored record it reads after the sleep, so a reset another window wrote
+  // meanwhile stands: counted from it, the guess records 2 and no stamp (#1192).
+  it('counts a guess from a reset another window wrote during the post-lockout sleep (#1192)', async () => {
     mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
     jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
     mockUnlock.mockRejectedValue(new Error('bad'));
@@ -503,11 +502,12 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await advance(200);
 
-    mockLsStore.PasswordAttempts = 5;
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 }; // as another window's success writes it
 
     await advance(1200); // the remaining sleep, this window's own rejection, and the 300ms error delay
 
-    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(mockLsStore.PasswordAttempts).toBe(2);
+    expect(mockLsStore.TimeLock).toBe(0);
   });
 
   // A guess counted only once unlock() rejects leaves the count and stamp untouched while it is in
