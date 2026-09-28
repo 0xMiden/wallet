@@ -101,30 +101,23 @@ export function measureFrameGap(frames: number[], openTs: number, closeTs: numbe
 }
 
 /**
- * The `threads` an isolated `prove-worker ready` marker reports, relative to `boundaryTs`.
+ * The `threads` of the LATEST isolated `prove-worker ready` marker at or before
+ * `boundaryTs`.
  *
- * `'after'` (the default) takes the FIRST such marker at or after the boundary - the
- * shape a fresh spawn always has. `'before'` takes the LATEST one at or before it: a
- * worker already warm from an earlier local prove in the same test never fires a
- * second `ready`, so the boundary has to search backwards from a point IN OR AFTER the
- * prove window - its `closeTs`, not its `openTs` - instead of forwards from when the
- * flow was armed (#945). `openTs` is not late enough: it is stamped as soon as the
- * calling code decides to prove, and a cold spawn's own WASM+rayon boot is an
- * independent timer that can still be running at that point (measured ~140ms of a
- * cold boot landing after `openTs` on this suite's own runner).
+ * A worker already warm from an earlier local prove in the same test never fires a
+ * second `ready`, so the search runs backwards from a point IN OR AFTER the prove
+ * window - its `closeTs`, not its `openTs` - instead of forwards from when the flow
+ * was armed (#945). `openTs` is not late enough: it is stamped as soon as the calling
+ * code decides to prove, and a cold spawn's own WASM+rayon boot is an independent
+ * timer that can still be running at that point (measured ~140ms of a cold boot
+ * landing after `openTs` on this suite's own runner).
  */
-export function readyWorkerThreads(
-  markers: ProveMarker[],
-  boundaryTs: number,
-  relativeTo: 'after' | 'before' = 'after'
-): number | undefined {
+export function readyWorkerThreads(markers: ProveMarker[], boundaryTs: number): number | undefined {
   let latest: number | undefined;
   for (const { ts, line } of markers) {
-    if (relativeTo === 'after' ? ts < boundaryTs : ts > boundaryTs) continue;
+    if (ts > boundaryTs) continue;
     const match = /prove-worker ready threads=(\d+) coi=true /.exec(line);
-    if (!match?.[1]) continue;
-    if (relativeTo === 'after') return Number(match[1]);
-    latest = Number(match[1]);
+    if (match?.[1]) latest = Number(match[1]);
   }
   return latest;
 }

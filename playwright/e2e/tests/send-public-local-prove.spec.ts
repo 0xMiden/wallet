@@ -198,7 +198,7 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
         // boot - measured ~140ms after open - actually finishes). Bounding on `openTs`
         // missed every fresh-worker run, not just the warm-worker one this fix targets.
         expect(
-          readyWorkerThreads(markers, proveWindow.closeTs, 'before'),
+          readyWorkerThreads(markers, proveWindow.closeTs),
           'the prove worker came up cross-origin isolated with the capped pool'
         ).toBe(expectedThreads);
         // Offscreen documents get chrome.runtime but never chrome.storage, so

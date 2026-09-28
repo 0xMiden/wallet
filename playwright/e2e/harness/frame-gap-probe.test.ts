@@ -46,25 +46,16 @@ describe('measureFrameGap', () => {
 });
 
 describe('readyWorkerThreads', () => {
-  it('reads the thread count of the first isolated worker ready after arming', () => {
-    const markers = [
-      { ts: 10, line: '[prove-timing] prove-worker ready threads=2 coi=true ms=5' },
-      { ts: 20, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=812' }
-    ];
-    expect(readyWorkerThreads(markers, 15)).toBe(6);
-    expect(readyWorkerThreads(markers, 25)).toBeUndefined();
-  });
-
   it('rejects a ready marker with coi=false rather than reporting its thread count', () => {
     const markers = [{ ts: 10, line: '[prove-timing] prove-worker ready threads=6 coi=false ms=50' }];
-    expect(readyWorkerThreads(markers, 0)).toBeUndefined();
+    expect(readyWorkerThreads(markers, 40)).toBeUndefined();
   });
 
   // #945: a worker already warm from an earlier local prove in the same test (a
   // delegated claim that fell back locally) never fires a second `ready` - the send
   // under test reuses it and posts straight away. Searching only after arming would
-  // report `undefined` for a perfectly healthy warm-worker run, so the prove window's
-  // own `openTs` is searched backwards instead.
+  // report `undefined` for a perfectly healthy warm-worker run, so the search runs
+  // backwards from the prove window instead.
   it('takes the latest ready marker at or before a boundary, for a worker already warm', () => {
     const markers = [
       { ts: 5, line: '[prove-timing] prove-worker ready threads=4 coi=true ms=300' },
@@ -72,7 +63,7 @@ describe('readyWorkerThreads', () => {
       { ts: 90, line: '[prove-timing] local-prove-window close' }
     ];
     // Warm before arming: no marker at or after 40 would ever match.
-    expect(readyWorkerThreads(markers, 40, 'before')).toBe(4);
+    expect(readyWorkerThreads(markers, 40)).toBe(4);
   });
 
   it('prefers the LATEST ready marker at or before the boundary, not the first', () => {
@@ -81,16 +72,16 @@ describe('readyWorkerThreads', () => {
       { ts: 15, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=120' },
       { ts: 40, line: '[prove-timing] local-prove-window open' }
     ];
-    expect(readyWorkerThreads(markers, 40, 'before')).toBe(6);
+    expect(readyWorkerThreads(markers, 40)).toBe(6);
   });
 
-  it('includes a ready marker exactly at the boundary when searching before it', () => {
+  it('includes a ready marker exactly at the boundary', () => {
     const markers = [{ ts: 40, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=1' }];
-    expect(readyWorkerThreads(markers, 40, 'before')).toBe(6);
+    expect(readyWorkerThreads(markers, 40)).toBe(6);
   });
 
-  it('is undefined searching before a boundary with no ready marker at or before it', () => {
+  it('is undefined with no ready marker at or before the boundary', () => {
     const markers = [{ ts: 50, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=1' }];
-    expect(readyWorkerThreads(markers, 40, 'before')).toBeUndefined();
+    expect(readyWorkerThreads(markers, 40)).toBeUndefined();
   });
 });
