@@ -24,7 +24,7 @@ import {
 } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
@@ -519,7 +519,7 @@ export class MultisigService {
         // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
         const answer = await withTimeout(
           newGuardian.getPubkey('ecdsa'),
-          POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+          NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
           `New guardian ${newGuardianEndpoint} pubkey fetch`
         );
         return assertGuardianKeyCommitment(answer.commitment, newGuardianEndpoint);
