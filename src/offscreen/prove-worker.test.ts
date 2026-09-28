@@ -192,57 +192,76 @@ describe('prove worker proving', () => {
     expect(mockProven.free).not.toHaveBeenCalled();
   });
 
-  it('surfaces a free() failure asynchronously instead of stalling the queue, and the next prove still runs', async () => {
-    const freeError = new Error('free failed');
-    await loadWorker();
-    posted = [];
-
+  /** Runs `body` with `setTimeout` captured, so a rethrow on a fresh macrotask is observable. */
+  async function withCapturedTimeouts(body: (captured: Array<() => void>) => Promise<void>): Promise<void> {
     const realSetTimeout = globalThis.setTimeout;
-    const capturedTimeouts: Array<() => void> = [];
+    const captured: Array<() => void> = [];
     Object.defineProperty(globalThis, 'setTimeout', {
       value: (cb: () => void) => {
-        capturedTimeouts.push(cb);
+        captured.push(cb);
         return 0;
       },
       configurable: true,
       writable: true
     });
-
-    const flushMicrotasks = async () => {
-      for (let i = 0; i < 20; i++) {
-        // eslint-disable-next-line no-await-in-loop
-        await Promise.resolve();
-      }
-    };
-
     try {
-      mockResult.free.mockImplementationOnce(() => {
-        throw freeError;
+      await body(captured);
+    } finally {
+      Object.defineProperty(globalThis, 'setTimeout', { value: realSetTimeout, configurable: true, writable: true });
+    }
+  }
+
+  const flushMicrotasks = async () => {
+    for (let i = 0; i < 20; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.resolve();
+    }
+  };
+
+  it('answers a free() failure after a successful prove as one ok:false result for that id', async () => {
+    await loadWorker();
+    posted = [];
+    await withCapturedTimeouts(async captured => {
+      mockProven.free.mockImplementationOnce(() => {
+        throw new Error('free failed');
       });
       send(proveRequest(20));
       await flushMicrotasks();
 
-      // the successful result already posted before free() threw in the `finally`
-      expect(posted.map(p => p.message)).toEqual([
-        { type: 'result', id: 20, ok: true, proven: expect.any(Uint8Array), durationMs: expect.any(Number) }
-      ]);
-      // the rejection is rescheduled onto a fresh macrotask, not swallowed and not
-      // left to reject `queue` forever
-      expect(capturedTimeouts).toHaveLength(1);
-      expect(() => capturedTimeouts[0]?.()).toThrow(freeError);
-    } finally {
-      Object.defineProperty(globalThis, 'setTimeout', {
-        value: realSetTimeout,
-        configurable: true,
-        writable: true
-      });
-    }
+      expect(posted.map(p => p.message)).toEqual([{ type: 'result', id: 20, ok: false, message: 'free failed' }]);
+      expect(posted[0]?.transfer).toEqual([]);
+      // Nothing is left to surface as a realm `error`, which the client would charge
+      // to whichever call is in flight by then.
+      expect(captured).toEqual([]);
+    });
 
     posted = [];
     send(proveRequest(21));
     await flush();
     expect(posted.map(p => p.message)).toEqual([
       { type: 'result', id: 21, ok: true, proven: expect.any(Uint8Array), durationMs: expect.any(Number) }
+    ]);
+  });
+
+  it('surfaces a failed post on a fresh macrotask instead of stalling the queue', async () => {
+    await loadWorker();
+    posted = [];
+    const cloneError = new Error('DataCloneError');
+    await withCapturedTimeouts(async captured => {
+      jest.spyOn(globalThis, 'postMessage').mockImplementationOnce(() => {
+        throw cloneError;
+      });
+      send(proveRequest(22));
+      await flushMicrotasks();
+      expect(posted).toEqual([]);
+      expect(captured).toHaveLength(1);
+      expect(() => captured[0]?.()).toThrow(cloneError);
+    });
+
+    send(proveRequest(23));
+    await flush();
+    expect(posted.map(p => p.message)).toEqual([
+      { type: 'result', id: 23, ok: true, proven: expect.any(Uint8Array), durationMs: expect.any(Number) }
     ]);
   });
 

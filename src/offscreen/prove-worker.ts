@@ -86,19 +86,31 @@ async function prove(request: ProveRequestMessage): Promise<void> {
   }
   let result: TransactionResult | undefined;
   let proven: ProvenTransaction | undefined;
+  let reply: ProveWorkerMessage;
+  let transfer: Transferable[] = [];
   try {
     const started = performance.now();
     result = TransactionResult.deserialize(request.txResult);
     // proveTransaction borrows the result and consumes the prover.
     proven = await client.proveTransaction(result, TransactionProver.newLocalProver());
-    const { bytes, transfer } = transferable(proven.serialize());
-    post({ type: 'result', id, ok: true, proven: bytes, durationMs: performance.now() - started }, transfer);
+    const payload = transferable(proven.serialize());
+    reply = { type: 'result', id, ok: true, proven: payload.bytes, durationMs: performance.now() - started };
+    transfer = payload.transfer;
   } catch (error) {
-    post({ type: 'result', id, ok: false, message: messageOf(error) });
-  } finally {
+    reply = { type: 'result', id, ok: false, message: messageOf(error) };
+  }
+  // Freed before the one post: a free that throws after it would surface once the
+  // client had already moved on, and be charged to its next, unrelated call.
+  try {
     result?.free();
     proven?.free();
+  } catch (error) {
+    if (reply.ok) {
+      reply = { type: 'result', id, ok: false, message: messageOf(error) };
+      transfer = [];
+    }
   }
+  post(reply, transfer);
 }
 
 // One prove at a time, behind the client's own FIFO.
@@ -107,12 +119,11 @@ let queue: Promise<void> = Promise.resolve();
 globalThis.addEventListener('message', event => {
   const data: unknown = event.data;
   if (!isProveRequestMessage(data)) return;
-  // A `finally`-block throw (a WASM handle's `free()` trapping) rejects `prove()`'s
-  // own promise even after it already posted a result. Uncaught, that would leave
-  // `queue` permanently rejected, and every later `.then()` on it skips its
-  // callback forever - a silent stall, not just a missed message. Catching here and
-  // rethrowing on a fresh macrotask keeps the chain alive while still surfacing the
-  // failure as this realm's `error` event, which the client already handles.
+  // `prove()` answers every call with one result, so it rejects only when that post
+  // itself throws, which leaves the client's head with no result at all. Uncaught,
+  // the rejection would leave `queue` rejected and skip every later prove; rethrown
+  // on a fresh macrotask it reaches the client as this realm's `error` event, which
+  // fails that head and retires the worker.
   queue = queue
     .then(() => prove(data))
     .catch(error => {
