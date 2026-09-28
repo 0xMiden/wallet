@@ -2,7 +2,10 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  ERR_FEE_CONVERSION_INFO_MISSING_CODE,
+  ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
+  isDeterministicKernelFailure,
   isGuardianOutage,
   isProverProcedureMismatch,
   isVaultShortfallError,
@@ -242,6 +245,25 @@ describe('the vault shortfall by its kernel code (#805)', () => {
 
   it('does not read another kernel code as a shortfall', () => {
     expect(isVaultShortfallError('assertion failed with error code: 9876543210')).toBe(false);
+  });
+});
+
+describe('isDeterministicKernelFailure', () => {
+  it.each([
+    ['a prover procedure mismatch', MISSING_PROCEDURE],
+    ['a missing fee conversion info', `assertion failed with error code: ${ERR_FEE_CONVERSION_INFO_MISSING_CODE}`],
+    [
+      'a vault shortfall',
+      `assertion failed with error code: ${ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE}`
+    ]
+  ])('is true for %s', (_, raw) => {
+    expect(isDeterministicKernelFailure(raw)).toBe(true);
+  });
+
+  it('is false for a plain timeout', () => {
+    expect(
+      isDeterministicKernelFailure('Error: Error during Guardian transaction submission or execution: request timeout')
+    ).toBe(false);
   });
 });
 

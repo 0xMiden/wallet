@@ -2,9 +2,13 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import {
+  ERR_FEE_CONVERSION_INFO_MISSING_CODE,
+  formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
+  PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_TIMEOUT_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
 
@@ -265,6 +269,28 @@ describe('describeRotationFailure', () => {
     expect(
       describeRotationFailure(failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true }), null)
     ).toMatchObject({ unconfirmed: false, message: TRANSACTION_VAULT_SHORTFALL_ERROR });
+  });
+
+  it.each([
+    [
+      'a missing fee conversion info',
+      `assertion failed with error code: ${ERR_FEE_CONVERSION_INFO_MISSING_CODE}`,
+      TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR
+    ],
+    // The native-prover text captured in #487.
+    [
+      'a prover procedure mismatch',
+      'MidenNativeProver: prover rejected the transaction: failed to execute transaction kernel program: ' +
+        'procedure with root digest 0x8bf4fec02765083b9280422f01a814de8f2a53564797969fac2f608197727b22 could not be found',
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    ]
+  ])('names %s even on a row that may have submitted', (_, kernel, message) => {
+    const rawError = formatRawTransactionError(new Error(kernel));
+    expect(describeRotationFailure(failed({ error: message, rawError, mayHaveSubmitted: true }), null)).toEqual({
+      unconfirmed: false,
+      message,
+      details: rawError
+    });
   });
 
   it('shows classified copy with its raw error behind it', () => {

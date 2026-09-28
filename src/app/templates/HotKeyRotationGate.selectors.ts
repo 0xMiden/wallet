@@ -4,6 +4,7 @@ import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import {
+  isDeterministicKernelFailure,
   isVaultShortfallRow,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
@@ -155,6 +156,11 @@ export const describeRotationFailure = (
       message: TRANSACTION_VAULT_SHORTFALL_ERROR,
       details: raw === TRANSACTION_VAULT_SHORTFALL_ERROR ? undefined : nonEmpty(raw)
     };
+  }
+  // Outranks the submit stamp below: each of these fails at execute or prove time, before the submit crossing, so the
+  // rotation did not land.
+  if (row.rawError !== undefined && isDeterministicKernelFailure(row.rawError)) {
+    return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
   }
   // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
   // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
