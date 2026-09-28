@@ -186,6 +186,15 @@ describe('probeGuardianOrigin', () => {
     expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('native');
   });
 
+  it('never removes an origin registered while a probe of it is in flight when that probe fails', async () => {
+    const settle = nativeHttp.probeGuardianOrigin(CUSTOM);
+    nativeHttp.registerGuardianOrigin(CUSTOM);
+
+    settle(false);
+
+    expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('native');
+  });
+
   it('ignores every settle after the first', async () => {
     const first = nativeHttp.probeGuardianOrigin(CUSTOM);
     const second = nativeHttp.probeGuardianOrigin(CUSTOM);
