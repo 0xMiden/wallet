@@ -156,9 +156,11 @@ const gateExit = (script: string, values: Record<string, string>): number | null
 };
 
 describe('PR workflows run the heavy E2E jobs only on a main-based pull request', () => {
-  it('local-e2e runs only on a main-based pull request, under its required name', () => {
+  it('local-e2e runs on push, dispatch and a main-based pull request, under its required name', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
-    expect(src).toMatch(/name: local-e2e \(chrome\)\n\s+if: github\.event\.pull_request\.base\.ref == 'main'/);
+    expect(src).toMatch(
+      /name: local-e2e \(chrome\)\n\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main'/
+    );
   });
 
   it('bridge-guardian-e2e runs on push, dispatch and a main-based pull request', () => {
