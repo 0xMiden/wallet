@@ -52,8 +52,7 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * key commitment of a Guardian's shape (`isGuardianKeyCommitment`), so a URL that
  * is not a Guardian is not left routed.
  *
- * Any answer that is not a Guardian's key (a non-string, an empty string, a string
- * that is not a 32-byte hex word) is "did not answer", not a value. The guardian client
+ * A non-string commitment is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
  * is whatever the endpoint chose to serve; `normalizeHex` calls `.startsWith` on
  * it, and the fold that does so in `probeBuiltInOperators` runs OUTSIDE the
@@ -64,9 +63,7 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * Rejecting it HERE rather than guarding the fold is what gives every caller
  * the same guarantee and keeps the `answered < asked` bookkeeping honest: an
  * endpoint serving a nonsense type is exactly as informative as one that is down,
- * so it must not complete a round that `'none'` requires to be complete. The same
- * holds for a malformed string: the probe already calls that host not a Guardian,
- * and a `'mismatch'` from it would make drift reconciliation accuse immediately.
+ * so it must not complete a round that `'none'` requires to be complete.
  */
 export async function fetchOperatorCommitment(
   endpoint: string,
@@ -81,10 +78,8 @@ export async function fetchOperatorCommitment(
           value => {
             clearTimeout(timer);
             const commitment: unknown = value?.commitment;
-            if (commitment !== undefined && !isGuardianKeyCommitment(commitment)) {
-              console.warn(
-                `[Guardian] ${endpoint} served a key commitment that is not a 32-byte hex word; treating it as unanswered.`
-              );
+            if (commitment !== undefined && typeof commitment !== 'string') {
+              console.warn(`[Guardian] ${endpoint} served a non-string key commitment; treating it as unanswered.`);
               resolve(undefined);
               return;
             }

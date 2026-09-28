@@ -24,30 +24,20 @@ import {
   verifyEndpointMatchesCommitment
 } from './operator-map';
 
-// A Guardian serves one 32-byte hex word. Each built-in serves its key in uppercase with 0x, so every
-// lookup below also exercises normalization.
-const KEY_A = 'a'.repeat(64);
-const KEY_B = 'b'.repeat(64);
-const KEY_C = 'c'.repeat(64);
-const KEY_D = 'd'.repeat(64);
-const KEY_E = 'e'.repeat(64);
-const KEY_F = 'f'.repeat(64);
-const served = (key: string) => `0x${key.toUpperCase()}`;
-
 // `unknown`, not `string`: the guardian client returns this field off an
 // unchecked `response.json()` cast, so a real endpoint can serve any JSON type and
 // a fixture pinned to `string` cannot express the case that took the fan-out down.
 const MOCK_DEFAULT_PUBKEYS: Record<string, unknown> = {
-  'https://guardian.openzeppelin.com': served(KEY_A),
-  'https://miden-guardian.dev.eu-north-3.gateway.fm': served(KEY_B),
-  'https://miden-guardian.lambdaclass.com': served(KEY_C),
-  'https://guardian-testnet.kodax.com': served(KEY_D),
+  'https://guardian.openzeppelin.com': '0xAAA',
+  'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
+  'https://miden-guardian.lambdaclass.com': '0xCCC',
+  'https://guardian-testnet.kodax.com': '0xDDD',
   // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
   // network answers with a DIFFERENT key rather than with nothing.
-  'https://guardian-stg.openzeppelin.com': served(KEY_E),
+  'https://guardian-stg.openzeppelin.com': '0xEEE',
   // The developer URL override, which is a selectable option in the onboarding
   // picker but must never be probed as a built-in operator.
-  'https://dev-override.guardian.test': served(KEY_F)
+  'https://dev-override.guardian.test': '0xFFF'
 };
 
 // What each endpoint's unauthenticated `GET /pubkey` answers. Mutable per case,
@@ -103,10 +93,10 @@ describe('buildOperatorKeyMap', () => {
   it('maps each reachable operator commitment (normalized) to its ResolvedGuardianOption', async () => {
     const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
 
-    expect(map.get(KEY_A)?.id).toBe('open-zeppelin');
-    expect(map.get(KEY_B)?.id).toBe('gateway');
-    expect(map.get(KEY_C)?.id).toBe('lambda-class');
-    expect(map.get(KEY_D)?.id).toBe('kodax');
+    expect(map.get('aaa')?.id).toBe('open-zeppelin');
+    expect(map.get('bbb')?.id).toBe('gateway');
+    expect(map.get('ccc')?.id).toBe('lambda-class');
+    expect(map.get('ddd')?.id).toBe('kodax');
   });
 
   it('skips an operator whose endpoint is unreachable, without throwing', async () => {
@@ -118,10 +108,10 @@ describe('buildOperatorKeyMap', () => {
 
     // The first operator (open-zeppelin) fails and is skipped; the other
     // built-in operators are still present.
-    expect(map.get(KEY_A)).toBeUndefined();
-    expect(map.get(KEY_B)?.id).toBe('gateway');
-    expect(map.get(KEY_C)?.id).toBe('lambda-class');
-    expect(map.get(KEY_D)?.id).toBe('kodax');
+    expect(map.get('aaa')).toBeUndefined();
+    expect(map.get('bbb')?.id).toBe('gateway');
+    expect(map.get('ccc')?.id).toBe('lambda-class');
+    expect(map.get('ddd')?.id).toBe('kodax');
   });
 });
 
@@ -144,27 +134,27 @@ describe('the no-argument default', () => {
 
     // Devnet runs exactly one built-in operator, and it is not one of the four
     // the build-baked network would have probed.
-    expect(map.get(KEY_E)?.endpoint).toBe('https://guardian-stg.openzeppelin.com');
-    expect(map.get(KEY_A)).toBeUndefined();
+    expect(map.get('eee')?.endpoint).toBe('https://guardian-stg.openzeppelin.com');
+    expect(map.get('aaa')).toBeUndefined();
     expect(map.size).toBe(1);
   });
 
   it('identifies an operator against the effective network operator set', async () => {
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.DEVNET;
 
-    expect(await identifyGuardianOperator(served(KEY_E))).toEqual({
+    expect(await identifyGuardianOperator('0xEEE')).toEqual({
       outcome: 'identified',
       operator: expect.objectContaining({ id: 'open-zeppelin' })
     });
     // The testnet operator's key is not reachable from devnet — a commitment
     // that only the build default's set holds must not resolve.
-    expect(await identifyGuardianOperator(KEY_A)).toEqual({ outcome: 'none' });
+    expect(await identifyGuardianOperator('aaa')).toEqual({ outcome: 'none' });
   });
 });
 
 describe('identifyGuardianOperator', () => {
   it('identifies the operator whose pubkey matches the on-chain commitment', async () => {
-    const lookup = await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET); // unprefixed on-chain form
+    const lookup = await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET); // unprefixed on-chain form
     expect(lookup).toEqual({ outcome: 'identified', operator: expect.objectContaining({ id: 'open-zeppelin' }) });
   });
 
@@ -212,7 +202,7 @@ describe('identifyGuardianOperator', () => {
     });
 
     // open-zeppelin (probed first) is the one that fails; gateway still answers.
-    expect(await identifyGuardianOperator(KEY_B, MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+    expect(await identifyGuardianOperator('bbb', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
       outcome: 'identified',
       operator: expect.objectContaining({ id: 'gateway' })
     });
@@ -228,16 +218,16 @@ describe('identifyGuardianOperator', () => {
     // kodax, probed LAST, claims the key open-zeppelin already served. Under
     // arrival-order insertion the outcome depended on which reply landed first;
     // now neither is named, in either order.
-    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = served(KEY_A);
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
 
-    expect(await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
   });
 
   it('declines the contested commitment without losing the ones only one operator claims', async () => {
-    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = served(KEY_A);
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
 
-    expect(await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
-    expect(await identifyGuardianOperator(KEY_B, MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+    expect(await identifyGuardianOperator('bbb', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
       outcome: 'identified',
       operator: expect.objectContaining({ id: 'gateway' })
     });
@@ -245,10 +235,10 @@ describe('identifyGuardianOperator', () => {
 
   // A third claimant must not un-contest the key by overwriting the marker.
   it('keeps a commitment contested when a third built-in claims it too', async () => {
-    mockPubkeyByEndpoint['https://miden-guardian.lambdaclass.com'] = served(KEY_A);
-    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = served(KEY_A);
+    mockPubkeyByEndpoint['https://miden-guardian.lambdaclass.com'] = '0xAAA';
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
 
-    expect(await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
   });
 });
 
@@ -269,7 +259,7 @@ describe('one operator serving a nonsense commitment type', () => {
   it('does not take the whole round down with it', async () => {
     mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = 1234;
 
-    const lookup = await identifyGuardianOperator(served(KEY_B), MIDEN_NETWORK_NAME.TESTNET);
+    const lookup = await identifyGuardianOperator('0xBBB', MIDEN_NETWORK_NAME.TESTNET);
 
     expect(lookup).toEqual({
       outcome: 'identified',
@@ -295,24 +285,7 @@ describe('one operator serving a nonsense commitment type', () => {
   it('reads as unreachable through checkEndpointCommitment', async () => {
     mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = true;
 
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', served(KEY_A))).resolves.toBe(
-      'unreachable'
-    );
-  });
-
-  // A string that is not a 32-byte word is no Guardian's key either, so it counts exactly as a nonsense type does.
-  it('leaves the round incomplete when a built-in answers a string that is not a 32-byte word', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = '0xdeadbeef';
-
-    const lookup = await identifyGuardianOperator('0xNOBODYSERVESTHIS', MIDEN_NETWORK_NAME.TESTNET);
-
-    expect(lookup.outcome).toBe('unavailable');
-  });
-
-  it('reads a string that is not a 32-byte word as unreachable through checkEndpointCommitment', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = '0xdeadbeef';
-
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', '0xAAA')).resolves.toBe('unreachable');
   });
 });
 
@@ -326,14 +299,14 @@ describe('the built-in set excludes the developer URL override', () => {
 
     const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
 
-    expect(map.get(KEY_F)).toBeUndefined();
-    expect(map.get(KEY_A)?.id).toBe('open-zeppelin');
+    expect(map.get('fff')).toBeUndefined();
+    expect(map.get('aaa')?.id).toBe('open-zeppelin');
   });
 
   it('does not let the override corroborate a commitment', async () => {
     mockGuardianUrlOverride = 'https://dev-override.guardian.test';
 
-    expect(await identifyGuardianOperator(served(KEY_F), MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
+    expect(await identifyGuardianOperator('0xFFF', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
   });
 });
 
@@ -343,11 +316,11 @@ describe('the built-in set excludes the developer URL override', () => {
 // difference.
 describe('checkEndpointCommitment', () => {
   it('reports a match when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe('match');
   });
 
   it('reports a mismatch when the endpoint answers with a different key', async () => {
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).toBe('mismatch');
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe('mismatch');
   });
 
   it('reports unreachable when the endpoint fetch throws', async () => {
@@ -355,13 +328,13 @@ describe('checkEndpointCommitment', () => {
       throw new Error('network unreachable');
     });
 
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_A)).toBe('unreachable');
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe('unreachable');
   });
 
   // An answer carrying no commitment is not a guardian answering, so it is no
   // more evidence of a mismatch than a dropped connection is.
   it('reports unreachable when the endpoint answers without a commitment', async () => {
-    expect(await checkEndpointCommitment('https://not-a-guardian.test', KEY_A)).toBe('unreachable');
+    expect(await checkEndpointCommitment('https://not-a-guardian.test', 'aaa')).toBe('unreachable');
   });
 
   // This runs from the ~3s sync tick and the guardian client exposes no abort, so
@@ -370,7 +343,7 @@ describe('checkEndpointCommitment', () => {
     jest.useFakeTimers();
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
 
-    const verdict = checkEndpointCommitment('https://hung.guardian', KEY_A);
+    const verdict = checkEndpointCommitment('https://hung.guardian', 'aaa');
     await jest.advanceTimersByTimeAsync(5_000);
 
     expect(await verdict).toBe('unreachable');
@@ -380,11 +353,11 @@ describe('checkEndpointCommitment', () => {
 
 describe('verifyEndpointMatchesCommitment', () => {
   it('returns match when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe('match');
   });
 
   it('returns mismatch when the endpoint pubkey commitment does not match', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', KEY_B)).toBe('mismatch');
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe('mismatch');
   });
 
   // Boolean by design for callers about to WRITE the endpoint: unreachable and
@@ -394,7 +367,7 @@ describe('verifyEndpointMatchesCommitment', () => {
       throw new Error('network unreachable');
     });
 
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', KEY_A)).toBe('unreachable');
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe('unreachable');
   });
 
   // This is one-shot and user-initiated, so it gets a far longer budget than the
@@ -406,11 +379,9 @@ describe('verifyEndpointMatchesCommitment', () => {
     jest.useFakeTimers();
     jest
       .spyOn(GuardianHttpClient.prototype, 'getPubkey')
-      .mockImplementationOnce(
-        () => new Promise(resolve => setTimeout(() => resolve({ commitment: served(KEY_A) }), 12_000))
-      );
+      .mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve({ commitment: '0xAAA' }), 12_000)));
 
-    const verdict = verifyEndpointMatchesCommitment('https://slow.self-hosted.test', KEY_A);
+    const verdict = verifyEndpointMatchesCommitment('https://slow.self-hosted.test', 'aaa');
     await jest.advanceTimersByTimeAsync(12_000);
 
     expect(await verdict).toBe('match');
@@ -421,7 +392,7 @@ describe('verifyEndpointMatchesCommitment', () => {
     jest.useFakeTimers();
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
 
-    const verdict = verifyEndpointMatchesCommitment('https://hung.self-hosted.test', KEY_A);
+    const verdict = verifyEndpointMatchesCommitment('https://hung.self-hosted.test', 'aaa');
     await jest.advanceTimersByTimeAsync(20_000);
 
     expect(await verdict).toBe('unreachable');
@@ -438,12 +409,12 @@ describe('mobile native-HTTP probe', () => {
   });
 
   it('takes a probe of the endpoint from checkEndpointCommitment', async () => {
-    await checkEndpointCommitment('https://custom.guardian.test', KEY_A);
+    await checkEndpointCommitment('https://custom.guardian.test', 'aaa');
     expect(mockProbedEndpoints).toEqual(['https://custom.guardian.test']);
   });
 
   it('takes a probe of the endpoint from verifyEndpointMatchesCommitment', async () => {
-    await verifyEndpointMatchesCommitment('https://custom.guardian.test', KEY_A);
+    await verifyEndpointMatchesCommitment('https://custom.guardian.test', 'aaa');
     expect(mockProbedEndpoints).toEqual(['https://custom.guardian.test']);
   });
 
@@ -457,19 +428,19 @@ describe('mobile native-HTTP probe', () => {
   it('keeps the origin routed once the endpoint answers with a key, even another operator key', async () => {
     mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = `0x${'ab'.repeat(32)}`;
 
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).resolves.toBe('mismatch');
+    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', 'bbb')).resolves.toBe('mismatch');
     expect(mockProbeVerdicts).toEqual([['https://guardian.openzeppelin.com', true]]);
   });
 
   it('releases the origin when the endpoint answers without a key', async () => {
-    await expect(checkEndpointCommitment('https://not-a-guardian.test', KEY_A)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://not-a-guardian.test', 'aaa')).resolves.toBe('unreachable');
     expect(mockProbeVerdicts).toEqual([['https://not-a-guardian.test', false]]);
   });
 
   it('releases the origin when the endpoint answers with an empty key', async () => {
     mockPubkeyByEndpoint['https://empty.guardian.test'] = '';
 
-    await expect(checkEndpointCommitment('https://empty.guardian.test', KEY_A)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://empty.guardian.test', 'aaa')).resolves.toBe('unreachable');
     expect(mockProbeVerdicts).toEqual([['https://empty.guardian.test', false]]);
   });
 
@@ -477,7 +448,7 @@ describe('mobile native-HTTP probe', () => {
   it('releases the origin when the endpoint answers with a key that is not a 32-byte hex word', async () => {
     mockPubkeyByEndpoint['https://short.guardian.test'] = '0xdeadbeef';
 
-    await expect(checkEndpointCommitment('https://short.guardian.test', KEY_A)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://short.guardian.test', 'aaa')).resolves.toBe('mismatch');
     expect(mockProbeVerdicts).toEqual([['https://short.guardian.test', false]]);
   });
 
@@ -486,7 +457,7 @@ describe('mobile native-HTTP probe', () => {
       throw new Error('network unreachable');
     });
 
-    await expect(checkEndpointCommitment('https://custom.guardian.test', KEY_A)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://custom.guardian.test', 'aaa')).resolves.toBe('unreachable');
     expect(mockProbeVerdicts).toEqual([['https://custom.guardian.test', false]]);
   });
 
@@ -494,7 +465,7 @@ describe('mobile native-HTTP probe', () => {
     jest.useFakeTimers();
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
 
-    const verdict = checkEndpointCommitment('https://hung.guardian', KEY_A);
+    const verdict = checkEndpointCommitment('https://hung.guardian', 'aaa');
     await jest.advanceTimersByTimeAsync(5_000);
 
     expect(await verdict).toBe('unreachable');
