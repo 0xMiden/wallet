@@ -14,28 +14,27 @@ by the probe is marked **Unconfirmed**.
 
 ## Decision summary
 
-**Conditional go.** Build optional Touch ID and Windows Hello unlock if the
-owner accepts synced passkeys as the vault key's second wrapping; if only a
-device-bound wrapping is acceptable, do not build it now: Chrome on macOS
-offers no device-bound credential with PRF.
+**Conditional go.** If the owner accepts a synced passkey as the vault key's
+second wrapping, build passkey unlock: iCloud Keychain with Touch ID on macOS,
+Google Password Manager on any desktop, and Windows Hello if it returns PRF.
+If only a device-bound wrapping is acceptable, build nothing on macOS now, and
+on Windows 11 only if Windows Hello passes a device test.
 
-WebAuthn PRF works from an extension page (a probe with a virtual
-authenticator got 32-byte outputs under RP ID `chrome-extension://<id>`) and
-can wrap the existing random vault key a second time, leaving the password
-wrapping and seed recovery untouched. Chrome's own Touch ID store has no PRF;
-iCloud Keychain and Google Password Manager have it but sync the credential;
-Windows Hello's PRF, the one device-bound platform option, is
-**Unconfirmed**. With a synced passkey an attacker needs a copy of this
-profile's storage and the user's Apple or Google account; today the copy and
-enough password guesses suffice. The first milestone, a device test on macOS
-15+ and Windows 11, decides which providers and surfaces work and ends the
-work if none does.
+WebAuthn PRF, which Chrome allows in extension pages, can wrap the vault key a
+second time without touching the password wrapping or seed recovery. Chrome's
+Touch ID store has no PRF; iCloud Keychain and Google Password Manager have it
+but sync the credential (with the extension's RP ID, **Unconfirmed**); Windows
+Hello's PRF is **Unconfirmed**. A synced passkey adds a second route to the
+vault key: a copy of this profile's storage plus the user's Apple or Google
+account. The existing route, the copy plus enough password guesses, stays. A
+device test on macOS 15+ and Windows 11 comes first and stops the work if none
+passes.
 
 Owner decisions:
 
 1. Accept synced PRF passkeys as the second wrapping.
-2. Accept the OS password or PIN as user verification equal to Touch ID or
-   Windows Hello; the wallet cannot tell them apart.
+2. Accept the OS password or PIN as equal to Touch ID or Windows Hello; the
+   wallet cannot tell them apart.
 
 ## Today's vault
 
@@ -623,12 +622,14 @@ Manager). The owner's bar is weighed at the end of the section.
 
 ### Synced passkeys
 
-- With iCloud Keychain or GPM the PRF secret is on every device of the user's
-  provider account. GPM syncs the `hmac-secret` inside the credential's
-  encrypted entity ([`webauthn_credential_specifics.proto`][cr-gpm-proto]),
-  and iCloud Keychain syncs passkeys end to end encrypted
-  ([Apple][apple-icloud-security], 2024-09-16). The second wrapping is then as
-  strong as that account, not as the device.
+- With GPM the PRF secret is on every device of the user's provider account:
+  GPM syncs the `hmac-secret` inside the credential's encrypted entity
+  ([`webauthn_credential_specifics.proto`][cr-gpm-proto]). iCloud Keychain
+  syncs passkeys end to end encrypted ([Apple][apple-icloud-security],
+  2024-09-16); that they give the same PRF output on every synced device is
+  **Unconfirmed** (Open question 5), so the secret must be assumed to be on
+  every synced device. The second wrapping is then as strong as that account,
+  not as the device.
 - An attacker needs all three of:
   1. a copy of this profile's extension storage, for the record and its salt
      (the copy the offline attack starts from);
@@ -750,9 +751,9 @@ A key derived from the user handle is rejected here:
 |---|---|---|---|---|
 | Wraps the same vault-key bytes | Yes | Yes (Today's vault) | Yes | Yes |
 | Password wrapping kept beside it | Yes: "next to the password wrapping" | No: it replaces the password wrapping (Today's vault) | Yes | Yes |
-| Wrapping secret bound to one device | Yes | Yes on iOS and macOS, whose keys are accessible on this device only (Today's vault) | Yes | No: the PRF secret syncs (above) |
+| Wrapping secret bound to one device | Yes | Yes on iOS, Android and macOS: the iOS and macOS keys are accessible on this device only (Today's vault), and the Android key lives in `AndroidKeyStore` (`android/app/src/main/java/com/miden/wallet/HardwareSecurityPlugin.kt:103-106`), whose key material "can't" be extracted ([Android keystore][android-keystore], updated 2026-03-06) | Yes | No: the PRF secret syncs (above) |
 | User verification can be the OS password or PIN | Not stated | Yes on macOS desktop and Android (above) | Yes on Windows Hello | Which methods: **Unconfirmed** (above) |
-| Available in Chrome on macOS today | - | - | No (Support matrix) | iCloud Keychain and GPM; with the extension RP ID **Unconfirmed** and secondary evidence only (Support matrix) |
+| Available in Chrome on macOS today | - | - | No platform authenticator (Support matrix); a security key with `hmac-secret` is | iCloud Keychain and GPM; with the extension RP ID **Unconfirmed** and secondary evidence only (Support matrix) |
 
 ## Recommendation and scope
 
@@ -797,8 +798,9 @@ and a device-bound one where the platform offers it. The reasons:
   offline attacker has nothing new to guess (Security comparison).
 - The password wrapping, the seed phrase and the backup file stay as they are,
   so recovery never depends on one device or one provider, as the issue asks.
-- An attacker needs a copy of the profile and the user's provider account
-  (Security comparison); today the copy and enough password guesses suffice.
+- The route it adds is not guessable offline: it needs the user's provider
+  account as well as a copy of the profile (Security comparison). The existing
+  route, the copy plus enough password guesses, is unchanged.
 
 The owner decisions it needs:
 
@@ -872,9 +874,11 @@ What stays out:
   removing the seed phrase and spending-limit strict authentication keep the
   password.
 - Mobile and desktop, which keep the hardware protector.
-- Firefox, which the manifest also targets (`public/manifest.json:48-56`): its
-  extension popup closes when the credential prompt appears
-  ([MDN][mdn-ext-webauthn]).
+- Firefox, which the manifest also targets (`public/manifest.json:48-56`):
+  the issue asks for the Chrome extension, and Firefox's PRF support and its
+  extension RP ID are untested here. MDN also documents that its extension
+  popup closes when the credential prompt appears, with opening the page in a
+  new tab as the workaround ([MDN][mdn-ext-webauthn]).
 
 ## Open questions
 
@@ -990,6 +994,7 @@ was opened in a tab.
   action-popup window, which Chrome can close on losing focus).
 
 [ambire-biometrics]: https://github.com/AmbireTech/extension/blob/3f6c7af91fde4c056da96ff9ede5c39f53ed7083/src/web/services/webauthnBiometrics.ts
+[android-keystore]: https://developer.android.com/privacy-and-security/keystore
 [apple-forum-prf]: https://developer.apple.com/forums/thread/764730
 [apple-icloud-security]: https://support.apple.com/en-us/102195
 [bitwarden-4365]: https://github.com/bitwarden/clients/issues/4365
