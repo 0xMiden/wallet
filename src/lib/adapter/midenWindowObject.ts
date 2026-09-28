@@ -41,7 +41,6 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
   appName?: string | undefined;
   network?: WalletAdapterNetwork | undefined;
   private clearAccountChangeInterval?: () => void | undefined;
-  private disconnects = 0;
 
   async isAvailable(): Promise<boolean> {
     return await isAvailable();
@@ -111,7 +110,6 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     network: WalletAdapterNetwork,
     allowedPrivateData?: AllowedPrivateData
   ): Promise<void> {
-    const disconnects = this.disconnects;
     const perm = await requestPermission(
       { name: window.location.hostname },
       false,
@@ -119,23 +117,19 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
       network,
       allowedPrivateData
     );
-    // A disconnect() while the request was pending ends this connection too: nothing is set and no poll starts.
-    if (this.disconnects !== disconnects) throw new WalletError('The wallet was disconnected while connecting');
     this.permission = perm;
     this.address = perm.address;
     this.network = network;
     this.publicKey = perm.publicKey;
     // The adapter can call connect() again without a disconnect(), which stops only the latest poll.
-    // The poll starts from this permission, so a first check that finds no grant clears the account.
     this.clearAccountChangeInterval?.();
-    this.clearAccountChangeInterval = onPermissionChange(current => this.applyPermission(current), perm);
+    this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
   }
 
   // The poll stops before the request: after accountChange(null) that account holds no session for
   // this origin and the request is refused, and a poll still running would repopulate the fields.
   async disconnect(): Promise<void> {
     this.clearAccountChangeInterval?.();
-    this.disconnects++;
     try {
       await requestDisconnect();
     } finally {

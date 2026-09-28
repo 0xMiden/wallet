@@ -12,8 +12,6 @@
  * `'id'`, so every request's `reqId` is the constant `'id'`.
  */
 
-import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
-
 import {
   assertResponse,
   getCurrentPermission,
@@ -37,7 +35,7 @@ import {
   signBytes,
   waitForTransaction
 } from './client';
-import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppPermission, MidenPageMessageType } from './types';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenPageMessageType } from './types';
 
 // ── Captured window `message` listeners ────────────────────────────
 let messageListeners: Array<(evt: any) => void> = [];
@@ -476,13 +474,6 @@ describe('onPermissionChange', () => {
   const permAcopy = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
   const permArpc = { address: 'a', rpc: 'r2', privateDataPermission: 'None', allowedPrivateData: {} };
   const permB = { address: 'b', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
-  // The permission a provider connected with, as the baseline; only address and rpc are compared.
-  const connectedA: MidenDAppPermission = {
-    address: 'a',
-    rpc: 'r1',
-    privateDataPermission: PrivateDataPermission.Auto,
-    allowedPrivateData: AllowedPrivateData.All
-  };
 
   const resolveWith = (permission: any) =>
     deliverPageResponse({ type: MidenDAppMessageType.GetCurrentPermissionResponse, permission });
@@ -555,26 +546,6 @@ describe('onPermissionChange', () => {
     resolveWith(permA);
     await flush();
     expect(cb.mock.calls).toEqual([[permA], [permB], [permA]]);
-    stop();
-  });
-
-  it('with a baseline, a first check answering null calls back null (#174)', async () => {
-    jest.useFakeTimers();
-    const cb = jest.fn();
-    const stop = onPermissionChange(cb, connectedA);
-    resolveWith(null);
-    await flush();
-    expect(cb.mock.calls).toEqual([[null]]);
-    stop();
-  });
-
-  it('with a baseline, a first check answering the same grant calls back nothing (#174)', async () => {
-    jest.useFakeTimers();
-    const cb = jest.fn();
-    const stop = onPermissionChange(cb, connectedA);
-    resolveWith(permAcopy);
-    await flush();
-    expect(cb).not.toHaveBeenCalled();
     stop();
   });
 

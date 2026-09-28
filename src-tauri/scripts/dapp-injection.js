@@ -282,8 +282,6 @@
   }
 
   function injectWalletAPI() {
-    let disconnectCount = 0;
-
     // MidenWallet class that mimics the browser extension API (MidenWindowObject)
     // Must match the interface from @miden-sdk/miden-wallet-adapter-miden
     class MidenWallet {
@@ -303,7 +301,6 @@
       }
 
       async connect(privateDataPermission, network, allowedPrivateData) {
-        const disconnects = disconnectCount;
         const res = await request({
           type: 'PERMISSION_REQUEST',
           appMeta: { name: window.location.hostname },
@@ -312,8 +309,6 @@
           network,
           allowedPrivateData,
         });
-        // A disconnect() while the request was pending ends this connection too: nothing is set and no watch starts.
-        if (disconnectCount !== disconnects) throw new Error('The wallet was disconnected while connecting');
 
         // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
         // leaves the provider, and any watch already running, as it was.
@@ -343,24 +338,22 @@
         this._emit('accountChange', this.permission);
       }
 
-      // The connection ends whether the request succeeds, is refused or times out; its error still reaches the caller.
       async disconnect() {
         stopPermissionWatch();
-        disconnectCount++;
-        try {
-          return await request({
-            type: 'DISCONNECT_REQUEST',
-            network: this.network,
-          });
-        } finally {
-          this.address = undefined;
-          this.publicKey = undefined;
-          this.permission = undefined;
-          this.network = undefined;
+        const res = await request({
+          type: 'DISCONNECT_REQUEST',
+          network: this.network,
+        });
 
-          // Emit accountChange with null
-          this._emit('accountChange', null);
-        }
+        this.address = undefined;
+        this.publicKey = undefined;
+        this.permission = undefined;
+        this.network = undefined;
+
+        // Emit accountChange with null
+        this._emit('accountChange', null);
+
+        return res;
       }
 
       // Fields follow the new account before listeners hear of it; null clears them. The permission

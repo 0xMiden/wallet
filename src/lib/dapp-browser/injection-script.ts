@@ -179,8 +179,6 @@ export const INJECTION_SCRIPT = `
     };
   }
 
-  let disconnectCount = 0;
-
   // MidenWallet class
   class MidenWallet extends EventEmitter {
     constructor() {
@@ -202,7 +200,6 @@ export const INJECTION_SCRIPT = `
     }
 
     async connect(privateDataPermission, network, allowedPrivateData) {
-      const disconnects = disconnectCount;
       const res = await request({
         type: 'PERMISSION_REQUEST',
         appMeta: { name: window.location.hostname },
@@ -211,8 +208,6 @@ export const INJECTION_SCRIPT = `
         network,
         allowedPrivateData
       });
-      // A disconnect() while the request was pending ends this connection too: nothing is set and no watch starts.
-      if (disconnectCount !== disconnects) throw new Error('The wallet was disconnected while connecting');
 
       // Decode publicKey BEFORE touching other wallet state so a
       // malformed publicKey response (e.g. wallet bug, corrupt
@@ -244,18 +239,13 @@ export const INJECTION_SCRIPT = `
       return this.permission;
     }
 
-    // The connection ends whether the request succeeds, is refused or times out; its error still reaches the caller.
     async disconnect() {
       stopPermissionWatch();
-      disconnectCount++;
-      try {
-        await request({ type: 'DISCONNECT_REQUEST' });
-      } finally {
-        this.address = undefined;
-        this.permission = undefined;
-        this.publicKey = undefined;
-        this.emit('disconnect');
-      }
+      await request({ type: 'DISCONNECT_REQUEST' });
+      this.address = undefined;
+      this.permission = undefined;
+      this.publicKey = undefined;
+      this.emit('disconnect');
     }
 
     // Fields follow the new account before listeners hear of it; null clears them. The permission
