@@ -40,11 +40,6 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  * than quietly counting as nothing - otherwise "make the price lookup fail" is the way past the
  * cap. A registry token is valued at the asset it stands for (IETH at ETH), as the rest of the
  * wallet prices it (#1133).
- *
- * Coverage is decided by faucet id alone, matched strictly against the allowlist
- * (`priceSymbolForOrThrow`) - never by the symbol a faucet reports for itself, which anyone
- * minting a token can set (#1131). The one exception is the E2E harness's fixture symbol, priced
- * by symbol in `MIDEN_E2E_TEST` builds only.
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   let total = 0n;

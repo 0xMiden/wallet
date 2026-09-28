@@ -17,11 +17,6 @@
  * backend reads) instead of a same-process short-circuit, and that seeded entry would go stale at
  * `PRICE_MAX_AGE_SECONDS` (600s) partway through a long journey - trading this gap for a flakier
  * one.
- *
- * In `MIDEN_E2E_TEST` builds this symbol also bypasses the faucet-id allowlist itself, in
- * `priceSymbolFor`/`priceSymbolForOrThrow` (#1131) - the harness's fixture faucet has no real
- * allowlist entry, so without this exception there too an E2E spend of it would never even reach
- * the `getPriceMicro` short-circuit above.
  */
 const E2E_FIXTURE_SYMBOL = 'TST';
 export const isE2eFixtureSymbol = (symbol: string): boolean =>
