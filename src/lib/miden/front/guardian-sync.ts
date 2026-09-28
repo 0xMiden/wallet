@@ -1,3 +1,6 @@
+// lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
+// this adds no module to that cycle; the function is only called during a sync, never at module load.
+import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
@@ -338,7 +341,12 @@ function recordGuardianServerFailure(accountPublicKey: string): void {
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
 function clearGuardianServerFailures(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  if (outageAccounts.delete(accountPublicKey)) notifyOutageListeners();
+  if (outageAccounts.delete(accountPublicKey)) {
+    notifyOutageListeners();
+    // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+    // ends instead of waiting for something else to wake the worker (#779).
+    requestSWTransactionProcessing();
+  }
 }
 
 /**
@@ -349,7 +357,9 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
  */
 function recordSuccessfulGuardianSync(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  outageAccounts.delete(accountPublicKey);
+  // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+  // ends instead of waiting for something else to wake the worker (#779).
+  if (outageAccounts.delete(accountPublicKey)) requestSWTransactionProcessing();
   unrepairableAccounts.delete(accountPublicKey);
   lastGuardianSyncAt.set(accountPublicKey, Date.now());
   notifyOutageListeners();

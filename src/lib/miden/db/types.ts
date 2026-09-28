@@ -1025,10 +1025,10 @@ export class BridgedSendTransaction implements ITransaction {
 
 /**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator
- * account. On non-Guardian accounts it is send-style, processed by the normal send
- * pipeline (`sendTransaction`) like the Epoch `bridged-send`. On Guardian accounts the
- * multisig send proposal is P2ID-only, so the P2IDE is serialized into `requestBytes`
- * and proposed as a custom proposal (see `generateGuardianTransaction` 'earn-deposit').
+ * account, built once at initiate into `requestBytes` with its mandate-binding
+ * attachment. On non-Guardian accounts those bytes run through `newTransaction`. On
+ * Guardian accounts the multisig send proposal is P2ID-only, so they are proposed as a
+ * custom proposal (see `generateGuardianTransaction` 'earn-deposit').
  * The EVM lending deposit is solver-fulfilled, so there is no manual claim.
  */
 export class EarnDepositTransaction implements ITransaction {
