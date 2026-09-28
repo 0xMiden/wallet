@@ -64,10 +64,10 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { getLocalProveTransport, proveInWorker } from './local-prove-transport';
+import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
 import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { beginProveAttempt, recordProveMarker } from './prove-telemetry';
+import { beginProveAttempt } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
@@ -115,30 +115,6 @@ const MAX_RECOVERY_HD_INDEX = 20;
 // more accounts — handles a non-contiguous index set or a transient empty
 // guardian response, matching BIP-44 wallet gap-limit conventions.
 const RECOVERY_GAP_LIMIT = 3;
-
-// E2E-build only. The per-step prove-timing markers are useful for the
-// Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
-// machine) but pure noise in normal users' devtools.
-const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
-
-function recordProveTiming(message: string): void {
-  if (!PROVE_TIMING_ENABLED) return;
-  const line = `[prove-timing] ${message}`;
-  // eslint-disable-next-line no-console
-  console.log(line);
-  // The console above goes nowhere when this runs in the offscreen document —
-  // Playwright cannot attach to that realm — so mirror the marker into
-  // chrome.storage.local, which the service worker (and thus the harness) can
-  // read. Without this a write that never returns leaves no trace at all (#718).
-  recordProveMarker(line);
-  try {
-    const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
-    if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
-    g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
-  } catch {
-    // ignore — non-global context (web worker etc.)
-  }
-}
 
 /**
  * Feature flag: when true, local proving is dispatched to a
@@ -1500,20 +1476,10 @@ export class MidenClientInterface {
         // re-hydrated for execution (a wasm-bindgen request can't be shared across
         // lock re-acquisitions; the bytes can).
         const wasm = await getWasmOrThrow();
-        const withInner = (
-          this.client as unknown as {
-            _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-          }
-        )._withInnerWebClient;
-        if (typeof withInner !== 'function') {
-          throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-        }
-        // `_withInnerWebClient` is untyped (accessed through the cast above), so
-        // its result widens to `unknown` — the same reason the offscreen path
-        // below narrows its returned `TransactionResult`. The callback returns the
-        // serialized request bytes, which cross the lock boundary safely (a live
-        // wasm-bindgen request can't).
-        const requestBytes = (await withInner.call(this.client, async (inner: any) => {
+        const access = this.innerClientAccess();
+        // The callback returns the serialized request bytes, which cross the lock
+        // boundary safely (a live wasm-bindgen request can't).
+        const requestBytes = await access._withInnerWebClient(async inner => {
           const { request } = await buildSendExecuteArgs(
             wasm,
             inner,
@@ -1525,7 +1491,7 @@ export class MidenClientInterface {
             reclaimAfter
           );
           return request.serialize();
-        })) as Uint8Array;
+        });
         await onStage?.('executing');
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
         // under. Executing against the raw `accountId` would let the account the
@@ -1692,14 +1658,7 @@ export class MidenClientInterface {
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
-    const withInner = (
-      this.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      }
-    )._withInnerWebClient;
-    if (typeof withInner !== 'function') {
-      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-    }
+    const access = this.innerClientAccess();
 
     return proveWithFallback(
       async (prover, attempt) => {
@@ -1714,7 +1673,7 @@ export class MidenClientInterface {
         // against must be the one its asset's vault key came from.
         const canonicalId = walletAccountIdToSdk(accountId).toString();
         const creatorAccount = await this.client.accounts.get(canonicalId);
-        const reference = (await withInner.call(this.client, async (inner: any) =>
+        const reference = await access._withInnerWebClient(async inner =>
           inner.newPswapCreateTransactionRequest(
             walletAccountIdToSdk(accountId),
             accountRefToSdk(faucetId),
@@ -1724,7 +1683,7 @@ export class MidenClientInterface {
             NoteType.Public,
             NoteType.Public
           )
-        )) as TransactionRequest;
+        );
         const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
         if (attempt.provesInWorker()) {
           // Staged so the proof can come from the prove worker (#945). The point of no
@@ -1824,12 +1783,16 @@ export class MidenClientInterface {
     );
   }
 
-  private withInnerClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T> {
+  private innerClientAccess(): InnerClientAccess {
     const { client } = this;
     if (!hasInnerClientAccess(client)) {
       throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
     }
-    return client._withInnerWebClient(fn);
+    return client;
+  }
+
+  private withInnerClient<T>(fn: (inner: WasmWebClient) => Promise<T>): Promise<T> {
+    return this.innerClientAccess()._withInnerWebClient(fn);
   }
 
   /**
@@ -1896,14 +1859,7 @@ export class MidenClientInterface {
       recordProveTiming('proveLocallyViaOffscreen entered');
       const wasm = await getWasmOrThrow();
       recordProveTiming('proveLocallyViaOffscreen got wasm');
-      const withInner = (
-        this.client as unknown as {
-          _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-        }
-      )._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-      }
+      const access = this.innerClientAccess();
       recordProveTiming('proveLocallyViaOffscreen got withInner');
 
       // Build args + execute under the SDK lock. We hold the lock here, drop
@@ -1915,16 +1871,16 @@ export class MidenClientInterface {
       await onStage?.('executing');
       recordProveTiming('proveLocallyViaOffscreen entering execute under SDK lock');
       const tExec = performance.now();
-      const txResult = (await withInner.call(this.client, async (inner: any) => {
+      const txResult = await access._withInnerWebClient(async inner => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; building exec args');
         const { accountId, request } = await buildExecuteArgs(wasm, inner);
         recordProveTiming('proveLocallyViaOffscreen built exec args; calling executeTransaction');
-        const r = (await inner.executeTransaction(accountId, request)) as TransactionResult;
+        const r = await inner.executeTransaction(accountId, request);
         recordProveTiming(
           `proveLocallyViaOffscreen executeTransaction returned in ${(performance.now() - tExec).toFixed(0)}ms`
         );
         return r;
-      })) as TransactionResult;
+      });
       recordProveTiming('proveLocallyViaOffscreen exited SDK-lock execute block; serializing');
       const txResultBytes = txResult.serialize();
       recordProveTiming(
@@ -1943,7 +1899,7 @@ export class MidenClientInterface {
       await onStage?.('submitting');
       // Point of no return — see the identical mark on the inline send path.
       attempt.markSubmitting();
-      await withInner.call(this.client, async (inner: any) => {
+      await access._withInnerWebClient(async inner => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; deserializing proven + submit');
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
         const height = await inner.submitProvenTransaction(proven, txResult);

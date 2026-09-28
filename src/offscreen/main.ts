@@ -69,7 +69,12 @@ import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransa
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { installLocalProveTransport, proveInWorker, proveWorkerErrorDetail } from 'lib/miden/sdk/local-prove-transport';
+import {
+  installLocalProveTransport,
+  proveInWorker,
+  proveWorkerErrorDetail,
+  recordProveTiming as recordSharedProveTiming
+} from 'lib/miden/sdk/local-prove-transport';
 import {
   type WasmLockHold,
   assertWasmHoldCurrent,
@@ -79,7 +84,6 @@ import {
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
-import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
@@ -131,21 +135,10 @@ const TAG = '[offscreen-prover]';
 // indistinguishable from "no prove was attempted". These markers are written as
 // they happen, so the LAST one names the call this realm is still sitting in.
 //
-// Gated on the E2E build flag, so production records nothing. Mirrors the identical
-// helper in `sdk/miden-client-interface` and `sdk/native-prover-mobile`; kept local
-// rather than shared for consistency with those two, not because sharing would cost
-// anything: `local-prove-transport.ts`'s own exported `recordProveTiming` gates on
-// the same flag and folds away just as completely (verified against `yarn
-// build:chrome`, minified or not - Vite's `define` bakes `MIDEN_E2E_TEST` into a
-// build-time constant and the bundler drops the always-false branch on its own; no
-// `[prove-timing]` text from ANY of the three copies survives in the built output).
-const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
-
+// Gated on the E2E build flag inside the shared helper, so production records
+// nothing; this realm's markers only add its tag.
 function recordProveTiming(message: string): void {
-  if (!PROVE_TIMING_ENABLED) return;
-  const line = `[prove-timing] ${TAG} ${message}`;
-  console.log(line);
-  recordProveMarker(line);
+  recordSharedProveTiming(`${TAG} ${message}`);
 }
 
 // --- Connectivity marks REPORT to the SW, they do not write storage ---------

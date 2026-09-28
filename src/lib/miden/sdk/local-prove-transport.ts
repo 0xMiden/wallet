@@ -80,18 +80,28 @@ export function getLocalProveTransport(): LocalProveTransport | null {
   return installed;
 }
 
-// #945: E2E-only markers for the prove worker client. Defined once here rather than
-// in the client, since more than one caller needs it. Gated on the same build flag as
-// every other realm's marker helper, and folds away exactly like those per-realm
-// copies when the flag is false - being exported to more than one caller costs
-// nothing here, since the bundler drops the branch before it ever reaches a caller.
+// E2E-build only: the Playwright harness polls `__PROVE_TIMINGS__` and each realm's
+// relayed marker trail; in production the bundler drops the whole body. The one copy
+// for the transaction code and the offscreen document (#945). It lives here, not in
+// `prove-telemetry`, so its `recordProveMarker` call crosses a module boundary and a
+// test that mocks that module still observes it.
 const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
 
 export function recordProveTiming(message: string): void {
   if (!PROVE_TIMING_ENABLED) return;
   const line = `[prove-timing] ${message}`;
   console.log(line);
+  // The console goes nowhere in the offscreen document, which Playwright cannot
+  // attach to, so the marker is also relayed to storage the harness reads (#718).
   recordProveMarker(line);
+  try {
+    const timings: unknown = Reflect.get(globalThis, '__PROVE_TIMINGS__');
+    const entry = `${Date.now()}|${line}`;
+    if (Array.isArray(timings)) timings.push(entry);
+    else Reflect.set(globalThis, '__PROVE_TIMINGS__', [entry]);
+  } catch {
+    // A frozen or non-writable array: the marker above already landed.
+  }
 }
 
 /**

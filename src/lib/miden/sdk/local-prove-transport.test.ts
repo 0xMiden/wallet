@@ -200,3 +200,49 @@ describe('proveInWorker E2E window markers', () => {
     ]);
   });
 });
+
+describe('recordProveTiming', () => {
+  const realFlag = process.env.MIDEN_E2E_TEST;
+  beforeEach(() => {
+    // The window-marker case above runs under the flag and leaves its lines behind.
+    Reflect.deleteProperty(globalThis, '__PROVE_TIMINGS__');
+  });
+  afterEach(() => {
+    if (realFlag === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = realFlag;
+    Reflect.deleteProperty(globalThis, '__PROVE_TIMINGS__');
+  });
+
+  function loadWithFlag(flag: string | undefined) {
+    if (flag === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = flag;
+    const recordProveMarker = jest.fn();
+    let isolated: typeof import('./local-prove-transport') | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('./prove-telemetry', () => ({ ...jest.requireActual('./prove-telemetry'), recordProveMarker }));
+      isolated = jest.requireActual<typeof import('./local-prove-transport')>('./local-prove-transport');
+    });
+    if (!isolated) throw new Error('the isolated module did not load');
+    return { recordTiming: isolated.recordProveTiming, recordProveMarker };
+  }
+
+  it('records nothing anywhere when the E2E flag is unset', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const { recordTiming, recordProveMarker } = loadWithFlag(undefined);
+    recordTiming('local-prove-window open');
+    expect(recordProveMarker).not.toHaveBeenCalled();
+    expect(Reflect.get(globalThis, '__PROVE_TIMINGS__')).toBeUndefined();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('logs the line, relays it as a marker and pushes it to __PROVE_TIMINGS__ under the E2E flag', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const { recordTiming, recordProveMarker } = loadWithFlag('true');
+    recordTiming('local-prove-window open');
+    expect(log).toHaveBeenCalledWith('[prove-timing] local-prove-window open');
+    expect(recordProveMarker).toHaveBeenCalledWith('[prove-timing] local-prove-window open');
+    expect(Reflect.get(globalThis, '__PROVE_TIMINGS__')).toEqual([
+      expect.stringMatching(/^\d+\|\[prove-timing\] local-prove-window open$/)
+    ]);
+  });
+});
