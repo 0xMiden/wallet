@@ -802,15 +802,20 @@ describe('TokenDetail', () => {
       const mark = screen.getByTestId('token-detail-unverified');
       // Directly under the Hero, not buried further down the page.
       expect(screen.getByTestId('token-detail-hero').nextElementSibling).toBe(mark);
-      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2', 'text-center');
+      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2');
 
       // The pill itself: `sm`/`warning`, not any other size or tone.
-      const pillLabel = within(mark).getByText('unverifiedToken');
-      expect(pillLabel.parentElement).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
+      const pill = within(mark).getByText('unverifiedToken').parentElement;
+      expect(pill).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
 
-      const description = within(mark).getByText('unverifiedTokenDescription');
-      expect(description.tagName).toBe('P');
-      expect(description).toHaveClass('text-caption', 'text-muted');
+      // The explanation is the design system's footnote, an inline warning Notice, under the pill.
+      const notice = within(mark).getByRole('note');
+      expect(notice).toHaveTextContent('unverifiedTokenDescription');
+      expect(notice).toHaveAttribute('data-variant', 'inline');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveClass('justify-center', 'text-center');
+      expect(notice).not.toHaveClass('text-left');
+      expect(Array.from(mark.children)).toEqual([pill, notice]);
 
       expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
     });

@@ -18,6 +18,7 @@ import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -138,11 +139,14 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
           {verification === 'unverified' && (
             // A token's name and logo are whatever its creator chose; only the list vouches for it.
-            <div className="flex flex-col items-center gap-2 text-center" data-testid="token-detail-unverified">
+            <div className="flex flex-col items-center gap-2" data-testid="token-detail-unverified">
               <Pill size="sm" tone="warning">
                 {t('unverifiedToken')}
               </Pill>
-              <p className="text-caption text-muted">{t('unverifiedTokenDescription')}</p>
+              {/* Centred like the pill and the Hero above it; the pill already carries the warning. */}
+              <Notice tone="warning" variant="inline" className="justify-center text-center">
+                {t('unverifiedTokenDescription')}
+              </Notice>
             </div>
           )}
 
