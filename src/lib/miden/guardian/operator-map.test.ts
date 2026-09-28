@@ -446,6 +446,13 @@ describe('mobile native-HTTP probe', () => {
     expect(mockProbeVerdicts).toEqual([['https://not-a-guardian.test', false]]);
   });
 
+  it('releases the origin when the endpoint answers with an empty key', async () => {
+    mockPubkeyByEndpoint['https://empty.guardian.test'] = '';
+
+    await expect(checkEndpointCommitment('https://empty.guardian.test', 'aaa')).resolves.toBe('unreachable');
+    expect(mockProbeVerdicts).toEqual([['https://empty.guardian.test', false]]);
+  });
+
   it('releases the origin when the request rejects', async () => {
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
       throw new Error('network unreachable');
