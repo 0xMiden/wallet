@@ -71,8 +71,9 @@
 - [FIX][all] dApp approval screens keep the site's registrable domain visible: a long origin elides the labels in front of the domain, never the domain itself, so `https://login.secure.wallet.example.co.uk` can no longer hide `example.co.uk`, on the extension's approval window, the connect prompt and the dApp browser's confirmation, which on mobile and desktop is now titled by the verified origin and never by a name the dApp sends (#1072).
 - [FIX][all] The Home action bar's active segment grows to fit a longer translated label, and ends it with an ellipsis only when the screen is too narrow, instead of letting the label spill past its pill (#1069).
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
-- [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
+- [FIX][all] A custom Guardian URL where no live Guardian answers is refused on the Guardian picker with a clear error, instead of failing in the switch after review and signing (#1084).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][all] A custom Guardian URL is given 20 seconds to answer instead of 5, so a slow-starting self-hosted Guardian is no longer refused; a check that fails no longer leaves Continue busy, and one still running when you go back no longer opens the review. On mobile, checking a URL never sends the app's own node, prover or note-transport traffic through native HTTP, and a URL that is not a Guardian stops being routed that way (#1210).
 
 ## 1.16.2 (2026-09-24)
 
