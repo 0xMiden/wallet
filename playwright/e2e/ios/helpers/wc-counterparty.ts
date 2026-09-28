@@ -2,6 +2,7 @@ import SignClient from '@walletconnect/sign-client';
 import { buildApprovedNamespaces } from '@walletconnect/utils';
 import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { DEFAULT_WC_PROJECT_ID } from '../../../../src/lib/walletconnect/config';
 
 /**
  * Headless WalletConnect v2 counterparty "wallet" for the bridge-IN iOS harness.
@@ -23,8 +24,11 @@ const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
 // app's — WC peers don't need to share a projectId. Prefer a dedicated one
 // (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
 // the chance of tripping the free-tier rate limit that connection bursts hit.
+// Trimmed and empty-as-unset: CI injects '' for an unset WC_COUNTERPARTY_PROJECT_ID secret.
 const PROJECT_ID =
-  process.env.WC_COUNTERPARTY_PROJECT_ID ?? process.env.WALLETCONNECT_PROJECT_ID ?? 'd18d112eb50cbe764f03e51a90210611';
+  (process.env.WC_COUNTERPARTY_PROJECT_ID ?? '').trim() ||
+  (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim() ||
+  DEFAULT_WC_PROJECT_ID;
 const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
 const CHAIN_ID = 11155111;
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).

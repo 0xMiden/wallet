@@ -59,9 +59,11 @@ jobs:
       EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
       # Optional: give the headless counterparty its OWN relay projectId so it
       # doesn't double the app projectId's load on the shared free-tier relay
-      # (reduces rate-limit trips). Falls back to the baked-in default if unset.
-      # Do NOT override WALLETCONNECT_PROJECT_ID here — the app's default is the
-      # one allow-listed for the com.miden.bread bundle; a different id 403s.
+      # (reduces rate-limit trips). Falls back, when unset or empty, to the app's
+      # WALLETCONNECT_PROJECT_ID and then to DEFAULT_WC_PROJECT_ID in
+      # src/lib/walletconnect/config.ts. Do NOT override WALLETCONNECT_PROJECT_ID
+      # here — the app's default is the one allow-listed for the com.miden.bread
+      # bundle; a different id 403s.
       WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
