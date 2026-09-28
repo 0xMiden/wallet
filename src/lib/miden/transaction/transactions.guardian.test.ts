@@ -14,6 +14,7 @@
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletAccount } from 'lib/shared/types';
@@ -8212,7 +8213,21 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     sync: jest.fn(async () => {})
   });
 
-  const arrange = (listed: ReturnType<typeof listedNote>[], flagged: boolean) => {
+  /** A row's own consumed-note record; only `id` varies across notes in a batch. */
+  const noteInput = (id: string): ConsumableNote => ({
+    id,
+    faucetId: NATIVE,
+    amount: '20000000',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: 'unknown'
+  });
+
+  const arrange = (
+    listed: ReturnType<typeof listedNote>[],
+    flagged: boolean,
+    notes: ConsumableNote[] = [noteInput('note-1')]
+  ) => {
     const hotService = makeService();
     const coldService = makeService();
     mockGetOrCreateMultisigService.mockResolvedValue(hotService);
@@ -8225,20 +8240,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
       syncState: jest.fn(async () => {}),
       client
     });
-    const row = new ConsumeTransaction(
-      ACCOUNT,
-      [
-        {
-          id: 'note-1',
-          faucetId: NATIVE,
-          amount: '20000000',
-          senderAddress: 'sender',
-          isBeingClaimed: false,
-          type: 'unknown'
-        }
-      ],
-      false
-    );
+    const row = new ConsumeTransaction(ACCOUNT, notes, false);
     if (flagged) row.rotationFunding = true;
     txStore.push({ ...row });
     const stored = () => txStore.find(r => r.id === row.id);
@@ -8317,6 +8319,39 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
 
   it('refuses a flagged claim whose note the account no longer lists, with no guardian round trip', async () => {
     const { row, stored, hotService, coldService } = arrange([listedNote('note-other', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // Two-note rows: the native-only check has to cover every note the row names, not just
+  // the first - a batch claim mixing a good note with a bad one must still be refused.
+  it('refuses a flagged two-note claim whose second note is not native', async () => {
+    const { row, stored, hotService, coldService } = arrange(
+      [listedNote('note-1', [NATIVE]), listedNote('note-2', ['0xother'])],
+      true,
+      [noteInput('note-1'), noteInput('note-2')]
+    );
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged two-note claim whose second note the account no longer lists', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE])], true, [
+      noteInput('note-1'),
+      noteInput('note-2')
+    ]);
 
     await run(row, recovered);
 

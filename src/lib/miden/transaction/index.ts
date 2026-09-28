@@ -2373,9 +2373,10 @@ const generateGuardianTransaction = async (
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
-  // structural ops (replace-hot-key / update-procedure-threshold). The
-  // hot-bound path is the only one cached by guardian-manager; cold services
-  // here are transient.
+  // structural ops (replace-hot-key / update-procedure-threshold) and, per
+  // `consumeServiceFor` (#805), for a flagged consume while the account is still
+  // rotation-pending. The hot-bound path is the only one cached by
+  // guardian-manager; cold services here are transient.
   //
   // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta (a
   // prior delta still canonicalizing) instead of failing the tx. It wraps proposal
