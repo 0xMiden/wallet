@@ -39,7 +39,7 @@ export interface MeetGuardianScreenProps {
   onProgressChange: React.Dispatch<React.SetStateAction<MeetGuardianProgress>>;
   /** The operator Continue picked, or the no-guardian sentinel from the private-account link. */
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  /** "Choose a different Guardian": the host pushes the full picker. */
+  /** The card's Change action: the host pushes the full picker. */
   onChooseDifferent?: () => void;
   /** Dev-gated: offer a fully private account with no guardian co-signer. */
   showNoGuardianOption?: boolean;

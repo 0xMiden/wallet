@@ -21,10 +21,10 @@
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
  *                                  '/#meet-guardian' (onAction 'create-password-submit')
- *   Meet your Guardian           `onboarding-meet-guardian`
- *     └ tick the three facts     → the fastest operator's card appears
- *     └ "Choose a different      → '/#choose-guardian' (onAction 'choose-guardian')
- *        Guardian"
+ *   Meet your Guardian           `onboarding-meet-guardian`: the fastest operator's card
+ *                                  and its Change action, from the first probe round
+ *     └ tick the three facts     → Continue opens
+ *     └ the card's "Change"      → '/#choose-guardian' (onAction 'choose-guardian')
  *   Choose guardian              `onboarding-choose-guardian`
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (onAction 'choose-guardian-submit')

@@ -50,9 +50,10 @@ export enum OnboardingStep {
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
   /**
-   * The create flow's guardian step: three facts to acknowledge, then the
-   * fastest reachable operator, picked for the user. "Choose a different
-   * Guardian" pushes the full picker, `ChooseGuardian`.
+   * The create flow's guardian step: the fastest reachable operator, picked
+   * for the user, on a card whose Change action pushes the full picker,
+   * `ChooseGuardian`. Change shows from the first probe round unless the
+   * network has no operator; ticking the three facts opens Continue.
    */
   MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',

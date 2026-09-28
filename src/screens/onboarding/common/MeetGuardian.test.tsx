@@ -264,7 +264,7 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
   });
 
-  it('Choose a different Guardian hands off to the host', () => {
+  it("the card's Change action hands off to the host", () => {
     const onChooseDifferent = jest.fn();
     const view = renderScreen({ onChooseDifferent });
     tickAll();
