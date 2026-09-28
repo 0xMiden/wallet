@@ -7,6 +7,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
+import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
   getOrCreateMultisigService,
   isGuardianAccount,
@@ -56,7 +57,15 @@ import {
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, isGuardianOutage, TRANSACTION_EXPIRED_ERROR } from './constants';
+import {
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
+  isGuardianOutage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
+  TRANSACTION_EXPIRED_ERROR
+} from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   isGuardianCanonicalizationError,
@@ -1624,6 +1633,60 @@ const buildColdServiceForAccount = async (
 };
 
 /**
+ * The generation-time half of the gate claim's native-only rule (#805): every note the
+ * row names must still be listed for the account and hold only the native asset. Read
+ * from the consumable-note DTO, which carries every fungible asset of a note where the
+ * claimable list keeps only the first. A note with no fungible asset proves nothing, so
+ * it is refused too. Throws before any service is built or anything reaches the guardian.
+ */
+const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
+  const nativeFaucetId = await getFaucetIdSetting();
+  if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
+  const listed = await withWasmClientLock(async hold =>
+    midenClientProxy.getConsumableNotes(accountId, step =>
+      assertWasmHoldCurrent(hold, 'rotation funding: consumable-note read', step)
+    )
+  );
+  for (const noteId of noteIds) {
+    const note = listed.find(candidate => candidate.noteId === noteId);
+    if (!note) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    if (note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== nativeFaucetId)) {
+      throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    }
+  }
+};
+
+/**
+ * The service a Guardian consume proposes and signs with. Hot-bound, background claims
+ * included: the cached hot service is cheaper than a transient cold one, and hot signing
+ * is silent on every platform.
+ *
+ * The exception is a seed-recovered account whose rotation has not landed (#805). It has
+ * no everyday key, and the rotation pays its fee out of a vault only a claim can fund.
+ * The rotation gate's own claim (`rotationFunding`) therefore signs with the recovery
+ * key, the signer the rotation itself uses, once its notes are proven native; every other
+ * consume for such an account is refused before a service exists. A flagged row whose
+ * account gained its everyday key in the meantime takes the hot service, still checked.
+ */
+const consumeServiceFor = async (
+  transaction: ITransaction,
+  noteIds: string[],
+  guardianProvider: GuardianAccountProvider
+): Promise<MultisigService> => {
+  const account = (await guardianProvider.getAccounts()).find(a =>
+    sameWalletAccountId(a.publicKey, transaction.accountId)
+  );
+  const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
+  if (transaction.rotationFunding === true) {
+    await assertRotationFundingNotesNative(transaction.accountId, noteIds);
+    if (rotationPending) return buildColdServiceForAccount(transaction.accountId, guardianProvider);
+  } else if (rotationPending) {
+    throw new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR);
+  }
+  return getOrCreateMultisigService(transaction.accountId, guardianProvider);
+};
+
+/**
  * Build (and persist for retry) the serialized P2IDE send-request bytes for a
  * Guardian recallable send. `createP2idProposal` can only mint a plain P2ID, so
  * any note that needs a reclaim height — a user "recall by" send, or an Epoch
@@ -2379,14 +2442,8 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      // Always hot-bound, including background/auto-consume. Auto-consume used
-      // to be routed through the COLD key because the iOS SE hot key carried
-      // `.userPresence` — hot-signing a silent background claim would have
-      // popped Face ID on every attempt. That flag is gone (hot signing is
-      // silent everywhere now), so the cold detour buys nothing and the cached
-      // hot service is strictly cheaper than building a transient cold one.
       const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
       break;
     }
