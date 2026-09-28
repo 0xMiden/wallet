@@ -275,3 +275,32 @@ it('writes a value rendered while an older write is in flight, and confirms only
   });
   expect(result.current.copied).toBe(true);
 });
+
+it('keeps the newer write as Copied when the older write settles after it (#1086)', async () => {
+  const { result, rerender } = renderHook(({ text }) => useClipboardCopy(text), { initialProps: { text: 'old' } });
+
+  let older: Promise<void>;
+  act(() => {
+    older = result.current.copy();
+  });
+  const settleOlder = resolveWrite;
+  rerender({ text: 'new' });
+  let newer: Promise<void>;
+  act(() => {
+    newer = result.current.copy();
+  });
+  const settleNewer = resolveWrite;
+
+  // Settle out of start order: the newer write first, then the older one.
+  await act(async () => {
+    settleNewer?.();
+    await newer;
+  });
+  expect(result.current.status).toBe('success');
+
+  await act(async () => {
+    settleOlder?.();
+    await older;
+  });
+  expect(result.current.status).toBe('success');
+});

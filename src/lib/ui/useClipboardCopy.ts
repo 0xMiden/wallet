@@ -30,6 +30,9 @@ export function useClipboardCopy(text: string) {
   // The write on its way, not a flag: `text` is a render argument, and a plain latch dropped a value
   // rendered mid-write while the older write went on to report "Copied" beside it.
   const inFlightRef = useRef<{ text: string } | null>(null);
+  // The most recently started write, regardless of settle order: a write that settles after a
+  // later one started must not overwrite that later write's outcome or restart its timer.
+  const lastStartedRef = useRef<{ text: string } | null>(null);
   // A write that settles after the component has already unmounted (e.g. the row it copied from
   // disappeared, or the page navigated away) must not set state or arm a timeout nobody will ever
   // clear — both are a no-op-but-warn in React and, for the timer, a dangling callback that fires
@@ -53,6 +56,7 @@ export function useClipboardCopy(text: string) {
     if (inFlightRef.current?.text === text) return;
     const write = { text };
     inFlightRef.current = write;
+    lastStartedRef.current = write;
     let status: 'success' | 'failure';
     try {
       await Clipboard.write({ string: text });
@@ -64,6 +68,7 @@ export function useClipboardCopy(text: string) {
       if (inFlightRef.current === write) inFlightRef.current = null;
     }
     if (!mountedRef.current) return;
+    if (lastStartedRef.current !== write) return;
     setOutcome({ status, text });
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setOutcome(null), COPY_FEEDBACK_MS);
