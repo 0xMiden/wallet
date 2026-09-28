@@ -12,3 +12,4 @@ exclude:
   - ios-cdp-bridge.md
   - telemetry-limitations.md
   - telemetry-store-declarations.md
+  - platform-auth-unlock.md
