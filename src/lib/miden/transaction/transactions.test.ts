@@ -1809,7 +1809,9 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       initiatedAt: Date.now(),
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
-      requestBytes: new Uint8Array([6])
+      requestBytes: new Uint8Array([6]),
+      // A guardian streak from earlier requeues: this one is the locked arm's, so it ends the streak (#1223).
+      requeueStreak: { arm: 'guardian-unreachable', count: 2 }
     });
 
     const result6 = await generateTransactionsLoop(signCallback, false, guardianProvider);
@@ -1823,6 +1825,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx6.stageTimestamps).toBeUndefined();
     expect(tx6.nextEligibleAt).toBeGreaterThanOrEqual(lockedRequeueStartedAt + 15);
     expect(tx6.nextEligibleAt).toBeLessThanOrEqual(lockedRequeueFinishedAt + 15);
+    expect(tx6.requeueStreak).toBeUndefined();
     expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
 
     // ---- Phase 7: a PERMANENT node rejection is not deferred ----

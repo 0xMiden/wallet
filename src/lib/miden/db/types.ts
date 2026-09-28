@@ -413,6 +413,15 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
+/** A guardian arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
+export type IRequeueStreakArm = 'guardian-unreachable' | 'guardian-pending-conflict' | 'guardian-rate-limited';
+
+export interface IRequeueStreak {
+  arm: IRequeueStreakArm;
+  /** How many requeues in a row `arm` has made, the latest included. */
+  count: number;
+}
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -559,6 +568,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * The guardian arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
+   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian that fails every attempt
+   * slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's transaction
+   * would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the row's last
+   * requeue, if any, was not a guardian arm's.
+   */
+  requeueStreak?: IRequeueStreak;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.

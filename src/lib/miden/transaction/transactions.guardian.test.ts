@@ -40,6 +40,7 @@ import {
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
+  generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction
@@ -3755,6 +3756,143 @@ describe('generateTransaction — Guardian routing', () => {
       expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
       expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian consume: each consecutive unreachable requeue of one row doubles its wait, up to 240 s (#1223)', async () => {
+    // At a flat 60 s, rows on a guardian that fails every attempt slowly keep one of them eligible at every lap.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-unreachable-backoff';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-backoff'
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const waits: number[] = [];
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const requeuedFrom = Math.floor(Date.now() / 1000);
+        await generateTransaction(
+          {
+            id: txId,
+            type: 'consume',
+            accountId: 'guardian-acc',
+            noteId: 'note-backoff',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+        const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+        expect(row.status).toBe(ITransactionStatus.Queued);
+        waits.push(Number(row.nextEligibleAt) - requeuedFrom);
+      }
+
+      expect(waits).toEqual([60, 120, 240, 240]);
+      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 4 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("claims a guardian keeps failing slowly stop holding the front of the queue against another account's send (#1223)", async () => {
+    // Three claims on a guardian that answers each proposal with a gateway 504 after its 30 s read timeout, queued
+    // ahead of a send on an account whose guardian answers. Each lap takes the oldest eligible row, and at a flat 60 s
+    // one claim is eligible again by the time the other two have failed, so the send waited until they expired.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startedAt = Date.now();
+      const queuedAt = Math.floor(startedAt / 1000);
+      for (const n of [1, 2, 3]) {
+        txStore.push({
+          id: `dead-claim-${n}`,
+          type: 'consume',
+          accountId: 'dead-guardian-acc',
+          status: ITransactionStatus.Queued,
+          noteId: `note-${n}`,
+          initiatedAt: queuedAt,
+          queuedSeq: n
+        });
+      }
+      txStore.push({
+        id: 'healthy-send',
+        type: 'send',
+        accountId: 'healthy-guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: queuedAt,
+        queuedSeq: 4
+      });
+      const deadService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          jest.setSystemTime(Date.now() + 30_000);
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      let sendProposedAt: number | undefined;
+      const healthyService = {
+        createSendProposal: jest.fn(async () => {
+          sendProposedAt ??= Date.now();
+          return { id: 'prop-healthy' };
+        }),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockImplementation(async (accountId: string) =>
+        accountId === 'dead-guardian-acc' ? deadService : healthyService
+      );
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const provider = makeGuardianProvider(true);
+
+      // The service worker's processing loop: a lap, then 5 s before the next, here for up to ten minutes.
+      while (sendProposedAt === undefined && Date.now() - startedAt < 10 * 60_000) {
+        await generateTransactionsLoop(
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          provider
+        );
+        jest.setSystemTime(Date.now() + 5_000);
+      }
+
+      // The claims fail at 30, 65 and 100 s and wait 60 s; the laps at 105, 140 and 175 s retry them and double the
+      // wait to 120 s, so the lap at 210 s finds none eligible and runs the send.
+      expect(sendProposedAt).toBeDefined();
+      expect(Number(sendProposedAt) - startedAt).toBe(210_000);
+      expect(deadService.createConsumeNotesProposal).toHaveBeenCalledTimes(6);
+      expect(txStore.find(r => r.id === 'healthy-send')?.status).toBe(ITransactionStatus.Completed);
+    } finally {
+      warnSpy.mockRestore();
+      mockGetOrCreateMultisigService.mockReset();
       jest.useRealTimers();
     }
   });

@@ -88,6 +88,8 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   IBridgeProvider,
+  IRequeueStreak,
+  IRequeueStreakArm,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -419,6 +421,12 @@ const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
 export const guardianRequeueBackoffSec = (baseSec: number, streak: number): number =>
   Math.min(baseSec * 2 ** Math.max(streak - 1, 0), Math.max(baseSec, GUARDIAN_REQUEUE_BACKOFF_CAP_SEC));
 
+/** The streak a requeue down `arm` gives the row: one longer when the row's last requeue was also `arm`'s. */
+const nextRequeueStreak = (
+  row: Pick<ITransaction, 'requeueStreak'> | undefined,
+  arm: IRequeueStreakArm
+): IRequeueStreak => ({ arm, count: row?.requeueStreak?.arm === arm ? row.requeueStreak.count + 1 : 1 });
+
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
  * `stage => setTransactionStage(txId, stage)`, made UNFAILABLE.
@@ -726,13 +734,16 @@ function scheduleRequeueWake(
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
+ *
+ * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
+ * other requeue clears the streak (#1223).
  */
 async function requeueTransactionForRetry(
   txId: string,
   txType: ITransactionType,
   stage: ITransactionStage,
   cooldownSec: number,
-  extraValues?: { unauthorizedRetryUntil?: number }
+  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
 ): Promise<void> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
   // recallBlocks) and its asset when its bytes are first built, so a wrong callback
@@ -803,6 +814,8 @@ async function requeueTransactionForRetry(
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
+    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    requeueStreak: undefined,
     ...(clearRequestBytes ? { requestBytes: undefined } : {}),
     ...carriedDeadline,
     ...extraValues
@@ -821,7 +834,7 @@ async function requeueWithWake(
   cooldownSec: number,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
-  extraValues?: { unauthorizedRetryUntil?: number }
+  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
 ): Promise<void> {
   await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
   scheduleRequeueWake(txId, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
@@ -1368,18 +1381,16 @@ const generateTransactionWithProvider = async (
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
       // also call, is down rather than refusing. A kernel failure a 5xx carries is not an outage and fails at once.
       // Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend (#779).
+      //
+      // A repeat doubles the wait (#1223). At a flat 60 s, three rows each failing at a 30 s gateway timeout keep one
+      // of them eligible, and oldest, at every lap, so every other account's transaction waits until they expire.
       if (isGuardianOutage(error) && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) && failedAtProposal) {
-        console.warn(
-          `[Guardian] guardian unreachable pre-submit, requeueing in ${GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC}s`,
-          error
-        );
-        await requeueWithWake(
-          transaction.id,
-          transaction.type,
-          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC,
-          signCallback,
-          guardianProvider
-        );
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-unreachable');
+        const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] guardian unreachable pre-submit, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
+          requeueStreak
+        });
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the
