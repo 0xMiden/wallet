@@ -1199,6 +1199,7 @@
   "guardianCardMeta": "Operated by $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again.",
   "checkingUnlockMethodSlow": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page.",
+  "couldNotCheckUnlockMethodReopen": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page.",
   "receiveQrColorAction": "Change the QR code color",
   "receiveAt": "Receive at",
   "earnTitle": "Your Earnings",

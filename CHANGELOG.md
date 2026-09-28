@@ -31,6 +31,7 @@
 
 ### Fixes
 
+- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). Only when neither credential can be read does a page show an error, and it offers no unlock step (#1056).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
