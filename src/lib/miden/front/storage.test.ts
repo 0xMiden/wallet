@@ -332,7 +332,7 @@ describe('storage utilities', () => {
         Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
       });
 
-      it('drops a turn name\'s tail once every turn of that name has settled, without letting an earlier settle cut a later turn out of order', async () => {
+      it("drops a turn name's tail once every turn of that name has settled, without letting an earlier settle cut a later turn out of order", async () => {
         const heldA = deferred<void>();
         const heldB = deferred<void>();
         const order: string[] = [];
