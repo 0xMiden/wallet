@@ -2,6 +2,7 @@ import SignClient from '@walletconnect/sign-client';
 import { buildApprovedNamespaces } from '@walletconnect/utils';
 import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+
 import { DEFAULT_WC_PROJECT_ID } from '../../../../src/lib/walletconnect/config';
 
 /**
