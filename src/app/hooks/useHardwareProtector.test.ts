@@ -208,7 +208,7 @@ describe('deadline and Retry (#1241)', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('under StrictMode adopts the first attempt answer and ignores its rejection', async () => {
+  it('under StrictMode ignores the first attempt rejecting and adopts the second attempt answering', async () => {
     const first = deferred();
     const second = deferred();
     mockProbeHardwareProtector.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
