@@ -67,7 +67,7 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
 // A provider passes the permission it connected with, so a first check that finds no grant is a change (#1227).
 export function onPermissionChange(
   callback: (permission: MidenDAppCurrentPermission) => void,
-  connected: MidenDAppPermission = null
+  connected: MidenDAppPermission
 ) {
   let t: any;
   let currentPerm: MidenDAppCurrentPermission = connected;

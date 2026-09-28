@@ -491,7 +491,7 @@ describe('onPermissionChange', () => {
   it('emits only on genuine permission changes and swallows errors', async () => {
     jest.useFakeTimers();
     const cb = jest.fn();
-    const stop = onPermissionChange(cb);
+    const stop = onPermissionChange(cb, null);
 
     // check #1 (initial, in flight): null === null -> equal -> no callback.
     resolveWith(null);
@@ -542,7 +542,7 @@ describe('onPermissionChange', () => {
     const cb = jest.fn((perm: any) => {
       if (perm?.address === 'b') throw new Error('listener failed');
     });
-    const stop = onPermissionChange(cb);
+    const stop = onPermissionChange(cb, null);
     resolveWith(permA);
     await flush();
     await jest.advanceTimersByTimeAsync(10_000);
@@ -599,7 +599,7 @@ describe('onPermissionChange', () => {
   it('drops a check that answers after stop, and polls no more (#174)', async () => {
     jest.useFakeTimers();
     const cb = jest.fn();
-    const stop = onPermissionChange(cb);
+    const stop = onPermissionChange(cb, null);
     // The first check is in flight when the provider disconnects.
     stop();
     resolveWith(permA);
@@ -608,6 +608,10 @@ describe('onPermissionChange', () => {
     const requestsAfterStop = postSpy.mock.calls.length;
     await jest.advanceTimersByTimeAsync(60_000);
     expect(postSpy.mock.calls.length).toBe(requestsAfterStop);
+  });
+
+  it('takes the starting permission as a required argument (#1227)', () => {
+    expect(onPermissionChange).toHaveLength(2);
   });
 });
 
