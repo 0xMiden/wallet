@@ -17,10 +17,12 @@ if (process.env.TARGET_BROWSER === 'chrome') {
   const chromeApi = (globalThis as any).chrome;
   chromeApi.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
     if (result.sidepanel_mode) {
-      chromeApi.action.setPopup({ popup: '' });
+      chromeApi.action
+        .setPopup({ popup: '' })
+        .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails
-        chromeApi.action.setPopup({ popup: 'popup.html' });
+        // Restore popup if side panel setup fails; the warning below already reports the failure being reverted.
+        chromeApi.action.setPopup({ popup: 'popup.html' }).catch(() => {});
         chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });

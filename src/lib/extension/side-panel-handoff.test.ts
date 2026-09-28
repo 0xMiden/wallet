@@ -177,6 +177,20 @@ describe('openSidePanelToWallet', () => {
     await expect(openSidePanelToWallet()).resolves.toBe(true);
     expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 7 });
   });
+
+  it('warns and leaves the side-panel flag unset when clearing the popup fails', async () => {
+    const chrome = makeChrome();
+    chrome.action.setPopup.mockRejectedValueOnce(new Error('setPopup failed'));
+    setChrome(chrome);
+
+    await expect(openSidePanelToWallet()).resolves.toBe(true);
+
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[side-panel-handoff] enabling side-panel mode failed (panel still open):',
+      expect.any(Error)
+    );
+  });
 });
 
 describe('closeOnboardingTab', () => {

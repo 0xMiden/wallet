@@ -152,7 +152,8 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
 const makeChromeStub = (
   getResult: Record<string, unknown>,
   panelBehavior: 'resolve' | 'reject',
-  setBehavior: 'resolve' | 'reject' = 'resolve'
+  setBehavior: 'resolve' | 'reject' = 'resolve',
+  popupBehavior: 'resolve' | 'reject' = 'resolve'
 ) => ({
   storage: {
     local: {
@@ -160,7 +161,11 @@ const makeChromeStub = (
       set: jest.fn(() => (setBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('set failed'))))
     }
   },
-  action: { setPopup: jest.fn() },
+  action: {
+    setPopup: jest.fn(() =>
+      popupBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('setPopup failed'))
+    )
+  },
   sidePanel: {
     setPanelBehavior: jest.fn(() =>
       panelBehavior === 'resolve' ? Promise.resolve() : Promise.reject(new Error('panel boom'))
@@ -227,6 +232,31 @@ describe('background.ts — Chrome side-panel restore', () => {
 
   it('leaves no unhandled rejection when the reverting storage.local.set also rejects', async () => {
     const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+
+    expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore failed, reverting to popup:',
+      expect.any(Error)
+    );
+  });
+
+  it('warns and keeps the saved mode when clearing the popup rejects', async () => {
+    const chrome = makeChromeStub({ sidepanel_mode: true }, 'resolve', 'resolve', 'reject');
+    loadBackground({ target: 'chrome', chrome });
+    await flush();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore could not clear the popup:',
+      expect.any(Error)
+    );
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it('leaves no unhandled rejection when every restore call rejects', async () => {
+    const chrome = makeChromeStub({ sidepanel_mode: true }, 'reject', 'reject', 'reject');
     loadBackground({ target: 'chrome', chrome });
     await flush();
 
