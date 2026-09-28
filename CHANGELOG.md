@@ -86,6 +86,7 @@
 - [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
 - [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, a closed banner is now saved, Home's prompts load and can be dismissed, and Fund's request goes out (#1186).
 - [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
+- [FIX][all] A single-choice row no longer shows a disabled option as chosen and its first arrow key lands on the first option, a copy of a value that appears while an older copy is still being written is written too and "Copied" shows only for the text on screen, a file restore that already created its wallet keeps its back button hidden after browser Back and Forward, and a long error under a text field wraps instead of running off the screen (#1086).
 
 ## 1.16.2 (2026-09-24)
 
