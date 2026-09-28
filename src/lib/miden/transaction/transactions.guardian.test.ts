@@ -6481,7 +6481,7 @@ describe('generateTransaction — Guardian routing', () => {
       };
       mockIsGuardianAccount.mockResolvedValue(true);
 
-      // The submit lands on chain but the LOCAL apply throws — the rotation is real.
+      // The submit lands on chain but the LOCAL apply throws - the rotation is real.
       mockGetMidenClient.mockResolvedValue({
         syncState: jest.fn(async () => {}),
         getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
@@ -6664,7 +6664,7 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
       // The reconcile knows the node ACCEPTED the transaction and nothing beyond
-      // that — no commit wait ran here. Asserted on the coordinated entry too,
+      // that - no commit wait ran here. Asserted on the coordinated entry too,
       // not just the direct one: with only the direct assertion, narrowing the
       // literal `true` at the call site to `tookDirectPath` passed the suite and
       // handed every coordinated apply-after-submit row the full-confidence
@@ -6965,7 +6965,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    // Submit lands on chain but the LOCAL apply throws — the note IS consumed.
+    // Submit lands on chain but the LOCAL apply throws - the note IS consumed.
     const applyErr = new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
@@ -6993,7 +6993,7 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // The note is consumed on chain — the tx is Completed (next sync reconciles the
+    // The note is consumed on chain - the tx is Completed (next sync reconciles the
     // note state via ConsumedExternal), NOT cancelled/Failed.
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
@@ -7054,7 +7054,7 @@ describe('generateTransaction — Guardian routing', () => {
         makeGuardianProvider(true)
       );
 
-      // Submit reached chain — mark Completed, not Failed.
+      // Submit reached chain - mark Completed, not Failed.
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
       expect(row.displayMessage).toBe('Sent');
