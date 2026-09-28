@@ -2,11 +2,13 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { useAppEnv } from 'app/env';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
+import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,
@@ -30,7 +32,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
@@ -41,6 +43,8 @@ import {
   resolveRotationGateView,
   rotationFundingMinimum
 } from './HotKeyRotationGate.selectors';
+
+const HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/help-improve-wallet']);
 
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
@@ -61,11 +65,20 @@ import {
  *
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
+ *
+ * The onboarding tab's two side-panel handoff screens stay ungated: the panel's
+ * own gate adopts a rotation already in flight, so blocking the tab here would
+ * only hold the one tap that opens the panel until the rotation lands (#1097).
  */
 export const HotKeyRotationGate: FC = () => {
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const { fullPage } = useAppEnv();
+  const { pathname } = Woozie.useLocation();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
+  // The onboarding tab only hands off to the side panel, whose own gate adopts the rotation: covering the
+  // handoff screens here would hold the one tap that opens the panel until the rotation lands (#1097).
+  if (fullPage && HANDOFF_ROUTES.has(pathname) && canHandoffToSidePanel()) return null;
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
@@ -275,7 +288,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
 
   if (gate.view === 'recovery-seed' && row) {
-    return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
+    return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
 
   return (

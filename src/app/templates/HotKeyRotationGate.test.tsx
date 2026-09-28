@@ -30,6 +30,10 @@ let mockBalancesLoading = false;
 let mockFaucetId: string | null = 'native-faucet';
 let mockClaimable: { data?: ConsumableNote[]; isFallback: boolean } = { data: [], isFallback: false };
 const mockEnqueue = jest.fn(async (..._args: unknown[]): Promise<string | null> => 'claim-tx');
+// Defaults keep the gate's handoff-screen exemption off for every test but its own (#1097).
+let mockAppEnv: { fullPage: boolean } = { fullPage: false };
+let mockLocation: { pathname: string } = { pathname: '/' };
+let mockHandoffAvailable = false;
 
 let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
@@ -81,6 +85,21 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+jest.mock('app/env', () => ({
+  useAppEnv: () => mockAppEnv
+}));
+
+// Partial mock: only `useLocation` is driven; `navigate` (used by the recovery-seed
+// prompt's onClose) keeps its real implementation, as it takes no wrapping provider.
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  useLocation: () => mockLocation
+}));
+
+jest.mock('lib/extension/side-panel-handoff', () => ({
+  canHandoffToSidePanel: () => mockHandoffAvailable
+}));
 
 jest.mock('lib/dexie-live-query', () => ({
   subscribeToLiveQuery: (query: () => unknown, observer: { next: (value: unknown) => void }) => {
@@ -273,6 +292,9 @@ describe('HotKeyRotationGate', () => {
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
     mockUseTransactionRow.mockReturnValue({ row: undefined, loaded: true });
+    mockAppEnv = { fullPage: false };
+    mockLocation = { pathname: '/' };
+    mockHandoffAvailable = false;
   });
 
   it('renders nothing when there is no account or no rotation flag', () => {
@@ -956,6 +978,50 @@ describe('HotKeyRotationGate', () => {
       await screen.findByTestId('hot-key-rotation-failed');
       expect(screen.getByText(TRANSACTION_VAULT_SHORTFALL_ERROR)).toBeInTheDocument();
       expect(screen.queryByText(/assertion failed/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the onboarding-tab handoff screens (#1097)', () => {
+    beforeEach(() => {
+      mockAppEnv = { fullPage: true };
+      mockHandoffAvailable = true;
+    });
+
+    it('renders nothing on the finish-side-panel handoff screen', () => {
+      mockLocation = { pathname: '/finish-side-panel' };
+      const { container } = render(<HotKeyRotationGate />);
+      expect(container).toBeEmptyDOMElement();
+      expect(screen.queryByTestId('hot-key-rotation-gate')).not.toBeInTheDocument();
+    });
+
+    it('renders nothing on the help-improve-wallet handoff screen', () => {
+      mockLocation = { pathname: '/help-improve-wallet' };
+      const { container } = render(<HotKeyRotationGate />);
+      expect(container).toBeEmptyDOMElement();
+      expect(screen.queryByTestId('hot-key-rotation-gate')).not.toBeInTheDocument();
+    });
+
+    it('renders the gate on a non-handoff full-page route', async () => {
+      mockLocation = { pathname: '/' };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the handoff screen when the side panel is unavailable', async () => {
+      mockLocation = { pathname: '/finish-side-panel' };
+      mockHandoffAvailable = false;
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the handoff screen inside the side-panel window itself', async () => {
+      mockLocation = { pathname: '/finish-side-panel' };
+      mockAppEnv = { fullPage: false };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
     });
   });
 });
