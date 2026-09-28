@@ -8,8 +8,16 @@ import {
   selectRotationFundingNotes
 } from './rotation-funding';
 
+// Set while the lock stub's callback is running, cleared once it returns. The mock below
+// throws on it so a rewrite that calls `initiateRotationFundingClaim` after the lock has
+// already been released fails the calling test instead of passing on its returned value
+// alone. A thrown error, not `expect`, because this runs outside any `it` block.
+let held = false;
 const mockInitiateRotationFundingClaim = jest.fn(
-  async (_accountId: string, _notes: ConsumableNote[], _opts: object): Promise<string> => 'claim-tx'
+  async (_accountId: string, _notes: ConsumableNote[], _opts: object): Promise<string> => {
+    if (!held) throw new Error('initiateRotationFundingClaim called with the rotation lock already released');
+    return 'claim-tx';
+  }
 );
 jest.mock('./initiate', () => ({
   initiateRotationFundingClaim: (accountId: string, notes: ConsumableNote[], opts: object) =>
@@ -32,7 +40,12 @@ beforeAll(() => {
     value: {
       request: async (name: string, callback: () => Promise<unknown>) => {
         lockNames.push(name);
-        return callback();
+        held = true;
+        try {
+          return await callback();
+        } finally {
+          held = false;
+        }
       }
     }
   });

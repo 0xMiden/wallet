@@ -78,6 +78,26 @@ describe('initiateRotationFundingClaim', () => {
     expect(queued.every(row => row.rotationFunding === true)).toBe(true);
   });
 
+  it('does not isolate a funding claim on an unflagged failed batch row', async () => {
+    await failedRow(['a', 'b'], 60 * 60, false);
+
+    const id = await initiateRotationFundingClaim(ACCOUNT, [note('a'), note('b')], { verificationBaseFee: BASE_FEE });
+
+    const queued = (await consumeRows()).filter(row => row.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.id).toBe(id);
+    expect(queued[0]!.noteIds).toEqual(['a', 'b']);
+  });
+
+  it('still isolates on a flagged failed batch row', async () => {
+    const failed = await failedRow(['a', 'b'], 60 * 60, true);
+
+    await initiateRotationFundingClaim(ACCOUNT, [note('a'), note('b')], { verificationBaseFee: BASE_FEE });
+
+    const queued = (await consumeRows()).filter(row => row.id !== failed.id);
+    expect(queued).toHaveLength(2);
+  });
+
   it('queues one row when two wallet surfaces claim the same note at once', async () => {
     const [first, second] = await Promise.all([
       initiateRotationFundingClaim(ACCOUNT, [note('a')]),
@@ -86,6 +106,12 @@ describe('initiateRotationFundingClaim', () => {
 
     expect(first).toBe(second);
     expect(await consumeRows()).toHaveLength(1);
+  });
+
+  it('names its own entry, not the ordinary one, when called with no notes', async () => {
+    await expect(initiateRotationFundingClaim(ACCOUNT, [])).rejects.toThrow(
+      'initiateRotationFundingClaim requires at least one note'
+    );
   });
 
   it('refuses a note that is not the native asset before writing anything', async () => {
@@ -159,5 +185,11 @@ describe('initiateConsumeNotesTransaction after the extraction', () => {
     const id = await initiateConsumeNotesTransaction(ACCOUNT, [note('a')], false, false, true, BASE_FEE);
 
     expect(id).toBe(failed.id);
+  });
+
+  it('still names itself, not the funding entry, when called with no notes', async () => {
+    await expect(initiateConsumeNotesTransaction(ACCOUNT, [])).rejects.toThrow(
+      'initiateConsumeNotesTransaction requires at least one note'
+    );
   });
 });

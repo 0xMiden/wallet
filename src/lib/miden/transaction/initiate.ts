@@ -178,12 +178,17 @@ export interface RotationFundingClaimOptions {
 /**
  * Queue the everyday-key rotation gate's claim (#805): native notes only, on rows stamped
  * `rotationFunding`, which generation signs with the recovery key. Refuses before any
- * write when the native asset is unknown or a note is anything else, so no caller can
- * put another asset in front of the recovery key.
+ * write when the native asset is unknown or a note's `faucetId` is anything else, an
+ * early refusal only - a `ConsumableNote` names just its note's first fungible asset, so
+ * the actual guarantee that every asset in the row is native is `assertRotationFundingNotesNative`,
+ * checked again at generation time.
  *
  * Otherwise the shared queue, with isolation on: per-note dedup against every live
  * consume row of the account, flagged or not. Only the #215 backoff differs, counting
  * nothing but earlier flagged failures (see `queueConsumeRows`).
+ *
+ * Callers must hold the `hotKeyRotationLockName` Web Lock for the account before calling
+ * this; only `rotation-funding.ts`'s `enqueueRotationFundingClaim` does.
  */
 export const initiateRotationFundingClaim = async (
   accountId: string,
@@ -255,7 +260,11 @@ const queueConsumeRows = async (
   rotationFunding?: boolean
 ): Promise<string> => {
   if (notes.length === 0) {
-    throw new Error('initiateConsumeNotesTransaction requires at least one note');
+    throw new Error(
+      rotationFunding
+        ? 'initiateRotationFundingClaim requires at least one note'
+        : 'initiateConsumeNotesTransaction requires at least one note'
+    );
   }
 
   const { committedId } = await Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -334,7 +343,10 @@ const queueConsumeRows = async (
       // A shared row that failed is not evidence about THIS note — it names every note
       // it carried. Give the note its own row so its next outcome is its own.
       const failedBatchRow = sameAccount.find(
-        tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
+        tx =>
+          tx.status === ITransactionStatus.Failed &&
+          (tx.noteIds?.length ?? 0) > 1 &&
+          (!rotationFunding || tx.rotationFunding === true)
       );
       // A row of its own means a FEE of its own, so only a note that can pay for a
       // transaction by itself may be isolated. Auto-consume admits a batch on what its
