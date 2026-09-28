@@ -27,10 +27,6 @@ describe('WC_PROJECT_ID resolution', () => {
     }
   });
 
-  it('ships the published default project id', () => {
-    expect(loadModule().DEFAULT_WC_PROJECT_ID).toBe('d18d112eb50cbe764f03e51a90210611');
-  });
-
   it('falls back to the default when WALLETCONNECT_PROJECT_ID is unset', () => {
     const m = loadModule();
     expect(m.WC_PROJECT_ID).toBe('d18d112eb50cbe764f03e51a90210611');
