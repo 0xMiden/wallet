@@ -271,8 +271,11 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
   });
 
-  // The case above renders with mockIsMobile = false, where the passcode entry never appears
-  // regardless of probeFailed; only mobile exercises the branch that has to lose to the error.
+  // This case keeps the failure surface from becoming platform-gated: a branch such as
+  // `probeFailed && !isMobile()` would fail only here, since the case above renders desktop. Its
+  // passcode-entry assertion holds because the hook leaves `hasHardwareProtector` null on failure,
+  // not because of the error branch: `usePasscodeEntry` is `isMobile() && hasHardwareProtector ===
+  // false`, which stays false on a failed probe whatever order the branches render in.
   it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
     mockIsMobile = true;
     mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
