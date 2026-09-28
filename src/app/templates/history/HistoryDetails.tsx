@@ -16,6 +16,7 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
@@ -173,7 +174,9 @@ function formatFiatDisplayAmount(
   // No estimate for a token the feed does not quote, rather than its amount at $1 a unit.
   const quote = tokenQuote(tokenPrices, faucetId, tokenSymbol);
 
-  if (!displayAmount.isFinite() || !quote) {
+  // Nor for an amount outside the display window, which the money helper passes through as written: expanding it
+  // here writes out every digit.
+  if (!isDisplayable(displayAmount) || !quote) {
     return undefined;
   }
 

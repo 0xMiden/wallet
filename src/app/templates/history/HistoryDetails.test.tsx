@@ -3060,6 +3060,22 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(screen.queryByText('0.001')).not.toBeInTheDocument();
   });
 
+  // The helper passes an amount outside the display window through as written; expanding it for the estimate would
+  // write out ten million digits.
+  it('estimates no fiat value for a withdrawal amount outside the display window', async () => {
+    mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
+    const { rerender } = await renderAndLoad();
+    expect(screen.getByText(/historyDetailsFiatApprox/)).toBeInTheDocument();
+
+    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '9e9999999' }));
+    rerender(<HistoryDetails transactionId="tx-1" />);
+    await flush();
+
+    expect(screen.getByText('9e9999999')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
     setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined }));
     await renderAndLoad();

@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
+import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -183,15 +183,6 @@ const DEFAULT_DISPLAY_PRECISION = 2;
  */
 const amountText = (stored: unknown): string | undefined =>
   typeof stored === 'string' || typeof stored === 'number' || typeof stored === 'bigint' ? String(stored) : undefined;
-
-/**
- * How far either side of the point a displayed amount's leading digit may sit. No amount a person holds comes near
- * it, and expanding a value past it writes out every digit: 9e9999999 is ten million characters.
- */
-const DISPLAY_EXPONENT_LIMIT = 40;
-
-/** A finite amount of display size; `e`, the decimal exponent, is null for NaN and the infinities. */
-const isDisplayable = (amount: BigNumber): boolean => amount.e !== null && Math.abs(amount.e) <= DISPLAY_EXPONENT_LIMIT;
 
 /**
  * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
