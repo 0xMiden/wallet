@@ -664,11 +664,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           // like a wait this card saw end. The flag is best effort, since any sent marker
           // past its window reads back as unresolved here.
           setUnresolvedRequest({ address, requestedAt: marker.requestedAt, baselineNoteIds: marker.baselineNoteIds });
-          if (!marker.unresolved) {
-            await setFaucetFundingMarker(address, { ...marker, unresolved: true }).catch(error =>
-              console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error)
-            );
-          }
+          // Written even when the read says unresolved: a flag derived from a stamp in the future is not
+          // stored, and only a stored one keeps the record unresolved once the clock passes that stamp.
+          await setFaucetFundingMarker(address, { ...marker, unresolved: true }).catch(error =>
+            console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error)
+          );
         } else {
           dropUnresolved();
           await clearFaucetFundingMarker(address).catch(error =>

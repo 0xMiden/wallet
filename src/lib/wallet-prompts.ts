@@ -353,8 +353,8 @@ export type FaucetFundingMarker = {
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
 
-export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
-  const raw = await fetchFromStorage(faucetFundingMarkerKey(address));
+/** The one reading of a stored funding marker, whatever holds it; null when the value is not one. */
+export function parseFaucetFundingMarker(raw: unknown): FaucetFundingMarker | null {
   if (!raw || typeof raw !== 'object') return null;
   const requestedAt = Reflect.get(raw, 'requestedAt');
   const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
@@ -393,6 +393,10 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
     marker.submittedAt = submittedAt;
   }
   return marker;
+}
+
+export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
+  return parseFaucetFundingMarker(await fetchFromStorage(faucetFundingMarkerKey(address)));
 }
 
 /**

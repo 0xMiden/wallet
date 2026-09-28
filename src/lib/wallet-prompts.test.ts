@@ -37,6 +37,7 @@ import {
   isFaucetFundingMarkerLive,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
+  parseFaucetFundingMarker,
   reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
@@ -952,6 +953,23 @@ describe('wallet prompts', () => {
       submitted: true,
       unresolved: true
     });
+  });
+
+  it('parses each shape of a marker stamped in the future as the stored read does', async () => {
+    const requestedAt = Date.now() + 60_000;
+    const unresolved: FaucetFundingMarker = { requestedAt, baselineNoteIds: [], submitted: true, unresolved: true };
+    const shapes: Array<[object, FaucetFundingMarker | null]> = [
+      [{ requestedAt, baselineNoteIds: [] }, null],
+      [{ requestedAt, baselineNoteIds: [], submitted: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], unresolved: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], submitted: true, unresolved: true }, unresolved]
+    ];
+
+    for (const [stored, parsed] of shapes) {
+      expect(parseFaucetFundingMarker(stored)).toEqual(parsed);
+      await putToStorage('faucet_funding_v2:accountAhead', stored);
+      expect(await fetchFaucetFundingMarker('accountAhead')).toEqual(parsed);
+    }
   });
 
   it('refuses a request over a sent marker stamped in the future that does not name it', async () => {
