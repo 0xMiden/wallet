@@ -3245,10 +3245,13 @@ describe('Vault hardware branches', () => {
     // …and threaded into the second account's creation. Previously this 2nd arg
     // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
     // global key — the regression stage 1 would otherwise introduce.
-    expect(mockFetchGuardianCreateKey).toHaveBeenLastCalledWith(
-      'https://resolved-from-sibling.example',
-      expect.any(Function)
-    );
+    const [fetchEndpoint, fetchAssertLive] = mockFetchGuardianCreateKey.mock.lastCall ?? [];
+    expect(fetchEndpoint).toBe('https://resolved-from-sibling.example');
+    // The second argument is the vault's own sink check: silent while the vault is live,
+    // a locked refusal once a lock retires it.
+    expect(fetchAssertLive).not.toThrow();
+    vlt.retire();
+    expect(fetchAssertLive).toThrow('Wallet is locked');
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ guardianEndpoint: 'https://resolved-from-sibling.example' }),
@@ -4063,6 +4066,32 @@ describe('insert-performing holds after a lock (#878)', () => {
     await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
     // Refused before the key fetch, whose 429 waits run with no hold.
     expect(mockFetchGuardianCreateKey).not.toHaveBeenCalled();
+    expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount(Guardian) refuses as locked after a key-fetch wait during which a lock landed', async () => {
+    const vault = await seedVault('pw');
+    let refusal: unknown;
+    // Stands in for a 429 wait: the fetch runs its caller's check after each one.
+    mockFetchGuardianCreateKey.mockImplementationOnce(async (endpoint: string | undefined, assertLive: () => void) => {
+      assertLive();
+      lockLandedWhileQueued(vault);
+      try {
+        assertLive();
+      } catch (error) {
+        refusal = error;
+        throw error;
+      }
+      return {
+        guardianEndpoint: endpoint ?? 'https://default.guardian',
+        guardianCommitment: 'c',
+        guardianPubkey: 'p',
+        rateLimitBudgetLeftMs: 90_000
+      };
+    });
+
+    await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
+    expect(refusal).toMatchObject({ reason: 'locked' });
     expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
