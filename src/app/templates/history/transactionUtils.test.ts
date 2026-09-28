@@ -475,6 +475,11 @@ const bridgeEntry = (overrides: Partial<IHistoryEntry>): IHistoryEntry => ({
   ...overrides
 });
 
+// A restore keeps a row's extraInputs as the dump recorded them, so a hand-edited backup can put a
+// number, or a BigInt from a `$bigint` tag, in an amount field every reader types as a string.
+const restoredEntry = (overrides: Partial<IHistoryEntry>, stored: Record<string, unknown>): IHistoryEntry =>
+  Object.assign(bridgeEntry(overrides), stored);
+
 describe('isCompletedTransaction', () => {
   it.each(['Sent', 'Received', 'Reclaimed', 'Executed'])('treats %s as completed', message => {
     expect(isCompletedTransaction(message)).toBe(true);
@@ -562,6 +567,32 @@ describe('formatMoneyAmount', () => {
 
   it.each(kinds)('passes undefined through (%s)', kind => {
     expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
+  });
+
+  // The Slow detail hero formats a stored source amount; a throw here takes the page down.
+  describe('a stored amount a restored backup left as a number or a BigInt', () => {
+    const stored = (value: unknown) => restoredEntry({}, { bridgeInSourceAmount: value }).bridgeInSourceAmount;
+
+    it.each(separating)('reads the number 10.6555 %s as %s', (kind, expected) => {
+      expect(formatMoneyAmount(stored(10.6555), kind)).toBe(expected);
+    });
+
+    it('reads a typed number exactly', () => {
+      expect(formatMoneyAmount(stored(0.015), 'typed', 'ETH')).toBe('0.015');
+      expect(formatMoneyAmount(stored(1e21), 'typed')).toBe('1000000000000000000000');
+    });
+
+    it.each(kinds)('reads a BigInt as its value (%s)', kind => {
+      expect(formatMoneyAmount(stored(12n), kind)).toBe('12');
+    });
+
+    it('reads any other shape as 0 when typed and passes it through when rounded', () => {
+      const shape = { amount: '12' };
+      expect(formatMoneyAmount(stored(shape), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(null), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(shape), 'receives')).toBe(shape);
+      expect(formatMoneyAmount(stored(shape), 'pays')).toBe(shape);
+    });
   });
 });
 
@@ -786,6 +817,20 @@ describe('bridgeInRowDisplay', () => {
     expect(inFlight('10.6555')).toBe('10.6555');
     // A row written before the stored value went exact holds a padded display string.
     expect(inFlight('12.00')).toBe('12');
+  });
+
+  // Activity and Token Detail build this row during render, so a throw here takes the list down.
+  it('shows an in-flight "you receive" a restored backup left as a number or a BigInt', () => {
+    const inFlight = (bridgeInOutputAmount: unknown) =>
+      bridgeInRowDisplay(
+        restoredEntry(
+          { txType: 'bridged-receive', bridgeInPhase: 'delivering', amount: '10', bridgeInProvider: 'epoch' },
+          { bridgeInOutputAmount }
+        )
+      ).outAmount;
+
+    expect(inFlight(10.6555)).toBe('10.6555');
+    expect(inFlight(12n)).toBe('12');
   });
 
   // Rows written before the fix carry the allocator's token `name` as a symbol,

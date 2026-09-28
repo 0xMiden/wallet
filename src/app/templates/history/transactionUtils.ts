@@ -177,6 +177,14 @@ const DISPLAY_PRECISION = new Map([
 const DEFAULT_DISPLAY_PRECISION = 2;
 
 /**
+ * The decimal text of a stored amount. A restore keeps a row's `extraInputs` as the dump recorded
+ * them, so a hand-edited backup can leave a number or a BigInt where a string is declared; any
+ * other shape is not an amount.
+ */
+const amountText = (stored: unknown): string | undefined =>
+  typeof stored === 'string' || typeof stored === 'number' || typeof stored === 'bigint' ? String(stored) : undefined;
+
+/**
  * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
  * promises more than arrives; `pays` rounds up, so it never shows less than leaves the account;
  * `typed` shows the exact decimal the user typed, without grouping, a trailing separator or
@@ -188,11 +196,13 @@ export function formatMoneyAmount(value: string, kind: MoneyKind, symbol?: strin
 export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined;
 export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined {
   if (value === undefined) return undefined;
+  const text = amountText(value);
+  if (text === undefined) return kind === 'typed' ? '0' : value;
   if (kind === 'typed') {
-    const typed = new BigNumber(value.replace(/,/g, ''));
+    const typed = new BigNumber(text.replace(/,/g, ''));
     return typed.isFinite() ? typed.toFixed() : '0';
   }
-  const amount = new BigNumber(value);
+  const amount = new BigNumber(text);
   if (!amount.isFinite()) return value;
   const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
   const places = getAdaptiveDecimalPlaces(amount, minimum);
