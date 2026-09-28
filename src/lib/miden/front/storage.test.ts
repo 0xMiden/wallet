@@ -6,6 +6,7 @@ import { deferred, SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   fetchFromStorage,
   inStorageTurn,
+  preloadStorage,
   putToStorage,
   onStorageChanged,
   usePassiveStorage,
@@ -30,14 +31,11 @@ const mockStorage = {
   }
 };
 
-// Mock webextension-polyfill with default export for dynamic imports
-jest.mock('webextension-polyfill', () => ({
-  __esModule: true,
-  default: {
-    storage: mockStorage
-  },
-  storage: mockStorage
-}));
+const mockPolyfillModule = () => ({ __esModule: true, default: { storage: mockStorage }, storage: mockStorage });
+
+// Mock webextension-polyfill with default export for dynamic imports. An inline arrow, not mockPolyfillModule
+// itself, because @swc/jest hoists jest.mock above every const.
+jest.mock('webextension-polyfill', () => mockPolyfillModule());
 
 // Mock storage adapter to use the mock storage
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -154,7 +152,8 @@ describe('storage utilities', () => {
 
     it('chains awaited functional updates on the value each one wrote', async () => {
       mockStorage.local.set.mockResolvedValue(undefined);
-      await mutate('chained-key', 'base', { revalidate: false });
+      mockStorage.local.get.mockResolvedValue({ 'chained-key': 'base' });
+      await preloadStorage(['chained-key']);
       mockUseRetryableSWR.mockReturnValue({ data: 'base', mutate: jest.fn() });
 
       const { result } = renderHook(() => useStorage<string>('chained-key'));
@@ -164,6 +163,21 @@ describe('storage utilities', () => {
       });
 
       expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'chained-key': 'base-1-2' });
+    });
+
+    it('builds a functional update on a value written through putToStorage, not the one read before it', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockStorage.local.get.mockResolvedValue({ 'direct-then-update-key': 'read' });
+      await preloadStorage(['direct-then-update-key']);
+      await putToStorage('direct-then-update-key', 'direct');
+      mockUseRetryableSWR.mockReturnValue({ data: 'read', mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('direct-then-update-key'));
+      await act(async () => {
+        await result.current[1](prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'direct-then-update-key': 'direct-updated' });
     });
 
     it('keeps the setter identity when the value changes', () => {
@@ -220,12 +234,24 @@ describe('storage utilities', () => {
 
     it('returns cleanup function', async () => {
       const callback = jest.fn();
+      let registeredHandler!: (
+        changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
+        areaName: string
+      ) => void;
+      mockStorage.onChanged.addListener.mockImplementation(handler => {
+        registeredHandler = handler;
+      });
 
       const cleanup = onStorageChanged('my-key', callback);
 
       // The cleanup function is returned synchronously
       // (though the actual listener removal is async)
       expect(typeof cleanup).toBe('function');
+
+      await flushPromises();
+      cleanup();
+
+      expect(mockStorage.onChanged.removeListener).toHaveBeenCalledWith(registeredHandler);
     });
 
     it('calls callback when key changes in local storage', async () => {
@@ -361,6 +387,85 @@ describe('storage utilities', () => {
           await Promise.all([accountA, accountB]);
         }
       });
+    });
+  });
+
+  describe('the page change listener (#1177)', () => {
+    it('attaches before the page issues its first read', async () => {
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+
+      await jest.isolateModulesAsync(async () => {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        await preloadFresh(['k']);
+      });
+
+      const [attachedAt] = mockStorage.onChanged.addListener.mock.invocationCallOrder;
+      const [readAt] = mockStorage.local.get.mock.invocationCallOrder;
+      expect(attachedAt).toBeLessThan(readAt!);
+    });
+
+    it('resets an attach whose addListener throws, so a later read attaches and settles changes', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      mockStorage.onChanged.addListener.mockImplementationOnce(() => {
+        throw new Error('no storage events');
+      });
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { preloadStorage: preloadFresh } = await import('./storage');
+          const { SWRConfig } = await import('swr');
+
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(2);
+          expect(warn).toHaveBeenCalledTimes(1);
+
+          const [, [listener]] = mockStorage.onChanged.addListener.mock.calls;
+          listener({ k: { newValue: 'changed' } }, 'local');
+          expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('changed');
+        });
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('resolves with nothing to reread and touches neither the read nor the listener', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { rereadStorageCache: rereadFresh } = await import('./storage');
+        await expect(rereadFresh()).resolves.toBeUndefined();
+      });
+
+      expect(mockStorage.local.get).not.toHaveBeenCalled();
+      expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed attach, lets the read through, and attaches on the next read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      let imports = 0;
+      // A mock the registry already holds would be reused, so the failing one needs a fresh registry.
+      jest.resetModules();
+      jest.doMock('webextension-polyfill', () => {
+        imports += 1;
+        if (imports === 1) throw new Error('chunk failed to load');
+        return mockPolyfillModule();
+      });
+      try {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        const { SWRConfig } = await import('swr');
+
+        await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+        expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('v');
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+
+        await preloadFresh(['k']);
+        expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+        jest.doMock('webextension-polyfill', mockPolyfillModule);
+        jest.resetModules();
+      }
     });
   });
 });

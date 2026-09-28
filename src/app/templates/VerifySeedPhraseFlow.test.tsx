@@ -30,6 +30,7 @@ jest.mock('@capacitor/app', () => ({
   }
 }));
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -125,7 +126,10 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -195,6 +199,7 @@ describe('VerifySeedPhraseFlow', () => {
     jest.clearAllMocks();
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
     mockClipboardWrite.mockResolvedValue(undefined);
@@ -327,14 +332,54 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('falls back to hasHardwareProtector=false when the probe rejects', async () => {
-    mockHasHardwareProtector.mockRejectedValue(new Error('probe failed'));
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
     await renderFlow();
 
-    // With the probe rejected, continue is enabled and leads to the auth step.
-    expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
     clickText('continue');
-    expect(screen.getByText('enterPassword')).toBeTruthy();
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('reveals through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    await renderFlow();
+
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+    clickText('continue');
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+  });
+
+  it.each([false, true])(
+    'shows an error and offers no credential step when both protector reads fail (remove: %s)',
+    async remove => {
+      mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+      mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+      render(<VerifySeedPhraseFlow remove={remove} />);
+
+      expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+      expect(screen.getByText('continue')).toBeDisabled();
+      expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+      expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    }
+  );
+
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<VerifySeedPhraseFlow />);
+
+    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    expect(screen.getByText('continue')).toBeDisabled();
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
   });
 
   it('renders each step through SubPageLayout, its actions in the footer', async () => {

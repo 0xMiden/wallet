@@ -14,6 +14,7 @@ const mockStartBackgroundProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
 const mockCurrentAccount = {
@@ -155,7 +156,10 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -209,6 +213,7 @@ beforeEach(() => {
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
+  mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
@@ -754,12 +759,57 @@ it('announces a failure rather than only rendering it above the button', async (
   expect(await screen.findByRole('alert')).toHaveTextContent('cancelled');
 });
 
-it('fails closed when hardware-protector detection fails', async () => {
+// #1056: a failed hardware read is resolved through the password protector, never guessed.
+it('takes the password step when the hardware read fails and a password key exists', async () => {
   mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(true);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+});
+
+it('switches through the hardware protector when the hardware read fails and no password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(false);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  expect(screen.queryByTestId('rotate-guardian-auth-submit')).not.toBeInTheDocument();
+});
+
+it('fails closed when both protector reads fail', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('guardianAuthenticationUnavailable')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.queryByText('guardianAuthenticationUnavailable')).not.toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  // Back reopens the flow, which is exactly what the error text asks the user to do.
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
+});
+
+it('fails closed with no passcode entry on mobile when both protector reads fail', async () => {
+  mockIsMobile.mockReturnValue(true);
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
+  render(<RotateGuardianReview />);
+
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });

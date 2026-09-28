@@ -13,7 +13,7 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { Vault } from 'lib/miden/back/vault';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
@@ -105,37 +105,10 @@ const RevealSeedPhrase: FC = () => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
 
-  // Detect the auth type, so View knows which gate to open.
+  // Detect the auth type, so View knows which gate to open. `probeHardwareProtector` resolves a
+  // failed read through the password protector instead of guessing; only a failure of both reads
+  // reaches `probeError`.
   //
-  // A REJECTION MUST NOT BE READ AS "no hardware". Both protectors are a `getPlain`
-  // read of their own key, so a failure of the hardware read says nothing about the
-  // password one - and answering `false` sends a hardware-only wallet into
-  // `unlockWithPassword`, which finds no stored password key and throws a fixed
-  // English string telling the user to use the biometrics this page has just stopped
-  // offering. So resolve the unknown with the complement instead of guessing it:
-  // a password credential means the password gate is genuinely right, and its absence
-  // means hardware, which then either works or fails loudly and correctly.
-  // Only a failure of BOTH reads is unresolvable, and that is storage being
-  // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
-  // returns false without touching storage, so none of this runs there.
-  const probe = useCallback(async () => {
-    try {
-      return await Vault.hasHardwareProtector();
-    } catch (hardwareError) {
-      try {
-        return !(await Vault.hasPasswordProtector());
-      } catch (passwordError) {
-        // Carry both, in the message too: the failure log prints the message and is the only
-        // evidence for this state, and a bare rethrow could only ever name the complement's failure.
-        const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
-        throw new Error(
-          `both protector reads failed (hardware: ${describe(hardwareError)}; password: ${describe(passwordError)})`,
-          { cause: { hardwareError, passwordError } }
-        );
-      }
-    }
-  }, []);
-
   // One probe per page at a time. Retry exists only once a probe has settled with both reads
   // rejected, so no second probe can start while one is in flight, and staying on the page adopts the
   // first read's answer however late. During a hang the only retry is leaving and reopening, which
@@ -152,7 +125,7 @@ const RevealSeedPhrase: FC = () => {
       setProbeSlow(true);
     }, PROBE_TIMEOUT_MS);
 
-    probe()
+    probeHardwareProtector()
       .then(hasHw => {
         if (waited) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
         setProbeError(null);
@@ -167,7 +140,7 @@ const RevealSeedPhrase: FC = () => {
         setProbeSlow(false);
         setProbing(false);
       });
-  }, [probe]);
+  }, []);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;

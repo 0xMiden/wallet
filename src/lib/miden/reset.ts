@@ -1,3 +1,4 @@
+import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
@@ -19,18 +20,24 @@ export const SETUP_PRESERVED_STORAGE_KEYS: readonly string[] = [...PRESERVED_STO
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed.
 async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
-  if (isMobile()) {
-    const { Preferences } = await import('@capacitor/preferences');
-    const { keys } = await Preferences.keys();
-    for (const key of keys) {
-      if (!keep.includes(key)) await Preferences.remove({ key });
+  try {
+    if (isMobile()) {
+      const { Preferences } = await import('@capacitor/preferences');
+      const { keys } = await Preferences.keys();
+      for (const key of keys) {
+        if (!keep.includes(key)) await Preferences.remove({ key });
+      }
+    } else if (isDesktop()) {
+      removeLocalStorageExcept(keep);
+    } else if (isExtension()) {
+      const browser = await import('webextension-polyfill');
+      const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+      if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
     }
-  } else if (isDesktop()) {
-    removeLocalStorageExcept(keep);
-  } else if (isExtension()) {
-    const browser = await import('webextension-polyfill');
-    const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
-    if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
+  } finally {
+    // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
+    // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
+    await rereadStorageCache();
   }
 }
 
@@ -94,8 +101,13 @@ export async function resetStorageDestructive() {
 }
 
 // The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
-// what a wallet-setup reset keeps; on the extension and mobile those names are not in it.
-export function clearClientStorage() {
-  removeLocalStorageExcept(SETUP_PRESERVED_STORAGE_KEYS);
-  sessionStorage.clear();
+// what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
+// and mobile those names are not in it, and the re-read finds nothing changed.
+export async function clearClientStorage(): Promise<void> {
+  try {
+    removeLocalStorageExcept(SETUP_PRESERVED_STORAGE_KEYS);
+    sessionStorage.clear();
+  } finally {
+    await rereadStorageCache();
+  }
 }

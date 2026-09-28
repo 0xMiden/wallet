@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
@@ -22,7 +23,6 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianRotationInProgress } from 'lib/miden/guardian/rotation-in-progress';
@@ -78,7 +78,7 @@ const RotateGuardianReview: FC = () => {
     setAuthStep(false);
     setPassword('');
   }, [newEndpoint]);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
@@ -103,20 +103,6 @@ const RotateGuardianReview: FC = () => {
     abandoned.current = true;
     popBack();
   }, [popBack]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHardware => {
-        if (!cancelled) setHasHardwareProtector(hasHardware);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('guardianAuthenticationUnavailable'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
 
   // The hot key co-signs from the unlocked vault; surface how it's protected
   // on this device (biometric flavor or password) like the design's key rows.
@@ -331,6 +317,10 @@ const RotateGuardianReview: FC = () => {
     return true;
   }, [authStep, handleAuthBack, handleBack]);
 
+  // Both protector reads failed: no credential step can be chosen, and Continue stays disabled
+  // because `hasHardwareProtector` is still null.
+  const reviewError = error ?? (probeFailed ? t('couldNotCheckUnlockMethodReopen') : null);
+
   if (authStep) {
     return (
       <PageLayout hideToolbar>
@@ -403,9 +393,9 @@ const RotateGuardianReview: FC = () => {
             {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
                 Continue and the reason appears above it. `max-h` + scroll so a long backend error
                 cannot grow the footer and push Continue off-screen. */}
-            {error && (
+            {reviewError && (
               <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text wrap-break-word">
-                {error}
+                {reviewError}
               </Notice>
             )}
             <Button
