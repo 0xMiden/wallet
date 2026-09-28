@@ -19,12 +19,14 @@ import {
   formatBridgeOutputAmount,
   formatDate,
   formatEarnWithdrawAmount,
+  formatMoneyAmount,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
   isReceiveEntry,
+  MoneyKind,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -506,6 +508,61 @@ describe('formatBridgeOutputAmount', () => {
 
   it('passes non-numeric input through unchanged', () => {
     expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
+  });
+});
+
+// One rule for every Bridge and Earn amount. 10.6555 separates the three kinds: down reads
+// 10.65, up reads 10.66 and half-up would read 10.66 too, so only an exact 10.6555 is typed.
+describe('formatMoneyAmount', () => {
+  const kinds: MoneyKind[] = ['receives', 'pays', 'typed'];
+  const rounded: MoneyKind[] = ['receives', 'pays'];
+  const separating: [MoneyKind, string][] = [
+    ['receives', '10.65'],
+    ['pays', '10.66'],
+    ['typed', '10.6555']
+  ];
+
+  it.each(separating)('reads 10.6555 %s as %s', (kind, expected) => {
+    expect(formatMoneyAmount('10.6555', kind)).toBe(expected);
+  });
+
+  it.each(kinds)('trims zeros and never pads (%s)', kind => {
+    expect(formatMoneyAmount('12.5000', kind)).toBe('12.5');
+    expect(formatMoneyAmount('12.00', kind)).toBe('12');
+    expect(formatMoneyAmount('0', kind)).toBe('0');
+  });
+
+  it('expands a tiny amount to two significant places, down or up by kind', () => {
+    expect(formatMoneyAmount('0.000001234', 'receives')).toBe('0.0000012');
+    expect(formatMoneyAmount('0.000001234', 'pays')).toBe('0.0000013');
+    expect(formatMoneyAmount('0.000001234', 'typed')).toBe('0.000001234');
+  });
+
+  it('keeps six decimals for ETH and WETH, the typed-amount cap', () => {
+    expect(formatMoneyAmount('0.015', 'receives', 'ETH')).toBe('0.015');
+    expect(formatMoneyAmount('0.015', 'receives', 'USDC')).toBe('0.01');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'ETH')).toBe('0.123456');
+    expect(formatMoneyAmount('0.123456789', 'pays', 'ETH')).toBe('0.123457');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'WETH')).toBe('0.123456');
+  });
+
+  it('shows a typed amount as typed, without grouping, a trailing separator or trailing zeros', () => {
+    expect(formatMoneyAmount('1,234.50', 'typed')).toBe('1234.5');
+    expect(formatMoneyAmount('1.', 'typed')).toBe('1');
+    expect(formatMoneyAmount('10.65555555', 'typed', 'ETH')).toBe('10.65555555');
+  });
+
+  it('reads an empty or non-numeric typed amount as 0', () => {
+    expect(formatMoneyAmount('', 'typed')).toBe('0');
+    expect(formatMoneyAmount('not-a-number', 'typed')).toBe('0');
+  });
+
+  it.each(rounded)('passes a non-numeric %s amount through unchanged', kind => {
+    expect(formatMoneyAmount('not-a-number', kind)).toBe('not-a-number');
+  });
+
+  it.each(kinds)('passes undefined through (%s)', kind => {
+    expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
   });
 });
 

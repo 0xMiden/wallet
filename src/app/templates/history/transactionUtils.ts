@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/adaptive-precision';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -161,6 +161,43 @@ export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | un
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
+
+/** What a displayed Bridge or Earn amount means, which decides how it may be rounded. */
+export type MoneyKind = 'receives' | 'pays' | 'typed';
+
+/**
+ * Minimum decimals by displayed symbol, for an asset whose amounts need more than the default two.
+ * Six is the typed-amount input cap (`AmountInput`), so a Slow ETH amount reads the same in flight
+ * and once credited. Metadata `decimals` is the on-chain scale, not a display precision.
+ */
+const DISPLAY_PRECISION = new Map([
+  ['ETH', 6],
+  ['WETH', 6]
+]);
+const DEFAULT_DISPLAY_PRECISION = 2;
+
+/**
+ * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
+ * promises more than arrives; `pays` rounds up, so it never shows less than leaves the account;
+ * `typed` shows the exact decimal the user typed, without grouping, a trailing separator or
+ * trailing zeros, and reads an empty or non-numeric value as 0. Rounded kinds keep at least the
+ * asset's minimum decimals, expand for a small value and never pad. A non-numeric rounded value
+ * (a legacy or restored string) and `undefined` pass through unchanged.
+ */
+export function formatMoneyAmount(value: string, kind: MoneyKind, symbol?: string): string;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (kind === 'typed') {
+    const typed = new BigNumber(value.replace(/,/g, ''));
+    return typed.isFinite() ? typed.toFixed() : '0';
+  }
+  const amount = new BigNumber(value);
+  if (!amount.isFinite()) return value;
+  const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
+  const places = getAdaptiveDecimalPlaces(amount, minimum);
+  return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
+}
 
 /**
  * Round a bridge's (USDC) destination output to the standard 2 decimals for
