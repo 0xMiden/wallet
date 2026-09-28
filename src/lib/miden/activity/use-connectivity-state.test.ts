@@ -22,10 +22,11 @@ const mockUseStorage = jest.fn();
 // One stored record per key, shared by every hook instance (every "window"), read and written on a later microtask
 // like a real storage round trip.
 const mockStoredValues: Record<string, unknown> = {};
-const mockFetchFromStorage = jest.fn(async (key: string) => {
+const fetchFromMockStore = async (key: string) => {
   await Promise.resolve();
   return key in mockStoredValues ? mockStoredValues[key] : null;
-});
+};
+const mockFetchFromStorage = jest.fn(fetchFromMockStore);
 const putToMockStore = async (key: string, value: unknown) => {
   await Promise.resolve();
   mockStoredValues[key] = value;
@@ -82,7 +83,8 @@ const settle = () => act(async () => new Promise<void>(resolve => setTimeout(res
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsExtension.mockReturnValue(false);
-  // A test may replace the write path; clearAllMocks keeps implementations, so restore the store-backed one.
+  // A test may replace the read or write path; clearAllMocks keeps implementations, so restore the store-backed ones.
+  mockFetchFromStorage.mockImplementation(fetchFromMockStore);
   mockPutToStorage.mockImplementation(putToMockStore);
   storageSnapshot = null;
   storedDismissedActivations = {};
@@ -323,8 +325,20 @@ describe('useConnectivityState', () => {
       hook.rerender();
     };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mockIsExtension.mockReturnValue(true);
+      // resetConnectivityState()'s notify() mirrors an all-clear snapshot into mockStoredValues[CONNECTIVITY_STATE_KEY]
+      // on a later microtask; let it land, then drop it so the turn's own mirror read defaults to whatever this
+      // window renders, same as the one real channel the two mock variables otherwise split apart. A test that wants
+      // the turn to see a DIFFERENT mirror still sets mockStoredValues[CONNECTIVITY_STATE_KEY] itself, which this
+      // default never overrides.
+      await Promise.resolve();
+      delete mockStoredValues[CONNECTIVITY_STATE_KEY];
+      mockFetchFromStorage.mockImplementation(async (key: string) => {
+        await Promise.resolve();
+        if (key === CONNECTIVITY_STATE_KEY && !(key in mockStoredValues)) return storageSnapshot;
+        return key in mockStoredValues ? mockStoredValues[key] : null;
+      });
     });
 
     it('keeps both dismissals when two windows dismiss different categories at once', async () => {
