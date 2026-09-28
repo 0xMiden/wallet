@@ -101,10 +101,10 @@ describe('ConfirmationScreen', () => {
       expect(screen.getByTestId('onboarding-confirmation')).toBeInTheDocument();
     });
 
-    it('renders the hero illustration, decorative and capped at 220px', () => {
+    it('renders the hero illustration, decorative and capped at 280px', () => {
       const { container } = renderComponent();
       const svg = container.querySelector('svg');
-      expect(svg).toHaveClass('max-w-[220px]');
+      expect(svg).toHaveClass('max-w-[280px]');
       expect(svg).toHaveAttribute('aria-hidden', 'true');
     });
 
@@ -159,12 +159,13 @@ describe('ConfirmationScreen', () => {
 
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
-      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-name');
+      // The page title's size: the hero is the screen's only heading.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
       // The daily reminder is one quiet caption line under the subtitle, not a Notice panel.
       const reminder = screen.getByTestId('onboarding-confirmation-reminder');
       expect(reminder).toHaveTextContent('recoveryPhraseDailyReminder');
-      expect(reminder).toHaveClass('text-caption', 'text-muted');
+      expect(reminder).toHaveClass('text-explainer', 'font-semibold', 'text-muted');
       expect(reminder.closest('[role="note"]')).toBeNull();
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toHaveClass('text-balance');
       expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
