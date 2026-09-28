@@ -164,6 +164,35 @@ describe('deadline and Retry (#1241)', () => {
     expect(result.current).toEqual(expect.objectContaining({ probeFailed: true, retrying: true }));
   });
 
+  // protector-probe leaves the storage error to the caller's log, so a superseded one is still logged.
+  it('logs an earlier attempt rejecting after a retry as superseded', async () => {
+    const first = deferred();
+    mockProbeHardwareProtector.mockReturnValueOnce(first.promise).mockReturnValueOnce(never());
+    const { result } = renderHook(() => useHardwareProtector());
+    act(() => jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS));
+    act(() => result.current.retry());
+
+    await act(async () => first.reject(new Error('late failure')));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('superseded'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('late failure'));
+    expect(result.current).toEqual(expect.objectContaining({ probeFailed: true, retrying: true }));
+  });
+
+  it('keeps an answer when the retry it overtook rejects later', async () => {
+    const first = deferred();
+    const second = deferred();
+    mockProbeHardwareProtector.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useHardwareProtector());
+    act(() => jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS));
+    act(() => result.current.retry());
+
+    await act(async () => first.resolve(true));
+    await act(async () => second.reject(new Error('both protector reads failed')));
+    expect(result.current.hasHardwareProtector).toBe(true);
+    expect(result.current.probeFailed).toBe(false);
+    expect(result.current.retrying).toBe(false);
+  });
+
   it('adopts an earlier attempt answering while a retry is in flight', async () => {
     const first = deferred();
     mockProbeHardwareProtector.mockReturnValueOnce(first.promise).mockReturnValueOnce(never());

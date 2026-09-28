@@ -30,23 +30,22 @@ export interface HardwareProtectorProbe {
  *
  * An answer is adopted whenever it arrives, even after the deadline or from an attempt a Retry has
  * superseded: it reads which protector key is stored, which does not change while the page is open.
- * A failure counts only for the latest attempt, so an old attempt cannot fail a Retry still running.
+ * A failure counts only for the latest attempt, so an old attempt cannot fail a Retry still running
+ * or an answered probe.
  */
 export function useHardwareProtector(): HardwareProtectorProbe {
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [probeFailed, setProbeFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  // Refs, because settle callbacks of earlier attempts read them after later renders.
+  // Read by settle callbacks after later renders. An answer and unmount bump latestAttempt, so every
+  // attempt in flight goes stale; only the latest attempt's deadline is ever armed, so it needs no guard.
   const latestAttempt = useRef(0);
-  const answered = useRef(false);
-  const failed = useRef(false);
-  const retryInFlight = useRef(false);
-  const mounted = useRef(false);
   const deadline = useRef<ReturnType<typeof setTimeout>>();
+  // A ref, not state, so two Retry calls in one tick start one probe.
+  const canRetry = useRef(false);
 
   const fail = useCallback(() => {
-    failed.current = true;
-    retryInFlight.current = false;
+    canRetry.current = true;
     setProbeFailed(true);
     setRetrying(false);
   }, []);
@@ -56,7 +55,6 @@ export function useHardwareProtector(): HardwareProtectorProbe {
     let missedDeadline = false;
     clearTimeout(deadline.current);
     deadline.current = setTimeout(() => {
-      if (!mounted.current || answered.current || attempt !== latestAttempt.current) return;
       missedDeadline = true;
       console.warn(`[useHardwareProtector] protector probe did not answer within ${PROTECTOR_PROBE_DEADLINE_MS}ms`);
       fail();
@@ -64,39 +62,40 @@ export function useHardwareProtector(): HardwareProtectorProbe {
 
     probeHardwareProtector().then(
       hasHardware => {
-        if (!mounted.current || answered.current) return;
         if (missedDeadline) console.warn('[useHardwareProtector] protector probe answered after the deadline');
-        answered.current = true;
-        failed.current = false;
-        retryInFlight.current = false;
+        latestAttempt.current += 1;
+        canRetry.current = false;
         clearTimeout(deadline.current);
         setHasHardwareProtector(hasHardware);
         setProbeFailed(false);
         setRetrying(false);
       },
       (error: unknown) => {
-        if (!mounted.current || answered.current || attempt !== latestAttempt.current) return;
-        clearTimeout(deadline.current);
+        // protector-probe leaves the storage error to this log, so a stale attempt's is logged too.
+        const stale = attempt !== latestAttempt.current;
         console.warn(
-          `[useHardwareProtector] protector probe failed: ${error instanceof Error ? error.message : String(error)}`
+          `[useHardwareProtector] protector probe failed${stale ? ' (superseded attempt)' : ''}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
+        if (stale) return;
+        clearTimeout(deadline.current);
         fail();
       }
     );
   }, [fail]);
 
   useEffect(() => {
-    mounted.current = true;
     probe();
     return () => {
-      mounted.current = false;
+      latestAttempt.current += 1;
       clearTimeout(deadline.current);
     };
   }, [probe]);
 
   const retry = useCallback(() => {
-    if (!mounted.current || answered.current || !failed.current || retryInFlight.current) return;
-    retryInFlight.current = true;
+    if (!canRetry.current) return;
+    canRetry.current = false;
     setRetrying(true);
     probe();
   }, [probe]);
