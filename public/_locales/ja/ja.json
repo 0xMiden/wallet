@@ -1134,7 +1134,6 @@
   "shareAddressText": "私のMiden $network$アドレス（テストトークンのみ）：$address$",
   "networkModeBanner": "あなたはMiden $network$上のBreadを利用しています",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — このネットワークについて",
   "networkModePillNoValue": "トークンに実際の価値はありません",
   "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",

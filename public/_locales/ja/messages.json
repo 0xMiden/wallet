@@ -4990,15 +4990,6 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — このネットワークについて",
-    "englishSource": "$network$ — about this network",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "networkModePillNoValue": {
     "message": "トークンに実際の価値はありません",
     "englishSource": "Tokens have no real value"

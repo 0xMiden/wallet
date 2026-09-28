@@ -70,8 +70,10 @@ function useFitText(active: boolean, maxPx: number, network: string, language: s
  * The test network's name above Home's balance card, as one full-width pill: the brand dot, the
  * network's name, and why it matters ("Tokens have no real value"), with the info glyph at the far
  * end. English reads at the pill's own size and every other locale a size smaller, so the sentence
- * fits rather than being cut off. Tapping it opens the test-network explanation sheet. It follows the
- * effective network, so a Developer Settings override shows here too, and renders nothing on mainnet.
+ * fits rather than being cut off. Tapping it opens the test-network explanation sheet. Its accessible
+ * name is that sentence, with no `aria-label` over it, so voice control matches the words on screen.
+ * It follows the effective network, so a Developer Settings override shows here too, and renders
+ * nothing on mainnet.
  */
 export const NetworkModePill: FC = () => {
   const { t, i18n } = useTranslation();
@@ -88,7 +90,6 @@ export const NetworkModePill: FC = () => {
     <>
       <Pill
         onClick={() => setOpen(true)}
-        aria-label={t('networkModeStripLabel', { network })}
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="network-mode-pill"

@@ -4990,15 +4990,6 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — 이 네트워크 정보",
-    "englishSource": "$network$ — about this network",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "networkModePillNoValue": {
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"

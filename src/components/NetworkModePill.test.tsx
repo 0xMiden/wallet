@@ -96,10 +96,12 @@ describe('NetworkModePill', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('is named for what it opens, starting with the visible network name', () => {
+  it('is named by the sentence it shows, and says it opens a dialog', () => {
     render(<NetworkModePill />);
 
-    expect(screen.getByRole('button', { name: 'networkModeStripLabel:testnet' })).toBe(pill());
+    // Its visible words are its name, so voice control can say what the screen shows (WCAG 2.5.3).
+    expect(screen.getByRole('button', { name: /^testnet.*networkModePillNoValue$/ })).toBe(pill());
+    expect(pill()).not.toHaveAttribute('aria-label');
     expect(pill()).toHaveAttribute('aria-haspopup', 'dialog');
     expect(pill()).toHaveAttribute('aria-expanded', 'false');
   });

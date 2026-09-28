@@ -1134,7 +1134,6 @@
   "shareAddressText": "Моя адреса Miden $network$ (лише тестові токени): $address$",
   "networkModeBanner": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — про цю мережу",
   "networkModePillNoValue": "Токени не мають реальної цінності",
   "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",

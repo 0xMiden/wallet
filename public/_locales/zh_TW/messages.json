@@ -4990,15 +4990,6 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — 關於此網路",
-    "englishSource": "$network$ — about this network",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "networkModePillNoValue": {
     "message": "代幣沒有實際價值",
     "englishSource": "Tokens have no real value"

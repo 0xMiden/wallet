@@ -1134,7 +1134,6 @@
   "shareAddressText": "Мой адрес Miden $network$ (только тестовые токены): $address$",
   "networkModeBanner": "Вы используете Bread на Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — об этой сети",
   "networkModePillNoValue": "Токены не имеют реальной ценности",
   "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",

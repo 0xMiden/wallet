@@ -1134,7 +1134,6 @@
   "shareAddressText": "Meine Adresse auf Miden $network$ (nur Test-Token): $address$",
   "networkModeBanner": "Sie nutzen Bread auf Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ – über dieses Netzwerk",
   "networkModePillNoValue": "Token haben keinen echten Wert",
   "activityRestoreTransfers": "Wiederherstellen",
   "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",

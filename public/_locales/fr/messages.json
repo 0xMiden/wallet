@@ -4990,15 +4990,6 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — à propos de ce réseau",
-    "englishSource": "$network$ — about this network",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "networkModePillNoValue": {
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"

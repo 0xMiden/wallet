@@ -1134,7 +1134,6 @@
   "shareAddressText": "Mój adres Miden $network$ (wyłącznie tokeny testowe): $address$",
   "networkModeBanner": "Korzystasz z Bread na platformie Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — informacje o tej sieci",
   "networkModePillNoValue": "Tokeny nie mają realnej wartości",
   "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",

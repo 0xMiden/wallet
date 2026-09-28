@@ -1134,7 +1134,6 @@
   "shareAddressText": "Mon adresse Miden $network$ (jetons de test uniquement) : $address$",
   "networkModeBanner": "Vous utilisez Bread sur Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — à propos de ce réseau",
   "networkModePillNoValue": "Les jetons n’ont aucune valeur réelle",
   "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",

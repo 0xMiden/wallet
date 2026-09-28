@@ -1134,7 +1134,6 @@
   "shareAddressText": "My Miden $network$ address (test tokens only): $address$",
   "networkModeBanner": "You are using Bread on Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — about this network",
   "networkModePillNoValue": "Tokens have no real value",
   "activityRestoreTransfers": "Restore",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",

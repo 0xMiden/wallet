@@ -1134,7 +1134,6 @@
   "shareAddressText": "我的 Miden $network$ 地址（僅限測試代幣）：$address$",
   "networkModeBanner": "您正在 Miden $network$ 上使用 Bread",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeStripLabel": "$network$ — 關於此網路",
   "networkModePillNoValue": "代幣沒有實際價值",
   "activityRestoreTransfers": "還原",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
