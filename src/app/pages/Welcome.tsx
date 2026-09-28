@@ -212,7 +212,9 @@ const Welcome: FC = () => {
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   // Whether a registration has landed for this attempt. Distinct from `registrationError`,
   // which both outcomes set: the throw and the resolved-but-never-Ready path. Only this tells
-  // them apart, and only this can say whether a wallet may already exist.
+  // them apart, and only this can say whether a wallet may already exist. It lasts as long as the
+  // attempt, so only resetFlowState clears it: a history round trip off Confirmation and back is
+  // the same attempt, and must not re-offer the way back to the file picker.
   const [registrationCommitted, setRegistrationCommitted] = useState(false);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
@@ -271,6 +273,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
+    setRegistrationCommitted(false);
     setGuardianLookupFailure(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
@@ -1078,7 +1081,6 @@ const Welcome: FC = () => {
   useEffect(() => {
     if (step !== OnboardingStep.Confirmation) {
       setRegistrationError(null);
-      setRegistrationCommitted(false);
     }
   }, [step]);
 
