@@ -187,7 +187,7 @@ describe('initiateConsumeNotesTransaction after the extraction', () => {
     expect(id).toBe(failed.id);
   });
 
-  it('still names itself, not the funding entry, when called with no notes', async () => {
+  it('refuses an empty list, naming itself', async () => {
     await expect(initiateConsumeNotesTransaction(ACCOUNT, [])).rejects.toThrow(
       'initiateConsumeNotesTransaction requires at least one note'
     );

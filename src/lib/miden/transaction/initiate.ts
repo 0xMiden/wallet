@@ -178,10 +178,12 @@ export interface RotationFundingClaimOptions {
 /**
  * Queue the everyday-key rotation gate's claim (#805): native notes only, on rows stamped
  * `rotationFunding`, which generation signs with the recovery key. Refuses before any
- * write when the native asset is unknown or a note's `faucetId` is anything else, an
- * early refusal only - a `ConsumableNote` names just its note's first fungible asset, so
- * the actual guarantee that every asset in the row is native is `assertRotationFundingNotesNative`,
- * checked again at generation time.
+ * write when given no notes, the native asset is unknown, or a note's `faucetId` is
+ * anything else - the empty-list and native-asset refusals name this entry, not
+ * `queueConsumeRows`' shared one, and the native-asset refusal is an early refusal only:
+ * a `ConsumableNote` names just its note's first fungible asset, so the actual guarantee
+ * that every asset in the row is native is `assertRotationFundingNotesNative`, checked
+ * again at generation time.
  *
  * Otherwise the shared queue, with isolation on: per-note dedup against every live
  * consume row of the account, flagged or not. Only the #215 backoff differs, counting
@@ -195,6 +197,9 @@ export const initiateRotationFundingClaim = async (
   notes: ConsumableNote[],
   opts: RotationFundingClaimOptions = {}
 ): Promise<string> => {
+  if (notes.length === 0) {
+    throw new Error('initiateRotationFundingClaim requires at least one note');
+  }
   const nativeFaucetId = await getFaucetIdSetting();
   if (!nativeFaucetId) {
     throw new Error('Rotation funding claim refused: the native asset is not known yet');
@@ -260,11 +265,7 @@ const queueConsumeRows = async (
   rotationFunding?: boolean
 ): Promise<string> => {
   if (notes.length === 0) {
-    throw new Error(
-      rotationFunding
-        ? 'initiateRotationFundingClaim requires at least one note'
-        : 'initiateConsumeNotesTransaction requires at least one note'
-    );
+    throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
 
   const { committedId } = await Repo.db.transaction('rw', Repo.transactions, async () => {
