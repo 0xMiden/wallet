@@ -74,6 +74,7 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction
 // SW bundle (both sides' __esmMin wrappers await each other).
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
 import {
+  createGuardianAccount,
   getSignerDetailsFromAccount,
   insertGuardianAccountMonotonically,
   type CreatedGuardianKeys,
@@ -614,21 +615,10 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      // NOTE: Guardian creation never reaches here — Vault.spawn and
-      // createHDAccount always route Guardian to createGuardianMidenWallet
-      // (which threads the picked endpoint). This branch passes no endpoint
-      // override, so fetchGuardianCreateKey resolves the network default (the
-      // frozen global key is no longer consulted for NEW accounts — #408
-      // stage 3). If anything ever routes Guardian through createMidenWallet for
-      // a non-default operator, thread the per-account endpoint here. Every
-      // caller runs createMidenWallet inside a vault hold, so if this branch is
-      // ever reached, all three phases below run inside that hold, and the
-      // guardian waits #1207 keeps off the lock elsewhere would hold it here too.
-      const { fetchGuardianCreateKey, createGuardianAccount, registerGuardianAccount } =
-        await import('../guardian/account');
-      const { account, registration } = await createGuardianAccount(this.client, await fetchGuardianCreateKey(), seed);
-      await registerGuardianAccount(registration);
-      return getBech32AddressFromAccountId(account.id());
+      // Every caller runs this inside a vault hold, and a Guardian creation's guardian calls
+      // run outside one (#1207): a Guardian account is created with createGuardianMidenWallet,
+      // whose callers fetch the key before their hold and register after it.
+      throw new Error('A Guardian account is created with createGuardianMidenWallet, not createMidenWallet');
     }
 
     const isPublic = walletType === WalletType.OnChain;
@@ -659,7 +649,6 @@ export class MidenClientInterface {
     createKey: GuardianCreateKey,
     assertLive: AssertLive = noAssertLive
   ): Promise<GuardianAccountCreationResult> {
-    const { createGuardianAccount } = await import('../guardian/account');
     const {
       account,
       keys,

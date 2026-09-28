@@ -1385,6 +1385,46 @@ describe('MidenClientInterface', () => {
       });
     });
 
+    // A Guardian account is created only through createGuardianMidenWallet, whose caller fetches
+    // the key before its hold and registers after it (#1207); createMidenWallet runs inside a hold.
+    it('createMidenWallet refuses a Guardian wallet type, fetching no guardian key and building no account', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const fetchGuardianCreateKey = jest.fn(async () => ({
+        guardianEndpoint: 'https://default-guardian.example',
+        guardianCommitment: 'c',
+        rateLimitBudgetLeftMs: 90_000
+      }));
+      const createGuardianAccount = jest.fn(async () => ({
+        account: { id: () => ({ toString: () => 'guardian-id' }) },
+        registration: { stateBase64: 'state' }
+      }));
+
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: unknown) => String(id) }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        fetchGuardianCreateKey,
+        createGuardianAccount,
+        registerGuardianAccount: jest.fn(async () => {}),
+        getSignerDetailsFromAccount: jest.fn()
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { WalletType } = await import('screens/onboarding/types');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as never, 'testnet');
+
+      await expect(client.createMidenWallet(WalletType.Guardian, new Uint8Array([9]))).rejects.toThrow(
+        'createGuardianMidenWallet'
+      );
+      expect(fetchGuardianCreateKey).not.toHaveBeenCalled();
+      expect(createGuardianAccount).not.toHaveBeenCalled();
+      expect(fakeMidenClient.accounts.create).not.toHaveBeenCalled();
+    });
+
     // Shared by the two recovery cases below: two matches at HD index 0, then misses until the gap
     // limit ends the scan (a hold per match is two holds; one hoisted around the index's matches
     // would be one). The lock mock counts holds and records labels; the adoption and the key insert
