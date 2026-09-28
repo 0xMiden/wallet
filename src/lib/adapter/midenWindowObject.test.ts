@@ -1,3 +1,5 @@
+import { PrivateDataPermission, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+
 import * as client from 'lib/adapter/client';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 
@@ -327,7 +329,7 @@ describe('MidenWindowObject', () => {
         expect(obj.publicKey).toBeUndefined();
       });
 
-      it('ignores the first check echoing the account just connected', async () => {
+      it('ignores a permission for the account it already holds', async () => {
         const { obj, fire } = await connectCapturing();
         const spy = jest.fn();
         obj.on('accountChange', spy);
@@ -407,6 +409,15 @@ describe('MidenWindowObject', () => {
         await obj.connect('None' as any, 'testnet' as any);
         expect(firstStop).toHaveBeenCalledTimes(1);
         expect(secondStop).not.toHaveBeenCalled();
+      });
+
+      it('starts the watch from the permission it connected with, on every connect (#1227)', async () => {
+        const { obj } = await connectCapturing();
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), permission);
+        const next = { ...permission, address: 'mtst1qnext' };
+        mockClient.requestPermission.mockResolvedValue(next);
+        await obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), next);
       });
     });
   });

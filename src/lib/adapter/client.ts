@@ -64,16 +64,20 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
   return () => clearTimeout(t);
 }
 
-export function onPermissionChange(callback: (permission: MidenDAppCurrentPermission) => void) {
+// A provider passes the permission it connected with, so a first check that finds no grant is a change (#1227).
+export function onPermissionChange(
+  callback: (permission: MidenDAppCurrentPermission) => void,
+  connected: MidenDAppPermission = null
+) {
   let t: any;
-  let currentPerm: MidenDAppCurrentPermission = null;
+  let currentPerm: MidenDAppCurrentPermission = connected;
   // The clear function cannot cancel a check already awaiting its answer, so a
   // disconnect would otherwise be undone by that answer repopulating the window object (#174).
   let stopped = false;
   const check = async () => {
     try {
       const perm = await getCurrentPermission();
-      if (!stopped && !permissionsAreEqual(perm, currentPerm)) {
+      if (!stopped && !sameAccount(perm, currentPerm)) {
         // Recorded first, so a callback that throws cannot freeze the baseline and hide a switch back.
         currentPerm = perm;
         callback(perm);
@@ -264,9 +268,10 @@ function request(payload: MidenDAppRequest) {
   });
 }
 
-function permissionsAreEqual(aPerm: MidenDAppPermission, bPerm: MidenDAppPermission) {
+// Only the account is compared: connect names the network by chain id and the poll by RPC URL (#1227).
+function sameAccount(aPerm: MidenDAppPermission, bPerm: MidenDAppPermission) {
   if (aPerm === null) return bPerm === null;
-  return aPerm.address === bPerm?.address && aPerm.rpc === bPerm?.rpc;
+  return aPerm.address === bPerm?.address;
 }
 
 function createError(payload: any) {
