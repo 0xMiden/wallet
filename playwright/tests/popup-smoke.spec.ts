@@ -1,6 +1,7 @@
 import type { BrowserContext } from '@playwright/test';
 
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
@@ -183,20 +184,17 @@ test.describe('Fullpage UI', () => {
     await page.getByText(/import public account/i).click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Confirmation: the "Your Wallet is ready" heading is split by <Trans>, so
-    // assert the container testid instead of the text.
-    await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
-
-    // Complete onboarding. Recovery now hands off to the Chrome side panel just
-    // like first-run create (#428): the wallet becomes Ready in the background and
-    // the "Open wallet" handoff screen appears (rather than the classic in-tab
+    // Complete onboarding. Recovery hands off to the Chrome side panel just like
+    // first-run create (#428), and registers as soon as Confirmation appears, so
+    // there is no tap (#1097): the wallet becomes Ready in the background and the
+    // "Open wallet" handoff screen appears (rather than the classic in-tab
     // Explore page). The in-tab path still applies to non-extension / E2E builds
     // and is covered by the Welcome/ForgotPassword unit tests.
-    await page.getByTestId('onboarding-confirmation-submit').click();
+    await passImportConfirmation(page, 30000);
 
     // …by way of the one-time telemetry consent prompt, which this profile has
-    // never answered. Raced against the handoff screen because the click above
-    // only starts `register()`; see `dismissTelemetryConsent`.
+    // never answered. Raced against the handoff screen because a tapped
+    // Confirmation only starts `register()`; see `dismissTelemetryConsent`.
     const handoff = page.locator(HANDOFF_SELECTOR);
     await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
 

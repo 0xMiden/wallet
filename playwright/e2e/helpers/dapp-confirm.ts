@@ -19,6 +19,7 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 import { acknowledgeNetworkNotice } from './network-notice';
+import { passImportConfirmation } from './onboarding-confirmation';
 import { dismissTelemetryConsent } from './telemetry-consent';
 
 /**
@@ -187,10 +188,9 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
-  await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
-  await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
+  await passImportConfirmation(page, timeoutMs);
 
-  // The submit above only DISPATCHES the click; `register()` then runs for as
+  // A Confirmation tap only DISPATCHES the click; `register()` then runs for as
   // long as the mock client needs, and only afterwards does the flow route to
   // the consent prompt. So the handoff screen is the other half of the race —
   // without it a short poll for the prompt would usually win the race against

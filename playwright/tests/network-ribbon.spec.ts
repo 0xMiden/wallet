@@ -1,6 +1,7 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
@@ -38,7 +39,7 @@ async function importWallet(extensionContext: BrowserContext, extensionId: strin
   await page.getByTestId('import-recovery-method').waitFor({ timeout: 15_000 });
   await page.getByText(/import public account/i).click();
   await page.getByRole('button', { name: /continue/i }).click();
-  await page.getByTestId('onboarding-confirmation-submit').click({ timeout: 30_000 });
+  await passImportConfirmation(page, 30_000);
   // Onboarding gained a consent screen between the confirmation and the handoff, so this
   // driver has to clear it before waiting for a post-onboarding surface.
   await dismissTelemetryConsent(page, { timeoutMs: 30_000 });
@@ -90,11 +91,11 @@ test.describe('Network corner ribbon', () => {
       // Itemised so a stuck step reports its own diagnostic instead of a bare "Test timeout"
       // (reveal-seed-phrase.spec.ts does the same): fresh_install loop 5s; importWallet's welcome
       // 30s + notice 30s (wait, then click) + select-type 15s + seed-phrase 15s + create-password
-      // 10s + recovery-method 15s + confirmation-submit 30s + telemetry-consent 40s (wait, decline,
-      // detach) + open-wallet 30s = 215s; openPopup's two 30s waits = 60s; banner 10s +
-      // ribbon-in-corner 10s + sheet CTA 15s + CTA text 10s + aria-expanded-true 10s + poll
-      // ctaBottom 5s + poll lastRow 10s + sheet-closed 10s + aria-expanded-false 10s = 90s;
-      // total 370s.
+      // 10s + recovery-method 15s + confirmation 40s (wait 30s, tap 10s when shown) +
+      // telemetry-consent 40s (wait, decline, detach) + open-wallet 30s = 225s; openPopup's two 30s
+      // waits = 60s; banner 10s + ribbon-in-corner 10s + sheet CTA 15s + CTA text 10s +
+      // aria-expanded-true 10s + poll ctaBottom 5s + poll lastRow 10s + sheet-closed 10s +
+      // aria-expanded-false 10s = 90s; total 380s.
       test.setTimeout(390_000);
 
       // Start as a returning user: the one-time "Pin Bread" tooltip (fixed, z-9999, top-right) can
