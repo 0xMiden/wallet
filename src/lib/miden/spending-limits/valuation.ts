@@ -25,12 +25,12 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
 /**
  * What this transaction is worth, in micro-dollars.
  *
- * Order matters: identify the asset FIRST, then ask whether the feed covers it. An asset the
- * wallet cannot identify at all - `fetchTokenMetadata` returned the `Unknown` placeholder, which
- * it caches indefinitely once seen - raises rather than falling through to the coverage check,
- * where the placeholder's own symbol ('Unknown') would read as an ordinary uncovered asset and be
- * counted as zero. Accepted consequence: a token the wallet can never identify is always
- * challenged (step-up is available) on a limited account, rather than silently uncapped.
+ * Coverage is decided by faucet id through the allowlist (`priceSymbolFor`), never by the symbol a
+ * faucet reports for itself (#1131); the one exception is the E2E fixture symbol, in
+ * `MIDEN_E2E_TEST` builds. Identification still runs FIRST: an allowlisted faucet is valued only
+ * with trustworthy decimals, and a faucet the wallet cannot identify at all (`fetchTokenMetadata`
+ * failed or returned its cached `Unknown` placeholder) is challenged on a limited account (step-up
+ * is available) rather than assumed uncovered, keeping fail-closed the default.
  *
  * Once identified, an asset the feed does not cover contributes nothing, which is the product
  * decision: only priced assets are capped. An asset it DOES cover must be valued or the
