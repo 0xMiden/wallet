@@ -16,9 +16,11 @@
 // the prove worker's instance during a burst of local proves and 60 s after.
 //
 // Message protocol (chrome.runtime), two families sharing this one doc/channel:
-//   OFFSCREEN_PROVE (unchanged):
+//   OFFSCREEN_PROVE (proved in the prove worker, #945):
 //     request:  { target: "offscreen", type: "OFFSCREEN_PROVE",
 //                 txResultB64: string, proverDescriptor: string | null }
+//               null or "local" proves locally; any other string answers
+//               { ok: false, error: "unsupported prover descriptor" }
 //     response: { ok: true, provenB64: string, durationMs: number }
 //             | { ok: false, error: string }
 //   OFFSCREEN_CALL (issue #260 — generalized WASM-client method dispatch):
