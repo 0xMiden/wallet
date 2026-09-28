@@ -504,20 +504,57 @@ const Welcome: FC = () => {
     guardianEndpoint
   ]);
 
-  // Side panel handoff: kick off wallet creation as soon as the confirmation
-  // screen is reached (the screen shows a spinner), so the wallet is Ready by
-  // the time the user clicks "Open wallet". Scoped to the Create flow only:
+  // One failure path for the auto-register effect and the Confirmation tap, so they cannot drift. Returns whether
+  // it handed the failure to the recovery-method screen.
+  const routeRegistrationFailure = useCallback(
+    (error: unknown): boolean => {
+      settleOnboardingFlow(handle => handle.fail(classifyError(error)));
+      // Surface it for every path; most used to show nothing. The Guardian import
+      // branch below hands off to the recovery-method screen, which retires this
+      // message on arrival.
+      const failure = errorToMessage(error) ?? t('smthWentWrong');
+      setRegistrationError(failure);
+      if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
+        // The page change clears registrationError, so the screen gets its own copy of the reason.
+        let lookupFailure: string;
+        if (isGuardianNotFound(error)) {
+          // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
+          // copy suggests a public import, which a pasted key cannot use (the screen hides it).
+          lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
+        } else if (isLikelyNetworkError(error)) {
+          // A raw "Failed to fetch" / RPC timeout message is not translated; show the
+          // operator-unreachable notice instead.
+          lookupFailure = t('guardianUrlUnreachable');
+        } else {
+          lookupFailure = failure;
+        }
+        setGuardianLookupFailure(lookupFailure);
+        navigate('/#import-select-recovery-method');
+        return true;
+      }
+      return false;
+    },
+    [onboardingType, walletFilePayload, walletType, keyPairPayload, settleOnboardingFlow, t]
+  );
+
+  // Side panel handoff: register the wallet as soon as the confirmation screen
+  // is reached (the screen shows a spinner), so it is Ready by the time the
+  // user clicks "Open wallet". A create and a recovery-phrase import take this
+  // path; the rest keep the classic tap:
   //   - the hardware/biometric path must prompt biometrics on an explicit tap,
   //     not on arrival;
-  //   - import flows are excluded because guardian lookup can fail and needs
-  //     the in-tab retry UI — imports keep the classic in-tab flow.
-  // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
+  //   - a wallet-file restore and a key-pair import keep it too. A key-pair
+  //     import holds no recovery phrase, but a file restore carries the file's
+  //     own, so the seedPhrase guard alone would let it through.
+  // A Guardian recovery whose lookup fails is sent back to its recovery method,
+  // whose resubmit resets confirmPhase, so it registers here again.
+  // The `confirmPhase !== 'idle'` guard makes this fire at most once per visit even though
   // `register` is (correctly) in the dependency array.
   useEffect(() => {
     if (!sidePanelHandoff) return;
     if (step !== OnboardingStep.Confirmation) return;
     if (confirmPhase !== 'idle') return;
-    if (onboardingType !== OnboardingType.Create) return;
+    if (walletFilePayload) return;
     if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
     // A tap can start an attempt between this screen's commit and this effect: leave the visit to that attempt,
     // which is the classic tap flow, rather than start a second one.
@@ -547,8 +584,7 @@ const Welcome: FC = () => {
         // the spinner stops either way, and without this the screen goes quiet
         // and the user has no reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
-        settleOnboardingFlow(handle => handle.fail(classifyError(error)));
-        setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
+        routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
         finishMark.release();
@@ -556,7 +592,17 @@ const Welcome: FC = () => {
         setIsLoading(false);
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow, t]);
+  }, [
+    sidePanelHandoff,
+    step,
+    confirmPhase,
+    walletFilePayload,
+    password,
+    seedPhrase,
+    register,
+    settleOnboardingFlow,
+    routeRegistrationFailure
+  ]);
 
   const onAction = async (action: OnboardingAction) => {
     // A running confirmation attempt holds onboarding where it is (see attemptInFlightRef).
@@ -775,13 +821,18 @@ const Welcome: FC = () => {
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
         setGuardianLookupFailure(null);
+        // Arms the auto-register for this resubmit. A routed Guardian failure leaves confirmPhase failed rather than
+        // resetting it, since a reset there would re-fire the effect before the route leaves Confirmation.
+        setConfirmPhase('idle');
         navigate('/#confirmation');
         break;
       case 'confirmation': {
-        // Side panel handoff (Chrome) creates the wallet in the auto-create
-        // effect above and navigates to /finish-side-panel, so this click only
-        // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
-        // after a failed auto-create. It creates the wallet then enters in-tab.
+        // Side panel handoff (Chrome) registers a create or a recovery-phrase
+        // import in the auto-register effect above and navigates to
+        // /finish-side-panel, so this click only runs in the classic flow:
+        // non-Chrome, hardware/biometric, a wallet-file or key-pair import, or
+        // a retry after a failed auto-register. It registers the wallet, then
+        // waits for Ready before moving on.
         attemptInFlightRef.current = true;
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
@@ -805,36 +856,14 @@ const Welcome: FC = () => {
             break;
           }
           settleOnboardingFlow(handle => handle.complete());
-          // Recovery/import completes in this classic handler (the Create flow
-          // takes the auto-create effect above). Hand off to the side panel just
-          // like Create does, instead of always entering in-tab (#428).
+          // A tapped import or retry hands off to the side panel just like the
+          // auto-register effect does, instead of always entering in-tab (#428).
           navigate(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          settleOnboardingFlow(handle => handle.fail(classifyError(error)));
-          // Surface it for every path; most used to show nothing. The Guardian import
-          // branch below hands off to the recovery-method screen, which retires this
-          // message on arrival, and the hardware-only branch adds its attempt count.
-          const failure = errorToMessage(error) ?? t('smthWentWrong');
-          setRegistrationError(failure);
-          if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
-            // The page change clears registrationError, so the screen gets its own copy of the reason.
-            let lookupFailure: string;
-            if (isGuardianNotFound(error)) {
-              // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
-              // copy suggests a public import, which a pasted key cannot use (the screen hides it).
-              lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
-            } else if (isLikelyNetworkError(error)) {
-              // A raw "Failed to fetch" / RPC timeout message is not translated; show the
-              // operator-unreachable notice instead.
-              lookupFailure = t('guardianUrlUnreachable');
-            } else {
-              lookupFailure = failure;
-            }
-            setGuardianLookupFailure(lookupFailure);
-            navigate('/#import-select-recovery-method');
-          } else if (password === '__HARDWARE_ONLY__') {
+          // A failure the routine leaves on this screen: the hardware-only path adds its attempt count.
+          if (!routeRegistrationFailure(error) && password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
             const newAttempts = biometricAttempts + 1;
             setBiometricAttempts(newAttempts);
