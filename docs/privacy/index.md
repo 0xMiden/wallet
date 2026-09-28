@@ -5,7 +5,7 @@ permalink: /privacy/
 
 # Bread Wallet by Miden — Privacy Policy
 
-_Last updated: 2026-08-21_
+_Last updated: 2026-09-28_
 
 Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
@@ -150,7 +150,9 @@ Biometric matching is performed entirely by your device's operating system insid
 
 ## Network traffic
 
-The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) — never your private keys or recovery phrase.
+The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
+
+It also downloads public data that carries nothing about you: Miden's verified-token list and update notices from GitHub (`raw.githubusercontent.com`), and token prices from Binance.
 
 If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
 
