@@ -953,13 +953,13 @@ describe('earnWithdrawAmountFields', () => {
 
   // This branch exists BECAUSE the received leg is denominated in the
   // destination faucet's asset, so its decimals are the whole point. Without
-  // them there is no scale to apply — `formatAmount`'s own default is a
-  // statement about a different token. The asset is still named from the
-  // recorded output symbol, so the row says what landed, just not how much.
+  // them there is no scale to apply: `formatAmount`'s own default is a
+  // statement about a different token. Nor is there a name: the stored output
+  // symbol is the bridged note's source token, not the asset that arrived.
   it('withholds the amount when the destination faucet never resolved', () => {
-    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'USDC' }, 100n, undefined)).toEqual({
       amount: undefined,
-      token: 'MDN'
+      token: undefined
     });
   });
 

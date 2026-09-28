@@ -291,7 +291,7 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
   });
 
-  // Earn delivers to the Miden USDC faucet, which only the store resolves; without that read the arrow stays on Miden.
+  // A delivered faucet other than the native one resolves only from the store; without it the arrow stays on Miden.
   it('reads a delivered non-native faucet from the store once received', () => {
     mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
     mockRowState = {

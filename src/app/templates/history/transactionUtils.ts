@@ -348,9 +348,11 @@ export const earnWithdrawAmountFields = (
       // The whole point of this branch is that the received leg is denominated
       // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
       // that faucet never resolved, scaling by the placeholder's guess reports a
-      // withdrawal the user did not receive; the asset is still named.
+      // withdrawal the user did not receive. The token is that faucet's own
+      // symbol, a placeholder's included; the stored output symbol is the bridged
+      // note's source token (the EVM side), so it never names what arrived.
       amount: creditedAmount(rowAmount, destinationMetadata),
-      token: destinationMetadata?.symbol ?? extra.outputSymbol
+      token: destinationMetadata?.symbol
     };
   }
   return { amount: formatMoneyAmount(extra.sourceAmount, 'receives', extra.sourceSymbol), token: extra.sourceSymbol };

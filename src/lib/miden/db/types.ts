@@ -266,7 +266,9 @@ export interface IEarnWithdrawExtraInputs {
   midenNoteId?: string;
   /** actual bridged amount; nothing writes it today (the row's own `amount` records what landed). */
   outputAmount?: string;
-  /** destination token symbol of the consumed note. */
+  /**
+   * the bridged note's source token symbol (the EVM side), recorded when the note is consumed; not the delivered asset.
+   */
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;

@@ -3040,6 +3040,16 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(document.body.textContent).not.toContain('10.5');
   });
 
+  // The stored output symbol is the bridged note's source token, so it names no credit whose faucet never resolved.
+  it('names no asset for a received withdrawal whose delivered faucet never resolved', async () => {
+    mockGetTokenMetadata.mockResolvedValue(undefined);
+    setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'USDC' }, { amount: 999n }));
+    await renderAndLoad();
+
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(document.body.textContent).not.toContain('USDC');
+  });
+
   // The amount is already formatted by `earnWithdrawAmountFields`; the hero's 3-decimal pass would
   // round 0.0012 to 0.001, so the detail and the Activity row would disagree.
   it('shows the withdrawal amount as its helper formatted it, not re-rounded', async () => {
