@@ -24,9 +24,8 @@ it('shows the failure notice with an enabled Retry that calls onRetry', () => {
   expect(onRetry).toHaveBeenCalledTimes(1);
 });
 
-// #1241: every screen test resolves its retry probe in one pass, so nothing exercises the button
-// while its own attempt is in flight. A retry has to keep the notice up and the button disabled and
-// loading until that attempt settles, or a second click could fire a second probe underneath it.
+// #1241: a retry has to keep the notice up and the button disabled and loading until that attempt
+// settles, or a second click could fire a second probe underneath it.
 it('keeps the notice up and disables Retry with aria-busy while a retry is in flight', () => {
   render(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying />);
 
