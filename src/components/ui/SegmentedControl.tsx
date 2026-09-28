@@ -176,7 +176,11 @@ export function SegmentedControl<T extends string>({
   // at once: no slide, no pop, no smooth scroll.
   const swap = useTabShownAgain();
   const rowRef = useRef<HTMLDivElement>(null);
-  const selectedIndex = items.findIndex(item => item.id === value);
+  // A disabled item is not the answer while another can be chosen, so the radio, the bubble, the tab
+  // stop and the keyboard all read this one index. With nothing choosable the control is disabled as
+  // a whole (read-only Developer Settings, a swap being submitted) and still shows its value.
+  const choosable = items.some(item => !item.disabled);
+  const selectedIndex = items.findIndex(item => item.id === value && !(choosable && item.disabled));
   // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
@@ -219,17 +223,13 @@ export function SegmentedControl<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    const from =
-      current >= 0
-        ? current
-        : Math.max(
-            0,
-            enabled.findIndex(({ item }) => item.id === value)
-          );
+    // No focus and no choosable selection is no origin, so either arrow lands on the first enabled
+    // item. Clamping the -1 to 0 made the first arrow land on the SECOND.
+    const from = current >= 0 ? current : enabled.findIndex(({ item }) => item.id === value);
 
     let to: number;
-    if (NEXT_KEYS.has(event.key)) to = (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = (from - 1 + enabled.length) % enabled.length;
+    if (NEXT_KEYS.has(event.key)) to = from < 0 ? 0 : (from + 1) % enabled.length;
+    else if (PREV_KEYS.has(event.key)) to = from < 0 ? 0 : (from - 1 + enabled.length) % enabled.length;
     else if (event.key === 'Home') to = 0;
     else if (event.key === 'End') to = enabled.length - 1;
     else return;
@@ -255,15 +255,15 @@ export function SegmentedControl<T extends string>({
       className={cn(container({ layout }), className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
-          control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
-          decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
+          control, so two mounted controls never trade bubbles. Controlled and click-free: the
+          selection decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
           absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
           cover the item's border and match the outlined pills beside it edge for edge. The bottom
           nav's bubble in every respect but its fill, the accent tint; shadow, pressed shadow and
           spring are the shared ones. */}
       <Highlight
         controlledItems
-        value={value}
+        value={selectedIndex >= 0 ? value : null}
         click={false}
         exitDelay={0}
         transition={swap ? tabBarSwap : motionTokens.highlight}

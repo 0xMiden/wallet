@@ -149,14 +149,14 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  *
  * The chosen card takes an inset `accent` ring and the mark fills with a check. Not the raised
  * bubble: raised is for compact toggles, and cards stay flat (design-system.md, "Elevation"). The
- * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way,
- * with two deliberate exceptions: a `value` naming a disabled option reports nothing selected here
- * (the twin still reports it checked), and with nothing selected the first arrow key lands on the
- * first option rather than the second. Both are the twin's unfixed defects, not a design split:
- * a `radiogroup` of `radio`s, only the chosen (or first choosable) option in the tab order, arrow
- * keys and Home/End moving focus and the choice together, one selection haptic per real change and
- * none for a tap on the chosen card, a press that dips on the tab-bar spring and a check that pops
- * as it lands. Under reduced motion nothing scales or pops.
+ * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way:
+ * a `radiogroup` of `radio`s, a `value` naming a disabled option reported as no selection, only the
+ * chosen (or first choosable) option in the tab order, arrow keys and Home/End moving focus and the
+ * choice together (the first arrow landing on the first option when nothing is chosen), one
+ * selection haptic per real change and none for a tap on the chosen card, a press that dips on the
+ * tab-bar spring and a check that pops as it lands. Under reduced motion nothing scales or pops.
+ * One split, by design: with every option disabled the twin, disabled as a whole, still shows its
+ * value, while a card group with nothing to choose shows nothing chosen.
  */
 export function ChoiceCardGroup<T extends string>({
   items,
@@ -202,11 +202,7 @@ export function ChoiceCardGroup<T extends string>({
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
     // With nothing focused and nothing selected there is no origin, so the first arrow key must land
     // on the first enabled option. Clamping a -1 to 0 would make it land on the SECOND: 0 reads as
-    // "the first option is the origin", and the key then moves off it. SegmentedControl's copy of
-    // this engine still clamps, and it IS reachable there - through a value naming a disabled
-    // segment, or one naming no item at all, since its prop is not constrained to its items. That is
-    // left alone deliberately: it belongs to a cluster already merged, and is recorded for a routing
-    // decision rather than fixed in passing.
+    // "the first option is the origin", and the key then moves off it.
     const selectedAmongEnabled = enabled.findIndex(({ item }) => item.id === value);
     const from = current >= 0 ? current : selectedAmongEnabled;
 
