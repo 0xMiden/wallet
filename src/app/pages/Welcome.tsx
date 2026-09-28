@@ -579,11 +579,11 @@ const Welcome: FC = () => {
         // off screen by the finishing mark.
         navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
-        // Fall back to the classic click-to-create flow: the confirmation
-        // button reverts to running register() in-tab on the next tap. Say so —
-        // the spinner stops either way, and without this the screen goes quiet
-        // and the user has no reason to believe a second tap would help.
-        console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        // A Guardian recovery goes back to its recovery method, which shows the failure, and its resubmit registers
+        // here again. A create or a public or private recovery stays on this screen and shows the failure, and its
+        // next tap retries in the tab. The spinner stops either way, so the failure is said: a quiet screen gives no
+        // reason to believe a second tap would help.
+        console.error('[Welcome] Side panel handoff auto-register failed:', error);
         routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
