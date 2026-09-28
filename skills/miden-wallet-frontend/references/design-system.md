@@ -276,7 +276,6 @@ segmented control's thumb and a raised bubble.
 | --- | --- | --- | --- |
 | `raised` (surface) + `shadow-raised` | white, 1px ring at 6%, 0 1 2 / 6% + 0 2 8 / 8% drop | `fill`, lit 1px top edge, 1px ring at 6%, a tight dark drop | The active bubble of an interactive toggle: the top action bar's pill, the bottom nav's highlight and a segmented control's selection. One class string, `raisedBubbleClassName` (`components/ui/animate/raised-bubble`), draws all three. |
 | `shadow-raised-pressed` | ring + 0 1 1 / 5% | ring + a dimmer top edge | The same bubble while pressed (with the press scale): it sinks. |
-| `shadow-ribbon` | 0 1 2 / 18% + 0 2 6 / 12% | same | The test-network corner ribbon, so it reads as wrapping over the bar. |
 
 Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 

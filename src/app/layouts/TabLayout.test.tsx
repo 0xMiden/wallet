@@ -141,14 +141,13 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked, clearInset, corner }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, clearInset }: any) => (
     <div
       data-testid="bottom-nav"
       data-active={activeId}
       data-docked={String(!!docked)}
       data-clear-inset={String(!!clearInset)}
     >
-      <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -387,15 +386,6 @@ describe('TabLayout — tabs list composition', () => {
 });
 
 describe('TabLayout — test network', () => {
-  it.each([
-    ['mobile (docked)', true],
-    ['extension/desktop (floating)', false]
-  ])('draws nothing in the bottom nav’s corner on %s', (_label, mobile) => {
-    mockPlatform.isMobile = mobile;
-    renderLayout();
-    expect(screen.getByTestId('bottom-nav-corner')).toBeEmptyDOMElement();
-  });
-
   it('shows no banner above the tabs', () => {
     renderLayout();
     expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();

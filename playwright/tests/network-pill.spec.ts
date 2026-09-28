@@ -116,7 +116,7 @@ test.describe('Network pill', () => {
       // No banner tops the wallet any more.
       await expect(page.getByTestId('network-mode-banner')).toHaveCount(0);
 
-      // The pill sits above the balance card, edge to edge with it, and is gone from the tab bar.
+      // The pill sits above the balance card, edge to edge with it.
       const pill = page.getByTestId('network-mode-pill');
       const pillBox = (await pill.boundingBox())!;
       const cardLabelBox = (await page.getByTestId('balance-card-label').boundingBox())!;
@@ -124,7 +124,6 @@ test.describe('Network pill', () => {
       expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(cardLabelBox.y);
       expect(pillBox.x).toBeCloseTo(cardFooterBox.x, 0);
       expect(pillBox.width).toBeCloseTo(cardFooterBox.width, 0);
-      await expect(page.locator('[data-tabbar-footer] [data-slot="bottom-nav-corner"]')).toHaveCount(0);
 
       await pill.click();
       // A test id, not a role: DrawerHeader carries its own close button.
