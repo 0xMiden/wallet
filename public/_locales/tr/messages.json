@@ -1820,6 +1820,22 @@
     "message": "Fonlarınız hazır",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Daha önceki bir istek hâlâ gelebilir.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Tekrar isteyelim mi?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Daha önceki talebiniz hâlâ gelmiş olabilir. Tekrar talepte bulunursanız cüzdanınıza iki kez para yatırılabilir.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Tekrar isteyin",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Hesap kurtarma algılandı",
     "englishSource": "Account recovery detected"

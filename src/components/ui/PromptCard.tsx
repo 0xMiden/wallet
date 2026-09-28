@@ -42,6 +42,8 @@ export interface PromptCardProps {
    * The card action. Keyboard focus stays in the card when this swaps in a hero only
    * if the hero is scheduled before the handler's first await: the render it causes
    * is committed synchronously, and a later one no longer knows the tap moved focus.
+   * The one exception is a confirm sheet the action asks first: the card is that
+   * sheet's focus fallback once the hero has replaced the button (AlertSheet).
    */
   onClick?: () => void;
   actionLabel?: string;
@@ -242,6 +244,7 @@ export const PromptCard: FC<PromptCardProps> = ({
         data-testid={testId}
         // Focusable while a hero holds the card, as the place focus stays, and until focus leaves.
         tabIndex={heroShown || holdsFocus ? -1 : undefined}
+        data-focus-fallback
         onFocus={event => {
           if (event.target === event.currentTarget) setHoldsFocus(true);
         }}
