@@ -354,7 +354,8 @@
             network: this.network,
           });
         } finally {
-          // A connect answered while this request waited set the fields cleared here, so its watch stops with them.
+          // A connect begun after this call is answered first only if this request was dropped; its timeout
+          // then ends that connection too, so the watch stops with the fields.
           stopPermissionWatch();
           const connected = !!this.address;
           this.address = undefined;
