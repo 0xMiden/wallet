@@ -98,6 +98,12 @@ export const FEE_RESERVE_MULTIPLE = 30;
  */
 export const CLAIM_COST_FEE_MULTIPLE = FEE_RESERVE_MULTIPLE;
 
+/**
+ * What a seed-recovered account is asked to receive before its everyday key can be
+ * activated (#805): one claim and one rotation, each bounded by the reserve above.
+ */
+export const ROTATION_FUNDING_MIN_FEE_MULTIPLE = 2 * FEE_RESERVE_MULTIPLE;
+
 export function maxSendableNative(balance: number, verificationBaseFee: number | null, decimals: number): number {
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return balance;

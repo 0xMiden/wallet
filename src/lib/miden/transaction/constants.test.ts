@@ -3,8 +3,15 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
   GUARDIAN_UNREACHABLE_ERROR,
+  isGuardianOutage,
   isProverProcedureMismatch,
+  isVaultShortfallError,
+  isVaultShortfallRow,
   resolveTransactionErrorMessage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
@@ -15,6 +22,7 @@ import {
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_STUCK_ERROR
 } from './constants';
+import { ITransaction, ITransactionStatus } from '../db/types';
 
 // The real native-prover error captured in #487.
 const MISSING_PROCEDURE =
@@ -209,5 +217,93 @@ describe('fee failures', () => {
     const message = resolveTransactionErrorMessage(err);
     expect(message).not.toMatch(/receive some miden/i);
     expect(message).not.toMatch(/not enough/i);
+  });
+});
+
+describe('the vault shortfall by its kernel code (#805)', () => {
+  // What an unfunded account's rotation failed with on a fee-charging chain: the code, no text.
+  const codeOnly = 'assertion failed with error code: 644413868907058392';
+
+  it('maps the code-only kernel line to the vault-shortfall copy', () => {
+    expect(isVaultShortfallError(codeOnly)).toBe(true);
+    expect(resolveTransactionErrorMessage(new Error(codeOnly))).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it('reads the code-only line in a guardian 5xx as the shortfall, not an outage to retry (#779)', () => {
+    const in5xx = Object.assign(new Error(codeOnly), { status: 500 });
+    expect(isGuardianOutage(in5xx)).toBe(false);
+    expect(resolveTransactionErrorMessage(in5xx, 'creating-proposal')).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it('keeps the conversion-info reading when a line carries both codes', () => {
+    const both = new Error('assertion failed with error code: 14712559985122731094, then 644413868907058392');
+    expect(resolveTransactionErrorMessage(both)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+
+  it('does not read another kernel code as a shortfall', () => {
+    expect(isVaultShortfallError('assertion failed with error code: 9876543210')).toBe(false);
+  });
+});
+
+describe('isVaultShortfallRow', () => {
+  type RowShape = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError'>;
+  const failedRotation: RowShape = { type: 'replace-hot-key', status: ITransactionStatus.Failed };
+
+  it('is true for a failed rotation classified as a vault shortfall', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, error: TRANSACTION_VAULT_SHORTFALL_ERROR })).toBe(true);
+  });
+
+  it('is true for a failed rotation an older build left with the raw code-only line', () => {
+    expect(
+      isVaultShortfallRow({ ...failedRotation, error: 'assertion failed with error code: 644413868907058392' })
+    ).toBe(true);
+  });
+
+  it('reads the raw error when the display message was rewritten', () => {
+    const row: RowShape = {
+      ...failedRotation,
+      error: 'Something else',
+      rawError: 'Error: assertion failed with error code: 644413868907058392'
+    };
+    expect(isVaultShortfallRow(row)).toBe(true);
+  });
+
+  it('is false for a rotation that failed for another reason', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, error: 'guardian unreachable' })).toBe(false);
+    expect(isVaultShortfallRow(failedRotation)).toBe(false);
+  });
+
+  it('is false for other types and for a rotation that has not failed', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, type: 'consume', error: TRANSACTION_VAULT_SHORTFALL_ERROR })).toBe(
+      false
+    );
+    expect(
+      isVaultShortfallRow({
+        ...failedRotation,
+        status: ITransactionStatus.Queued,
+        error: TRANSACTION_VAULT_SHORTFALL_ERROR
+      })
+    ).toBe(false);
+  });
+});
+
+describe('RotationGateConsumeRefusal', () => {
+  it.each([ROTATION_PENDING_CONSUME_ERROR, ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, ROTATION_FUNDING_NON_NATIVE_ERROR])(
+    'lands on the row as written: %s',
+    message => {
+      expect(resolveTransactionErrorMessage(new RotationGateConsumeRefusal(message))).toBe(message);
+    }
+  );
+
+  it('keeps its own text at a proving stage and over a shortfall reading', () => {
+    const refusal = new RotationGateConsumeRefusal(
+      'amount of the asset in the vault is less than the amount to remove'
+    );
+    expect(resolveTransactionErrorMessage(refusal, 'proving', true)).toBe(refusal.message);
+  });
+
+  it('is never read as a guardian outage, whatever its text (#779)', () => {
+    // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
+    expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
   });
 });

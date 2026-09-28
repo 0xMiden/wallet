@@ -114,6 +114,10 @@ export interface TransactionRowSnapshot {
   /** Faucet the fee was paid in. Should be the chain's native fee faucet. */
   feeFaucetId?: string;
   displayMessage?: string;
+  /** Unix seconds the row went terminal; with `processingStartedAt` it bounds when the row ran. */
+  completedAt?: number;
+  /** Set on the everyday-key rotation gate's own funding claim (#805). */
+  rotationFunding?: boolean;
 }
 
 /** Anything with a Playwright page and hash navigation — both wallet page objects qualify. */
@@ -164,7 +168,9 @@ export async function readTransactionRows(page: Page): Promise<TransactionRowSna
           // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
           feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
           feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
-          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage)
+          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
+          completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
+          rotationFunding: row.rotationFunding === true ? true : undefined
         }));
       } finally {
         db.close();

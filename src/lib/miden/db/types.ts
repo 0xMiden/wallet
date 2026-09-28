@@ -15,6 +15,10 @@ export enum ITransactionStatus {
   Failed
 }
 
+/** The row can still produce a transaction: it is queued or generating. */
+export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
@@ -424,6 +428,12 @@ export interface ITransaction {
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
   /**
+   * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
+   * (#805). Generation signs such a row with the recovery key after proving every note
+   * native; any other consume for a rotation-pending account is refused. Not indexed.
+   */
+  rotationFunding?: true;
+  /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
    *
@@ -797,6 +807,8 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.rotationFunding`. */
+  rotationFunding?: true;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
