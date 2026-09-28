@@ -107,7 +107,7 @@ describe('useConnectivityState', () => {
     const { result } = renderHook(() => useConnectivityState());
 
     expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, null);
-    expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, {});
+    expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, null);
     expect(result.current.state).toEqual(getConnectivityState());
     expect(result.current.hasAnyIssue).toBe(false);
     expect(typeof result.current.dismiss).toBe('function');
@@ -150,6 +150,20 @@ describe('useConnectivityState', () => {
 
     expect(result.current.state).toBe(storageSnap);
     expect(result.current.hasAnyIssue).toBe(false);
+  });
+
+  it('renders an active mirror entry that carries no since when nothing is dismissed', () => {
+    mockIsExtension.mockReturnValue(true);
+    mockUseStorage.mockImplementation((key: string) =>
+      key === CONNECTIVITY_STATE_KEY
+        ? [{ ...makeSnapshot(), network: { active: true } }, jest.fn()]
+        : [storedDismissedActivations, mockSetStoredDismissedActivations]
+    );
+
+    const { result } = renderHook(() => useConnectivityState());
+
+    expect(result.current.state.network.active).toBe(true);
+    expect(result.current.hasAnyIssue).toBe(true);
   });
 
   it('uses live in-process state off-extension instead of a stale storage snapshot', () => {
@@ -246,24 +260,28 @@ describe('useConnectivityState', () => {
   });
 
   it('shows a later failure after the dismissed episode has recovered', () => {
-    const { result } = renderHook(() => useConnectivityState());
+    // Both activations land in one millisecond and share a since: only the forget on recovery shows the second.
+    const at = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(at);
+    try {
+      const { result } = renderHook(() => useConnectivityState());
 
-    act(() => markConnectivityIssue('network'));
-    act(() => result.current.dismiss('network'));
-    expect(result.current.state.network.active).toBe(false);
+      act(() => markConnectivityIssue('network'));
+      act(() => result.current.dismiss('network'));
+      expect(result.current.state.network.active).toBe(false);
 
-    act(() => resetConnectivityState());
-    act(() => markConnectivityIssue('network'));
+      act(() => resetConnectivityState());
+      act(() => markConnectivityIssue('network'));
 
-    expect(result.current.state.network.active).toBe(true);
+      expect(result.current.state.network.active).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
   });
 
-  it('settles on a fresh profile under the real useStorage contract (regression: fresh-profile render loop)', async () => {
-    // Complements the stable-fallback identity test below by simulating what real useStorage returns on a profile
-    // where nothing has ever been dismissed: the key is absent, so the hook receives `data ?? fallback`, the fallback
-    // object itself, not a closed-over stable stub. The effect that used to loop on an unstable fallback ("Maximum
-    // update depth exceeded") is gone; its replacement returns early when nothing needs forgetting. So this is now a
-    // smoke test for a mount and a rerender on a genuinely fresh profile, not a loop regression guard.
+  it('shows no issue and writes nothing on a fresh profile', async () => {
+    // What real useStorage returns where nothing has ever been dismissed: the key is absent, so the hook receives
+    // `data ?? fallback`, the fallback itself.
     mockUseStorage.mockImplementation((key: string, fallback: unknown) =>
       key === CONNECTIVITY_STATE_KEY ? [null, jest.fn()] : [fallback, mockSetStoredDismissedActivations]
     );
@@ -281,24 +299,6 @@ describe('useConnectivityState', () => {
     const first = result.current.dismiss;
     rerender();
     expect(result.current.dismiss).toBe(first);
-  });
-
-  it('passes a stable dismissed-activations fallback across re-renders (guards the render-loop fix)', () => {
-    // The hook used to pass an inline `{}` fallback to useStorage, a new object every render. Since useStorage
-    // returns `data ?? fallback`, that churned `storedDismissals`'s identity every render while the key was absent,
-    // which churns the cleanup effect's dependency array too (see NO_DISMISSED_ACTIVATIONS above). The fix hoists
-    // the fallback to a module-level constant, so every render MUST pass the same reference. (Reverting to an
-    // inline `{}` makes this test fail; the deep-equality `toHaveBeenCalledWith(..., {})` assertion above does not.)
-    const { rerender } = renderHook(() => useConnectivityState());
-    rerender();
-    rerender();
-
-    const fallbacks = mockUseStorage.mock.calls
-      .filter(call => call[0] === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)
-      .map(call => call[1]);
-
-    expect(fallbacks.length).toBeGreaterThan(1);
-    for (const fallback of fallbacks) expect(fallback).toBe(fallbacks[0]);
   });
 
   it('unsubscribes on unmount so later transitions do not update the hook', () => {
@@ -384,33 +384,6 @@ describe('useConnectivityState', () => {
       expect(stored()).toEqual({ network: 123, node: 123 });
     });
 
-    it('keeps a newer dismissal another window stored when this window sees the old activation recover', async () => {
-      // This window still holds the dismissal of network's old activation (123), which has recovered; another window
-      // has meanwhile stored a dismissal of a newer activation (456).
-      storedDismissedActivations = { network: 123 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 456 };
-      storageSnapshot = makeSnapshot();
-
-      renderHook(() => useConnectivityState());
-      await settle();
-
-      expect(stored()).toEqual({ network: 456 });
-      // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
-      expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
-    });
-
-    it('forgets a recovered dismissal that storage still holds as this window saw it', async () => {
-      storedDismissedActivations = { network: 123 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 123, node: 789 };
-      storageSnapshot = makeSnapshot({ node: true });
-
-      renderHook(() => useConnectivityState());
-      await settle();
-
-      expect(stored()).toEqual({ node: 789 });
-      expect(locks.requests).toContain('turn:miden-connectivity-dismissed-activations');
-    });
-
     it("never replaces another window's dismissal of the activation the mirror shows", async () => {
       // This window still renders network's old activation (123); the mirror and another window's dismissal have moved
       // on to 999.
@@ -436,18 +409,6 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(result.current.state.network.active).toBe(false);
-      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
-    });
-
-    it('does not retry the cleanup write when it fails', async () => {
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
-      storedDismissedActivations = { network: 100 };
-      storageSnapshot = makeSnapshot();
-      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
-
-      renderHook(() => useConnectivityState());
-      await settle();
-
       expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
     });
 
@@ -535,21 +496,6 @@ describe('useConnectivityState', () => {
     expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
       network: getConnectivityState().network.since
     });
-  });
-
-  it('forgets its own recovered dismissal off the extension, where the stored record never re-delivers', async () => {
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => markConnectivityIssue('network'));
-    act(() => result.current.dismiss('network'));
-    await settle();
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      network: getConnectivityState().network.since
-    });
-
-    act(() => resetConnectivityState());
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({});
   });
 
   it.each([

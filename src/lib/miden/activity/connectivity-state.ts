@@ -458,7 +458,7 @@ export function applyConnectivityReport(category: ConnectivityCategory, active: 
  * malformed entry would put a value the banner has to render into `current` and then
  * write it straight back out.
  */
-export function isCategoryState(value: unknown): value is CategoryState {
+function isCategoryState(value: unknown): value is CategoryState {
   if (typeof value !== 'object' || value === null) return false;
   if (!('active' in value) || !('since' in value)) return false;
   const { active, since } = value;
@@ -468,7 +468,7 @@ export function isCategoryState(value: unknown): value is CategoryState {
 /** Every category must be present and well-formed — a partial snapshot would leave
  * `current` half-hydrated. Spelled out per category rather than looped, matching
  * {@link emptySnapshot} / {@link snapshot}, so the compiler still checks the set. */
-function isConnectivitySnapshot(value: unknown): value is ConnectivityStateSnapshot {
+export function isConnectivitySnapshot(value: unknown): value is ConnectivityStateSnapshot {
   if (typeof value !== 'object' || value === null) return false;
   if (!('network' in value) || !('node' in value) || !('prover' in value) || !('resolving' in value)) return false;
   return (
