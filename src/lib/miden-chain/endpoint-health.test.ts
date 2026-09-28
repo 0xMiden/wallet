@@ -59,6 +59,23 @@ describe('probeEndpointHealth', () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
     expect(await probeEndpointHealth('https://f', 'faucet-api')).toBe('error');
   });
+
+  it.each(['reachability', 'faucet-api'] as const)(
+    '%s: reaches a host on a platform without AbortSignal.timeout (iOS 15 WebKit, Safari before 16)',
+    async kind => {
+      const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ id: '0x1' }) });
+      Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: fetchMock });
+      const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+      Reflect.deleteProperty(AbortSignal, 'timeout');
+      try {
+        expect('timeout' in AbortSignal).toBe(false);
+        expect(await probeEndpointHealth('https://f', kind)).toBe('reachable');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        if (descriptor) Object.defineProperty(AbortSignal, 'timeout', descriptor);
+      }
+    }
+  );
 });
 
 describe('useEndpointHealth', () => {

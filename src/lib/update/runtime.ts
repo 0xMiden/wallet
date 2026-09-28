@@ -2,6 +2,7 @@ import semver from 'semver';
 
 import { isAndroid, isExtension, isIOS, isMobile } from 'lib/platform';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
+import { withRequestTimeout } from 'lib/remote-json';
 
 import { UpdateController } from './controller';
 import { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
@@ -107,20 +108,23 @@ export async function createUpdateNotificationRuntime(
     if (injected) return injected;
     const cached = await readCachedManifest(storage, now());
     if (cached) return cached;
-    const response = await fetchManifest(RELEASE_MANIFEST_URL, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(MANIFEST_REQUEST_TIMEOUT_MS)
+    const body = await withRequestTimeout(MANIFEST_REQUEST_TIMEOUT_MS, async signal => {
+      const response = await fetchManifest(RELEASE_MANIFEST_URL, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+        signal
+      });
+      if (!response.ok) throw new Error('Update manifest request failed');
+      // The declared length is the cheap rejection; the body is measured too,
+      // because a chunked or re-encoded response declares nothing useful.
+      const declaredLength = Number(response.headers?.get('content-length') ?? '0');
+      if (declaredLength > MANIFEST_MAX_BYTES) throw new Error('Update manifest is too large');
+      return readBoundedBody(response);
     });
-    if (!response.ok) throw new Error('Update manifest request failed');
-    // The declared length is the cheap rejection; the body is measured too,
-    // because a chunked or re-encoded response declares nothing useful.
-    const declaredLength = Number(response.headers?.get('content-length') ?? '0');
-    if (declaredLength > MANIFEST_MAX_BYTES) throw new Error('Update manifest is too large');
     // Validate before storing: the cache is device storage every realm reads for
     // six hours, so it holds the bounded shape the schema allows, not whatever
     // the network returned.
-    const manifest = parseUpdateManifest(await readBoundedBody(response));
+    const manifest = parseUpdateManifest(body);
     // Optional metadata: a storage failure only costs the next realm a refetch.
     await storage.set({ [MANIFEST_CACHE_KEY]: { fetchedAt: now(), body: manifest } }).catch(() => undefined);
     return manifest;

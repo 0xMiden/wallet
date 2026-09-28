@@ -1,5 +1,6 @@
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
+import { withRequestTimeout } from 'lib/remote-json';
 
 import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
@@ -90,15 +91,17 @@ async function readList(network: string): Promise<LoadedList> {
 
 /** Fetches the list and stores it once it validates; false when it does not arrive whole and valid. */
 async function fetchAndStore(network: string): Promise<boolean> {
-  const response = await deps.fetch(tokenListUrl(network), {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const raw = await withRequestTimeout(REQUEST_TIMEOUT_MS, async signal => {
+    const response = await deps.fetch(tokenListUrl(network), {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+      signal
+    });
+    if (!response.ok) return null;
+    if (Number(response.headers.get('content-length') ?? '0') > MAX_BYTES) return null;
+    return response.text();
   });
-  if (!response.ok) return false;
-  if (Number(response.headers.get('content-length') ?? '0') > MAX_BYTES) return false;
-  const raw = await response.text();
-  if (raw.length > MAX_BYTES) return false;
+  if (raw === null || raw.length > MAX_BYTES) return false;
   const body: unknown = JSON.parse(raw);
   // Validated before storing: every realm trusts this entry for a day.
   if (parseTokenList(body, network) === null) return false;

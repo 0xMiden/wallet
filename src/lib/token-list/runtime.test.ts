@@ -42,6 +42,18 @@ const KEY = 'token_list_cache_v1:testnet';
 const ATTEMPT = 'token_list_attempt_v1:testnet';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
+/** Runs `body` as on iOS 15 WebKit and Safari before 16, which have no AbortSignal.timeout. */
+const withoutAbortSignalTimeout = async (body: () => Promise<void>) => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+  Reflect.deleteProperty(AbortSignal, 'timeout');
+  try {
+    expect('timeout' in AbortSignal).toBe(false);
+    await body();
+  } finally {
+    if (descriptor) Object.defineProperty(AbortSignal, 'timeout', descriptor);
+  }
+};
+
 let storage: ReturnType<typeof memoryStorage>;
 let fetchMock: jest.Mock;
 let clock: number;
@@ -289,6 +301,54 @@ describe('the retry backoff', () => {
     await loadVerifiedFaucetIds('testnet');
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the request timeout', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('fetches and stores the list where AbortSignal.timeout does not exist', () =>
+    withoutAbortSignalTimeout(async () => {
+      setup();
+      fetchMock.mockResolvedValue(response(doc(['a'])));
+      await loadVerifiedFaucetIds('testnet');
+      await flush();
+      expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(['a']) });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }));
+
+  it('abandons a request that never answers after 10 s, so a later due load fetches again', async () => {
+    jest.useFakeTimers();
+    setup();
+    fetchMock.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    );
+    await loadVerifiedFaucetIds('testnet');
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(storage.data[ATTEMPT]).toBeUndefined();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(storage.data[ATTEMPT]).toBe(NOW);
+
+    // Only a released refresh guard lets the load after the backoff start another request.
+    clock = NOW + TOKEN_LIST_RETRY_BACKOFF_MS;
+    await loadVerifiedFaucetIds('testnet');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves no timer behind once the request settles', async () => {
+    jest.useFakeTimers();
+    setup();
+    fetchMock.mockResolvedValue(response(doc(['a'])));
+    await loadVerifiedFaucetIds('testnet');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(['a']) });
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
 
