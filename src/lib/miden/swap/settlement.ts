@@ -8,9 +8,11 @@ import {
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { store } from '../back/store';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
+import { sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
@@ -62,6 +64,27 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
 }
 
 /**
+ * A seed-recovered account, or one `Vault.migrateLegacyGuardianAccounts` has just
+ * flagged, whose everyday-key rotation has not landed (#805). Its rotation gate claims
+ * its notes itself, with the recovery key, so settlement leaves its open swap orders
+ * alone until the flag clears. Duplicated from `back/sync-manager.ts`'s
+ * `isRotationPendingAccount` rather than imported: that module already imports
+ * `reconcileSwapOrderNotes` from this one, so importing the other way would cycle. Both
+ * read the same worker store the same way.
+ *
+ * Narrower than `consumeServiceFor`'s check (flag AND no `hotPublicKey`) -- deliberate:
+ * the only cost of skipping a step early is one settlement tick delayed, never a wrong
+ * consume.
+ */
+function isRotationPendingAccount(accountId: string): boolean {
+  return store
+    .getState()
+    .accounts.some(
+      account => account.requiresHotKeyRotation === true && sameWalletAccountId(account.publicKey, accountId)
+    );
+}
+
+/**
  * Queue terminal swap settlement batches. Active, unexpired orders are left
  * untouched. Consume deduplication/backoff remains owned by the existing
  * initiateConsumeNotesTransaction path.
@@ -69,6 +92,10 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
  * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
  * tick — it is an unindexed full scan of the transactions table and must not
  * be repeated per stage.
+ *
+ * The single guard site for both callers (the service worker's inline call and
+ * `settleSwapOrders` below): a rotation-pending account's orders are left untouched
+ * until the flag clears, whichever caller reached here.
  */
 export async function reconcileSwapOrderNotes(
   accountId: string,
@@ -77,6 +104,9 @@ export async function reconcileSwapOrderNotes(
   nowSeconds: number = Math.floor(Date.now() / 1000),
   preloadedOrders?: SwapOrder[]
 ): Promise<SwapSettlementResult> {
+  if (isRotationPendingAccount(accountId)) {
+    return { queuedTransactionIds: [], managedNoteIds: new Set() };
+  }
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const queuedTransactionIds: string[] = [];
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));
