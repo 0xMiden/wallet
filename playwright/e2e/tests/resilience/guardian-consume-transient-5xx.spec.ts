@@ -29,10 +29,13 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 const MINT_BASE_UNITS = 100_000_000_000n; // 1000 TST
 const FAULTED_POSTS = 2;
-// The unreachable arm's cooldowns for the two faulted POSTs, 60 s and then 120 s since each consecutive requeue
-// doubles the wait (#1223), plus one 5 s pass of the service worker's processing loop after each: the longest the
-// faulted POSTs can hold the consume back before the loop runs it again.
-const REQUEUE_COOLDOWNS_PASSES_MS = 60_000 + 120_000 + FAULTED_POSTS * 5_000;
+// The unreachable arm's cooldown for the i-th (0-based) faulted POST doubles each consecutive requeue from a 60 s
+// base, capped at 240 s (#1223), plus one 5 s pass of the service worker's processing loop after each: the longest
+// the faulted POSTs can hold the consume back before the loop runs it again.
+const REQUEUE_COOLDOWNS_PASSES_MS = Array.from(
+  { length: FAULTED_POSTS },
+  (_, i) => Math.min(60 * 2 ** i, 240) * 1000 + 5_000
+).reduce((sum, ms) => sum + ms, 0);
 const LANDING_BUDGET_MS = 180_000;
 const CLAIM_BUDGET_MS = LANDING_BUDGET_MS + REQUEUE_COOLDOWNS_PASSES_MS;
 
