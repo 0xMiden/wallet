@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "验证您的恢复短语",
-    "englishSource": "Verify your recovery phrase"
+    "message": "备份您的钱包",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "请将您的助记词记录下来，并确认您是否记得其首尾两个词，以便日后恢复此钱包。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "保存您的恢复短语，以便在新设备上恢复此钱包。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "无法进行安全签名",
@@ -4303,6 +4303,10 @@
     "message": "分享",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "发送您的地址",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "复制",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — 关于此网络",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "代币没有实际价值",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "恢复",

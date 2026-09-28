@@ -74,3 +74,20 @@ it('focuses the title on mount when asked, so the new page is announced', () => 
   render(<PageHeader title="Language" focusTitleOnMount />);
   expect(document.activeElement).toBe(screen.getByRole('heading'));
 });
+
+it('stacks a subtitle under the title, one line each, so the row keeps its height', () => {
+  render(<PageHeader title="Dummy Lending" subtitle="USDC on Ethereum" onBack={jest.fn()} />);
+
+  const heading = screen.getByRole('heading', { level: 1 });
+  expect(heading).toHaveTextContent(/^Dummy Lending$/);
+  expect(heading).toHaveClass('truncate', 'text-title-tab');
+  const subtitle = screen.getByText('USDC on Ethereum');
+  expect(subtitle).toHaveClass('truncate', 'text-caption-heading', 'text-muted');
+  expect(subtitle.parentElement).toBe(heading.parentElement);
+});
+
+it('keeps the two-line clamped title when there is no subtitle', () => {
+  render(<PageHeader title="Language" />);
+
+  expect(screen.getByRole('heading')).toHaveClass('line-clamp-2');
+});

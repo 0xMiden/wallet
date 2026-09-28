@@ -292,6 +292,15 @@ describe('SwapAmounts', () => {
       expect(hapticLight).toHaveBeenCalledTimes(1);
       expect(onSwapDirection).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps one pay side and one receive side however many times it flips', () => {
+      renderComponent();
+
+      for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getByLabelText('swapDirection'));
+
+      expect(screen.getAllByTestId('swap-pay-side')).toHaveLength(1);
+      expect(screen.getAllByTestId('swap-receive-side')).toHaveLength(1);
+    });
   });
 
   describe('confirm CTA', () => {

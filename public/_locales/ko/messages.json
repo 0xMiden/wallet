@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "복구 문구를 확인하세요",
-    "englishSource": "Verify your recovery phrase"
+    "message": "지갑을 백업하세요",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "나중에 이 지갑을 복구할 수 있도록 복구 문구를 적어두고, 그 문구의 첫 번째 단어와 마지막 단어를 정확히 알고 있는지 확인하세요.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "새 기기에서 이 지갑을 복원할 수 있도록 복구 문구를 저장하세요.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "보안 서명 사용 불가",
@@ -4303,6 +4303,10 @@
     "message": "공유하기",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "주소 보내기",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "복사",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — 이 네트워크 정보",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "토큰에는 실제 가치가 없습니다",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "복원",

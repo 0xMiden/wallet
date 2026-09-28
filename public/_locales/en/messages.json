@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Verify your recovery phrase",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Back up your wallet",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Save your recovery phrase so you can restore this wallet on a new device.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Secure signing unavailable",
@@ -4303,6 +4303,10 @@
     "message": "Share",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Send your address",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Copy",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — about this network",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Tokens have no real value",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restore",

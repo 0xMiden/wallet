@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Проверьте свою фразу для восстановления",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Сделайте резервную копию своего кошелька",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Запишите свою фразу восстановления и убедитесь, что вы помните её первое и последнее слова, чтобы впоследствии можно было восстановить этот кошелёк.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Сохраните фразу для восстановления, чтобы восстановить этот кошелёк на новом устройстве.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Безопасная подпись недоступна",
@@ -4303,6 +4303,10 @@
     "message": "Поделиться",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Отправить адрес",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Копировать",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — об этой сети",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Токены не имеют реальной ценности",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Восстановить",

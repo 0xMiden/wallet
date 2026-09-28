@@ -197,7 +197,9 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
-    earnSubjectTitle: ({ protocol, asset }: { protocol: string; asset: string }) => `${protocol} \u2022 ${asset}`,
+    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+      `${subject.asset} on ${subject.network}`,
     EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
       R.createElement('span', { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network }),
     EarnAmountUnit: ({ symbol }: { symbol: string }) =>
@@ -270,7 +272,8 @@ describe('EarnDepositReview', () => {
       expect(screen.getByTestId('earn-deposit-review-page')).toBeInTheDocument();
 
       // Vault resolved by id (not the first vault): its title and its mark both come from it.
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave \u2022 USDC');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+      expect(screen.getByText(/^USDC on /)).toBeInTheDocument();
       const mark = screen.getByTestId('earn-asset-mark');
       expect(mark).toHaveAttribute('data-asset', 'USDC');
       expect(screen.getByRole('banner')).toContainElement(mark);

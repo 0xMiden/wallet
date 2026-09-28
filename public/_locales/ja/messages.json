@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "リカバリーフレーズを確認してください",
-    "englishSource": "Verify your recovery phrase"
+    "message": "ウォレットのバックアップを取る",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "後でこのウォレットを復元できるよう、リカバリーフレーズを書き留め、その最初と最後の単語を正しく覚えているか確認してください。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "新しいデバイスでこのウォレットを復元できるよう、リカバリーフレーズを保管してください。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全な署名機能は利用できません",
@@ -4303,6 +4303,10 @@
     "message": "シェア",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "アドレスを送る",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "コピー",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — このネットワークについて",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "トークンに実際の価値はありません",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "復元",

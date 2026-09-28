@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Перевірте свою фразу відновлення",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Створіть резервну копію вашого гаманця",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Запишіть свою фразу відновлення та переконайтеся, що знаєте її перше та останнє слова, щоб згодом мати змогу відновити цей гаманець.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Збережіть фразу відновлення, щоб відновити цей гаманець на новому пристрої.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Безпечне підписання недоступне",
@@ -4303,6 +4303,10 @@
     "message": "Поділитися",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Надіслати адресу",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Копіювати",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — про цю мережу",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Токени не мають реальної цінності",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Відновити",

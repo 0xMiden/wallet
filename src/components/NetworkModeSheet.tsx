@@ -58,10 +58,13 @@ export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange
       <DrawerContent className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <div className="flex min-h-0 flex-1 flex-col" data-testid="network-mode-sheet">
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="network-mode-sheet-body">
+            {/* The description sits under the header's rule, in the rows' own muted style. */}
             <DrawerHeader>
-              <DrawerTitle>{t('networkModeBanner', { network })}</DrawerTitle>
-              <DrawerDescription>{t('networkNoticeBody')}</DrawerDescription>
+              <DrawerTitle>{t('networkModeSheetTitle', { network })}</DrawerTitle>
             </DrawerHeader>
+            <DrawerDescription className="px-4 pb-2 text-caption-heading text-muted">
+              {t('networkNoticeBody')}
+            </DrawerDescription>
             <div className="px-4">
               <NetworkNoticeRows />
             </div>

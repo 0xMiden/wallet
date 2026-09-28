@@ -103,7 +103,7 @@ describe('NetworkModeSheet', () => {
     mockNetworkKey = key;
     render(<Harness />);
 
-    expect(screen.getByRole('heading')).toHaveTextContent(`networkModeBanner:${key}`);
+    expect(screen.getByRole('heading')).toHaveTextContent(`networkModeSheetTitle:${key}`);
     expect(screen.getByTestId('network-mode-sheet')).toHaveTextContent('networkNoticeResetTitle');
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });

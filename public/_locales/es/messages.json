@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Comprueba tu frase de recuperación",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Haz una copia de seguridad de tu monedero",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Anota tu frase de recuperación y asegúrate de que recuerdas la primera y la última palabra para poder restaurar esta cartera más adelante.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Guarda tu frase de recuperación para poder restaurar este monedero en un dispositivo nuevo.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "La firma segura no está disponible",
@@ -4303,6 +4303,10 @@
     "message": "Compartir",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Envía tu dirección",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Copiar",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$: información sobre esta red",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Los tokens no tienen valor real",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restaurar",

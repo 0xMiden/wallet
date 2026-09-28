@@ -183,13 +183,6 @@ jest.mock('components/ui', () => ({
   }
 }));
 
-// The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
-jest.mock('components/NetworkModeRibbon', () => ({
-  NetworkModeRibbon: ({ docked }: { docked: boolean }) => (
-    <div data-testid="network-mode-ribbon" data-docked={String(docked)} />
-  )
-}));
-
 const mockNavigate = navigate as jest.Mock;
 const mockHaptic = hapticSelection as jest.Mock;
 
@@ -393,15 +386,14 @@ describe('TabLayout — tabs list composition', () => {
   });
 });
 
-describe('TabLayout — network corner ribbon', () => {
+describe('TabLayout — test network', () => {
   it.each([
     ['mobile (docked)', true],
     ['extension/desktop (floating)', false]
-  ])('puts the network ribbon in the bottom nav’s corner on %s', (_label, mobile) => {
+  ])('draws nothing in the bottom nav’s corner on %s', (_label, mobile) => {
     mockPlatform.isMobile = mobile;
     renderLayout();
-    expect(screen.getByTestId('bottom-nav-corner')).toContainElement(screen.getByTestId('network-mode-ribbon'));
-    expect(screen.getByTestId('network-mode-ribbon')).toHaveAttribute('data-docked', String(mobile));
+    expect(screen.getByTestId('bottom-nav-corner')).toBeEmptyDOMElement();
   });
 
   it('shows no banner above the tabs', () => {

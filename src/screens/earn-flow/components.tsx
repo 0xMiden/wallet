@@ -49,8 +49,15 @@ export const EarnAssetMark: FC<{ asset: string; network: string; className?: str
 };
 
 /** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them. */
-export const earnSubjectTitle = (subject: EarnSubject): string => `${subject.protocol} • ${subject.asset}`;
+ *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
+ *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
+export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
+
+/** The header's line under `earnSubjectTitle`: "USDC on Ethereum". */
+export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
+  const { t } = useTranslation();
+  return <>{t('earnAssetOnNetwork', { asset: subject.asset, network: subject.network })}</>;
+};
 
 /** Shared top bar for the earn flow's pages that are NOT on `SubPageLayout` (the amount step, which
  *  hands its whole body to the send flow's `SelectAmount`): the `PageHeader` with back, the shared
@@ -65,6 +72,7 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
     <PageHeader
       className="shrink-0 px-4"
       title={subject ? earnSubjectTitle(subject) : t('earnDeposit')}
+      subtitle={subject && <EarnSubjectSubtitle subject={subject} />}
       onBack={goBack}
       actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} />}
     />

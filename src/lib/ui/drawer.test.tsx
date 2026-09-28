@@ -70,6 +70,26 @@ describe('Drawer', () => {
     expect(close.className).toContain('text-muted');
   });
 
+  it('sizes a title in the header at the tab title and ends the header with the rule', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Address Book</DrawerTitle>
+          </DrawerHeader>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const title = screen.getByRole('heading', { name: 'Address Book' });
+    // The header's title slot overrides the title's own section size.
+    expect(title.parentElement).toHaveClass('[&>[data-slot=drawer-title]]:text-title-tab');
+    const header = title.closest('[data-slot="drawer-header"]')!;
+    const rule = header.lastElementChild!;
+    expect(rule).toHaveClass('h-1', 'rounded-full', 'bg-fill');
+    expect(rule).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('renders DrawerTitle at 18px/24 Nunito 800, left-aligned, on the ink token', () => {
     render(
       <Drawer open>

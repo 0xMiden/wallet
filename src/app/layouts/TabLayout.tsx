@@ -24,7 +24,6 @@ import {
   usePageOnScreen,
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
-import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -177,15 +176,12 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
-          tabs, rather than in a banner above every page. */}
       <BottomNav
         items={items}
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
         clearInset={barClearsInset()}
-        corner={<NetworkModeRibbon docked={isMobile()} />}
       />
     </div>
   );

@@ -1878,12 +1878,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Geri alma ifadesini doğrulayın",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Cüzdanınızı yedekleyin",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadesini bir yere yazın ve ilk ve son kelimelerini ezberlediğinizden emin olun.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Bu cüzdanı yeni bir cihazda geri yükleyebilmek için geri alma ifadenizi kaydedin.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Güvenli imzalama özelliği kullanılamıyor",
@@ -4303,6 +4303,10 @@
     "message": "Paylaş",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Adresinizi gönderin",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Kopyala",
     "englishSource": "Copy"
@@ -5013,6 +5017,15 @@
       }
     }
   },
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "networkModeStripLabel": {
     "message": "$network$ — bu ağ hakkında",
     "englishSource": "$network$ — about this network",
@@ -5021,6 +5034,10 @@
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Tokenların gerçek bir değeri yok",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Geri Yükle",

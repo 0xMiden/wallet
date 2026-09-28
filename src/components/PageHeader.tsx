@@ -10,6 +10,8 @@ import { IconButton } from 'components/ui/IconButton';
 export interface PageHeaderProps {
   /** Omit when the page's body owns its heading, so there is never an empty `<h1>`. */
   title?: React.ReactNode;
+  /** A muted line under the title, naming what the page is about when the title alone cannot, e.g. an earn vault's asset and network. */
+  subtitle?: React.ReactNode;
   /** Back button, left. */
   onBack?: () => void;
   /** Close button, right. */
@@ -37,6 +39,7 @@ export interface PageHeaderProps {
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
+  subtitle,
   onBack,
   onClose,
   actions,
@@ -65,7 +68,20 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             data-testid={backTestId}
           />
         )}
-        {title ? (
+        {title && subtitle ? (
+          // The title and its subtitle stack in the title's slot, one line each, so the row keeps
+          // its 60px instead of growing for a title that had carried both.
+          <div className="flex min-w-0 flex-1 flex-col">
+            <h1
+              ref={titleRef}
+              tabIndex={focusTitleOnMount ? -1 : undefined}
+              className="truncate text-title-tab text-ink outline-none"
+            >
+              {title}
+            </h1>
+            <p className="truncate text-caption-heading text-muted">{subtitle}</p>
+          </div>
+        ) : title ? (
           <h1
             ref={titleRef}
             tabIndex={focusTitleOnMount ? -1 : undefined}
