@@ -76,6 +76,7 @@
 - [FIX][all] The Home action bar's active segment grows to fit a longer translated label, and ends it with an ellipsis only when the screen is too narrow, instead of letting the label spill past its pill (#1069).
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
+- [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
 
