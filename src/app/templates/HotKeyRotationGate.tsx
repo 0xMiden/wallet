@@ -102,14 +102,14 @@ const adoptableShortfallRow = async (accountPublicKey: string) => {
  * adopts a live rotation, so Check again, a funding trigger or a second surface
  * never queues one beside it.
  *
- * On mount (`adoptExisting`), orphaned `GeneratingTransaction` rows are requeued first: every
- * driver processes under the `generate-transactions-loop` Web Lock
- * (`safeGenerateTransactionsLoop`, SW included), so if that lock is free the
- * row's generation promise died with its process. The loop refuses to run
- * while an in-progress row exists, so adopting it as-is would leave the
- * overlay spinning until `cancelStuckTransactions` expires it (up to 30
- * minutes off-mobile). The `ifAvailable` request makes the check race-free:
- * we only requeue while provably no loop is running.
+ * On mount (`adoptExisting`), orphaned `GeneratingTransaction` rows, the rotation's and
+ * the funding claim's, are requeued first: every driver processes under the
+ * `generate-transactions-loop` Web Lock (`safeGenerateTransactionsLoop`, SW included),
+ * so if that lock is free the row's generation promise died with its process. The loop
+ * refuses to run while an in-progress row exists, so leaving it would hold the gate
+ * until `cancelStuckTransactions` expires it (up to 30 minutes off-mobile). The
+ * `ifAvailable` request makes the check race-free: we only requeue while provably no
+ * loop is running.
  *
  * Resolves `null` when it DEFERRED (#805): the gate's funding claim is live, and a
  * rotation now would run before the vault that claim funds, fail, and mint a hot key it
@@ -123,7 +123,11 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
       await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
         if (!lock) return;
         await Repo.transactions
-          .filter(r => isLiveRotationRow(r, accountPublicKey) && r.status === ITransactionStatus.GeneratingTransaction)
+          .filter(
+            r =>
+              (isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey)) &&
+              r.status === ITransactionStatus.GeneratingTransaction
+          )
           .modify(r => {
             r.status = ITransactionStatus.Queued;
             r.processingStartedAt = undefined;
@@ -186,10 +190,9 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting);
       try {
         const id = await inFlightRef.current;
-        if (id !== null) {
-          setTxId(id);
-          if (isExtension()) requestSWTransactionProcessing();
-        }
+        if (id !== null) setTxId(id);
+        // A deferral too: the claim it waits on, maybe just requeued, runs in the worker's loop.
+        if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {
         setInitError(e instanceof Error ? e.message : String(e));
       } finally {

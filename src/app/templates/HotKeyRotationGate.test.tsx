@@ -450,6 +450,22 @@ describe('HotKeyRotationGate', () => {
       expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
     });
 
+    it('requeues an orphaned funding claim on mount and wakes the worker to run it', async () => {
+      mockPlatform.isExtension = true;
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction, processingStartedAt: 5 })
+      ];
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(mockTable[1]).toMatchObject({ status: ITransactionStatus.Queued, processingStartedAt: undefined })
+      );
+      await waitFor(() => expect(mockRequestSW).toHaveBeenCalled());
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
     it('adopts the live rotation when Check again is tapped while it activates', async () => {
       mockBalances = [nativeBalance(0)];
       mockTable = [rotationRow('tx-live')];
