@@ -45,8 +45,10 @@ function useFitText(active: boolean, maxPx: number, network: string, language: s
       const fixedPx = separator
         ? (parseFloat(separator.paddingLeft) || 0) + (parseFloat(separator.paddingRight) || 0)
         : 0;
-      const available = trailing.offsetLeft - gapPx - label.offsetLeft;
-      const scalablePx = text.offsetWidth - fixedPx;
+      // The rects, not offsetLeft and offsetWidth: those round to whole pixels, which can overstate
+      // the room by more than the 0.1px step leaves spare.
+      const available = trailing.getBoundingClientRect().left - gapPx - label.getBoundingClientRect().left;
+      const scalablePx = text.getBoundingClientRect().width - fixedPx;
       if (!currentPx || scalablePx <= 0 || available <= fixedPx) return;
       const next = Math.min(maxPx, Math.max(TEXT_MIN_PX, ((available - fixedPx) * currentPx) / scalablePx));
       setFontPx(Math.floor(next * 10) / 10);

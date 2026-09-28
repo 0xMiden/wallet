@@ -164,7 +164,9 @@ describe('NetworkModePill: fitting the line', () => {
   // The layout jsdom does not do. The sentence is `mockPerPx` wide per pixel of font plus the
   // separator's 12px of padding, which does not scale; the label starts 28px in, and the trailing
   // glyph sits `slot` plus the 6px gap after it. The boxes are found by the pill's structure, not by
-  // the slots the fit reads, so the geometry is the same whichever way the fit finds them.
+  // the slots the fit reads, so the geometry is the same whichever way the fit finds them. The rects
+  // give that geometry unrounded, and offsetLeft and offsetWidth give it rounded to whole pixels, as
+  // a browser does.
   const SEPARATOR_PAD_PX = 6;
   const GAP_PX = 6;
   const LABEL_LEFT_PX = 28;
@@ -173,21 +175,39 @@ describe('NetworkModePill: fitting the line', () => {
 
   const text = () => screen.getByTestId('network-mode-pill-text');
   const fontPx = () => parseFloat(text().style.fontSize);
+  const lineWidth = () => text().getBoundingClientRect().width;
   const isPillChild = (el: HTMLElement) => el.parentElement?.dataset.testid === 'network-mode-pill';
   const isLabel = (el: HTMLElement) => isPillChild(el) && el.querySelector('[data-testid="network-mode-pill-text"]');
   const isTrailing = (el: HTMLElement) => isPillChild(el) && el.parentElement?.lastElementChild === el;
+  const leftOf = (el: HTMLElement) => {
+    if (isLabel(el)) return LABEL_LEFT_PX;
+    if (isTrailing(el)) return LABEL_LEFT_PX + slot + GAP_PX;
+    return 0;
+  };
+  const widthOf = (el: HTMLElement) =>
+    el.dataset.testid === 'network-mode-pill-text'
+      ? mockPerPx * parseFloat(el.style.fontSize) + 2 * SEPARATOR_PAD_PX
+      : 0;
 
   let resize: () => void = () => {};
   const observed: Element[] = [];
+  // Every observe and disconnect in order, each naming its observer by number, so a test can tell
+  // which observers are still live.
+  const observerCalls: string[] = [];
+  let observerCount = 0;
   class MockResizeObserver {
+    private readonly id = (observerCount += 1);
     constructor(callback: () => void) {
       resize = callback;
     }
     observe(target: Element) {
       observed.push(target);
+      observerCalls.push(`observe ${this.id}`);
     }
     unobserve() {}
-    disconnect() {}
+    disconnect() {
+      observerCalls.push(`disconnect ${this.id}`);
+    }
   }
 
   beforeEach(() => {
@@ -196,15 +216,16 @@ describe('NetworkModePill: fitting the line', () => {
     slot = 300;
     mockPerPx = 30;
     observed.length = 0;
+    observerCalls.length = 0;
+    observerCount = 0;
+    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return new DOMRect(leftOf(this), 0, widthOf(this), 0);
+    });
     jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
-      return this.dataset.testid === 'network-mode-pill-text'
-        ? mockPerPx * parseFloat(this.style.fontSize) + 2 * SEPARATOR_PAD_PX
-        : 0;
+      return Math.round(widthOf(this));
     });
     jest.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
-      if (isLabel(this)) return LABEL_LEFT_PX;
-      if (isTrailing(this)) return LABEL_LEFT_PX + slot + GAP_PX;
-      return 0;
+      return Math.round(leftOf(this));
     });
     // What Tailwind's stylesheet gives the classes the fit reads, and the line's own inline size.
     jest.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
@@ -230,9 +251,18 @@ describe('NetworkModePill: fitting the line', () => {
     render(<NetworkModePill />);
 
     expect(fontPx()).toBeLessThan(14);
-    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    expect(lineWidth()).toBeLessThanOrEqual(slot);
     // Exact, not merely small enough: within one 0.1px step of the slot.
-    expect(text().offsetWidth).toBeGreaterThan(slot - 0.1 * mockPerPx);
+    expect(lineWidth()).toBeGreaterThan(slot - 0.1 * mockPerPx);
+  });
+
+  it('fits the unrounded room, which whole-pixel offsets overstate', () => {
+    // The glyph's edge at 336.85px rounds up to 337, a room of 303px where the line has 302.85px.
+    slot = 302.85;
+    render(<NetworkModePill />);
+
+    expect(lineWidth()).toBeLessThanOrEqual(slot);
+    expect(lineWidth()).toBeGreaterThan(slot - 0.1 * mockPerPx);
   });
 
   it.each([
@@ -249,7 +279,7 @@ describe('NetworkModePill: fitting the line', () => {
     rerender(<NetworkModePill />);
 
     expect(fontPx()).toBe(9.6);
-    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    expect(lineWidth()).toBeLessThanOrEqual(slot);
   });
 
   it('re-fits when the pill resizes, observing its box rather than the inline line', () => {
@@ -259,27 +289,44 @@ describe('NetworkModePill: fitting the line', () => {
     slot = 270;
     act(() => resize());
 
-    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
-    expect(text().offsetWidth).toBeGreaterThan(slot - 0.1 * mockPerPx);
+    expect(lineWidth()).toBeLessThanOrEqual(slot);
+    expect(lineWidth()).toBeGreaterThan(slot - 0.1 * mockPerPx);
   });
 
-  it('re-fits once web fonts load, and stops listening when it unmounts', () => {
+  it('disconnects the old observer before the next observes when the language or network changes', () => {
+    const { rerender } = render(<NetworkModePill />);
+    expect(observerCalls).toEqual(['observe 1']);
+
+    mockLanguage = 'ru';
+    rerender(<NetworkModePill />);
+    expect(observerCalls).toEqual(['observe 1', 'disconnect 1', 'observe 2']);
+
+    mockNetworkKey = 'localnet';
+    rerender(<NetworkModePill />);
+    expect(observerCalls).toEqual(['observe 1', 'disconnect 1', 'observe 2', 'disconnect 2', 'observe 3']);
+  });
+
+  it('re-fits once web fonts load, and on unmount removes that listener and disconnects its observer', () => {
     const fonts = new EventTarget();
     Object.defineProperty(document, 'fonts', { value: fonts, configurable: true });
+    const addListener = jest.spyOn(fonts, 'addEventListener');
     const removeListener = jest.spyOn(fonts, 'removeEventListener');
     mockPerPx = 20;
     const { unmount } = render(<NetworkModePill />);
     expect(fontPx()).toBe(14);
+    expect(addListener).toHaveBeenCalledTimes(1);
+    const listener = addListener.mock.calls[0]?.[1];
 
     // The web face is wider than the fallback the first fit measured.
     mockPerPx = 30;
     act(() => {
       fonts.dispatchEvent(new Event('loadingdone'));
     });
-    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    expect(lineWidth()).toBeLessThanOrEqual(slot);
     expect(fontPx()).toBeLessThan(14);
 
     unmount();
-    expect(removeListener).toHaveBeenCalledWith('loadingdone', expect.any(Function));
+    expect(removeListener).toHaveBeenCalledWith('loadingdone', listener);
+    expect(observerCalls).toEqual(['observe 1', 'disconnect 1']);
   });
 });
