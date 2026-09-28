@@ -1,6 +1,6 @@
 import { parseTokenList } from './parse';
 
-// Normalization is its own unit (swap/tokens.test.ts); a visible transform proves it is applied.
+// A visible transform would show if the parser normalized: the hook does, under the network active at render.
 jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => `norm:${id}` }));
 
 const token = (overrides: Record<string, unknown> = {}) => ({
@@ -19,18 +19,18 @@ const list = (tokens: unknown[], overrides: Record<string, unknown> = {}) => ({
   ...overrides
 });
 
-it('returns the normalized faucet ids of the requested network', () => {
+it('returns the faucet ids of the requested network as the list spells them', () => {
   const doc = list([
     token(),
     token({ faucetId: 'mtst1bbb', symbol: 'BBB' }),
     token({ network: 'devnet', faucetId: 'mdev1ccc' })
   ]);
-  expect(parseTokenList(doc, 'testnet')).toEqual(new Set(['norm:mtst1aaa', 'norm:mtst1bbb']));
+  expect(parseTokenList(doc, 'testnet')).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
 });
 
 it('reads only the network and faucet id, so a token without the fields nothing reads still counts', () => {
   const bare = { network: 'testnet', faucetId: 'mtst1bbb' };
-  expect(parseTokenList(list([token(), bare]), 'testnet')).toEqual(new Set(['norm:mtst1aaa', 'norm:mtst1bbb']));
+  expect(parseTokenList(list([token(), bare]), 'testnet')).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
 });
 
 it('returns an empty set, not null, when no token is for the requested network', () => {

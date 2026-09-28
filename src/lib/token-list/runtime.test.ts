@@ -7,7 +7,11 @@ import {
   tokenListUrl
 } from './runtime';
 
-jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => id }));
+// Identity unless a test sets the network an encoding would be taken under, which it then prefixes.
+let mockNormalizeNetwork: string | null = null;
+jest.mock('lib/miden/swap/tokens', () => ({
+  normalizedFaucetId: (id: string) => (mockNormalizeNetwork ? `${mockNormalizeNetwork}:${id}` : id)
+}));
 
 const doc = (ids: string[], network = 'testnet') => ({
   name: 'list',
@@ -47,6 +51,7 @@ const setup = (initial: Record<string, unknown> = {}) => {
   storage = memoryStorage(initial);
   fetchMock = jest.fn();
   clock = NOW;
+  mockNormalizeNetwork = null;
   _resetTokenListForTest({ storage, fetch: fetchMock, now: () => clock });
 };
 
@@ -198,6 +203,26 @@ describe('the per-realm memo', () => {
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['a', 'b']));
+  });
+
+  it('memoizes the ids as the list names them, whatever network is active when the read lands', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: doc(['a']) } });
+    const read = storage.get.getMockImplementation()!;
+    let releaseRead!: () => void;
+    const readHeld = new Promise<void>(resolve => {
+      releaseRead = resolve;
+    });
+    storage.get.mockImplementationOnce(async (keys: string[]) => {
+      await readHeld;
+      return read(keys);
+    });
+    mockNormalizeNetwork = 'testnet';
+    const load = loadVerifiedFaucetIds('testnet');
+    // Developer Settings swaps the network in process while the read is pending.
+    mockNormalizeNetwork = 'devnet';
+    releaseRead();
+    await load;
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['a']));
   });
 
   it('forgets the memoized list before announcing a refresh, so a listener that loads reads the new one', async () => {

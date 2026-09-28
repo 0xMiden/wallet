@@ -53,7 +53,8 @@ export function useTokenVerification(): (faucetId: string) => TokenVerification 
       const id = normalizedFaucetId(faucetId);
       const nativeId = getNativeAssetIdSync();
       if (nativeId && id === normalizedFaucetId(nativeId)) return 'verified';
-      return ids.has(id) ? 'verified' : 'unverified';
+      // The list holds ids as published; both sides take the encoding of the network this render reads.
+      return Array.from(ids).some(listed => normalizedFaucetId(listed) === id) ? 'verified' : 'unverified';
     },
     [verified, network]
   );

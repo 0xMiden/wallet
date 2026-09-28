@@ -55,11 +55,12 @@ it('is unknown on a network with no list', async () => {
   expect(result.current('anything')).toBe('unknown');
 });
 
-it('marks listed tokens verified and others unverified, comparing normalized ids', async () => {
-  mockLoad.mockResolvedValue(new Set(['listed']));
+it('marks listed tokens verified and others unverified, normalizing both the list and the queried id', async () => {
+  // The runtime hands over the ids as the list publishes them.
+  mockLoad.mockResolvedValue(new Set(['Listed']));
   const { result } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('LISTED')).toBe('verified'));
-  expect(result.current('other')).toBe('unverified');
+  await waitFor(() => expect(result.current('other')).toBe('unverified'));
+  expect(result.current('LISTED')).toBe('verified');
 });
 
 it('treats the native token as verified even when the list omits it', async () => {

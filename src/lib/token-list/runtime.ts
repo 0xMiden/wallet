@@ -32,9 +32,9 @@ const defaults = (): Dependencies => ({
   now: Date.now
 });
 let deps = defaults();
-// One read and parse per network per realm, shared by every row's hook until a refresh lands. The
-// parse is final: the app tree mounts only once the SDK's WASM is ready (MidenProvider), so the ids
-// normalize.
+// One read and parse per network per realm, shared by every row's hook until a refresh lands. It
+// holds the ids as the list spells them: an encoding depends on the active network, which can change
+// while a read is pending, so the hook normalizes at compare time.
 const loaded = new Map<string, Promise<LoadedList>>();
 // One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
 // not this map, is what keeps a reopened popup from refetching.
