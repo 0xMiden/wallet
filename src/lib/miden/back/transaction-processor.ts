@@ -27,9 +27,11 @@ import { accountsUpdated, withUnlocked } from './store';
 // and leaves the wallet stuck on the splash screen.
 //
 // Fix: load the polyfill lazily and ONLY from within the functions
-// that actually need it. Those functions are service-worker-only
-// code paths that never run on mobile / desktop, so the await
-// never happens outside the extension build.
+// that actually need it. Off the extension only
+// `startTransactionProcessing` reaches one, from the in-process
+// unlock kick (#1202), and its getBrowser() await stays inside the
+// try/catch that then runs the loop without alarms. The other
+// polyfill paths are service-worker-only.
 type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
@@ -60,7 +62,8 @@ let isProcessing = false;
 let processingRequested = false;
 
 /**
- * Sign callback that runs in the service worker.
+ * Sign callback that runs in the service worker and, off the extension, in the
+ * processing loop an unlock starts (`startTransactionProcessing`).
  * Re-acquires the vault on each call (same pattern as dapp.ts).
  *
  * Exported for testing. `withUnlocked` → `assertUnlocked` refuses to run the
@@ -82,7 +85,8 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
 }
 
 /**
- * Vault-backed Guardian account provider for service worker context.
+ * Vault-backed Guardian account provider for the service worker and, off the
+ * extension, for the processing loop an unlock starts.
  * Uses the Vault directly instead of the Zustand store.
  */
 export const vaultGuardianProvider: GuardianAccountProvider = {
@@ -147,7 +151,8 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 };
 
 /**
- * Start processing queued transactions in the service worker.
+ * Start processing queued transactions, in the service worker and, off the
+ * extension, after an unlock (the in-process unlock kick, #1202).
  * One run at a time: a call made while a run is in flight starts no loop of
  * its own but is recorded and honoured with one more run when this one ends
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
