@@ -7,7 +7,7 @@
  *
  *   [ Copy link ]  [ Add to My Dapps ]  [ Reopen ]
  *
- * Reuses the same `Drawer` primitive that Settings uses. `DappActive`
+ * Built on the shared `Drawer` primitive (`lib/ui/drawer`). `DappActive`
  * handles the webview visibility and parked-tray movement while this
  * sheet is open.
  */
@@ -61,9 +61,9 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   // label, opposite handler). Re-checked every time the sheet
   // opens, so re-opening after an add/remove shows the fresh state;
   // a reopen keeps the answer it already has, and a switch to
-  // another session reads as unresolved until its own read lands.
-  // Keyed to the session it answers for, and read back only when the keys match, so the answer for
-  // one dApp is never drawn for another. Blanking it on every effect run instead would throw away a
+  // another URL reads as unresolved until its own read lands.
+  // Keyed to the URL it answers for, the store's own key, and read back only while it is the
+  // session's, so the answer for one dApp is never drawn for another. Blanking it on every effect run instead would throw away a
   // correct answer on a reopen and flash "Add" over a saved dApp; and an effect cannot repaint the
   // first commit after a switch, which a render-time comparison does by construction.
   const [membership, setMembership] = useState<{ url: string; inStore: boolean } | null>(null);
