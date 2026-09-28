@@ -5,7 +5,12 @@
  */
 import { ProveWorkerError } from 'lib/miden/sdk/local-prove-transport';
 
-import { PROVE_WORKER_IDLE_MS, PROVE_WORKER_READY_TIMEOUT_MS, ProveWorkerClient } from './prove-worker-client';
+import {
+  PROVE_WORKER_IDLE_MS,
+  PROVE_WORKER_PROVE_TIMEOUT_MS,
+  PROVE_WORKER_READY_TIMEOUT_MS,
+  ProveWorkerClient
+} from './prove-worker-client';
 
 class FakeWorker extends EventTarget {
   readonly posted: Array<{ message: unknown; transfer: Transferable[] }> = [];
@@ -456,6 +461,76 @@ describe('ProveWorkerClient retirement', () => {
     worker(0).ready();
     await jest.advanceTimersByTimeAsync(PROVE_WORKER_IDLE_MS);
     expect(worker(0).terminated).toBe(1);
+  });
+
+  it('gives a warm idle worker a fresh idle window on prewarm, so the prove after it reuses the worker', async () => {
+    jest.useFakeTimers();
+    const client = new ProveWorkerClient();
+    const first = client.prove(request());
+    await jest.advanceTimersByTimeAsync(0);
+    worker(0).ready();
+    worker(0).succeed(1);
+    await first;
+
+    await jest.advanceTimersByTimeAsync(PROVE_WORKER_IDLE_MS - 1_000);
+    client.prewarm();
+    await jest.advanceTimersByTimeAsync(2_000);
+    void client.prove(request());
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    expect(worker(0).terminated).toBe(0);
+  });
+
+  it('fails a posted prove with no result by its ceiling, retires the worker and runs the next call fresh', async () => {
+    jest.useFakeTimers();
+    const client = new ProveWorkerClient();
+    let firstSettled = false;
+    const first = outcome(client.prove(request([1])));
+    void first.then(() => {
+      firstSettled = true;
+    });
+    const second = outcome(client.prove(request([2])));
+    await jest.advanceTimersByTimeAsync(0);
+    worker(0).ready();
+    expect(worker(0).posted).toHaveLength(1);
+
+    await jest.advanceTimersByTimeAsync(PROVE_WORKER_PROVE_TIMEOUT_MS - 1);
+    expect(firstSettled).toBe(false);
+    expect(worker(0).terminated).toBe(0);
+
+    await jest.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(firstSettled).toBe(true);
+    expect((await first).value).toMatchObject({ kind: 'prove-timeout' });
+    expect(worker(0).terminated).toBe(1);
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    worker(1).ready();
+    worker(1).succeed(2);
+    expect((await second).ok).toBe(true);
+  });
+
+  it("never lets a finished call's ceiling fail the next call posted to the same worker", async () => {
+    jest.useFakeTimers();
+    const client = new ProveWorkerClient();
+    const first = outcome(client.prove(request([1])));
+    let secondSettled = false;
+    const second = outcome(client.prove(request([2])));
+    void second.then(() => {
+      secondSettled = true;
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    worker(0).ready();
+
+    const firstProveMs = 9 * 60_000;
+    await jest.advanceTimersByTimeAsync(firstProveMs);
+    worker(0).succeed(1);
+    expect((await first).ok).toBe(true);
+    expect(worker(0).posted).toHaveLength(2);
+
+    // One past the first call's own deadline, measured from its post.
+    await jest.advanceTimersByTimeAsync(PROVE_WORKER_PROVE_TIMEOUT_MS - firstProveMs + 1);
+    expect(secondSettled).toBe(false);
+    expect(worker(0).terminated).toBe(0);
   });
 });
 

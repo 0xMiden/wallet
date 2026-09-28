@@ -13,7 +13,13 @@ import { ProvenTransaction, type TransactionResult } from '@miden-sdk/miden-sdk/
 import { assertWasmHoldCurrent, type WasmLockHold, withWasmLockWatchdogPaused } from './miden-client';
 import { recordProveMarker, recordSdkProveStep } from './prove-telemetry';
 
-export type ProveWorkerErrorKind = 'spawn-failed' | 'init-failed' | 'init-timeout' | 'crashed' | 'prove-failed';
+export type ProveWorkerErrorKind =
+  | 'spawn-failed'
+  | 'init-failed'
+  | 'init-timeout'
+  | 'crashed'
+  | 'prove-failed'
+  | 'prove-timeout';
 
 /**
  * A worker prove that failed before anything was submitted.

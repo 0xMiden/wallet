@@ -24,6 +24,12 @@ import { spawnProveWorker } from './spawn-prove-worker';
 export const PROVE_WORKER_READY_TIMEOUT_MS = 30_000;
 /** Long enough to carry a claim followed by a send on one warm worker. */
 export const PROVE_WORKER_IDLE_MS = 60_000;
+/**
+ * A posted prove with no result by then fails and retires its worker: above the
+ * slowest prove observed (75 s), below the relaxed lock watchdog (30 min). The relayed
+ * OFFSCREEN_PROVE passes no cancel, so this is all that bounds a hung worker there.
+ */
+export const PROVE_WORKER_PROVE_TIMEOUT_MS = 10 * 60_000;
 
 type RetireReason = ProveWorkerErrorKind | 'cancelled' | 'idle';
 
@@ -40,6 +46,7 @@ interface LiveWorker {
   readonly spawnedAt: number;
   ready: boolean;
   readyTimer: ReturnType<typeof setTimeout> | null;
+  proveTimer: ReturnType<typeof setTimeout> | null;
 }
 
 function messageOf(error: unknown): string {
@@ -70,9 +77,11 @@ export class ProveWorkerClient implements LocalProveTransport {
   }
 
   prewarm(): void {
-    // A worker that never becomes ready is retired by its ready timeout, and a ready
-    // one with nothing queued starts the idle timer, so prewarm arms nothing itself.
+    // A new worker is retired by its ready timeout or, once ready and idle, by the
+    // idle timer. A warm idle one gets a fresh idle window, or a slow execute and
+    // sign could outlast what was left of the last prove's and retire it first.
     if (!this.live) this.start();
+    else if (this.queue.length === 0) this.armIdleTimer();
   }
 
   private pump(): void {
@@ -93,6 +102,10 @@ export class ProveWorkerClient implements LocalProveTransport {
       return;
     }
     head.posted = true;
+    // Cleared by the result, so it can only ever fire on the call it was armed for.
+    live.proveTimer = setTimeout(() => {
+      if (this.live === live) this.fail('prove-timeout', `no result within ${PROVE_WORKER_PROVE_TIMEOUT_MS}ms`);
+    }, PROVE_WORKER_PROVE_TIMEOUT_MS);
     recordProveTiming(`prove-worker posted id=${head.id} bytes=${bytes.byteLength}`);
   }
 
@@ -107,7 +120,13 @@ export class ProveWorkerClient implements LocalProveTransport {
       this.schedulePump();
       return null;
     }
-    const live: LiveWorker = { worker, spawnedAt: performance.now(), ready: false, readyTimer: null };
+    const live: LiveWorker = {
+      worker,
+      spawnedAt: performance.now(),
+      ready: false,
+      readyTimer: null,
+      proveTimer: null
+    };
     live.readyTimer = setTimeout(() => {
       if (this.live === live) this.fail('init-timeout', `no ready within ${PROVE_WORKER_READY_TIMEOUT_MS}ms`);
     }, PROVE_WORKER_READY_TIMEOUT_MS);
@@ -158,6 +177,8 @@ export class ProveWorkerClient implements LocalProveTransport {
         this.fail('init-failed', `${message.reason}: ${message.message}`);
         return;
       case 'result': {
+        if (live.proveTimer) clearTimeout(live.proveTimer);
+        live.proveTimer = null;
         // One prove is in flight, so a result for anything else is a protocol break.
         const head = this.queue[0];
         if (!head || !head.posted || head.id !== message.id) {
@@ -209,6 +230,7 @@ export class ProveWorkerClient implements LocalProveTransport {
     this.clearIdleTimer();
     if (live) {
       if (live.readyTimer) clearTimeout(live.readyTimer);
+      if (live.proveTimer) clearTimeout(live.proveTimer);
       live.worker.terminate();
     }
     const detail = proveWorkerErrorDetail(error);
