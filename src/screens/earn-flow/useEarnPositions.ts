@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useRetryableSWR } from 'lib/swr';
@@ -28,7 +29,7 @@ export function earnItemLoadState(
  * summary with no figures yet. A failed refresh keeps the last data this key loaded (SWR
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
- * account's positions after a switch.
+ * account's positions after a switch. The 30s refresh pauses while the page is off screen.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -46,6 +47,7 @@ export function useEarnPositions(): {
   refetch: () => void;
 } {
   const account = useAccount();
+  const onScreen = usePageActive();
 
   const {
     data,
@@ -60,8 +62,24 @@ export function useEarnPositions(): {
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
       return fetchEarnPositions({ accountId: account.publicKey, owners });
     },
-    { revalidateOnMount: true, refreshInterval: 10_000, dedupingInterval: 3_000 }
+    {
+      revalidateOnMount: true,
+      // The Epoch positions service allows 10 requests per minute, and each tick sends one request for each owner.
+      refreshInterval: 30_000,
+      revalidateOnFocus: false,
+      dedupingInterval: 3_000,
+      isPaused: () => !onScreen
+    }
   );
+
+  // A paused poll ticks again only on its next interval, so a page that comes back on screen refreshes at once.
+  const wasOnScreen = useRef(onScreen);
+  useEffect(() => {
+    if (onScreen && !wasOnScreen.current) {
+      mutate();
+    }
+    wasOnScreen.current = onScreen;
+  }, [onScreen, mutate]);
 
   return useMemo(() => {
     // Owner queries never reject: a full outage resolves with only errors and no vaults, which is a failed

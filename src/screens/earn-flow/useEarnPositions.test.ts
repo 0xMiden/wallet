@@ -163,9 +163,9 @@ describe('useEarnPositions', () => {
   it('loads every historical owner plus the lowercased wallet address once', async () => {
     let loadPositions: (() => Promise<EarnPositionsResult>) | undefined;
     let receivedKey: unknown;
-    let receivedConfig: unknown;
+    let receivedConfig: { isPaused?: () => boolean } | undefined;
     mockUseRetryableSWR.mockImplementation(
-      (key: unknown, fetcher: () => Promise<EarnPositionsResult>, config: unknown) => {
+      (key: unknown, fetcher: () => Promise<EarnPositionsResult>, config: { isPaused?: () => boolean }) => {
         receivedKey = key;
         loadPositions = fetcher;
         receivedConfig = config;
@@ -183,9 +183,13 @@ describe('useEarnPositions', () => {
     expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF']);
     expect(receivedConfig).toEqual({
       revalidateOnMount: true,
-      refreshInterval: 10_000,
-      dedupingInterval: 3_000
+      refreshInterval: 30_000,
+      revalidateOnFocus: false,
+      dedupingInterval: 3_000,
+      isPaused: expect.any(Function)
     });
+    // The page is on screen by default, so the poll is not paused.
+    expect(receivedConfig?.isPaused?.()).toBe(false);
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
