@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 /**
  * The dedicated-suite configs spread `playwright.e2e.config`, whose `testIgnore`
@@ -121,5 +122,130 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).toMatch(/shard: \[1, 2, 3\]/);
     expect(src).toMatch(/name: Coverage Check \(95% minimum\)/);
     expect(src).toMatch(/merge-jest-coverage\.mjs/);
+  });
+});
+
+/** The `run: |` body of the step that follows `anchor` (a job or step name line), dedented. */
+const runBlockAfter = (file: string, anchor: string): string => {
+  const lines = configSource(file).split('\n');
+  const start = lines.findIndex(line => line.trim() === anchor);
+  const runAt = lines.findIndex((line, i) => i > start && /^\s*(- )?run: \|$/.test(line));
+  const runLine = lines[runAt];
+  // noUncheckedIndexedAccess: findIndex's -1-not-found case reads as undefined here too.
+  if (runLine === undefined) throw new Error(`no run: | found after ${anchor} in ${file}`);
+  const indent = runLine.search(/\S/);
+  const body: string[] = [];
+  for (const line of lines.slice(runAt + 1)) {
+    if (line.trim() !== '' && line.search(/\S/) <= indent) break;
+    body.push(line);
+  }
+  return body.join('\n');
+};
+
+/** Runs a gate's shell with its `${{ ... }}` expressions filled in; every expression must be given. */
+const gateExit = (script: string, values: Record<string, string>): number | null => {
+  const filled = script.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
+    const value = values[expr];
+    if (value === undefined) throw new Error(`no value for ${expr}`);
+    return value;
+  });
+  return spawnSync('bash', ['-eo', 'pipefail', '-c', filled], { stdio: 'pipe' }).status;
+};
+
+describe('PR workflows run the heavy E2E jobs only on a main-based pull request', () => {
+  it('local-e2e runs only on a main-based pull request, under its required name', () => {
+    const src = configSource('.github/workflows/pr-e2e-local.yml');
+    expect(src).toMatch(/name: local-e2e \(chrome\)\n\s+if: github\.event\.pull_request\.base\.ref == 'main'/);
+  });
+
+  it('bridge-guardian-e2e runs on push, dispatch and a main-based pull request', () => {
+    const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
+    expect(src).toMatch(
+      /name: bridge-guardian-e2e \(chrome\)\n\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main'/
+    );
+  });
+
+  it.each<[string, string, string, number]>([
+    ['pull_request', 'feature', 'skipped', 0],
+    ['pull_request', 'main', 'skipped', 1],
+    ['pull_request', 'main', 'failure', 1],
+    ['pull_request', 'main', 'success', 0],
+    ['push', '', 'skipped', 1],
+    ['push', '', 'success', 0],
+    ['workflow_dispatch', '', 'success', 0]
+  ])(
+    'bridge-guardian-e2e-gate passes a skipped suite only on a pull request based off main (event=%s base=%s result=%s)',
+    (eventName, baseRef, result, expected) => {
+      const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'name: bridge-guardian-e2e-gate');
+      expect(
+        gateExit(script, {
+          'github.event_name': eventName,
+          'github.event.pull_request.base.ref': baseRef,
+          'needs.bridge-guardian-e2e.result': result
+        })
+      ).toBe(expected);
+    }
+  );
+
+  it.each<[string, string, string, number]>([
+    ['success', 'false', 'skipped', 0],
+    ['success', 'true', 'skipped', 1],
+    ['success', 'true', 'success', 0]
+  ])(
+    'guardian-lifecycle-e2e-gate passes a deselected suite and fails a selected one that did not succeed (select=%s run=%s e2e=%s)',
+    (selectResult, selected, e2eResult, expected) => {
+      const script = runBlockAfter(
+        '.github/workflows/pr-e2e-guardian-lifecycle.yml',
+        'name: guardian-lifecycle-e2e-gate'
+      );
+      expect(
+        gateExit(script, {
+          'needs.select-guardian-e2e.result': selectResult,
+          'needs.select-guardian-e2e.outputs.run': selected,
+          'needs.guardian-lifecycle-e2e.result': e2eResult
+        })
+      ).toBe(expected);
+    }
+  );
+
+  it('the Guardian selector deselects a pull request based off main, marker or not', () => {
+    const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
+    const arms = [
+      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'feature', PR_BODY: 'Guardian PR: #5', expected: 'run=false' },
+      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
+      { GITHUB_EVENT_NAME: 'push', BASE_REF: '', PR_BODY: '', expected: 'run=true' }
+    ];
+    for (const { GITHUB_EVENT_NAME, BASE_REF, PR_BODY, expected } of arms) {
+      const dir = mkdtempSync(join(tmpdir(), 'guardian-select-'));
+      const outputFile = join(dir, 'output');
+      try {
+        const result = spawnSync('bash', ['-eo', 'pipefail', '-c', body], {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            GITHUB_EVENT_NAME,
+            BASE_REF,
+            PR_BODY,
+            BASE_SHA: '',
+            HEAD_SHA: '',
+            GITHUB_OUTPUT: outputFile
+          }
+        });
+        expect(result.status).toBe(0);
+        expect(readFileSync(outputFile, 'utf8')).toContain(expected);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('the E2E workflows keep their event types, so no label re-runs a gate', () => {
+    for (const file of [
+      '.github/workflows/pr-e2e-local.yml',
+      '.github/workflows/pr-e2e-guardian-lifecycle.yml',
+      '.github/workflows/pr-e2e-bridge-guardian.yml'
+    ]) {
+      expect(configSource(file)).not.toMatch(/labeled/);
+    }
   });
 });

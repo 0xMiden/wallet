@@ -37,12 +37,16 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BODY: ${{ steps.pull-request.outputs.body }}
         run: |
           set -euo pipefail
           run=false
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             run=true
+          elif [ "$BASE_REF" != main ]; then
+            # Full E2E runs once per pull request stack: on a pull request based on main (#1071).
+            run=false
           elif printf '%s\n' "$PR_BODY" \
             | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
             run=true
