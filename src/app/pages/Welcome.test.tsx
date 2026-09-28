@@ -3281,7 +3281,8 @@ describe('Welcome — side-panel handoff', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(mockFlowProps.current.recoveryError).toBe('guardian not found');
-    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // One routed failure: a tap that joined the registration would route its own failure a second time.
+    expect(mockNavigate.mock.calls.filter(([route]) => route === '/#import-select-recovery-method')).toHaveLength(1);
   });
 
   it('does not auto-create hardware-only wallets (deferred to a tap)', async () => {
