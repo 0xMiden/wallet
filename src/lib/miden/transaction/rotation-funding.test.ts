@@ -61,6 +61,7 @@ const note = (id: string, extra: Partial<ConsumableNote> = {}): ConsumableNote =
   senderAddress: 'sender',
   isBeingClaimed: false,
   type: 'unknown',
+  standardPayment: true,
   ...extra
 });
 
@@ -121,6 +122,29 @@ describe('selectRotationFundingNotes', () => {
     });
     expect(selectRotationFundingNotes(live([note('a')]), null, 10000).native).toEqual([]);
     expect(selectRotationFundingNotes({ data: undefined, isFallback: false }, NATIVE, 10000).native).toEqual([]);
+  });
+
+  // Generation refuses a whole claim over one non-standard note, and a note worth less than
+  // its own fee is never split out of a batch, so one such note would lock the gate (#805).
+  it('claims only standard payment notes, leaving out a custom-script note worth less than a fee', () => {
+    const selection = selectRotationFundingNotes(
+      live([note('standard'), note('custom', { standardPayment: false, amount: '1' })]),
+      NATIVE,
+      10000
+    );
+
+    expect(selection.batch.map(n => n.id)).toEqual(['standard']);
+    expect(selection.native.map(n => n.id)).toEqual(['standard']);
+  });
+
+  it('never claims a note that does not say it is a standard payment', () => {
+    const selection = selectRotationFundingNotes(
+      live([note('unknown', { standardPayment: undefined })]),
+      NATIVE,
+      10000
+    );
+
+    expect(selection).toEqual({ native: [], batch: [], tooSmall: false });
   });
 
   it('is not too small when every listed note is already being claimed', () => {

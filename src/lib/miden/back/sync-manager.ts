@@ -487,6 +487,7 @@ async function runSync(force: boolean): Promise<void> {
                 senderAddress: note.senderAccountId ?? '',
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
+                standardPayment: note.standardPayment,
                 swapOrder: swapOrders.get(noteId)
               };
             })

@@ -27,7 +27,10 @@ jest.mock('./helpers', () => ({
   getBech32AddressFromAccountId: (accountId: unknown) => `bech32(${String(accountId)})`
 }));
 
-jest.mock('../helpers', () => ({ getNoteRecallableAtMs: () => 1_700_000_000_000 }));
+jest.mock('../helpers', () => ({
+  getNoteRecallableAtMs: () => 1_700_000_000_000,
+  standardPaymentScriptRoots: () => new Set(['0xp2id-root', '0xp2ide-root'])
+}));
 
 import { attachmentOrderAndDepth, reduceConsumableNoteRecord, reduceConsumableNoteRecords } from './consumable-notes';
 
@@ -187,7 +190,9 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
         { amount: '100', faucetId: 'bech32(faucetA)' },
         { amount: '250', faucetId: 'bech32(faucetB)' }
       ],
-      swapAttachment: { orderId: '77', depth: 2 }
+      swapAttachment: { orderId: '77', depth: 2 },
+      // No readable script: not a standard payment.
+      standardPayment: false
     });
   });
 
@@ -202,7 +207,8 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
       senderAccountId: undefined,
       state: 0,
       assets: [{ amount: '100', faucetId: 'bech32(faucetAcct)' }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: false
     });
   });
 
@@ -220,10 +226,19 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
     expect(reduceConsumableNoteRecord(fakeRecord({ scriptRoot: '0xroot' }))).toMatchObject({ scriptRoot: '0xroot' });
   });
 
-  it('keeps a note whose script root cannot be read, with no root (#805)', () => {
+  it('keeps a note whose script root cannot be read, with no root and not as a standard payment (#805)', () => {
     const dto = reduceConsumableNoteRecord(fakeRecord({ id: '0xnoroot' }));
     expect(dto?.noteId).toBe('0xnoroot');
     expect(dto?.scriptRoot).toBeUndefined();
+    expect(dto?.standardPayment).toBe(false);
+  });
+
+  it.each([
+    ['P2ID', '0xp2id-root', true],
+    ['P2IDE', '0xp2ide-root', true],
+    ['custom-script', '0xcustom-root', false]
+  ])('says whether a %s note is a standard payment (#805)', (_name, scriptRoot, standard) => {
+    expect(reduceConsumableNoteRecord(fakeRecord({ scriptRoot }))?.standardPayment).toBe(standard);
   });
 
   it('a note with no swap attachment → swapAttachment null', () => {

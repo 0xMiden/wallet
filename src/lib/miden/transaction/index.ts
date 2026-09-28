@@ -1,7 +1,6 @@
 import {
   ChainAnchor,
   getWasmOrThrow,
-  NoteScript,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -101,7 +100,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { isPrivateNoteType } from '../helpers';
+import { isPrivateNoteType, standardPaymentScriptRoots } from '../helpers';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -1650,7 +1649,7 @@ const assertRotationFundingNotesNative = async (accountId: string, noteIds: stri
   // The lazy entry's statics are empty until the module loads, and this realm may not have loaded it.
   await getWasmOrThrow();
   const { listed, paymentScriptRoots } = await withWasmClientLock(async hold => {
-    const roots = new Set([NoteScript.p2id().root().toHex(), NoteScript.p2ide().root().toHex()]);
+    const roots = standardPaymentScriptRoots();
     const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
       assertWasmHoldCurrent(hold, 'rotation funding: consumable-note read', step)
     );

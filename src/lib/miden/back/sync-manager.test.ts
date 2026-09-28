@@ -213,7 +213,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
-import { WalletMessageType } from 'lib/shared/types';
+import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -995,6 +995,19 @@ describe('doSync — note metadata branches', () => {
     ]);
     await doSync();
     expect(mockStorageSet).toHaveBeenCalled();
+  });
+
+  it('carries whether each note is a standard payment into the list it writes (#805)', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      { ...fakeNote({ id: 'standard' }), standardPayment: true },
+      { ...fakeNote({ id: 'custom' }), standardPayment: false }
+    ]);
+    await doSync();
+    const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([
+      ['standard', true],
+      ['custom', false]
+    ]);
   });
 
   it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {

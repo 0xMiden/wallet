@@ -224,6 +224,7 @@ const nativeNote = (id: string, extra: Partial<ConsumableNote> = {}): Consumable
   senderAddress: 'sender',
   isBeingClaimed: false,
   type: 'unknown',
+  standardPayment: true,
   ...extra
 });
 const nativeBalance = (balance: number): TokenBalanceData => ({

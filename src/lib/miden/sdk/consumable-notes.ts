@@ -26,7 +26,7 @@
 
 import type { InputNoteRecord, InputNoteState, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { getNoteRecallableAtMs } from '../helpers';
+import { getNoteRecallableAtMs, standardPaymentScriptRoots } from '../helpers';
 import { getBech32AddressFromAccountId } from './helpers';
 
 /** One fungible asset locked by a note, JSON-safe (base-unit amount as a string,
@@ -71,6 +71,8 @@ export type ConsumableNoteDto = {
   recallableAtMs?: number;
   /** The note script's root, hex; absent when the recipient cannot be read. */
   scriptRoot?: string;
+  /** The script is the standard P2ID or P2IDE payment; false when it cannot be read. */
+  standardPayment?: boolean;
 };
 
 /**
@@ -108,12 +110,13 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
   return null;
 }
 
-/** Read on its own: a note whose recipient cannot be read is still listed, only without a root. */
-function scriptRootOf(record: InputNoteRecord): string | undefined {
+/** Read on its own: a note whose script cannot be read is still listed, as no standard payment. */
+function scriptOf(record: InputNoteRecord): Pick<ConsumableNoteDto, 'scriptRoot' | 'standardPayment'> {
   try {
-    return record.details().recipient().script().root().toHex();
+    const scriptRoot = record.details().recipient().script().root().toHex();
+    return { scriptRoot, standardPayment: standardPaymentScriptRoots().has(scriptRoot) };
   } catch {
-    return undefined;
+    return { standardPayment: false };
   }
 }
 
@@ -153,7 +156,7 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?:
     const swapAttachment = attachmentOrderAndDepth(record);
     const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
     dto.blockNum = record.inclusionProof?.()?.location().blockNum();
-    dto.scriptRoot = scriptRootOf(record);
+    Object.assign(dto, scriptOf(record));
     if (syncHeight !== undefined) {
       const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
       if (recallableAtMs !== undefined) dto.recallableAtMs = recallableAtMs;

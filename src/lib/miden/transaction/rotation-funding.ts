@@ -31,10 +31,13 @@ export interface ClaimableNotesSnapshot<T> {
   isFallback: boolean;
 }
 
-type FundingNoteShape = Pick<ConsumableNote, 'faucetId' | 'amount' | 'swapOrder' | 'isBeingClaimed' | 'fromCache'>;
+type FundingNoteShape = Pick<
+  ConsumableNote,
+  'faucetId' | 'amount' | 'swapOrder' | 'isBeingClaimed' | 'fromCache' | 'standardPayment'
+>;
 
 export interface RotationFundingSelection<T> {
-  /** Every native, non-swap note a live read lists, claimed or not: what the gate watches vanish. */
+  /** Every native, non-swap, standard payment note a live read lists, claimed or not: what the gate watches vanish. */
   native: T[];
   /** What one claim takes now: the unclaimed native notes, when together they are worth one fee. */
   batch: T[];
@@ -47,6 +50,10 @@ export interface RotationFundingSelection<T> {
  * is display-only, and on the extension a snapshot a previous session left behind. The
  * batch is measured by `isWorthClaiming` on its total, the rule every unattended claim
  * uses, and goes out whole, since one claim pays one fee.
+ *
+ * Only standard P2ID or P2IDE payments, a missing flag read as not: generation refuses a
+ * whole claim over one other note, and a note worth less than its own fee is never split
+ * out of a batch, so one such note would lock the gate.
  */
 export function selectRotationFundingNotes<T extends FundingNoteShape>(
   list: ClaimableNotesSnapshot<T>,
@@ -54,7 +61,9 @@ export function selectRotationFundingNotes<T extends FundingNoteShape>(
   baseFee: number | null
 ): RotationFundingSelection<T> {
   if (list.isFallback || !list.data || feeFaucetId === null) return { native: [], batch: [], tooSmall: false };
-  const native = list.data.filter(note => note.faucetId === feeFaucetId && !note.swapOrder && !note.fromCache);
+  const native = list.data.filter(
+    note => note.faucetId === feeFaucetId && !note.swapOrder && !note.fromCache && note.standardPayment === true
+  );
   const unclaimed = native.filter(note => !note.isBeingClaimed);
   if (unclaimed.length === 0) return { native, batch: [], tooSmall: false };
   const worthIt = isWorthClaiming(totalClaimableAmount(unclaimed.map(note => note.amount)), baseFee);
