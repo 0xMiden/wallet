@@ -43,11 +43,15 @@ export function publicFaucetApiUrl(network: string): string | undefined {
 
 /**
  * Fetches `url` and runs `read` on the response inside one bound, as the app's faucetFetch does: the timer runs
- * through the body read, and the request is aborted once `read` settles, which ends any body it left unread.
+ * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
+ * settles, which ends any body it left unread.
  */
 async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`Request timed out after ${FETCH_TIMEOUT_MS} ms`, 'TimeoutError')),
+    FETCH_TIMEOUT_MS
+  );
   try {
     return await read(await fetch(url, { signal: controller.signal }));
   } finally {

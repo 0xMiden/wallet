@@ -167,7 +167,7 @@ describe('mintFromPublicFaucet', () => {
       expect(grant.outcome).toBe('pending');
       await jest.advanceTimersByTimeAsync(1);
 
-      expect(grant.outcome).toMatchObject({ name: 'AbortError' });
+      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
     });
 
     it('still retries a 5xx whose body stalls, from a fresh challenge', async () => {
