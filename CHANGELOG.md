@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Add a Cash tab after Settings with USDCx Buy/Sell amount entry, a centered decimal numpad, and a provider-selection preview. Checkout is not connected yet.
+- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection preview. Checkout is not connected yet.
 
 ### Changes
 

@@ -71,6 +71,8 @@ export interface AmountInputProps {
   decimalsLimit?: number;
   maxLength?: number;
   size?: 'default' | 'compact' | 'hero';
+  /** Where the amount sits in the field. Defaults to `start`. */
+  align?: 'start' | 'center';
   'aria-label'?: string;
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
@@ -80,7 +82,7 @@ export interface AmountInputProps {
 }
 
 /**
- * Reusable left-aligned amount field: big scalable numeric input, an orange
+ * Reusable amount field (left-aligned unless `align` says otherwise): big scalable numeric input, an orange
  * underline divider, optional label / helper lines / token selector chip.
  * Purely presentational and free of send-flow imports so swap and other
  * screens can drop it in.
@@ -102,6 +104,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   decimalsLimit = 6,
   maxLength = 16,
   size = 'default',
+  align = 'start',
   'aria-label': ariaLabel,
   disabled,
   loading,
@@ -127,7 +130,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           <CurrencyInput
             ref={inputRef}
             className={classNames(
-              'w-full bg-transparent p-0 outline-none text-left',
+              'w-full bg-transparent p-0 outline-none',
+              align === 'center' ? 'text-center' : 'text-left',
               size === 'hero' && displayLength < 7
                 ? 'text-entry-amount'
                 : size !== 'default'

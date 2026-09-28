@@ -4,7 +4,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 // Tab pages that should go to home on back (when no history)
-const TAB_PAGES = ['/history', '/settings', '/browser', '/cash'];
+const TAB_PAGES = ['/history', '/settings', '/browser'];
 
 /**
  * Bridges hardware back button/gesture with Woozie navigation.

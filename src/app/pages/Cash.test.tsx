@@ -16,6 +16,12 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Backspace: 'backspace' }
 }));
 
+const mockLeavePage = jest.fn();
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  goBack: () => mockLeavePage()
+}));
+
 let mockBackHandler: () => boolean | void;
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (handler: () => boolean | void) => {
@@ -37,7 +43,7 @@ afterAll(() => {
 
 describe('Cash amount entry', () => {
   it('enters cents, ignores repeated decimal points and excess precision, and deletes', () => {
-    render(<Cash />);
+    render(<Cash action="buy" />);
     press('0', '0', '1', '2', 'decimal', 'decimal', '3', '4', '5');
     expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$12.34');
     press('delete', 'delete', 'delete', 'delete', 'delete', 'delete');
@@ -46,20 +52,22 @@ describe('Cash amount entry', () => {
     expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$0.5');
   });
 
-  it('preserves independent buy and sell drafts with USDCx precision', () => {
-    render(<Cash />);
-    press('1', '0', '0');
-    fireEvent.click(screen.getByRole('radio', { name: 'cashSell' }));
+  it('titles the page by its action and sells with USDCx precision', () => {
+    render(<Cash action="sell" />);
+    expect(screen.getByText('cashSellingUsdc')).toBeInTheDocument();
     press('decimal', '0', '0', '0', '0', '0', '1', '2');
-    expect(screen.getByLabelText('cashSellAmount')).toHaveValue('0.000001');
-    fireEvent.click(screen.getByRole('radio', { name: 'cashBuy' }));
-    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$100');
-    fireEvent.click(screen.getByRole('radio', { name: 'cashSell' }));
     expect(screen.getByLabelText('cashSellAmount')).toHaveValue('0.000001');
   });
 
+  it('leaves the page from the amount step back button', () => {
+    render(<Cash action="buy" />);
+    expect(screen.getByText('cashBuyingUsdc')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('flow-back'));
+    expect(mockLeavePage).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts keyboard entry while suppressing the native mobile keyboard', () => {
-    render(<Cash />);
+    render(<Cash action="buy" />);
     const input = screen.getByLabelText('cashPayAmount');
     expect(input).toHaveAttribute('inputmode', 'none');
     fireEvent.change(input, { target: { value: '24.50' } });
@@ -68,16 +76,14 @@ describe('Cash amount entry', () => {
     expect(input).toHaveValue('$24.5');
   });
 
-  it('bounds integer length and supports keyboard mode selection', () => {
-    render(<Cash />);
+  it('bounds integer length', () => {
+    render(<Cash action="buy" />);
     press(...Array.from({ length: 15 }, () => '9'));
     expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$99999999999999');
-    fireEvent.keyDown(screen.getByRole('radio', { name: 'cashBuy' }), { key: 'ArrowRight' });
-    expect(screen.getByRole('radio', { name: 'cashSell' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('requires a positive amount, opens provider selection, and keeps the draft on back', async () => {
-    render(<Cash />);
+    render(<Cash action="buy" />);
     expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled();
     press('0', 'decimal', '0');
     expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled();
@@ -95,9 +101,8 @@ describe('Cash amount entry', () => {
   });
 
   it('carries the sell amount into the preview and handles mobile back one step at a time', async () => {
-    render(<Cash />);
+    render(<Cash action="sell" />);
     expect(mockBackHandler()).toBe(false);
-    fireEvent.click(screen.getByRole('radio', { name: 'cashSell' }));
     press('2', 'decimal', '5');
     fireEvent.click(screen.getByRole('button', { name: 'continue' }));
     await screen.findByRole('radio', { name: 'Stripe' });

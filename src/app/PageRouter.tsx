@@ -190,13 +190,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
+  // Buy or sell USDCx, opened from the buttons under the balance card.
   [
-    '/cash',
-    onlyReady(() => (
-      <TabLayout>
-        <Cash />
-      </TabLayout>
-    ))
+    '/cash/:action',
+    onlyReady(({ action }) => {
+      switch (action) {
+        case 'buy':
+        case 'sell':
+          return (
+            <FullScreenPage key={`cash-${action}`} entrance="slide">
+              <Cash action={action} />
+            </FullScreenPage>
+          );
+        default:
+          return Woozie.Router.SKIP;
+      }
+    })
   ],
   // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
   // the counterparty's address and is absent for a category group (`/activity/group/swap`).
