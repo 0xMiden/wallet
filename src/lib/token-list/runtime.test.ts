@@ -3,8 +3,7 @@ import {
   loadVerifiedFaucetIds,
   onTokenListUpdated,
   TOKEN_LIST_RETRY_BACKOFF_MS,
-  TOKEN_LIST_TTL_MS,
-  tokenListUrl
+  TOKEN_LIST_TTL_MS
 } from './runtime';
 
 // Identity unless a test sets the network an encoding would be taken under, which it then prefixes.
@@ -54,10 +53,6 @@ const setup = (initial: Record<string, unknown> = {}) => {
   mockNormalizeNetwork = null;
   _resetTokenListForTest({ storage, fetch: fetchMock, now: () => clock });
 };
-
-it('builds the raw GitHub URL per network', () => {
-  expect(tokenListUrl('testnet')).toBe('https://raw.githubusercontent.com/0xMiden/token-list/main/testnet.json');
-});
 
 it('uses a fresh cache and does not fetch', async () => {
   setup({ [KEY]: { fetchedAt: NOW - 1_000, body: doc(['a']) } });

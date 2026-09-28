@@ -10,8 +10,7 @@ export const TOKEN_LIST_RETRY_BACKOFF_MS = 60 * 60 * 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 256 * 1_024;
 
-export const tokenListUrl = (network: string) =>
-  `https://raw.githubusercontent.com/0xMiden/token-list/main/${network}.json`;
+const tokenListUrl = (network: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/${network}.json`;
 const cacheKey = (network: string) => `token_list_cache_v1:${network}`;
 const attemptKey = (network: string) => `token_list_attempt_v1:${network}`;
 
@@ -37,8 +36,8 @@ let deps = defaults();
 // while a read is pending, so the hook normalizes at compare time.
 const loaded = new Map<string, Promise<LoadedList>>();
 // One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
-// not this map, is what keeps a reopened popup from refetching.
-const refreshing = new Map<string, Promise<void>>();
+// not this set, is what keeps a reopened popup from refetching.
+const refreshing = new Set<string>();
 // The last failed refresh per network: this realm's own, or one an earlier realm stored.
 const lastFailure = new Map<string, number>();
 const listeners = new Set<(network: string) => void>();
@@ -122,11 +121,11 @@ async function refresh(network: string): Promise<void> {
 
 function startRefresh(network: string): void {
   if (refreshing.has(network)) return;
-  const run = refresh(network)
+  refreshing.add(network);
+  void refresh(network)
     // An attempt stamp storage refused lands here; `lastFailure` already holds this realm off.
     .catch(() => undefined)
     .finally(() => refreshing.delete(network));
-  refreshing.set(network, run);
 }
 
 function isDue(network: string, fetchedAt: number | null): boolean {
