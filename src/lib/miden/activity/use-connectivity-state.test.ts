@@ -13,8 +13,10 @@ import { act, renderHook } from '@testing-library/react';
 //
 // NOTE: `connectivity-state.ts` also imports `putToStorage` from the SAME
 // module (via the `lib/miden/front/storage` alias, which jest resolves to the
-// same file). Mocking it here therefore also neutralises the fire-and-forget
-// storage mirror inside the real state machine's `notify()`.
+// same file). Mocking it here therefore also routes the real state machine's
+// `notify()` mirror write into the same in-memory store the dismissed-
+// activations turn reads back through `fetchFromStorage`, which several tests
+// below depend on landing.
 // ---------------------------------------------------------------------------
 const mockUseStorage = jest.fn();
 // One stored record per key, shared by every hook instance (every "window"), read and written on a later microtask
@@ -255,12 +257,11 @@ describe('useConnectivityState', () => {
   });
 
   it('settles on a fresh profile under the real useStorage contract (regression: fresh-profile render loop)', async () => {
-    // Complements the stable-fallback identity test below by simulating what
-    // real useStorage returns on a profile where nothing has ever been
-    // dismissed: the key is absent, so the hook receives `data ?? fallback` —
-    // the fallback object itself, not a closed-over stable stub. With the old
-    // inline `{}` fallback this mount loops until React throws "Maximum update
-    // depth exceeded"; with the hoisted constant it settles in one pass.
+    // Complements the stable-fallback identity test below by simulating what real useStorage returns on a profile
+    // where nothing has ever been dismissed: the key is absent, so the hook receives `data ?? fallback`, the fallback
+    // object itself, not a closed-over stable stub. The effect that used to loop on an unstable fallback ("Maximum
+    // update depth exceeded") is gone; its replacement returns early when nothing needs forgetting. So this is now a
+    // smoke test for a mount and a rerender on a genuinely fresh profile, not a loop regression guard.
     mockUseStorage.mockImplementation((key: string, fallback: unknown) =>
       key === CONNECTIVITY_STATE_KEY ? [null, jest.fn()] : [fallback, mockSetStoredDismissedActivations]
     );
@@ -281,14 +282,11 @@ describe('useConnectivityState', () => {
   });
 
   it('passes a stable dismissed-activations fallback across re-renders (guards the render-loop fix)', () => {
-    // Regression guard for the fresh-profile render loop: the hook used to pass
-    // an inline `{}` fallback to useStorage, a new object every render. Since
-    // useStorage returns `data ?? fallback`, that churned identity on every
-    // render while the key was absent and made the storage-sync effect setState
-    // forever ("Maximum update depth exceeded"). The fix hoists the fallback to
-    // a module-level constant, so every render MUST pass the same reference.
-    // (Reverting to an inline `{}` makes this test fail; the deep-equality
-    // `toHaveBeenCalledWith(..., {})` assertion above does not.)
+    // The hook used to pass an inline `{}` fallback to useStorage, a new object every render. Since useStorage
+    // returns `data ?? fallback`, that churned `storedDismissals`'s identity every render while the key was absent,
+    // which churns the cleanup effect's dependency array too (see NO_DISMISSED_ACTIVATIONS above). The fix hoists
+    // the fallback to a module-level constant, so every render MUST pass the same reference. (Reverting to an
+    // inline `{}` makes this test fail; the deep-equality `toHaveBeenCalledWith(..., {})` assertion above does not.)
     const { rerender } = renderHook(() => useConnectivityState());
     rerender();
     rerender();
