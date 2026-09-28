@@ -14,9 +14,9 @@ by the probe is marked **Unconfirmed**.
 
 ## Decision summary
 
-**Conditional go.** If the owner accepts a synced passkey as the second
-wrapping, build passkey unlock: iCloud Keychain with Touch ID on macOS,
-Google Password Manager on any desktop, and Windows Hello if it returns PRF.
+**Conditional go.** If the owner takes both decisions below, build passkey
+unlock: iCloud Keychain with Touch ID on macOS, Google Password Manager on any
+desktop, and Windows Hello if it returns PRF.
 If only a device-bound wrapping is acceptable, build nothing on macOS now, and
 on Windows 11 only if Windows Hello passes a device test and the owner takes
 decision 2.
