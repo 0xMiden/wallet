@@ -88,3 +88,14 @@ it('reloads for a new effective network on the next render', async () => {
   await waitFor(() => expect(result.current('d')).toBe('verified'));
   expect(result.current('t')).toBe('unverified');
 });
+
+it('does not let a loaded network speak for another network still loading', async () => {
+  mockLoad.mockImplementation((network: string) =>
+    network === 'testnet' ? Promise.resolve(new Set(['t'])) : new Promise<Set<string> | null>(() => undefined)
+  );
+  const { result, rerender } = renderHook(() => useTokenVerification());
+  await waitFor(() => expect(result.current('t')).toBe('verified'));
+  mockNetwork = 'devnet';
+  rerender();
+  expect(result.current('t')).toBe('unknown');
+});
