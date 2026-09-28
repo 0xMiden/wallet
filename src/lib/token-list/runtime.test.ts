@@ -147,6 +147,14 @@ it('ignores a cache entry of the wrong shape', async () => {
   expect(ids).toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
 });
 
+it('refreshes at once when a freshly stamped cache entry does not parse', async () => {
+  setup({ [KEY]: { fetchedAt: NOW - 1_000, body: { name: 'x' } } });
+  fetchMock.mockResolvedValue(response(doc(['a'])));
+  await loadVerifiedFaucetIds('testnet');
+  await flush();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 it('ignores a cache entry whose fetchedAt is not a number, and refreshes', async () => {
   setup({ [KEY]: { fetchedAt: '2026-09-28', body: doc(['cached']) } });
   fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
@@ -266,10 +274,12 @@ describe('the retry backoff', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('ignores a failure older than the cached list, which a later refresh superseded', async () => {
-    // A stamp later than the clock makes the list due whatever its age, so only the failure could hold it back.
-    setup({ [KEY]: { fetchedAt: NOW + 60_000, body: doc(['a']) }, [ATTEMPT]: NOW - 1_000 });
-    fetchMock.mockResolvedValue(response(doc(['a'])));
+  it('waits out a failure even when the cached list is stamped ahead of the clock', async () => {
+    // A stamp later than the clock makes the list due whatever its age, so only the backoff holds it back.
+    setup({ [KEY]: { fetchedAt: NOW + TOKEN_LIST_TTL_MS, body: doc(['a']) } });
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
     await loadVerifiedFaucetIds('testnet');
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);

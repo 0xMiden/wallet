@@ -84,10 +84,9 @@ async function readList(network: string): Promise<LoadedList> {
   if (typeof failedAt === 'number') lastFailure.set(network, failedAt);
   const cached = cacheEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
-  return {
-    ids: fromCache ?? parseTokenList(bundledTokenList(network), network),
-    fetchedAt: cached?.fetchedAt ?? null
-  };
+  // Only a list that parsed has an age; an unreadable entry leaves the snapshot standing in and is due at once.
+  if (cached && fromCache) return { ids: fromCache, fetchedAt: cached.fetchedAt };
+  return { ids: parseTokenList(bundledTokenList(network), network), fetchedAt: null };
 }
 
 /** Fetches the list and stores it once it validates; false when it does not arrive whole and valid. */
@@ -135,9 +134,8 @@ function isDue(network: string, fetchedAt: number | null): boolean {
   // A stamp later than the clock, on the list or on a failure, is skew and says nothing about age.
   if (fetchedAt !== null && now >= fetchedAt && now - fetchedAt < TOKEN_LIST_TTL_MS) return false;
   const failedAt = lastFailure.get(network);
-  // A failure from before the cached list was fetched was superseded by that fetch.
-  if (failedAt === undefined || (fetchedAt !== null && failedAt < fetchedAt)) return true;
-  return now < failedAt || now - failedAt >= TOKEN_LIST_RETRY_BACKOFF_MS;
+  // Honoured whatever the list's stamp says: a stamp ahead of the clock must not switch the backoff off.
+  return failedAt === undefined || now < failedAt || now - failedAt >= TOKEN_LIST_RETRY_BACKOFF_MS;
 }
 
 /**
