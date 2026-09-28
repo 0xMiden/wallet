@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
@@ -30,6 +31,7 @@
 
 ### Fixes
 
+- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). Only when neither credential can be read does a page show an error, and it offers no unlock step (#1056).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
@@ -84,6 +86,7 @@
 - [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
 - [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, a closed banner is now saved, Home's prompts load and can be dismissed, and Fund's request goes out (#1186).
 - [FIX][all] A setting or token metadata written outside the storage hooks, or a wallet reset, no longer leaves the previous value in the storage hooks' cache: every storage write updates it, and every key-value wipe re-reads it (#1177).
+- [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
 
 ## 1.16.2 (2026-09-24)
 

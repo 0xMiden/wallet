@@ -138,6 +138,8 @@
   // settles, so a slow answer never stacks polls; only disconnect() stops it.
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
+  // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
+  let disconnects = 0;
 
   // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
   // sees is a key that cannot be decoded, before any field changes.
@@ -301,6 +303,7 @@
       }
 
       async connect(privateDataPermission, network, allowedPrivateData) {
+        const disconnectsBefore = disconnects;
         const res = await request({
           type: 'PERMISSION_REQUEST',
           appMeta: { name: window.location.hostname },
@@ -309,6 +312,7 @@
           network,
           allowedPrivateData,
         });
+        if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
 
         // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
         // leaves the provider, and any watch already running, as it was.
@@ -338,22 +342,28 @@
         this._emit('accountChange', this.permission);
       }
 
+      // The connection ends whether the request succeeds, is refused or times out, and its error still reaches the
+      // caller. Only the call that clears a connected wallet signals it, so a listener that disconnects on the signal
+      // is refused once and stops, and two overlapping calls signal once (#1227).
       async disconnect() {
         stopPermissionWatch();
-        const res = await request({
-          type: 'DISCONNECT_REQUEST',
-          network: this.network,
-        });
-
-        this.address = undefined;
-        this.publicKey = undefined;
-        this.permission = undefined;
-        this.network = undefined;
-
-        // Emit accountChange with null
-        this._emit('accountChange', null);
-
-        return res;
+        disconnects++;
+        try {
+          return await request({
+            type: 'DISCONNECT_REQUEST',
+            network: this.network,
+          });
+        } finally {
+          // A connect begun after this call is answered first only if this request was dropped; its timeout
+          // then ends that connection too, so the watch stops with the fields.
+          stopPermissionWatch();
+          const connected = !!this.address;
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this.network = undefined;
+          if (connected) this._emit('accountChange', null);
+        }
       }
 
       // Fields follow the new account before listeners hear of it; null clears them. The permission

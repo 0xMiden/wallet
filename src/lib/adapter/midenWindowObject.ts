@@ -41,6 +41,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
   appName?: string | undefined;
   network?: WalletAdapterNetwork | undefined;
   private clearAccountChangeInterval?: () => void | undefined;
+  private disconnects = 0;
 
   async isAvailable(): Promise<boolean> {
     return await isAvailable();
@@ -110,6 +111,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     network: WalletAdapterNetwork,
     allowedPrivateData?: AllowedPrivateData
   ): Promise<void> {
+    const disconnectsBefore = this.disconnects;
     const perm = await requestPermission(
       { name: window.location.hostname },
       false,
@@ -117,22 +119,29 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
       network,
       allowedPrivateData
     );
+    // A disconnect() since this call began ends it, even one still waiting for its own answer (#1227).
+    if (this.disconnects !== disconnectsBefore) throw new WalletError('The wallet was disconnected while connecting');
     this.permission = perm;
     this.address = perm.address;
     this.network = network;
     this.publicKey = perm.publicKey;
-    // The adapter can call connect() again without a disconnect(), which stops only the latest poll.
+    // The adapter can call connect() again without a disconnect(), which stops only the latest poll. The poll
+    // starts from this permission, so a first check that finds no grant clears the account (#1227).
     this.clearAccountChangeInterval?.();
-    this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
+    this.clearAccountChangeInterval = onPermissionChange(current => this.applyPermission(current), perm);
   }
 
   // The poll stops before the request: after accountChange(null) that account holds no session for
   // this origin and the request is refused, and a poll still running would repopulate the fields.
   async disconnect(): Promise<void> {
     this.clearAccountChangeInterval?.();
+    this.disconnects++;
     try {
       await requestDisconnect();
     } finally {
+      // No connect sets the fields while this request waits: one begun before it is refused by the count, and the
+      // background answers one begun after it later. So this stop is defensive, for a request that ever settles late.
+      this.clearAccountChangeInterval?.();
       this.address = undefined;
       this.publicKey = undefined;
       this.permission = undefined;
@@ -140,10 +149,11 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
   }
 
   // An account switch arrives here (#174). A permission for the account already held changes
-  // nothing, so the check right after connect does not echo it. The fields follow a new account
-  // before listeners hear of it, and null (no grant from that account) clears them. The permission
-  // carries the decoded key, the shape connect gives. A malformed key throws before anything
-  // changes; onPermissionChange has recorded it and does not retry it, as the same key would fail again.
+  // nothing: the poll records a key that cannot be decoded and the fields do not, so a switch back
+  // to the held account reaches here. The fields follow a new account before listeners hear of it,
+  // and null (no grant from that account) clears them. The permission carries the decoded key, the
+  // shape connect gives. A malformed key throws before anything changes; onPermissionChange has
+  // recorded it and does not retry it, as the same key would fail again.
   private applyPermission(perm: MidenDAppCurrentPermission) {
     if (perm?.address === this.address) return;
     if (perm === null) {

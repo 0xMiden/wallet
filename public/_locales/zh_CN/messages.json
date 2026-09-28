@@ -5291,6 +5291,10 @@
     "message": "验证此钱包的解锁方式耗时比平时更长。如需重试，请返回并重新打开此页面。",
     "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
+  "couldNotCheckUnlockMethodReopen": {
+    "message": "无法验证此钱包的解锁方式。若要重试，请返回并重新打开此页面。",
+    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+  },
   "receiveQrColorAction": {
     "message": "更改二维码颜色",
     "englishSource": "Change the QR code color"
