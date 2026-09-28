@@ -497,15 +497,16 @@
 
       _emit(event, data) {
         const listeners = this._listeners.get(event);
-        if (listeners) {
-          listeners.forEach(cb => {
-            try {
-              cb(data);
-            } catch (e) {
-              // Silent fail for listener errors
-            }
-          });
-        }
+        if (!listeners) return;
+        // A snapshot, as in the mobile and extension providers: a listener that re-registers itself
+        // is re-appended to the live Set and would be visited again in this emission, without end.
+        Array.from(listeners).forEach(cb => {
+          try {
+            cb(data);
+          } catch (e) {
+            console.error('[MidenWallet] Error in ' + event + ' listener:', e);
+          }
+        });
       }
     }
 

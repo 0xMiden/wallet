@@ -210,10 +210,11 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  // Whether a registration has landed for this attempt. Distinct from `registrationError`,
-  // which both outcomes set: the throw and the resolved-but-never-Ready path. Only this tells
-  // them apart, and only this can say whether a wallet may already exist.
-  const [registrationCommitted, setRegistrationCommitted] = useState(false);
+  // The identity of the file restore that has landed for the current attempt, or null. Bound to
+  // the SAME fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a
+  // plain "has anything landed" flag. Only resetFlowState clears it, so it survives a history
+  // round trip back to the same file within the attempt (see canLeaveConfirmation).
+  const [committedFileBinding, setCommittedFileBinding] = useState<string | null>(null);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
@@ -271,6 +272,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
+    setCommittedFileBinding(null);
     setGuardianLookupFailure(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
@@ -478,9 +480,10 @@ const Welcome: FC = () => {
       }
       await registration.done;
       // From here a wallet may exist, whatever happens next: the escape back to the file picker is
-      // withdrawn, because it would show an empty picker implying the restore was abandoned while
-      // the databases are written and the registration has landed.
-      setRegistrationCommitted(true);
+      // withdrawn for THIS file, because it would show an empty picker implying the restore was
+      // abandoned while the databases are written and the registration has landed (canLeaveConfirmation
+      // covers what happens on a different file).
+      if (walletFilePayload) setCommittedFileBinding(JSON.stringify(fileRegistrationBinding(walletFilePayload)));
       if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
@@ -1078,17 +1081,20 @@ const Welcome: FC = () => {
   useEffect(() => {
     if (step !== OnboardingStep.Confirmation) {
       setRegistrationError(null);
-      setRegistrationCommitted(false);
     }
   }, [step]);
 
   // Confirmation creates the wallet, so there is nothing to step back to, except a file restore the
-  // user might want to retry with a different file - and only while no registration has landed. The
-  // chevron and the hardware back read the SAME predicate: the hardware path used to consult only
-  // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
-  // file choice; see the 'back' action.
+  // user might want to retry with a different file - and only while no registration has landed FOR
+  // THE FILE CURRENTLY STAGED (a different file staged after an earlier one landed gets its own way
+  // back). The chevron and the hardware back read the SAME predicate: the hardware path used to
+  // consult only `isLoading`, so it stayed open exactly where the chevron was being closed. Back
+  // returns to the file choice; see the 'back' action.
   const canLeaveConfirmation =
-    step !== OnboardingStep.Confirmation || (walletFilePayload !== null && !isLoading && !registrationCommitted);
+    step !== OnboardingStep.Confirmation ||
+    (walletFilePayload !== null &&
+      !isLoading &&
+      JSON.stringify(fileRegistrationBinding(walletFilePayload)) !== committedFileBinding);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {

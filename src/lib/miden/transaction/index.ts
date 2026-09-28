@@ -7,6 +7,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
+import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
   getOrCreateMultisigService,
   isGuardianAccount,
@@ -56,7 +57,15 @@ import {
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, isGuardianOutage, TRANSACTION_EXPIRED_ERROR } from './constants';
+import {
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
+  isGuardianOutage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
+  TRANSACTION_EXPIRED_ERROR
+} from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   isGuardianCanonicalizationError,
@@ -79,6 +88,8 @@ import {
   ConsumeTransaction,
   EarnDepositTransaction,
   IBridgeProvider,
+  IRequeueStreak,
+  IRequeueStreakArm,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -281,6 +292,12 @@ const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 // connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
+// Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
+// the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
+// can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
+// timeout, so the rows between them get laps.
+const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
+
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
 // declares rate-limit rejections retryable, so terminal-failing a value-moving
@@ -395,6 +412,22 @@ const MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = PENDING_CONFLICT_REQUEUE_COOLDOWN_SE
 const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
 
 /**
+ * The cooldown a guardian arm gives a row it requeues for the `streak`-th time in a row: the arm's `baseSec`, doubled
+ * for each earlier requeue in the streak and capped at GUARDIAN_REQUEUE_BACKOFF_CAP_SEC, but never below `baseSec`,
+ * because a 429's base is the guardian's own retry-after and the cap must not cut that short.
+ *
+ * Pure and exported for its unit test, so the doubling and both bounds are pinned without driving a pipeline.
+ */
+export const guardianRequeueBackoffSec = (baseSec: number, streak: number): number =>
+  Math.min(baseSec * 2 ** Math.max(streak - 1, 0), Math.max(baseSec, GUARDIAN_REQUEUE_BACKOFF_CAP_SEC));
+
+/** The streak a requeue down `arm` gives the row: one longer when the row's last requeue was also `arm`'s. */
+const nextRequeueStreak = (
+  row: Pick<ITransaction, 'requeueStreak'> | undefined,
+  arm: IRequeueStreakArm
+): IRequeueStreak => ({ arm, count: row?.requeueStreak?.arm === arm ? row.requeueStreak.count + 1 : 1 });
+
+/**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
  * `stage => setTransactionStage(txId, stage)`, made UNFAILABLE.
  *
@@ -453,11 +486,53 @@ const REQUEUE_WAKE_REARM_MS = 3000;
 const MAX_REQUEUE_WAKE_LIFETIME_MS = (MAX_QUEUED_AGE + 60) * 1000;
 
 /**
+ * How long a wake waits for a Queued row: until a beat past its `nextEligibleAt`, or until its reap boundary if that
+ * comes first, for the reasons the re-arm in `scheduleRequeueWake` gives. A backed-off cooldown can outlast the
+ * boundary (#1223). `fallbackReapsAt` stands in for a row whose `initiatedAt` is unusable.
+ */
+const requeueWakeDelayMs = (
+  row: { readonly initiatedAt?: number; readonly nextEligibleAt?: number },
+  fallbackReapsAt: number
+): number => {
+  const { initiatedAt, nextEligibleAt } = row;
+  const reapsAt =
+    initiatedAt !== undefined && Number.isFinite(initiatedAt)
+      ? (initiatedAt + MAX_QUEUED_AGE) * 1000 + REQUEUE_WAKE_REARM_MS
+      : fallbackReapsAt;
+  return Math.max(Math.min((nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(), REQUEUE_WAKE_REARM_MS);
+};
+
+/**
+ * True unless a Queued row awaits its recovery seed: the loop never picks such a row and the reaper never expires
+ * it, so a wake for it would re-arm after every run for as long as it waits for the seed. Shared by
+ * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
+ */
+const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
+ * How long until the soonest of `rows` that is Queued next needs a drive, by the same rule as a requeue wake, or
+ * `undefined` when none does. The extension's service worker arms a one-shot alarm from it when a processing run ends,
+ * because the run stops after a fixed number of passes and a backed-off row can come due after it has (#1223).
+ *
+ * Rows `loopCanPick` excludes are left out too, for the same reason.
+ */
+export const nextQueuedWakeDelayMs = (
+  rows: readonly Pick<ITransaction, 'status' | 'initiatedAt' | 'nextEligibleAt' | 'awaitingRecoverySeed'>[]
+): number | undefined => {
+  const fallbackReapsAt = Date.now() + MAX_REQUEUE_WAKE_LIFETIME_MS;
+  const delays = rows
+    .filter(row => row.status === ITransactionStatus.Queued && loopCanPick(row))
+    .map(row => requeueWakeDelayMs(row, fallbackReapsAt));
+  return delays.length > 0 ? Math.min(...delays) : undefined;
+};
+
+/**
  * Keep a requeued row moving, OFF-extension only.
  *
  * The extension's service worker drives the queue itself: each kick runs the loop
  * for at most sixty passes, 5 s apart, and a later kick (a new transaction, the
- * guardian-sync kick when an outage clears) starts it again. Mobile and desktop
+ * guardian-sync kick when an outage clears, the one-shot alarm a run arms for
+ * the soonest row it leaves Queued) starts it again. Mobile and desktop
  * have none: the only driver for a send is the generating-transaction screen's
  * interval, cleared on unmount, and the screen's own copy invites the user to
  * leave. Before this arm existed a failure here ended the row terminally inside
@@ -671,20 +746,13 @@ function scheduleRequeueWake(
       // pipeline reaps nothing. Stopping on age would then abandon the row on
       // exactly the lap that failed to do the work, leaving it Queued forever
       // with nothing to reap it. So age only paces the wait; it never ends it.
-      const reapsAt = Number.isFinite(row.initiatedAt)
-        ? (row.initiatedAt + MAX_QUEUED_AGE) * 1000 + REQUEUE_WAKE_REARM_MS
-        : hardExpiresAt;
       // Come back when the row is next eligible — or at the reap boundary if
       // that comes first, since past it the row needs a drive to be reaped and
       // waiting out a long cooldown first would only delay that.
       // A beat past `nextEligibleAt`, as `requeueWithWake` arms it: this re-arm
       // replaces the wake a requeue inside the lap just set, and a timer aimed at
       // the boundary itself can fire on a clock still short of it, wasting the lap.
-      const waitMs = Math.max(
-        Math.min((row.nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(),
-        REQUEUE_WAKE_REARM_MS
-      );
-      scheduleRequeueWake(txId, waitMs, signCallback, guardianProvider, chainStartedAt);
+      scheduleRequeueWake(txId, requeueWakeDelayMs(row, hardExpiresAt), signCallback, guardianProvider, chainStartedAt);
     })();
   }, delayMs);
   requeueWakes.set(txId, timer);
@@ -701,14 +769,18 @@ function scheduleRequeueWake(
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
+ *
+ * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
+ * other requeue clears the streak (#1223). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which
+ * a wake is timed from.
  */
 async function requeueTransactionForRetry(
   txId: string,
   txType: ITransactionType,
   stage: ITransactionStage,
   cooldownSec: number,
-  extraValues?: { unauthorizedRetryUntil?: number }
-): Promise<void> {
+  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
+): Promise<{ initiatedAt: number | undefined; nextEligibleAt: number }> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
   // recallBlocks) and its asset when its bytes are first built, so a wrong callback
   // flag there fails the kernel's remove-asset assertion on every cycle for as long
@@ -769,6 +841,7 @@ async function requeueTransactionForRetry(
     row?.unauthorizedRetryUntil !== undefined
       ? { unauthorizedRetryUntil: row.unauthorizedRetryUntil + cooldownSec }
       : {};
+  const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     stage,
@@ -777,18 +850,21 @@ async function requeueTransactionForRetry(
     // the whole cooldown plus every failed attempt in the generating-transaction
     // step timings.
     stageTimestamps: undefined,
-    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
+    nextEligibleAt,
+    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    requeueStreak: undefined,
     ...(clearRequestBytes ? { requestBytes: undefined } : {}),
     ...carriedDeadline,
     ...extraValues
   });
+  return { initiatedAt: row?.initiatedAt, nextEligibleAt };
 }
 
 /**
  * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
  * arm its wake. The wake fires a beat past eligibility, so the loop does not
  * re-read the row while `nextEligibleAt` still excludes it and go straight back
- * to sleep.
+ * to sleep, or at the row's reap boundary when a backed-off cooldown outlasts it.
  */
 async function requeueWithWake(
   txId: string,
@@ -796,10 +872,16 @@ async function requeueWithWake(
   cooldownSec: number,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
-  extraValues?: { unauthorizedRetryUntil?: number }
+  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
 ): Promise<void> {
-  await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
-  scheduleRequeueWake(txId, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
+  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
+  scheduleRequeueWake(
+    txId,
+    requeueWakeDelayMs(requeued, Date.now() + MAX_REQUEUE_WAKE_LIFETIME_MS),
+    signCallback,
+    guardianProvider
+  );
 }
 
 /**
@@ -1243,14 +1325,21 @@ const generateTransactionWithProvider = async (
       // was minted but before it was persisted, so a requeue would mint another;
       // switch-guardian / update-procedure-threshold re-runs can register a
       // duplicate delta. They fall through to cancelTransaction - the user retries.
+      //
+      // A repeat doubles the cooldown (#1223). Each attempt spends withGuardianConflictRetry's ~55 s before it
+      // requeues, so with two rows on one stalled account the other's 15 s has always run out and the pair holds the
+      // front of the queue for as long as the stall lasts.
+      //
+      // This arm and the ones below read the failure's stage and the row's requeue streak off the stored row: the
+      // in-memory `transaction` is the row as the loop picked it.
+      const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
-        console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
-        await requeueTransactionForRetry(
-          transaction.id,
-          transaction.type,
-          'creating-proposal',
-          PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
-        );
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
+        const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] proposal still conflicting after retry budget, requeueing in ${cooldown}s`);
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
+          requeueStreak
+        });
         return;
       }
       // A DELEGATED prove step that failed at the 'proving' stage is a PRE-submit
@@ -1277,7 +1366,6 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
-      const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
       // requeue re-broadcasts, so the classifier that permits one must name the whole
       // abandonment class rather than half of it. (Every `OperationAbortedError` that
@@ -1328,33 +1416,40 @@ const generateTransactionWithProvider = async (
       // staying locked until the guardian worker confirms. A leftover candidate
       // surfaces as a 409 on the next cycle, which the pending-conflict requeue
       // above already handles.
+      //
+      // A repeat doubles the guardian's figure (#1223): a row that came back when told and was refused again was told
+      // too short a wait, and several rows refused that way keep one eligible, and oldest, at every lap.
       if (isGuardianRateLimited(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && failedAtProposal) {
-        const cooldown = Math.min(
-          Math.max(
-            guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
-            MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-rate-limited');
+        const cooldown = guardianRequeueBackoffSec(
+          Math.min(
+            Math.max(
+              guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
+              MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+            ),
+            MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
           ),
-          MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+          requeueStreak.count
         );
         console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
+          requeueStreak
+        });
         return;
       }
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
       // also call, is down rather than refusing. A kernel failure a 5xx carries is not an outage and fails at once.
       // Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend (#779).
+      //
+      // A repeat doubles the wait (#1223). At a flat 60 s, three rows each failing at a 30 s gateway timeout keep one
+      // of them eligible, and oldest, at every lap, so every other account's transaction waits until they expire.
       if (isGuardianOutage(error) && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) && failedAtProposal) {
-        console.warn(
-          `[Guardian] guardian unreachable pre-submit, requeueing in ${GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC}s`,
-          error
-        );
-        await requeueWithWake(
-          transaction.id,
-          transaction.type,
-          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC,
-          signCallback,
-          guardianProvider
-        );
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-unreachable');
+        const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] guardian unreachable pre-submit, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
+          requeueStreak
+        });
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the
@@ -1621,6 +1716,69 @@ const buildColdServiceForAccount = async (
     throw new Error(`Guardian account ${accountId} not found in local client`);
   }
   return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+};
+
+/**
+ * The generation-time half of the gate claim's native-only rule (#805): every note the
+ * row names must still be listed for the account, hold only the native asset, and be a
+ * standard P2ID or P2IDE payment. Read from the consumable-note DTO, which carries every
+ * fungible asset of a note where the claimable list keeps only the first, and the DTO's
+ * own standard-payment verdict (a note whose script could not be read reads `false`, so
+ * a missing verdict fails closed rather than passing). A note with no fungible asset
+ * proves nothing, so it is refused too. The script matters because the recovery key and
+ * the guardian sign this claim with no user step, and a note's script decides what
+ * consuming it does. Throws before any service is built or anything reaches the guardian.
+ */
+const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
+  const nativeFaucetId = await getFaucetIdSetting();
+  if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
+  const listed = await withWasmClientLock(async hold =>
+    midenClientProxy.getConsumableNotes(accountId, step =>
+      assertWasmHoldCurrent(hold, 'rotation funding: consumable-note read', step)
+    )
+  );
+  for (const noteId of noteIds) {
+    const note = listed.find(candidate => candidate.noteId === noteId);
+    if (!note) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    if (
+      note.assets.length === 0 ||
+      note.assets.some(asset => asset.faucetId !== nativeFaucetId) ||
+      note.standardPayment !== true
+    ) {
+      throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    }
+  }
+};
+
+/**
+ * The service a Guardian consume proposes and signs with. Hot-bound, background claims
+ * included: the cached hot service is cheaper than a transient cold one, and hot signing
+ * is silent on every platform.
+ *
+ * The exception is a seed-recovered account whose rotation has not landed (#805). It has
+ * no everyday key, and the rotation pays its fee out of a vault only a claim can fund.
+ * The rotation gate's own claim (`rotationFunding`) therefore signs with the recovery
+ * key, the signer the rotation itself uses, once its notes are proven native payments;
+ * every other consume for such an account is refused before a service exists. A flagged
+ * row whose account gained its everyday key in the meantime takes the hot service, still
+ * checked.
+ */
+const consumeServiceFor = async (
+  transaction: ITransaction,
+  noteIds: string[],
+  guardianProvider: GuardianAccountProvider
+): Promise<MultisigService> => {
+  const account = (await guardianProvider.getAccounts()).find(a =>
+    sameWalletAccountId(a.publicKey, transaction.accountId)
+  );
+  const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
+  if (transaction.rotationFunding === true) {
+    await assertRotationFundingNotesNative(transaction.accountId, noteIds);
+    if (rotationPending) return buildColdServiceForAccount(transaction.accountId, guardianProvider);
+  } else if (rotationPending) {
+    throw new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR);
+  }
+  return getOrCreateMultisigService(transaction.accountId, guardianProvider);
 };
 
 /**
@@ -2310,9 +2468,10 @@ const generateGuardianTransaction = async (
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
-  // structural ops (replace-hot-key / update-procedure-threshold). The
-  // hot-bound path is the only one cached by guardian-manager; cold services
-  // here are transient.
+  // structural ops (replace-hot-key / update-procedure-threshold) and, per
+  // `consumeServiceFor` (#805), for a flagged consume while the account is still
+  // rotation-pending. The hot-bound path is the only one cached by
+  // guardian-manager; cold services here are transient.
   //
   // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta (a
   // prior delta still canonicalizing) instead of failing the tx. It wraps proposal
@@ -2379,14 +2538,8 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      // Always hot-bound, including background/auto-consume. Auto-consume used
-      // to be routed through the COLD key because the iOS SE hot key carried
-      // `.userPresence` — hot-signing a silent background claim would have
-      // popped Face ID on every attempt. That flag is gone (hot signing is
-      // silent everywhere now), so the cold detour buys nothing and the cached
-      // hot service is strictly cheaper than building a transient cold one.
       const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
       break;
     }
@@ -3231,7 +3384,7 @@ export const generateTransactionsLoop = async (
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
   const nextTransaction = queuedTransactions.find(
-    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
+    tx => loopCanPick(tx) && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
   );
   if (!nextTransaction) return;
 

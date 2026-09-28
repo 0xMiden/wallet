@@ -1,4 +1,12 @@
 import { expect, test } from '../fixtures/two-wallets';
+import {
+  findProveWindow,
+  installFrameRecorder,
+  measureFrameGap,
+  readFrameTimes,
+  readyWorkerThreads
+} from '../harness/frame-gap-probe';
+import { type ProveMarker, readRealmMarkers } from '../harness/prove-telemetry-probe';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from '../helpers/balance-truth';
 
@@ -10,6 +18,10 @@ const MINT_BASE_UNITS = 100_000_000_000n;
 // What the send step types into the amount field, and the same figure in base units.
 const SEND_AMOUNT = '500';
 const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
+// #945: a local prove must not freeze the wallet page. A prove window shorter than
+// this cannot tell a freeze from a fast prove; a gap longer than MAX is a freeze.
+const MIN_PROVE_WINDOW_MS = 2000;
+const MAX_FRAME_GAP_MS = 1000;
 
 /**
  * Local-prove guard spec: the one E2E path that exercises in-browser WASM
@@ -123,7 +135,7 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           TOKEN,
           TOKEN_DECIMALS
         );
-        await walletA.sendTokens({
+        await walletA.prepareSendReview({
           recipientAddress: addressB!,
           amount: SEND_AMOUNT,
           // Devnet's native MIDEN row (0 balance) now renders above the
@@ -132,6 +144,84 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           tokenSymbol: TOKEN,
           isPrivate: false
         });
+
+        // #945: the wallet tab stamps every frame it paints. It shares a renderer
+        // process with the offscreen document, so a prove on that document's thread
+        // stops the stamps for the whole prove.
+        await installFrameRecorder(walletA.page);
+        await expect
+          .poll(async () => (await readFrameTimes(walletA.page)).length, {
+            message: 'the wallet page is not painting at all (hidden or occluded), so a frame gap would prove nothing',
+            timeout: 2_000
+          })
+          .toBeGreaterThanOrEqual(30);
+        const armedAt = await walletA.page.evaluate(() => Date.now());
+
+        await walletA.submitSendReview();
+        await walletA.waitForSendSubmissionAccepted();
+
+        // Read as soon as the window closes: the offscreen marker ring keeps 200
+        // lines and each sync adds about five, so the end of the test is too late.
+        let markers: ProveMarker[] = [];
+        await expect
+          .poll(
+            async () => {
+              markers = await readRealmMarkers(walletA.page, 'offscreen');
+              return findProveWindow(markers, armedAt) !== undefined;
+            },
+            { message: 'no local-prove window closed in the offscreen realm', timeout: 300_000, intervals: [1_000] }
+          )
+          .toBe(true);
+        const frames = await readFrameTimes(walletA.page);
+        const proveWindow = findProveWindow(markers, armedAt);
+        if (!proveWindow) throw new Error('unreachable: the poll above returned only once a window had closed');
+        expect(proveWindow.opens, 'exactly one local-prove window opens after arming').toBe(1);
+        expect(
+          proveWindow.closeTs - proveWindow.openTs,
+          `the prove window is shorter than ${MIN_PROVE_WINDOW_MS} ms, too short to tell a freeze from a fast prove`
+        ).toBeGreaterThanOrEqual(MIN_PROVE_WINDOW_MS);
+        const gap = measureFrameGap(frames, proveWindow.openTs, proveWindow.closeTs);
+        expect(
+          gap.maxGapMs,
+          `the page went ${gap.maxGapMs} ms without a frame during a ${gap.windowMs} ms local prove (${gap.framesInWindow} frames)`
+        ).toBeLessThanOrEqual(MAX_FRAME_GAP_MS);
+
+        const expectedThreads = await walletA.page.evaluate(() => Math.min(navigator.hardwareConcurrency, 6));
+        // Searched backwards from the window's own `closeTs`, not forwards from
+        // `armedAt`: a worker already warm from an earlier local prove in this test
+        // (a delegated claim that fell back locally) never fires a second `ready`, so
+        // a search that only looked after arming would find none for a healthy run.
+        // `closeTs`, not `openTs`: prewarm's boot and the "window open" marker are two
+        // independent timers racing each other, and boot losing that race is the
+        // COMMON case for a cold spawn (`local-prove-window open` is stamped as soon
+        // as the calling code decides to prove, before the worker's own WASM+rayon
+        // boot - measured ~140ms after open - actually finishes). Bounding on `openTs`
+        // missed every fresh-worker run, not just the warm-worker one this fix targets.
+        expect(
+          readyWorkerThreads(markers, proveWindow.closeTs),
+          'the prove worker came up cross-origin isolated with the capped pool'
+        ).toBe(expectedThreads);
+        // Offscreen documents get chrome.runtime but never chrome.storage, so
+        // prove-telemetry.ts's persist() finds no storage there and silently
+        // skips the write; the settled entry never reaches miden_prove_telemetry.
+        // The relayed `[prove-timing] path=` marker is the observable record.
+        //
+        // Take the FIRST `path=` line after THIS window's close (not any `path=local`
+        // line after arming), so a non-local measured prove followed by a later local
+        // one still fails here instead of matching the wrong attempt.
+        let proveMarkers: ProveMarker[] = [];
+        let proveLine: ProveMarker | undefined;
+        await expect
+          .poll(
+            async () => {
+              proveMarkers = await readRealmMarkers(walletA.page, 'offscreen');
+              proveLine = proveMarkers.find(m => m.ts >= proveWindow.closeTs && m.line.includes('path='));
+              return proveLine !== undefined;
+            },
+            { message: 'no measured prove recorded in the relayed offscreen marker trail', timeout: 30_000 }
+          )
+          .toBe(true);
+        expect(proveLine?.line).toMatch(/^\[prove-timing\] path=local duration_ms=[\d.]+ platform=\w+$/);
       },
       {
         screenshotWallets: [{ target: walletA.page, label: 'A' }]

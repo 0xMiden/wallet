@@ -1,8 +1,9 @@
 import React from 'react';
 
 import { App } from '@capacitor/app';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 
@@ -363,7 +364,8 @@ describe('VerifySeedPhraseFlow', () => {
       mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
       render(<VerifySeedPhraseFlow remove={remove} />);
 
-      expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+      const notice = await screen.findByTestId('protector-probe-error');
+      expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
       expect(screen.getByText('continue')).toBeDisabled();
       expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
       expect(mockRevealMnemonic).not.toHaveBeenCalled();
@@ -376,10 +378,32 @@ describe('VerifySeedPhraseFlow', () => {
     mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
     render(<VerifySeedPhraseFlow />);
 
-    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
     expect(screen.getByText('continue')).toBeDisabled();
     expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<VerifySeedPhraseFlow />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.getByText('continue')).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders each step through SubPageLayout, its actions in the footer', async () => {

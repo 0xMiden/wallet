@@ -37,6 +37,9 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * the set that will actually be claimed: counting an in-flight note let a lone new dust
  * note ride in on the in-flight batch's value and be claimed alone for a full fee.
  *
+ * None of the three calls this for a seed-recovered account whose everyday-key rotation
+ * is pending: its rotation gate claims those notes with the recovery key (#805).
+ *
  * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
  * one fee; judged per note, a backlog of individually marginal notes was refused in
  * full. It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose

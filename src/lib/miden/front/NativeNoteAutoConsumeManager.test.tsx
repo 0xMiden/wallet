@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
@@ -38,8 +38,9 @@ let mockClaimable: unknown[] = [];
 jest.mock('./claimable-notes', () => ({ useClaimableNotes: () => ({ data: mockClaimable }) }));
 
 const mockSignTransaction = jest.fn();
+let mockCurrentAccount: { publicKey: string; requiresHotKeyRotation?: boolean } = { publicKey: 'pk-1' };
 jest.mock('./client', () => ({
-  useMidenContext: () => ({ currentAccount: { publicKey: 'pk-1' }, signTransaction: mockSignTransaction })
+  useMidenContext: () => ({ currentAccount: mockCurrentAccount, signTransaction: mockSignTransaction })
 }));
 
 jest.mock('./guardian-sync', () => ({ zustandProvider: { kind: 'zustand' } }));
@@ -67,6 +68,7 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockAutoConsume = true;
     mockDelegate = true;
     mockClaimable = [];
+    mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
   });
@@ -78,6 +80,20 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
     expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+    mockCurrentAccount = { publicKey: 'pk-1', requiresHotKeyRotation: true };
+    mockClaimable = [note('a')];
+
+    render(<NativeNoteAutoConsumeManager />);
+    // The first tick runs as the effect mounts; one macrotask is enough for it to reach the read.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(mockGetFaucetIdSetting).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
   it('never claims a native note that only the cached list has shown', async () => {

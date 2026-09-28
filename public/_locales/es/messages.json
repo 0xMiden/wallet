@@ -2795,6 +2795,55 @@
     "message": "Volver a intentarlo",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "Añade MIDEN para activar tu clave de uso diario",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "La activación de tu clave diaria es una transacción, y cada transacción conlleva el pago de una pequeña comisión de red en MIDEN. Envía MIDEN a la dirección de esta cuenta que figura a continuación. El monedero la reclamará y completará la activación de tu clave automáticamente.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Envía al menos un MIDEN de $amount$.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "La dirección de tu cuenta",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "A la espera de que llegue MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "El MIDEN que has recibido es insuficiente para pagar la comisión de red. Envía un poco más.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN recibido. Reclamándolo…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Activación de tu clave de uso diario…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "El MIDEN que has recibido no se ha podido reclamar.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Inténtalo de nuevo",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Compruébalo de nuevo",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian modificado",
     "englishSource": "Guardian changed"
@@ -5284,16 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Comprobar el método de desbloqueo de este monedero está tardando más de lo habitual. Para volver a intentarlo, retrocede y vuelve a abrir esta página.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Para volver a intentarlo, vuelve atrás y vuelve a abrir esta página.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "No se ha podido comprobar el método de desbloqueo de esta cartera. Inténtalo de nuevo.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Cambiar el color del código QR",

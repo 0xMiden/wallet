@@ -2795,6 +2795,55 @@
     "message": "다시 시도",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "MIDEN을 추가하여 일상용 키를 활성화하세요",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 MIDEN 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 MIDEN을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "$amount$의 MIDEN을 최소한 전송하십시오.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "귀하의 계정 주소",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "MIDEN이 도착하기를 기다리고 있습니다…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "수신하신 MIDEN은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN 수신. 청구 중…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "일상용 키 활성화…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "수령하신 MIDEN은 청구할 수 없었습니다.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "다시 시도해 보세요",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "다시 한 번 확인해 주세요",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian 수정됨",
     "englishSource": "Guardian changed"
@@ -5284,16 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "이 지갑의 잠금 해제 방법을 확인하는 데 평소보다 시간이 더 오래 걸리고 있습니다. 다시 시도하려면 뒤로 돌아가서 이 페이지를 다시 열어 주세요.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도하려면 뒤로 돌아가서 이 페이지를 다시 열어주세요.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QR 코드 색상 변경",

@@ -48,6 +48,7 @@ type ParsedNote = {
   type: NoteTypeEnum | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
+  standardPayment?: boolean;
   /** Block that includes the note; its timestamp becomes `receivedAt` once the note read is done. */
   blockNum?: number;
   /** Note inclusion time, in Unix seconds. */
@@ -88,7 +89,8 @@ function parseNotes(
       type: kind,
       swapOrder: swapOrders.get(noteId),
       blockNum: note.blockNum,
-      recallableAtMs: note.recallableAtMs
+      recallableAtMs: note.recallableAtMs,
+      standardPayment: note.standardPayment
     });
   }
 
@@ -144,7 +146,8 @@ function attachMetadataToNotes(
       type: n.type,
       swapOrder: n.swapOrder,
       receivedAt: n.receivedAt,
-      recallableAtMs: n.recallableAtMs
+      recallableAtMs: n.recallableAtMs,
+      standardPayment: n.standardPayment
     }));
 }
 
@@ -363,6 +366,7 @@ function toCachedClaimableNote(note: ClaimableNoteWithMetadata): ClaimableNoteWi
     type: note.type,
     swapOrder: note.swapOrder,
     recallableAtMs: note.recallableAtMs,
+    standardPayment: note.standardPayment,
     receivedAt: note.receivedAt
   };
 }
@@ -544,7 +548,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
           swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
           receivedAt: n.receivedAt,
-          recallableAtMs: n.recallableAtMs
+          recallableAtMs: n.recallableAtMs,
+          standardPayment: n.standardPayment
         }))
     );
   }, [enabled, extensionNotes, claimingTxIds, assetsMetadata]);

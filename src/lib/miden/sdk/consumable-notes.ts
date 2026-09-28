@@ -24,9 +24,9 @@
 // so the move is behavior-preserving field-for-field. See the per-caller mapping
 // in each rewired call site.
 
-import type { InputNoteRecord, InputNoteState, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import type { InputNoteRecord, InputNoteState, NoteDetails, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { getNoteRecallableAtMs } from '../helpers';
+import { getNoteRecallableAtMs, standardPaymentScriptRoots } from '../helpers';
 import { getBech32AddressFromAccountId } from './helpers';
 
 /** One fungible asset locked by a note, JSON-safe (base-unit amount as a string,
@@ -69,6 +69,8 @@ export type ConsumableNoteDto = {
   swapAttachment: { orderId: string; depth: number } | null;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note. */
   recallableAtMs?: number;
+  /** The script is the standard P2ID or P2IDE payment; false when it cannot be read. */
+  standardPayment?: boolean;
 };
 
 /**
@@ -106,6 +108,17 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
   return null;
 }
 
+/** Whether `details`' recipient runs a standard P2ID/P2IDE payment script, read off
+ * the details already fetched for the assets list (never a second `record.details()`
+ * call). A recipient or script that cannot be read is not a standard payment. */
+function isStandardPayment(details: NoteDetails): boolean {
+  try {
+    return standardPaymentScriptRoots().has(details.recipient().script().root().toHex());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reduce ONE live `InputNoteRecord` to a {@link ConsumableNoteDto}.
  *
@@ -131,16 +144,26 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?:
     const noteType = meta ? meta.noteType() : undefined;
     const senderAccountId = meta ? getBech32AddressFromAccountId(meta.sender()) : undefined;
     const state = record.state();
-    const assets = record
-      .details()
+    const details = record.details();
+    const assets = details
       .assets()
       .fungibleAssets()
       .map(asset => ({
         amount: asset.amount().toString(),
         faucetId: getBech32AddressFromAccountId(asset.faucetId())
       }));
+    const standardPayment = isStandardPayment(details);
     const swapAttachment = attachmentOrderAndDepth(record);
-    const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
+    const dto: ConsumableNoteDto = {
+      noteId,
+      nullifier,
+      noteType,
+      senderAccountId,
+      state,
+      assets,
+      swapAttachment,
+      standardPayment
+    };
     dto.blockNum = record.inclusionProof?.()?.location().blockNum();
     if (syncHeight !== undefined) {
       const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
