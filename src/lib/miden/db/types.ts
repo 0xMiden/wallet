@@ -60,7 +60,10 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
-  /** Expected destination output shown until the real note is consumed. */
+  /**
+   * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
+   * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
+   */
   outputAmount?: string;
   outputSymbol?: string;
   evmTxHash?: string;

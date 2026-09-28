@@ -105,6 +105,9 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
+      <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.50')}>
+        padded amount
+      </button>
       <button data-testid="open-token-drawer" onClick={onSelectToken}>
         token
       </button>
@@ -116,9 +119,18 @@ jest.mock('./EvmBridgeDepositForm', () => ({
 }));
 
 jest.mock('./EvmBridgeDepositReview', () => ({
-  EvmBridgeDepositReview: ({ amount, onConfirm }: { amount: string; onConfirm: () => void }) => (
+  EvmBridgeDepositReview: ({
+    amount,
+    outputAmount,
+    onConfirm
+  }: {
+    amount: string;
+    outputAmount?: string;
+    onConfirm: () => void;
+  }) => (
     <div>
       <span data-testid="review-amount">{amount}</span>
+      <span data-testid="review-output">{outputAmount}</span>
       <button data-testid="confirm-deposit" onClick={onConfirm}>
         confirm
       </button>
@@ -164,18 +176,42 @@ const settle = () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-const reachReview = async () => {
+const reachReview = async (amountButton = 'set-amount') => {
   fireEvent.click(screen.getByTestId('open-token-drawer'));
   await settle();
   fireEvent.click(screen.getByTestId('pick-eth'));
   await settle();
-  fireEvent.click(screen.getByTestId('set-amount'));
+  fireEvent.click(screen.getByTestId(amountButton));
   await settle();
   fireEvent.click(screen.getByTestId('continue'));
   await settle();
   fireEvent.click(await screen.findByTestId('pick-slow'));
   await settle();
   fireEvent.click(screen.getByTestId('confirm-route'));
+  await settle();
+};
+
+/**
+ * A Fast quote for the typed amount: `minTokenOut` is what the typed amount asks for (1 at the
+ * faucet's 6 decimals), `tokenOut` a quote of 10, and `tokenIn` a deposit of 10.6555 at 18.
+ */
+const quoteFast = () =>
+  Object.assign(epochState, {
+    quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
+    status: 'quoted',
+    flow: 'evm-to-miden',
+    quote: {
+      params: { minTokenOut: '1000000' },
+      quoteResult: { tokenIn: '10655500000000000000', tokenOut: '10000000' }
+    }
+  });
+
+const reachFastReview = async () => {
+  fireEvent.click(screen.getByTestId('set-amount'));
+  await settle();
+  fireEvent.click(screen.getByTestId('continue'));
+  await settle();
+  fireEvent.click(await screen.findByTestId('confirm-route'));
   await settle();
 };
 
@@ -256,27 +292,58 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the Fast-route deposit on the Review rounded down, not half-up', async () => {
-    Object.assign(epochState, {
-      quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
-      status: 'quoted',
-      flow: 'evm-to-miden',
-      quote: {
-        params: { minTokenOut: '1000000' },
-        quoteResult: { tokenIn: '10655500000000000000', tokenOut: '10000000' }
-      }
-    });
+  // The deposit is what the wallet signs for, so it rounds up: never less than leaves the account.
+  it('shows the Fast-route deposit on the Review rounded up, never down or half-up', async () => {
+    quoteFast();
     renderScreen();
 
-    fireEvent.click(screen.getByTestId('set-amount'));
-    await settle();
-    fireEvent.click(screen.getByTestId('continue'));
-    await settle();
-    fireEvent.click(await screen.findByTestId('confirm-route'));
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
+    expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+  });
+
+  it('shows the Fast "you receive" as the typed minTokenOut, not the quote', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-output')).toHaveTextContent(/^1$/);
+  });
+
+  it('stores the exact typed "you receive" on a Fast row, and the quoted tokenOut as its amount', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.65$/);
-    expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 10_000_000n, sourceAmount: '10.6555', outputAmount: '1' })
+    );
+  });
+
+  it('shows a Slow-route amount on the Review as typed, without its trailing zero', async () => {
+    renderScreen();
+
+    await reachReview('set-amount-padded');
+
+    expect(screen.getByTestId('review-amount')).toHaveTextContent(/^1\.5$/);
+    expect(screen.getByTestId('review-output')).toHaveTextContent(/^1\.5$/);
+  });
+
+  it("keeps storing a Slow row's amounts exactly as typed", async () => {
+    renderScreen();
+
+    await reachReview('set-amount-padded');
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceAmount: '1.50', outputAmount: '1.50' })
+    );
   });
 
   it('starts every case from an idle epoch store', () => {
