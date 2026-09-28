@@ -237,15 +237,23 @@ export async function startTransactionProcessing(): Promise<void> {
   }
 }
 
-/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
-async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+/**
+ * True while the vault is unlocked. Gates both arming and firing the queued-row wake (#1223): a locked vault fails
+ * every row at its first step and unlocking restarts processing itself (#924), and a wake would only reap claims
+ * while locked, doubling each expired auto-claim's retry backoff (#215).
+ */
+function isVaultUnlocked(): boolean {
   try {
     withUnlocked(() => undefined);
+    return true;
   } catch {
-    // Locked: every row fails at its first step and unlocking restarts processing itself (#924). A wake would only reap
-    // claims while locked, and each expired auto-claim doubles its note's retry backoff (#215).
-    return;
+    return false;
   }
+}
+
+/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
+async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+  if (!isVaultUnlocked()) return;
   try {
     const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
     if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
@@ -369,7 +377,8 @@ export function setupTransactionProcessor(): void {
           // on the SW being mid-loop when an orphan ages out.
           void healStuckTransactions();
         } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
-          void startTransactionProcessing();
+          // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
+          if (isVaultUnlocked()) void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to

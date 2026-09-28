@@ -666,6 +666,25 @@ describe('a one-shot wake for rows still queued when a run ends (#1223)', () => 
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
   });
 
+  it('does not start processing when the wake fires after the vault locked in the meantime', async () => {
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+
+    // Arm the wake while unlocked, the way a run ending with queued rows does.
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+    mockSafeGenerateTransactionsLoop.mockClear();
+
+    // The vault locks before the alarm fires.
+    lockedWithUnlocked();
+    listener({ name: 'miden-tx-queued-wake' });
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+  });
+
   it('arms nothing when the run ends with no uncompleted rows', async () => {
     const mod = await import('./transaction-processor');
     await mod.startTransactionProcessing();
