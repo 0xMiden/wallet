@@ -503,6 +503,10 @@
     "message": "例如：APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "您的私鑰無法從剪貼簿中移除。請在繼續之前自行清除。",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
@@ -2842,6 +2846,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "我不會將我的加密錢包檔案分享給任何人，包括 Bread 在內。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "未從此檔案還原：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 透過私鑰匯入的帳戶無法從錢包檔案中還原，且從該檔案還原的錢包亦無法新增這些帳戶。這些帳戶將以獨立錢包的形式還原，並透過「匯入私鑰」功能，搭配其 Miden 日常私鑰與 EVM 私鑰進行設定。請妥善保管這些私鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」方可查看。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "請輸入密碼以加密您的錢包檔案。",

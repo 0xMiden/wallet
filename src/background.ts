@@ -48,7 +48,7 @@ browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
     doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
   }
-  // 'miden-tx-processor' alarm is just a keepalive — no action needed
+  // 'miden-tx-processor' and 'miden-guardian-wait-keepalive' are keepalives only: no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first

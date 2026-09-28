@@ -68,17 +68,23 @@ describe('DappActionsSheet', () => {
 
   it('closes even when the clipboard write rejects, so the sheet is never left stranded', async () => {
     mockClipboardWrite.mockRejectedValue(new Error('denied'));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const onOpenChange = jest.fn();
 
-    await act(async () => {
-      render(<DappActionsSheet session={SESSION} open onOpenChange={onOpenChange} onReopen={jest.fn()} />);
-    });
+    try {
+      await act(async () => {
+        render(<DappActionsSheet session={SESSION} open onOpenChange={onOpenChange} onReopen={jest.fn()} />);
+      });
 
-    await act(async () => {
-      fireEvent.click(screen.getByText('dappActionCopyLink'));
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByText('dappActionCopyLink'));
+      });
 
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('adds the open dApp to My dApps', async () => {

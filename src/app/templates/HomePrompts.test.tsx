@@ -138,6 +138,11 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zus
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 const account = {
   publicKey: 'accountA',
   name: 'Account A',
@@ -208,6 +213,7 @@ describe('HomePrompts', () => {
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
+    mockClipboardWrite.mockResolvedValue(undefined);
     markerStore.clear();
     // clearAllMocks keeps a queued once-implementation, and an unused held read must not reach the next test.
     mockFetchFaucetFundingMarker.mockReset();
@@ -2908,8 +2914,6 @@ describe('HomePrompts', () => {
 
   it('shows the stored hot-key hardware error and copies it on the report action', async () => {
     mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
-    const writeText = jest.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
         storage: {
@@ -2936,127 +2940,46 @@ describe('HomePrompts', () => {
     // Flush the microtask that lands the fetched error in component state.
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('TEE unavailable (code 7)'));
+    await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'TEE unavailable (code 7)' }));
     await waitFor(() => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'success');
     });
   });
 
-  it('arms no timer when it unmounts while the clipboard write is still pending', async () => {
-    jest.useFakeTimers();
-    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
-    let resolveWrite: () => void = () => undefined;
-    const writeText = jest.fn(
-      () =>
-        new Promise<void>(resolve => {
-          resolveWrite = resolve;
-        })
-    );
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
-
-    const { unmount } = render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-
-    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
-    await act(async () => {});
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalled());
-
-    unmount();
-    // The feedback timer is armed only AFTER the awaited write, so at unmount there is nothing for
-    // the cleanup to clear. Without a liveness check the continuation arms one anyway.
-    await act(async () => {
-      resolveWrite();
-    });
-    expect(jest.getTimerCount()).toBe(0);
-    jest.useRealTimers();
-  });
-
   it('marks the copy action failed when the clipboard rejects', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
+    try {
+      mockClipboardWrite.mockRejectedValue(new Error('denied'));
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({
+          storage: {
+            version: 1,
+            prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+            pendingNotesDismissedIds: []
+          },
+          isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+        })
+      );
 
-    render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => {
-      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
-    });
-    errorSpy.mockRestore();
-  });
-
-  // Where the Clipboard API is absent the DEREFERENCE throws, so before the write was owned by an
-  // async function the `.catch` that sets this indicator was never attached to anything.
-  it('marks the copy action failed where the Clipboard API is absent entirely', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const stub = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-    delete (navigator as { clipboard?: unknown }).clipboard;
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => {
-      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
-    });
-    errorSpy.mockRestore();
-    if (stub) Object.defineProperty(navigator, 'clipboard', stub);
+      fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+      await waitFor(() => {
+        expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+      });
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {
