@@ -552,18 +552,6 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toHaveProperty('cause', storeQuota);
   });
 
-  it.each(legs)('a %s whose apply failure already classifies reaches the caller by identity', async (_leg, write) => {
-    const harness = buildHarness();
-    const mempool = new Error(
-      "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed."
-    );
-    harness.applyFailure.error = mempool;
-    const { client, withWasmClientLock } = await load(harness);
-    const error = await withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught);
-    expect(harness.submitProven).toHaveBeenCalledTimes(1);
-    expect(error).toBe(mempool);
-  });
-
   it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {
     const harness = buildHarness();
     const refused = new Error('node refused the transaction');

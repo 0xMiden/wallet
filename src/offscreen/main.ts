@@ -85,7 +85,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { ApplyAfterSubmitError, applySubmitted, extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -1040,9 +1040,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent(context, 'submitting');
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
-    // All three legs, delegated included, meet here past their submit, so the node
-    // has the write whatever this apply does (#945).
-    await applySubmitted(submittedTx);
+    await submittedTx.apply();
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
@@ -1471,12 +1469,6 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // detail is what actually says why the prove failed (#945).
       const proveDetail = proveWorkerErrorDetail(err);
       if (proveDetail !== undefined) failDetail += ` detail=${proveDetail}`;
-      // An `ApplyAfterSubmitError`'s message is closed wallet text too; the store
-      // failure behind it rides on `cause`.
-      if (err instanceof ApplyAfterSubmitError) {
-        const cause = err.cause instanceof Error ? err.cause.message : String(err.cause);
-        failDetail += ` cause=${cause.replace(/\r?\n/g, ' ')}`;
-      }
     } catch {
       /* keep the placeholder */
     }

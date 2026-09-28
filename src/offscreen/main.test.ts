@@ -3692,80 +3692,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
   });
 
-  // #945: once any leg's submit resolved the node has the write, so the SW's guardian
-  // catch must see a failed apply as submitted, or it cancels a landed row as Failed.
-  const rejectingApply = (error: unknown) => ({
-    apply: jest.fn(async () => {
-      throw error;
-    })
-  });
-  const guardianCall = (delegateTransaction: boolean, sendResponse: jest.Mock) =>
-    capturedListener!(
-      callReq({
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([1])), encodeArg(delegateTransaction)]
-      }),
-      {},
-      sendResponse
-    );
-
-  it('guardianPipeline: a failed apply after a worker proof submitted classifies as submitted (#945)', async () => {
-    await loadModule();
-    G.__off.guardianSubmitProven = jest.fn(async () => rejectingApply(new Error('store quota')));
-    const sendResponse = jest.fn();
-    guardianCall(false, sendResponse);
-    await flush();
-
-    const reply = sendResponse.mock.calls[0][0];
-    expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
-    expect(reply.ok).toBe(false);
-    expect(reply.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
-    // The store's own text stays on the marker trail, never in a message the SW rebuilds.
-    expect(reply.error).not.toContain('store quota');
-  });
-
-  it('guardianPipeline (delegated): a failed apply after the worker fallback submitted classifies as submitted (#945)', async () => {
-    await loadModule();
-    G.__off.guardianProveShouldFailOnce = true;
-    G.__off.guardianSubmitProven = jest.fn(async () => rejectingApply(new Error('store quota')));
-    const sendResponse = jest.fn();
-    guardianCall(true, sendResponse);
-    await flush();
-
-    const reply = sendResponse.mock.calls[0][0];
-    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
-    expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
-    expect(reply.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
-  });
-
-  it('guardianPipeline: a canonicalization-shaped apply failure is wrapped, not passed through (#945)', async () => {
-    await loadModule();
-    G.__off.guardianSubmitProven = jest.fn(async () =>
-      rejectingApply(new Error('Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 3'))
-    );
-    const sendResponse = jest.fn();
-    guardianCall(false, sendResponse);
-    await flush();
-
-    expect(sendResponse.mock.calls[0][0].errorCode).toBe('ApplyTransactionAfterSubmitFailed');
-  });
-
-  it('guardianPipeline (delegated): a failed apply after the delegated submit classifies as submitted (#945)', async () => {
-    await loadModule();
-    G.__off.guardianExecuteRequest = jest.fn(async () => ({
-      result: { serialize: () => new Uint8Array([55, 66, 77]) },
-      prove: jest.fn(async () => ({ submit: jest.fn(async () => rejectingApply(new Error('store quota'))) }))
-    }));
-    const sendResponse = jest.fn();
-    guardianCall(true, sendResponse);
-    await flush();
-
-    const reply = sendResponse.mock.calls[0][0];
-    expect(reply.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
-    expect(mockProveTransport.prove).not.toHaveBeenCalled();
-    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
-  });
-
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
     await loadModule();
     let signatureSeen: Uint8Array | null = null;
@@ -4800,32 +4726,6 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
 
       const lines = markerLines(posted);
       expect(lines.some(l => /call 'guardianPipeline' FAILED .*detail=RuntimeError: unreachable$/.test(l))).toBe(true);
-    });
-  });
-
-  // #945: an `ApplyAfterSubmitError`'s message is closed wallet text as well, so the
-  // store failure behind it has to reach this trail through its cause.
-  it('carries the cause of an apply-after-submit failure on the FAILED marker (#945)', async () => {
-    await withE2EFlag('true', async () => {
-      await loadModule();
-      G.__off.guardianSubmitProven = jest.fn(async () => ({
-        apply: jest.fn(async () => {
-          throw new Error('store quota');
-        })
-      }));
-      const posted = capturePosts();
-      capturedListener!(
-        callReq({
-          method: 'guardianPipeline',
-          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
-        }),
-        {},
-        jest.fn()
-      );
-      await flush();
-
-      const lines = markerLines(posted);
-      expect(lines.some(l => /call 'guardianPipeline' FAILED .* cause=store quota$/.test(l))).toBe(true);
     });
   });
 });

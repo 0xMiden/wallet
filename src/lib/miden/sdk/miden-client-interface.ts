@@ -68,7 +68,7 @@ import { getLocalProveTransport, proveInWorker, recordProveTiming } from './loca
 import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { applySubmitted, isApplyAfterSubmitError } from './sdk-error-code';
+import { ApplyAfterSubmitError, isApplyAfterSubmitError } from './sdk-error-code';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
@@ -1814,7 +1814,12 @@ export class MidenClientInterface {
     await onStage?.('submitting');
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
-    await applySubmitted(submitted);
+    try {
+      await submitted.apply();
+    } catch (error) {
+      // The node already has the transaction, so this must classify as submitted.
+      throw new ApplyAfterSubmitError(error);
+    }
     return executed.result;
   }
 
