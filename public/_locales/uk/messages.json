@@ -4535,6 +4535,14 @@
     "message": "неперевірений",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Неперевірено",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Цей токен відсутній у списку перевірених токенів Miden. Будь-хто може створити токен з будь-якою назвою, тому перед тим, як довіряти йому, перевірте його ідентифікатор на сайті faucet.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Не вдалося перевірити за допомогою моделювання. Наведені нижче показники відповідають даним, опублікованим на сайті.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

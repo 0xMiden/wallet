@@ -4535,6 +4535,14 @@
     "message": "doğrulanmamış",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Doğrulanmamış",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Bu token, Miden’in doğrulanmış token listesinde yer almıyor. Herkes istediği isimle bir token oluşturabilir, bu yüzden güvenmeden önce faucet adresindeki kimliğini kontrol edin.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
