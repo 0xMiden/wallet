@@ -5,6 +5,7 @@ import { Share } from '@capacitor/share';
 import { Buffer } from 'buffer';
 import { useTranslation } from 'react-i18next';
 
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { PasscodeEntry } from 'components/PasscodeEntry';
@@ -14,7 +15,6 @@ import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
@@ -114,7 +114,7 @@ interface ExportAccountFileForAccountProps {
 const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ account }) => {
   const { t } = useTranslation();
   const { exportAccountFile } = useMidenContext();
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
   const [acknowledged, setAcknowledged] = useState(false);
   const [password, setPassword] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -135,15 +135,6 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
     return () => {
       isLiveRef.current = false;
     };
-  }, []);
-
-  useEffect(() => {
-    // The body waits for the probe, so a rejection with no handler leaves a header over an empty
-    // page for good. Fall back to the password step-up, as VerifySeedPhraseFlow and
-    // RotateGuardianReview already do, so the export stays reachable.
-    Vault.hasHardwareProtector()
-      .then(setHasHardwareProtector)
-      .catch(() => setHasHardwareProtector(false));
   }, []);
 
   // Same shape as RevealSecret's: `hasHardwareProtector` is a dependency because the body (and its
@@ -220,6 +211,17 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
         {accountRow}
         <Notice tone="warning" title={t('exportAccountFile')}>
           {t('exportAccountFileGuardianUnavailable')}
+        </Notice>
+      </SubPageLayout>
+    );
+  }
+
+  if (probeFailed) {
+    return (
+      <SubPageLayout data-testid="export-account-file">
+        {accountRow}
+        <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
+          {t('couldNotCheckUnlockMethodReopen')}
         </Notice>
       </SubPageLayout>
     );
