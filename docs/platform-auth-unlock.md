@@ -14,27 +14,27 @@ by the probe is marked **Unconfirmed**.
 
 ## Decision summary
 
-**Conditional go.** If the owner accepts a synced passkey as the vault key's
-second wrapping, build passkey unlock: iCloud Keychain with Touch ID on macOS,
+**Conditional go.** If the owner accepts a synced passkey as the second
+wrapping, build passkey unlock: iCloud Keychain with Touch ID on macOS,
 Google Password Manager on any desktop, and Windows Hello if it returns PRF.
 If only a device-bound wrapping is acceptable, build nothing on macOS now, and
-on Windows 11 only if Windows Hello passes a device test.
+on Windows 11 only if Windows Hello passes a device test and the owner takes
+decision 2.
 
-WebAuthn PRF, which Chrome allows in extension pages, can wrap the vault key a
-second time without touching the password wrapping or seed recovery. Chrome's
-Touch ID store has no PRF; iCloud Keychain and Google Password Manager sync the
+WebAuthn PRF, allowed in extension pages, can wrap the vault key a second time,
+leaving the password wrapping and seed recovery as they are. Chrome's Touch ID
+store has no PRF; iCloud Keychain and Google Password Manager sync the
 credential and have PRF, with the extension's RP ID **Unconfirmed**; Windows
-Hello's PRF is **Unconfirmed**. A synced passkey adds a second route to the
-vault key: a copy of this profile's storage plus the user's Apple or Google
-account. The existing route, the copy plus enough password guesses, stays. A
-device test on macOS 15+ and Windows 11 comes first and stops the work if none
-passes.
+Hello's PRF is **Unconfirmed**. A synced passkey adds a second route: a copy of
+this profile's storage plus the user's Apple or Google account. The existing
+route, the copy plus enough password guesses, stays. A device test on macOS 15+
+and Windows 11 comes first and stops the work if none passes.
 
 Owner decisions:
 
 1. Accept synced PRF passkeys as the second wrapping.
-2. Accept the OS password or PIN as equal to Touch ID or Windows Hello; the
-   wallet cannot tell them apart.
+2. Accept the OS password or PIN as equal to Touch ID or Windows Hello,
+   which the wallet cannot tell apart.
 
 ## Today's vault
 
@@ -354,9 +354,8 @@ Enrollment, as proposed:
    `prf: { eval: { first: prfSalt } }` for a new random salt. The other
    options:
    - `authenticatorAttachment: 'platform'`, which admits iCloud Keychain, GPM,
-     Windows Hello and Chrome's profile store and leaves out security keys:
-     they meet the owner's bar but not the issue's Touch ID and Windows Hello
-     goal (Recommendation and scope).
+     Windows Hello and Chrome's profile store and leaves out security keys
+     (Recommendation and scope).
    - `userVerification: 'required'`, and `residentKey: 'preferred'`: unlock
      always names the credential in `allowCredentials`, so a discoverable one
      is not needed. MetaMask sends the same attachment, verification and
@@ -631,8 +630,8 @@ as it is today.
 The password wrapping stays in every case below, so every attack on today's
 vault still works; the question is what `vault_key_platform` adds. Two cases
 differ: a device-bound credential (Windows Hello if the device test confirms
-it, or a security key) and a synced one (iCloud Keychain, Google Password
-Manager). The owner's bar is weighed at the end of the section.
+it) and a synced one (iCloud Keychain, Google Password Manager). The owner's
+bar is weighed at the end of the section.
 
 | Threat | Password vault today | Adding a device-bound record | Adding a synced record |
 |---|---|---|---|
@@ -793,7 +792,7 @@ A key derived from the user handle is rejected here:
 | Password wrapping kept beside it | Yes: "next to the password wrapping" | No: it replaces the password wrapping (Today's vault) | Yes | Yes |
 | Wrapping secret bound to one device | Yes | Yes on iOS, Android and macOS: the iOS and macOS keys are accessible on this device only (Today's vault), and the Android key lives in `AndroidKeyStore` (`android/app/src/main/java/com/miden/wallet/HardwareSecurityPlugin.kt:103-106`), whose key material "can't" be extracted ([Android keystore][android-keystore], updated 2026-03-06) | Yes | No: the PRF secret syncs (above) |
 | User verification can be the OS password or PIN | Not stated | Yes on macOS desktop and Android (above) | Yes on Windows Hello | Which methods: **Unconfirmed** (above) |
-| Available in Chrome on macOS today | - | - | No platform authenticator (Support matrix); a security key with `hmac-secret` is | iCloud Keychain and GPM; with the extension RP ID **Unconfirmed** and secondary evidence only (Support matrix) |
+| Available in Chrome on macOS today | - | - | No platform authenticator (Support matrix) | iCloud Keychain and GPM; with the extension RP ID **Unconfirmed** and secondary evidence only (Support matrix) |
 
 ## Recommendation and scope
 
@@ -803,12 +802,10 @@ The owner's decision on #846 sets the bar: "a second, device-bound wrapping of
 the vault key next to the password wrapping is acceptable, the model the
 mobile and desktop hardware protector already use".
 
-- Next to the password wrapping: the design meets it, since
-  `vault_key_password` is never touched (Mechanism). The protector the bar
-  names does not: it replaces the password wrapping (Today's vault).
-- Device-bound, on macOS: not buildable in Chrome today. Chrome's own Touch ID
-  store is device-bound and has no PRF; iCloud Keychain and GPM have PRF and
-  sync it (Support matrix).
+The table under "Against the owner's bar" (Security comparison) settles the
+password wrapping, which the design keeps and the protector does not, and
+macOS, where no device-bound PRF credential exists in Chrome. Beyond it:
+
 - Device-bound, on Windows 11: buildable only if a device test confirms that
   Windows Hello evaluates PRF for the extension's RP ID (**Unconfirmed**;
   MetaMask reports that Hello fails its PRF check,
@@ -837,30 +834,26 @@ and a device-bound one where the platform offers it. The reasons:
   is stored locally" ([chrome.storage][chrome-storage]), not in the storage
   area Chrome syncs; a synced credential alone unlocks nothing.
 - The PRF output is 32 bytes and needs user verification (Mechanism); an
-  offline attacker has nothing new to guess (Security comparison).
+  offline attacker has nothing new to guess, and the route the record adds
+  needs the user's provider account as well as a profile copy (Security
+  comparison).
 - The password wrapping, the seed phrase and the backup file stay as they are,
   so recovery does not depend on one device or one provider, as the issue
   asks, while the user still knows the password or has the seed phrase or
   backup file (Lifecycle, forgotten password).
-- The route it adds is not guessable offline: it needs the user's provider
-  account as well as a copy of the profile (Security comparison). The existing
-  route, the copy plus enough password guesses, is unchanged.
 
 The owner decisions it needs:
 
-1. Accept synced credentials: the second wrapping is then as strong as the
-   user's Apple or Google account and its recovery, not the device.
+1. Accept synced credentials: the second wrapping then rests on the user's
+   Apple or Google account (Security comparison, Synced passkeys).
 2. Accept the OS password or PIN as user verification equal to Touch ID or
    Windows Hello: the wallet cannot tell them apart, and the hardware protector
    already accepts the device password on macOS desktop and Android. The
    device-bound Windows 11 path needs this decision too, since Windows Hello
    accepts its PIN.
 
-The rest follows Mechanism and the Security comparison: RP ID
-`chrome-extension://<id>`; HKDF-SHA256 with the raw credential id as salt and
-a versioned `info`; AES-GCM with a fresh 12-byte IV and, as additional data,
-the version byte followed by the raw credential id; and
-`userVerification: 'required'` with the UV flag checked.
+The mechanism is the one in Mechanism, with RP ID `chrome-extension://<id>`
+(Security comparison, A web RP ID instead).
 
 ### Go/no-go
 
