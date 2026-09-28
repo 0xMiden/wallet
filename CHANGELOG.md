@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.
+- [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007 using the connected Miden account with no stand-in recipient override, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.

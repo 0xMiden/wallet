@@ -49,7 +49,6 @@ import {
   USDCX_DECIMALS,
   USDCX_CHAIN,
   USDCX_FAUCET_ID_BECH32,
-  USDCX_STANDIN_RECIPIENT,
   USDCX_SYMBOL,
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
@@ -571,11 +570,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
       try {
         // Encoded inside the try so an id the faucet cannot mint to fails the row
-        // instead of throwing out of the flow. The stand-in recipient only exists
-        // while the remote domain is a stand-in chain (see constant.ts).
-        const recipient =
-          USDCX_STANDIN_RECIPIENT ??
-          midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        // instead of throwing out of the flow.
+        const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
         if (!nativeReownAvailable) await switchChainAsync({ chainId: USDCX_CHAIN.id });
         await runUsdcxDeposit(trackingTxId, amount, recipient, {
           signer,
