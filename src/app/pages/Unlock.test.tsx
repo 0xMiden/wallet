@@ -1161,7 +1161,8 @@ describe('Unlock — mobile passcode numpad', () => {
 
     type(container, '123456');
     await advance(700); // the auto-submit fired at 150ms; the sleep runs to 1150ms
-    mockLsStore.PasswordAttempts = 6;
+    // Another window's failure at count 4 records 5 and a stamp.
+    mockLsStore.PasswordAttempts = 5;
     mockLsStore.TimeLock = Date.now();
     // Past the re-check at 1150ms, and before a code left in place would auto-submit again at 1300ms.
     await advance(460);
