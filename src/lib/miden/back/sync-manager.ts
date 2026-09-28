@@ -28,9 +28,10 @@ import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
+import { store } from './store';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
@@ -146,6 +147,23 @@ export function resetSyncBackoffForEndpointChange(): void {
   syncBackoffUntilMs = null;
   syncFusedUntilMs = null;
   breakerTripCount = 0;
+}
+
+/**
+ * A seed-recovered account whose everyday-key rotation has not landed (#805). Its rotation
+ * gate claims the native notes itself, with the recovery key, so the native pass leaves
+ * them alone. Read from the worker store: a locked worker lists no accounts and proceeds,
+ * and generation then refuses the row it queues without signing anything.
+ *
+ * Narrower than `consumeServiceFor`'s check (flag AND no `hotPublicKey`) -- deliberate: the
+ * only cost of skipping a step early is one auto-claim delayed a sync lap, never a wrong consume.
+ */
+function isRotationPendingAccount(accountPubKey: string): boolean {
+  return store
+    .getState()
+    .accounts.some(
+      account => account.requiresHotKeyRotation === true && sameWalletAccountId(account.publicKey, accountPubKey)
+    );
 }
 
 // Lazy Vault initialization to prevent service worker cold-start race.
@@ -578,7 +596,11 @@ async function runSync(force: boolean): Promise<void> {
       // worth one on its own. See `initiateConsumeNotesTransaction`.
       let nativeAutoConsumeBaseFee: number | null = null;
       try {
-        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
+        if (
+          !isRotationPendingAccount(accountPubKey) &&
+          (await areBackgroundSettingsMirrored()) &&
+          (await isAutoConsumeEnabledAsync())
+        ) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
             // Notes already covered by an uncompleted consume row are excluded BEFORE
@@ -602,7 +624,8 @@ async function runSync(force: boolean): Promise<void> {
             //
             // The frontend applies the same rule to live notes in `selectAutoConsumeBatch`
             // (front/auto-managed-notes.ts), which also decides what its claim prompts
-            // leave out; change the two together.
+            // leave out; change the two together. Both callers skip a rotation-pending
+            // account, as this pass does above.
             const candidates = parsedNotes.filter(
               n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
             );

@@ -49,7 +49,19 @@ jest.mock('lib/i18n', () => ({
 
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (input: any) =>
-    typeof input === 'string' ? input : input && typeof input.toString === 'function' ? input.toString() : 'bech32-stub'
+    typeof input === 'string'
+      ? input
+      : input && typeof input.toString === 'function'
+        ? input.toString()
+        : 'bech32-stub',
+  // Mirrors the real helper: an account id may carry a `_<suffix>` the other spelling lacks.
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+}));
+
+// The worker store's account list, which the native pass reads for a rotation-pending account (#805).
+let mockStoreAccounts: Array<{ publicKey: string; requiresHotKeyRotation?: boolean }> = [];
+jest.mock('./store', () => ({
+  store: { getState: () => ({ accounts: mockStoreAccounts }) }
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -259,6 +271,7 @@ beforeEach(() => {
   mockIsDelegateProofAsync.mockResolvedValue(true);
   mockGetFaucetIdSetting.mockResolvedValue(null);
   mockInitiateConsume.mockResolvedValue('consume-tx');
+  mockStoreAccounts = [];
 });
 
 describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
@@ -1380,6 +1393,50 @@ describe('doSync — native-note auto-consume', () => {
     expect((call[1] as { id: string }[]).map(n => n.id).sort()).toEqual(['native-a', 'native-b']);
     expect(call[0]).toBe('pk-1');
     expect(call[2]).toBe(false); // delegate follows the user setting
+  });
+
+  it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [{ publicKey: 'pk-1', requiresHotKeyRotation: true }];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled();
+  });
+
+  it('matches the worker store account however its id is spelled', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [{ publicKey: 'pk-1_suffix', requiresHotKeyRotation: true }];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('still claims for an account the worker store lists without the rotation flag', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [
+      { publicKey: 'pk-1', requiresHotKeyRotation: false },
+      { publicKey: 'pk-other', requiresHotKeyRotation: true }
+    ];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-consume when the toggle is off', async () => {
