@@ -3,7 +3,7 @@ import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/d
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
+import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 
 export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
@@ -17,6 +17,7 @@ export type GateRow = Pick<
   | 'status'
   | 'error'
   | 'rawError'
+  | 'mayHaveSubmitted'
   | 'awaitingRecoverySeed'
   | 'initiatedAt'
   | 'queuedSeq'
@@ -118,3 +119,44 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
   if (input.initError !== null || trackedRow?.status === ITransactionStatus.Failed) return { view: 'failed' };
   return { view: 'rotating' };
 }
+
+/** The parts of the tracked rotation row its failure message reads. */
+export type RotationFailureRow = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted'>;
+
+export interface RotationFailure {
+  /** The rotation may have reached the network, so its outcome is unknown rather than failed. */
+  unconfirmed: boolean;
+  /** The row's own user-facing copy, or `null` for the gate's translated message. */
+  message: string | null;
+  /** The raw error behind "Show full error". */
+  details?: string;
+}
+
+const nonEmpty = (text: string | undefined) => (text ? text : undefined);
+
+/**
+ * What the failed view says: a short message, and the raw error kept for "Show full error".
+ * The latest thing that went wrong wins: an init error means Retry could not even enqueue.
+ */
+export const describeRotationFailure = (
+  row: RotationFailureRow | undefined,
+  initError: string | null
+): RotationFailure => {
+  if (initError !== null) return { unconfirmed: false, message: null, details: nonEmpty(initError) };
+  if (row === undefined) return { unconfirmed: false, message: null };
+  if (isVaultShortfallRow(row)) {
+    // An old-format shortfall row still carries the raw kernel line as its error.
+    const raw = row.rawError ?? row.error;
+    return {
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: raw === TRANSACTION_VAULT_SHORTFALL_ERROR ? undefined : nonEmpty(raw)
+    };
+  }
+  // `cancelTransaction` keeps `rawError` only when a classifier rewrote the error for the user.
+  if (row.rawError !== undefined) {
+    return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
+  }
+  // Stamped at the submit crossing, before the submit: an unclassified failure after it may have landed.
+  return { unconfirmed: row.mayHaveSubmitted === true, message: null, details: nonEmpty(row.error) };
+};

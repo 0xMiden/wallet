@@ -5,10 +5,12 @@ import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constan
 
 import {
   claimNoteIds,
+  describeRotationFailure,
   GateRow,
   isBelowBaseFee,
   newestRow,
   resolveRotationGateView,
+  RotationFailureRow,
   RotationGateViewInput,
   rotationFundingMinimum
 } from './HotKeyRotationGate.selectors';
@@ -214,5 +216,74 @@ describe('rotationFundingMinimum', () => {
     expect(rotationFundingMinimum(0, nativeRow(0))).toBeNull();
     expect(rotationFundingMinimum(10000, undefined)).toBeNull();
     expect(rotationFundingMinimum(10000, nativeRow(0, { ...MIDEN_METADATA, scaleIsUnknown: true }))).toBeNull();
+  });
+});
+
+describe('describeRotationFailure', () => {
+  const failed = (extra: Partial<RotationFailureRow> = {}): RotationFailureRow => ({
+    type: 'replace-hot-key',
+    status: ITransactionStatus.Failed,
+    ...extra
+  });
+  const rawTimeout = 'Error: Error during Guardian transaction submission or execution: request timeout';
+
+  it('puts an init error behind the generic message, even while a failed row is tracked', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout, mayHaveSubmitted: true }), 'enqueue failed')).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: 'enqueue failed'
+    });
+  });
+
+  it('shows nothing but the generic message with no row and no init error', () => {
+    expect(describeRotationFailure(undefined, null)).toEqual({ unconfirmed: false, message: null });
+  });
+
+  it('names an old-format shortfall and keeps its kernel line as the details', () => {
+    const kernel = 'assertion failed with error code: 644413868907058392';
+    expect(describeRotationFailure(failed({ error: kernel }), null)).toEqual({
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: kernel
+    });
+  });
+
+  it('gives a classified shortfall no details when there is no raw text beyond its message', () => {
+    expect(describeRotationFailure(failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR }), null)).toEqual({
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: undefined
+    });
+  });
+
+  it('shows classified copy with its raw error behind it, even when the row may have submitted', () => {
+    const copy = 'The guardian or the Miden network could not be reached, so this transaction was not sent.';
+    expect(
+      describeRotationFailure(failed({ error: copy, rawError: 'Error: 503', mayHaveSubmitted: true }), null)
+    ).toEqual({ unconfirmed: false, message: copy, details: 'Error: 503' });
+  });
+
+  it('reads an unclassified failure past the submit crossing as unconfirmed', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout, mayHaveSubmitted: true }), null)).toEqual({
+      unconfirmed: true,
+      message: null,
+      details: rawTimeout
+    });
+  });
+
+  it('puts an unclassified failure before the submit crossing behind the generic message', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout }), null)).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: rawTimeout
+    });
+  });
+
+  it('gives a failed row with an empty error the generic message and no details', () => {
+    expect(describeRotationFailure(failed({ error: '' }), null)).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: undefined
+    });
   });
 });
