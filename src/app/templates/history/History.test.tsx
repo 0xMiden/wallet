@@ -1968,4 +1968,156 @@ describe('History on the real SWR cache', () => {
     await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
     expect(entryKeys()).toEqual([]);
   });
+
+  // The cached settled read predates the claim that took the card away, so it still holds the note's failed
+  // attempts unsuperseded (#771).
+  describe('when a claim card leaves', () => {
+    const failedAttempt = (id: string, noteId: string) => ({
+      id,
+      status: STATUS.Failed,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      type: 'consume',
+      noteIds: [noteId],
+      completedAt: 700
+    });
+    // Only the refreshed read has it, so seeing it means that read has landed.
+    const freshRow = {
+      id: 'fresh',
+      status: STATUS.Completed,
+      displayMessage: 'fresh',
+      displayIcon: 'SEND',
+      type: 'send',
+      completedAt: 800
+    };
+    const claimCard = (noteId: string): PendingActivityItem => ({
+      note: {
+        id: noteId,
+        faucetId: 'fa1',
+        amount: '100',
+        senderAddress: 'sender',
+        isBeingClaimed: true,
+        type: 'unknown',
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      },
+      status: 'claiming'
+    });
+    const holdNextSettledRead = () => {
+      let release: (rows: unknown[]) => void = () => {};
+      mockGetCompletedTransactions.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            release = resolve;
+          })
+      );
+      return (rows: unknown[]) => act(async () => release(rows));
+    };
+    const shownSince = (from: number, key: string) =>
+      mockHistoryViewCalls.slice(from).some(props => props.entries.some((entry: { key: string }) => entry.key === key));
+    const settledReads = () => mockGetCompletedTransactions.mock.calls.length;
+    // A hold a failing test never reached would otherwise answer the next test's first read.
+    afterEach(() => mockGetCompletedTransactions.mockReset());
+
+    const mountWithCards = async (rows: unknown[], cards: PendingActivityItem[]) => {
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      await act(async () => {
+        utils = render(inCache(page(true, { pendingItems: cards })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      return (next: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(true, { pendingItems: next })));
+        });
+    };
+
+    it('keeps its failed attempts hidden until the refreshed read settles, which drops them as superseded', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      const showCards = await mountWithCards(rows, [claimCard('note-n')]);
+      expect(entryKeys()).not.toContain('completed-attempt');
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await showCards([]);
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt']));
+      await release([...rows, freshRow]);
+      await waitFor(() => expect(entryKeys()).toContain('completed-fresh'));
+      await act(async () => {});
+      expect(entryKeys()).not.toContain('completed-attempt');
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+    });
+
+    it('releases overlapping leaves only once the refresh started after the last of them settles', async () => {
+      const rows = [failedAttempt('attempt-a', 'note-a'), failedAttempt('attempt-b', 'note-b')];
+      const showCards = await mountWithCards(rows, [claimCard('note-a'), claimCard('note-b')]);
+      const before = settledReads();
+      const from = mockHistoryViewCalls.length;
+
+      const releaseA = holdNextSettledRead();
+      await showCards([claimCard('note-b')]);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      const releaseB = holdNextSettledRead();
+      await showCards([]);
+      await waitFor(() => expect(settledReads()).toBe(before + 2));
+
+      // SWR discards the older fetch that the newer refresh replaced, so settling it proves nothing about the feed.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-a']));
+      await releaseA(rows);
+      expect(shownSince(from, 'completed-attempt-a')).toBe(false);
+      expect(shownSince(from, 'completed-attempt-b')).toBe(false);
+
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-a', 'attempt-b']));
+      await releaseB([...rows, freshRow]);
+      await waitFor(() => expect(entryKeys()).toContain('completed-fresh'));
+      await act(async () => {});
+      expect(shownSince(from, 'completed-attempt-a')).toBe(false);
+      expect(shownSince(from, 'completed-attempt-b')).toBe(false);
+    });
+
+    it('shows a failed attempt again once the refreshed read settles without superseding it', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      const showCards = await mountWithCards(rows, [claimCard('note-n')]);
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await showCards([]);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+
+      await release(rows);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+    });
+
+    it('keeps a note that left under Pending held until the settled read runs again and is refreshed', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      const show = (filter: string, cards: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(true, { filter, pendingItems: cards })));
+        });
+      await act(async () => {
+        utils = render(inCache(page(true, { filter: 'all', pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      await show('pending', [claimCard('note-n')]);
+      await show('pending', []);
+
+      mockGetCompletedTransactions.mockResolvedValue([...rows, freshRow]);
+      const from = mockHistoryViewCalls.length;
+      await show('all', []);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
+    });
+  });
 });
