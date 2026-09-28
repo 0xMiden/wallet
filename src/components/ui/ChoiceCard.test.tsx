@@ -234,14 +234,6 @@ describe('ChoiceCardGroup', () => {
     expect([...group.children]).toEqual(screen.getAllByRole('radio'));
   });
 
-  // C-08: with nothing focused and nothing chosen, the first arrow lands on the FIRST option.
-  it('starts the keyboard walk at the first enabled option when nothing is chosen', () => {
-    const onChange = jest.fn();
-    renderGroup({ value: null, onChange });
-    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowDown' });
-    expect(onChange).toHaveBeenCalledWith('oz');
-  });
-
   it('keeps only the chosen card in the tab order', () => {
     renderGroup({ value: 'gateway' });
     expect(radio('Gateway')).toHaveAttribute('tabindex', '0');

@@ -8,6 +8,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 import { CheckboxIndicator } from './Checkbox';
+import { radioGroupKeyTarget } from './radio-group-keys';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
 export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>;
@@ -139,9 +140,6 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
   );
 }
 
-const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown']);
-const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
-
 /**
  * One choice out of a set of cards (a guardian operator, a recovery method, an import type): each
  * option a flat `fill` card with 16px corners and no border, a leading logo or icon, a `text-row-title` title,
@@ -200,21 +198,12 @@ export function ChoiceCardGroup<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    // With nothing focused and nothing selected there is no origin, so the first arrow key must land
-    // on the first enabled option. Clamping a -1 to 0 would make it land on the SECOND: 0 reads as
-    // "the first option is the origin", and the key then moves off it.
+    // With nothing focused, the origin falls back to the chosen card among the enabled ones, or -1
+    // when nothing is chosen either. radio-group-keys.ts owns the no-origin case this falls back to.
     const selectedAmongEnabled = enabled.findIndex(({ item }) => item.id === value);
     const from = current >= 0 ? current : selectedAmongEnabled;
-
-    let to: number;
-    // The key filter runs FIRST: a key this group does not handle must fall through to `return`,
-    // untouched. Starting from "no origin" ahead of the filter made every key - a letter, Escape -
-    // select the first option. Home and End are absolute, so only the two walks need the fallback.
-    if (NEXT_KEYS.has(event.key)) to = from < 0 ? 0 : (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = from < 0 ? 0 : (from - 1 + enabled.length) % enabled.length;
-    else if (event.key === 'Home') to = 0;
-    else if (event.key === 'End') to = enabled.length - 1;
-    else return;
+    const to = radioGroupKeyTarget(event.key, enabled.length, from);
+    if (to === null) return;
 
     event.preventDefault();
     const target = enabled[to];

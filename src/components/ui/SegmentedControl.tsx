@@ -10,6 +10,8 @@ import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { radioGroupKeyTarget } from './radio-group-keys';
+
 export interface SegmentedControlItem<T extends string = string> {
   id: T;
   /** Already-translated text, also the item's accessible name. */
@@ -145,9 +147,6 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
   );
 }
 
-const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown']);
-const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
-
 /**
  * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
  * outlined pill on the page, and the selected one on the bottom nav's raised bubble
@@ -224,16 +223,11 @@ export function SegmentedControl<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    // No focus and no choosable selection is no origin, so either arrow lands on the first enabled
-    // item. Clamping the -1 to 0 made the first arrow land on the SECOND.
-    const from = current >= 0 ? current : enabled.findIndex(({ item }) => item.id === value);
-
-    let to: number;
-    if (NEXT_KEYS.has(event.key)) to = from < 0 ? 0 : (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = from < 0 ? 0 : (from - 1 + enabled.length) % enabled.length;
-    else if (event.key === 'Home') to = 0;
-    else if (event.key === 'End') to = enabled.length - 1;
-    else return;
+    // The tab stop and the bubble already read `selectedIndex`; the keyboard's origin does too.
+    // radio-group-keys.ts owns the no-origin case (-1) this falls back to.
+    const from = current >= 0 ? current : enabled.findIndex(({ index }) => index === selectedIndex);
+    const to = radioGroupKeyTarget(event.key, enabled.length, from);
+    if (to === null) return;
 
     event.preventDefault();
     const target = enabled[to];
