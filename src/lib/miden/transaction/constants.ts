@@ -321,14 +321,6 @@ export const GUARDIAN_UNREACHABLE_ERROR =
   'try again in a moment.';
 
 /**
- * A kernel failure reported while the transaction executes or is proven: a prover procedure mismatch, the missing
- * fee conversion info, or a vault shortfall. `raw` is the `formatRawTransactionError` text.
- */
-export function isDeterministicKernelFailure(raw: string): boolean {
-  return isProverProcedureMismatch(raw) || isFeeConversionInfoMissingError(raw) || isVaultShortfallError(raw);
-}
-
-/**
  * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
@@ -336,8 +328,9 @@ export function isDeterministicKernelFailure(raw: string): boolean {
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
-  if (!isGuardianUnreachableError(error)) return false;
-  return !isDeterministicKernelFailure(formatRawTransactionError(error));
+  if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
+  const raw = formatRawTransactionError(error);
+  return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
 }
 
 function classifyTransactionError(
