@@ -935,8 +935,8 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       const id = 'off-send-unreachable-unusable-stamp';
-      // A string stamp, which `Number.isFinite` rejects without coercing it.
-      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', initiatedAt: '1700000000' };
+      // NaN, the unusable value the Number.isFinite guard in requeueWakeDelayMs rejects.
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', initiatedAt: NaN };
       const { service } = arrange(id, row);
       service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
 
