@@ -136,17 +136,6 @@ export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
 // re-register (./index), the direct switch's registration (./direct-switch) and
 // `withGuardianRateLimitRetry` below.
 export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
-
-/**
- * Ceiling on the NEW guardian's unauthenticated `GET /pubkey`, the check both switch
- * paths (the coordinated proposal in ./index and the direct switch in ./direct-switch)
- * make BEFORE anything is signed or committed.
- *
- * Generous: it exists to stop a silent endpoint from parking a non-requeueable row,
- * not to hit a latency target. There is no retry loop behind it, so a failure here
- * fails the rotation before any state changed, which is the safe direction.
- */
-export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
 // earning another 429, bounded so a rate-limited re-register can't stall a
