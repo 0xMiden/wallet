@@ -2687,7 +2687,9 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Failed);
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.error).toContain('ApplyAfterSubmitError');
   });
 
   it('Guardian bridged-send: submit lands but local apply fails — row is marked Failed (not Completed)', async () => {
@@ -2846,8 +2848,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'bridge-canon-proposal', nonce: 9 })),
@@ -2871,7 +2872,12 @@ describe('generateTransaction — Guardian routing', () => {
       ),
       { sync: jest.fn(async () => ({ blockNum: () => 100 })) }
     );
-    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+    // The P2IDE request build reads the account before submit.
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
 
     await generateTransaction(
       transaction,
@@ -2883,6 +2889,7 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Failed);
     expect(row?.displayMessage).not.toBe('Sent');
+    expect(row?.error).toContain('ApplyAfterSubmitError');
   });
 
   it('Guardian recallable send reuses persisted request bytes after a retry', async () => {
