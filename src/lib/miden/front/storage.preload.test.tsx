@@ -1,11 +1,11 @@
 import React, { Suspense, useEffect, useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { mutate } from 'swr';
+import { mutate, SWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 
-import { preloadStorage, usePassiveStorage, useStorage } from './storage';
+import { preloadStorage, putToStorage, usePassiveStorage, useStorage } from './storage';
 
 // Real SWR and real suspense: the regression is a storage hook suspending the whole app on unlock.
 
@@ -852,5 +852,96 @@ describe('storage operation order (#1168)', () => {
     first.unmount();
     renderReader('passive-failing-key');
     expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+});
+
+describe('storage writes and wipes (#1177)', () => {
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])('a putToStorage write reaches a %s reader mounted afterwards, with no change event', async (hook, Component) => {
+    const key = `put-${hook}-key`;
+    mockStored[key] = 'old';
+    await preloadStorage([key]);
+    const first = renderReader(key, Component);
+    await drain();
+    first.unmount();
+
+    await putToStorage(key, 'new');
+    renderReader(key, Component);
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a putToStorage write outranks a preload still in flight', async () => {
+    mockStored['put-race-key'] = 'old';
+    await preloadStorage(['put-race-key']);
+
+    const release = deferredRead('put-race-key', 'old');
+    const pending = preloadStorage(['put-race-key']);
+    await putToStorage('put-race-key', 'new');
+    release();
+    await pending;
+    renderReader('put-race-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("ext: another page's change that arrives while a putToStorage write is in flight wins", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-put-key'] = 'old';
+    await preloadStorage(['ext-put-key']);
+    renderReader('ext-put-key');
+    await drain();
+    const reads = mockGet.mock.calls.length;
+
+    const release = holdNextSet();
+    const write = putToStorage('ext-put-key', 'new');
+    act(() => deliverEchoes());
+    act(() => emitChange('ext-put-key', 'other'));
+    await act(async () => {
+      release();
+      await write;
+    });
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
+    expect(mockStored['ext-put-key']).toBe('other');
+    expect(mockGet).toHaveBeenCalledTimes(reads);
+  });
+
+  it('a write to a key no reader asked for leaves the cache alone', async () => {
+    await putToStorage('written-only-key', 'written');
+
+    expect(SWRConfig.defaultValue.cache.get('written-only-key')).toBeUndefined();
+  });
+
+  it("a write that lands while the key's first read is in flight still reaches the cache", async () => {
+    const release = deferredRead('first-read-key', 'old');
+    const preload = preloadStorage(['first-read-key']);
+    await putToStorage('first-read-key', 'new');
+    release();
+    await preload;
+    renderReader('first-read-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a putToStorage of undefined reads as a missing key and never suspends its reader', async () => {
+    mockStored['put-undefined-key'] = 'old';
+    await preloadStorage(['put-undefined-key']);
+    renderReader('put-undefined-key');
+    await drain();
+    // A backend keeps nothing for an undefined value.
+    mockSet.mockImplementationOnce(async () => {
+      delete mockStored['put-undefined-key'];
+    });
+
+    await act(async () => {
+      await putToStorage('put-undefined-key', undefined);
+    });
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
   });
 });

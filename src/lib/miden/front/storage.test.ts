@@ -6,6 +6,7 @@ import { deferred, SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   fetchFromStorage,
   inStorageTurn,
+  preloadStorage,
   putToStorage,
   onStorageChanged,
   usePassiveStorage,
@@ -154,7 +155,8 @@ describe('storage utilities', () => {
 
     it('chains awaited functional updates on the value each one wrote', async () => {
       mockStorage.local.set.mockResolvedValue(undefined);
-      await mutate('chained-key', 'base', { revalidate: false });
+      mockStorage.local.get.mockResolvedValue({ 'chained-key': 'base' });
+      await preloadStorage(['chained-key']);
       mockUseRetryableSWR.mockReturnValue({ data: 'base', mutate: jest.fn() });
 
       const { result } = renderHook(() => useStorage<string>('chained-key'));
@@ -164,6 +166,21 @@ describe('storage utilities', () => {
       });
 
       expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'chained-key': 'base-1-2' });
+    });
+
+    it('builds a functional update on a value written through putToStorage, not the one read before it', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockStorage.local.get.mockResolvedValue({ 'direct-then-update-key': 'read' });
+      await preloadStorage(['direct-then-update-key']);
+      await putToStorage('direct-then-update-key', 'direct');
+      mockUseRetryableSWR.mockReturnValue({ data: 'read', mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('direct-then-update-key'));
+      await act(async () => {
+        await result.current[1](prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'direct-then-update-key': 'direct-updated' });
     });
 
     it('keeps the setter identity when the value changes', () => {
