@@ -1018,13 +1018,15 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const note = extractFullNote(result);
-  const noteId = note?.id().toString();
+  // Network-note sponsorship adds another output. The persisted burn id identifies
+  // the user's note regardless of where the SDK puts the sponsorship/fee outputs.
+  const burnId = tx.extraInputs?.usdcxBurn?.noteId;
+  const noteId = burnId ?? extractFullNote(result)?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result),
-    displayMessage: 'Bridged to EVM',
+    displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds

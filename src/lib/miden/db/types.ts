@@ -39,8 +39,11 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
   'update-procedure-threshold'
 ];
 
-/** Which cross-chain bridge route a `bridged-send` used. */
-export type IBridgeProvider = 'epoch' | 'agglayer';
+/**
+ * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
+ * (Sepolia USDC ↔ USDCx on Miden).
+ */
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -135,9 +138,20 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Faucet-side lifecycle, independent of the sender's transaction status. */
+export interface IUsdcxBurn {
+  noteId: string;
+  destinationDomain: number;
+  phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+  lastError?: string;
+}
+
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
   destinationAddress: string;
   /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */

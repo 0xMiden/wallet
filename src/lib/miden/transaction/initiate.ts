@@ -22,6 +22,7 @@ import {
   IConsumedAssetTotal,
   ITransaction,
   ITransactionStatus,
+  IUsdcxBurn,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -495,7 +496,8 @@ export const initiateBridgedSendTransaction = async (
   requestBytes?: Uint8Array,
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  usdcxBurn?: IUsdcxBurn
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -508,6 +510,11 @@ export const initiateBridgedSendTransaction = async (
     delegateTransaction,
     sendParams
   );
+  if (provider === 'usdcx') {
+    if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
+    dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
+    dbTransaction.noteType = NoteTypeEnum.Public;
+  }
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
