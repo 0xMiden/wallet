@@ -2873,6 +2873,46 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('150.2')).not.toBeInTheDocument();
     });
 
+    // The fiat line prices the out amount the hero shows. In flight the row's own amount is the
+    // quote's tokenOut, while the hero shows the typed "you receive" (minTokenOut).
+    it('prices an in-flight bridge-in at the amount its hero receives, not the quote', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 10_000_000n, // 10 USDC, the quote's tokenOut.
+        extraInputs: { ...bridgedReceiveInputs, outputAmount: '1.505' }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('1.505')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$1.51')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$10.00')).not.toBeInTheDocument();
+    });
+
+    it('prices a received bridge-in at the credited amount its hero shows, rounded down', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150_126_456n, // 150.126456 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          outputAmount: '150.2'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('150.12')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$150.12')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$150.13')).not.toBeInTheDocument();
+    });
+
     // Scaling by the placeholder's guess would misreport what arrived, and the source amount is
     // not what was credited either, so the out side shows no number at all.
     it('shows no credited amount for a received bridge-in whose faucet has no known scale', async () => {

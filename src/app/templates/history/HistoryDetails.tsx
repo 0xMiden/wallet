@@ -588,9 +588,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // and vanish between renders as metadata lands, which is worse than absent.
   // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
+  // A bridge-in hero shows its out side, not the row's own amount (the quote in flight, the unrounded
+  // credit once received), so the estimate prices the figure the hero shows.
+  const pricedAmount = entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : entry?.amount;
   const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, entry.amount, entry.faucetId, entry.token, tokenPrices)
+    pricedAmount !== undefined && entry?.token && !spansMultipleAssets
+      ? formatFiatDisplayAmount(t, pricedAmount, entry.faucetId, entry.token, tokenPrices)
       : undefined;
   // One entry per faucet the claim swept up, each with the asset and quantity
   // that faucet contributed. Resolved through the SAME helper as the hero badge
