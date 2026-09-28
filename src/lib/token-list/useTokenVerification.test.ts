@@ -62,11 +62,28 @@ it('treats the native token as verified even when the list omits it', async () =
 it('re-renders when the native id is discovered after mount', async () => {
   mockNative = null;
   mockLoad.mockResolvedValue(new Set(['listed']));
-  const { result } = renderHook(() => useTokenVerification());
+  let renders = 0;
+  const { result } = renderHook(() => {
+    renders += 1;
+    return useTokenVerification();
+  });
   await waitFor(() => expect(result.current('late-native')).toBe('unverified'));
+  const rendersBefore = renders;
   mockNative = 'late-native';
   act(() => mockNativeChanged?.('late-native'));
+  expect(renders).toBeGreaterThan(rendersBefore);
   expect(result.current('late-native')).toBe('verified');
+});
+
+it('treats the native token as verified once its id is cached, even when no change event fired', async () => {
+  mockNative = null;
+  mockLoad.mockResolvedValue(new Set(['listed']));
+  const { result, rerender } = renderHook(() => useTokenVerification());
+  await waitFor(() => expect(result.current('hydrated-native')).toBe('unverified'));
+  // A storage hydrate fills the native-asset cache without firing onNativeAssetChanged.
+  mockNative = 'hydrated-native';
+  rerender();
+  expect(result.current('hydrated-native')).toBe('verified');
 });
 
 it('reloads when a refresh for the current network lands, and ignores other networks', async () => {

@@ -16,7 +16,9 @@ export type TokenVerification = 'verified' | 'unverified' | 'unknown';
 export function useTokenVerification(): (faucetId: string) => TokenVerification {
   const network = getEffectiveNetworkName();
   const [verified, setVerified] = useState<{ network: string; ids: Set<string> | null } | null>(null);
-  const [nativeId, setNativeId] = useState(getNativeAssetIdSync);
+  // Only re-renders on a discovery: the callback reads the cache itself, which a storage hydrate
+  // fills without an event.
+  const [, setDiscoveredNativeId] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -34,7 +36,7 @@ export function useTokenVerification(): (faucetId: string) => TokenVerification 
     };
   }, [network]);
 
-  useEffect(() => onNativeAssetChanged(setNativeId), []);
+  useEffect(() => onNativeAssetChanged(setDiscoveredNativeId), []);
 
   return useCallback(
     (faucetId: string) => {
@@ -42,9 +44,10 @@ export function useTokenVerification(): (faucetId: string) => TokenVerification 
       const ids = verified?.network === network ? verified.ids : null;
       if (!ids) return 'unknown';
       const id = normalizedFaucetId(faucetId);
+      const nativeId = getNativeAssetIdSync();
       if (nativeId && id === normalizedFaucetId(nativeId)) return 'verified';
       return ids.has(id) ? 'verified' : 'unverified';
     },
-    [verified, network, nativeId]
+    [verified, network]
   );
 }
