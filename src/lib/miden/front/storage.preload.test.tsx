@@ -81,8 +81,10 @@ const holdNextSet = () => {
   return () => release();
 };
 
-// Lets pending writes and a mounted hook's own SWR revalidation finish. On the extension the page's change listener is
-// attached by the first read, which waits for it.
+// Lets pending writes and a mounted hook's own SWR revalidation finish. Off the extension, or once the page's
+// change listener is attached, a read is numbered when it is called; every read issued while an attach is
+// pending waits for it and is numbered when its storage call is issued, so a failed attach lets that read
+// through unheard while the next read's attach retries.
 const drain = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
 
 const Reader = ({ storageKey }: { storageKey: string }) => {

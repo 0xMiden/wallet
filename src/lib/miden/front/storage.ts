@@ -153,8 +153,11 @@ function listenForChanges(): Promise<void> | undefined {
 async function readThrough<T>(key: string): Promise<T | null> {
   // Marked before the read is issued, so a write that lands while the read is in flight settles too.
   cachedKeys.add(key);
-  // Only while the attach is pending, so no change committed after the read is issued goes unheard; once attached,
-  // the number and the storage call are one synchronous step and issue order stays storage order.
+  // Off the extension, or once the listener is attached, a read is numbered when it is called, so a write
+  // called after it is numbered after it. Every read issued while an attach is pending (a page's first reads,
+  // and reads after a failed attach) waits for the attach and is numbered when its storage call is issued: if
+  // the attach succeeds, a change committed after that call is heard; if it fails, the read goes through
+  // unheard and the next read retries.
   const attaching = listenForChanges();
   if (attaching) await attaching;
   const seq = begin();
