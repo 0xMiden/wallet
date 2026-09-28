@@ -4592,6 +4592,14 @@
     "message": "unbestätigt",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Nicht verifiziert",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Dieses Token ist nicht in der Liste der verifizierten Token von Miden enthalten. Jeder kann ein Token mit einem beliebigen Namen erstellen; überprüfen Sie daher die ID unter faucet, bevor Sie dem Token vertrauen.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Konnte nicht durch Simulation überprüft werden. Die unten aufgeführten Mengen entsprechen den Angaben der Website.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5390,16 +5398,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Die Überprüfung der Entsperrmethode dieser Wallet dauert länger als gewöhnlich. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Farbe des QR-Codes ändern",

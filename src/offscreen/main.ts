@@ -1,21 +1,26 @@
-// Offscreen document: runs the multi-threaded WASM prover.
+// Offscreen document: runs the wallet's WASM client, and proves in a worker of its own.
 //
 // Why this exists: the wallet's MV3 service worker can't spawn Web Workers,
 // so wasm-bindgen-rayon's `initThreadPool(n)` would fail there (or, worse,
 // silently spin up a 1-thread pool that pretends to be parallel). The
 // offscreen API exists for exactly this kind of "I need a real document
-// context for Workers / SAB" need. The SW creates this doc once, this doc
-// brings up the rayon pool over its hardware concurrency, then sits waiting
-// for prove requests via chrome.runtime.sendMessage.
+// context for Workers / SAB" need. The SW creates this doc once; this doc
+// brings up its client's rayon pool, and every LOCAL prove runs in its prove
+// worker (`prove-worker.ts`, #945), a second WASM instance with its own pool, so
+// the prove never blocks this document's thread, which the side panel and
+// popup share.
 //
 // Lifecycle: created lazily by the SW on first prove (see src/workers/sw
 // init). Not closed proactively — Chrome may reap it under memory pressure;
-// SW handles recreation. ~120-150 MB always-resident while the doc lives.
+// SW handles recreation. ~120-150 MB always-resident while the doc lives, plus
+// the prove worker's instance during a burst of local proves and 60 s after.
 //
 // Message protocol (chrome.runtime), two families sharing this one doc/channel:
-//   OFFSCREEN_PROVE (unchanged):
+//   OFFSCREEN_PROVE (proved in the prove worker, #945):
 //     request:  { target: "offscreen", type: "OFFSCREEN_PROVE",
 //                 txResultB64: string, proverDescriptor: string | null }
+//               null or "local" proves locally; any other string answers
+//               { ok: false, error: "unsupported prover descriptor" }
 //     response: { ok: true, provenB64: string, durationMs: number }
 //             | { ok: false, error: string }
 //   OFFSCREEN_CALL (issue #260 — generalized WASM-client method dispatch):
@@ -67,16 +72,20 @@ import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
+  installLocalProveTransport,
+  proveInWorker,
+  proveWorkerErrorDetail,
+  recordProveTiming as recordSharedProveTiming
+} from 'lib/miden/sdk/local-prove-transport';
+import {
   type WasmLockHold,
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
   withWasmClientLock,
-  withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
-import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
@@ -88,15 +97,18 @@ import {
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
+import { ProveWorkerClient } from './prove-worker-client';
+import { proveThreadCount } from './prove-worker-protocol';
+
 const TAG = '[offscreen-prover]';
 
 // Mark THIS realm as the offscreen document (issue #260 flip-prep #4). Set at
 // module top, before any client is created or any write executes, so the
 // version-independent `isInOffscreenDocument()` recursion guard
 // (offscreen-prover.ts) can short-circuit `isOffscreenAvailable()` to false here.
-// That makes a non-guardian offscreen write prove LOCALLY in-realm (on this doc's
-// `useWorker:false` WASM) instead of trying to re-dispatch OFFSCREEN_PROVE to a
-// non-existent handler inside the doc — which would fail EVERY such write. It does
+// That keeps a non-guardian offscreen write from re-dispatching OFFSCREEN_PROVE to
+// the SW's own path, which cannot reach this doc from inside it and would fail
+// EVERY such write; its local prove goes to the prove worker instead (#945). It does
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
@@ -125,17 +137,10 @@ const TAG = '[offscreen-prover]';
 // indistinguishable from "no prove was attempted". These markers are written as
 // they happen, so the LAST one names the call this realm is still sitting in.
 //
-// Gated on the E2E build flag, so production records nothing. Mirrors the identical
-// helper in `sdk/miden-client-interface` and `sdk/native-prover-mobile`; kept local
-// rather than shared because the gate is a build-time constant each bundle folds
-// away on its own, and importing a shared wrapper would defeat that.
-const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
-
+// Gated on the E2E build flag inside the shared helper, so production records
+// nothing; this realm's markers only add its tag.
 function recordProveTiming(message: string): void {
-  if (!PROVE_TIMING_ENABLED) return;
-  const line = `[prove-timing] ${TAG} ${message}`;
-  console.log(line);
-  recordProveMarker(line);
+  recordSharedProveTiming(`${TAG} ${message}`);
 }
 
 // --- Connectivity marks REPORT to the SW, they do not write storage ---------
@@ -230,14 +235,24 @@ function ensureEndpointOverrides(): Promise<void> {
 // `window`, so it takes the page branch, and it never loads the React app, so
 // nothing installs a transport — every event would be dropped on the floor.
 //
-// That matters here specifically because proving happens in this realm whenever
-// the offscreen client is on, which is the default for the extension. Without
-// this, `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
-// events never leave the device: exactly the signals that answer "was the remote
-// prover down when this failed".
+// That matters here specifically because this realm's writes are the ones that
+// prove, whenever the offscreen client is on, which is the default for the
+// extension: locally, in this document's own prove worker (#945), or delegated
+// to a remote prover as a network call the document awaits. Either way the
+// document itself only executes, signs, submits and applies. Without this,
+// `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
+// events never leave the device: exactly the signals that answer "was the
+// remote prover down when this failed".
 setOperationTransport(async event => {
   await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
 });
+
+// Every local prove this document runs goes to its prove worker (#945): a prove on
+// this document's thread spins for its whole length, and the side panel and popup
+// share that thread. Installed at module top, before any handler can reach a prove
+// site; the worker itself is spawned only by the first local prove.
+const proveWorker = new ProveWorkerClient();
+installLocalProveTransport(proveWorker);
 
 let initPromise: Promise<void> | null = null;
 
@@ -255,7 +270,8 @@ async function init() {
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
   await (sdk as any).getWasmOrThrow();
 
-  // Bring up the rayon thread pool inside THIS document's WASM instance.
+  // Bring up the rayon thread pool inside THIS document's WASM instance, which
+  // runs execute and every other client call; the prove worker starts its own.
   // Each context (SW, offscreen, popup, worker) has its own per-instance
   // global rayon pool — initialization in one doesn't propagate. SAB +
   // crossOriginIsolated are the prerequisites; the manifest's COOP/COEP
@@ -268,29 +284,8 @@ async function init() {
   }
   const initThreadPool = (sdk as any).initThreadPool;
   if (typeof initThreadPool === 'function') {
-    // Cap the rayon pool at 6 threads. Spawning one per logical core is
-    // counter-productive: the pool competes with this document's own main thread
-    // and the browser compositor, and on Apple Silicon `hardwareConcurrency`
-    // counts efficiency cores that are ~2-3x slower than the performance ones.
-    // rayon splits work evenly, so a chunk landing on an E-core becomes the
-    // critical path the whole proof waits on.
-    //
-    // Measured, web-sdk proving benchmark (single-sig ECDSA consume, MT dist,
-    // quiet machine, 4P+6E so hardwareConcurrency = 10), three sweeps:
-    //    threads   2      4      6      8      10
-    //    ms      7280   5428   5386   5802   6424   (sweep 1)
-    //                   5530   5524   5860          (sweep 2)
-    //                   5367   5401   5742          (sweep 3)
-    // 4 and 6 are indistinguishable (ranges overlap); 8 is consistently worse
-    // with no overlap; 10 is ~19% worse than 6. Scaling saturates at the
-    // performance-core count and goes NEGATIVE beyond it.
-    //
-    // 6 rather than 4 because the error is asymmetric — too high measurably
-    // hurts, too low costs nothing here — and 6 leaves headroom on machines with
-    // more fast cores. CAVEAT: this curve is from ONE heterogeneous machine. A
-    // homogeneous many-core desktop is untested and might prefer more.
-    const cores = navigator.hardwareConcurrency ?? 4;
-    const threads = Math.min(cores, 6);
+    // The #847 cap; the benchmark behind it lives with `proveThreadCount`.
+    const threads = proveThreadCount(navigator.hardwareConcurrency);
     const t = performance.now();
     await initThreadPool(threads);
     console.log(`${TAG} initThreadPool(${threads}) took ${(performance.now() - t).toFixed(0)}ms`);
@@ -316,29 +311,6 @@ ensureInit()
   .catch(err => {
     console.error(`${TAG} init failed:`, err);
   });
-
-// One raw wasm-bindgen WebClient instance, reused across prove calls. The
-// SDK's export naming is treacherous: `WebClient` is the RAW wasm-bindgen
-// class, while `WasmWebClient` is the worker-shim JS wrapper. The raw class
-// is load-bearing here, for two reasons:
-//   1. The prove must run in THIS document's WASM instance — the one whose
-//      rayon pool init() just brought up. The wrapper forwards every method
-//      to its own method worker, a separate WASM instance whose pool this
-//      document never initialized.
-//   2. The wrapper's constructor implicitly INITs that worker via
-//      createClient(rpcUrl=undefined), which on 0.15 performs an eager RPC
-//      genesis fetch against the default endpoint. If that fails (wrong
-//      network version, offline), the wrapper's `ready` promise never
-//      settles and every method call awaits it forever — a silent hang.
-// We never call createClient(...) so this stays a "prover-only" client.
-// Proving with an explicit prover on an uninitialized client requires
-// web-sdk >= 0.15.0-alpha.6; older builds throw "Client not initialized"
-// (loud and immediate, never a hang).
-let prover: any = null;
-function getProver() {
-  if (!prover) prover = new (sdk as any).WebClient();
-  return prover;
-}
 
 // --- Reverse-IPC sign stub (issue #260, slice 5, design §2.4) ---------------
 //
@@ -494,9 +466,8 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage): voi
 
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
 //
-// Alongside the prover-only raw WebClient above, the offscreen doc now owns the
-// FULL MidenClientInterface singleton (design §3.4) — the same client the SW
-// used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
+// The offscreen doc owns the FULL MidenClientInterface singleton (design §3.4), the
+// same client the SW used to run inline. `OFFSCREEN_CALL` messages dispatch a method against it
 // and stream the (serialized) result back. Slice 1 wired `getAccount`; slice 3
 // extends the DISPATCH table with the remaining serialization-clean reads
 // (`syncState`, `exportNote`, `getInputNoteDetails`); slice 4 added
@@ -791,17 +762,15 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
-  // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
-  // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`
-  // takes the SDK BUNDLED prove path (NOT OFFSCREEN_PROVE) because inside this
-  // doc `isOffscreenAvailable()` is false — the `isInOffscreenDocument()`
-  // recursion guard (offscreen-prover.ts, keyed off the `__MIDEN_IN_OFFSCREEN_DOC__`
-  // marker set at this module's top) short-circuits it — so
-  // `shouldUseOffscreenProver()` returns false and the prove runs on THIS doc's
-  // pooled main-thread WASM instance (the client was created `useWorker:false`,
-  // design §5.1/§5.2). The mid-execute signature is fetched from the SW via the
-  // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back;
-  // the intermediate handles stay opaque in-realm (design §6.2).
+  // execute→prove→submit→apply chain runs here as one op, so a wedge anywhere in
+  // it is killable via `closeDocument()`. Inside this doc `isOffscreenAvailable()`
+  // is false (the `isInOffscreenDocument()` recursion guard, keyed off the
+  // `__MIDEN_IN_OFFSCREEN_DOC__` marker set at this module's top), so
+  // `client.consumeNoteId` never re-dispatches OFFSCREEN_PROVE. A delegated
+  // attempt proves remotely; a local one is staged and proves in the prove worker
+  // installed above (#945). The mid-execute signature is fetched from the SW via
+  // the reverse-IPC stub. Only the final serialized `TransactionResult` crosses
+  // back; the intermediate handles stay opaque in-realm (design §6.2).
   consumeNoteId: async (
     _context,
     client,
@@ -809,19 +778,18 @@ const DISPATCH: Record<string, DispatchFn> = {
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
-    // proves AND submits inside that one opaque call, so control returning here
-    // means the consume may already be broadcast. Completing beats aborting past
+    // has submitted (and applied) by the time it returns, on either leg, so the
+    // consume may already be broadcast. Completing beats aborting past
     // a possible submit — refusing to serialize would abandon the applied result
     // of a write the network may have accepted.
     return result.serialize() as Uint8Array;
   },
 
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
-  // each mirroring `consumeNoteId` exactly: the whole execute→prove→submit→apply
-  // chain runs here in-realm as one killable op, taking the SDK BUNDLED prove path
-  // (NOT OFFSCREEN_PROVE — `isOffscreenAvailable()` is false inside this doc via the
-  // `isInOffscreenDocument()` recursion guard), with
-  // the mid-execute signature fetched from the SW via the reverse-IPC stub. Only
+  // each mirroring `consumeNoteId`: the whole execute→prove→submit→apply chain
+  // runs here as one killable op (never OFFSCREEN_PROVE, for the same recursion
+  // guard), a local prove runs in the prove worker (#945), and
+  // the mid-execute signature is fetched from the SW via the reverse-IPC stub. Only
   // the final serialized `TransactionResult` crosses back. The BigInt amounts that
   // crossed as decimal strings are re-widened to BigInt so the reconstructed row
   // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
@@ -847,12 +815,8 @@ const DISPATCH: Record<string, DispatchFn> = {
     // caller still needs mid-flight, so they reverse to the SW as they happen
     // rather than riding the final result. `MidenClientInterface.sendTransaction`
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
-    // BOTH of its prover branches — the in-realm staged pipeline and the
-    // offscreen-prover one (`proveLocallyViaOffscreen`) — so the stamps do not
-    // depend on which branch runs here. Which one that is: inside this doc
-    // `isOffscreenAvailable()` is false (the `isInOffscreenDocument()` recursion
-    // guard), so `shouldUseOffscreenProver()` returns false and the prove runs on
-    // THIS doc's pooled WASM; that choice moves the prove, not the stamping.
+    // every prover branch - delegated, the prove worker (#945), and the SW's
+    // offscreen-prover one - so the stamps do not depend on which branch runs here.
     const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
@@ -880,10 +844,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
-    // Deliberately NO hold re-check (#788): `swapTransaction` is the SDK's
-    // all-in-one `transactions.submit` — execute, prove and submit in a single
-    // opaque call — so when it returns the PSWAP note may already be on the
-    // network. Post-submit, completing beats aborting.
+    // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
+    // applied) by the time it returns, through the delegated leg's all-in-one
+    // `transactions.submit` or the local leg's staged `submitProven`, so the PSWAP
+    // note may already be on the network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
@@ -918,12 +882,12 @@ const DISPATCH: Record<string, DispatchFn> = {
   // pre-built. The mid-execute keystore signature is fetched from the SW via the
   // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back.
   //
-  // Prover selection replicates the inline block EXACTLY, minus one branch: the
-  // mobile `newCallbackProver` case is OMITTED because the offscreen document is
+  // Prover selection replicates the inline block, minus one branch: the mobile
+  // `newCallbackProver` case is OMITTED because the offscreen document is
   // extension-only (no chrome.offscreen in mobile WebViews; mobile stays flag-off
-  // inline), so that branch is unreachable here — non-delegated proves with the
-  // pooled main-thread WASM `newLocalProver`, delegated proves remote (`prove({})`)
-  // with a local fallback on remote failure, identical to the SW path on extension.
+  // inline), so that branch is unreachable here. Delegated proves remote with a local
+  // fallback on remote failure, as the SW path does; every LOCAL prove, first attempt
+  // or fallback, runs in the prove worker and comes back through `submitProven` (#945).
   //
   // The three `postStageEvent` calls replicate `runGuardianPipeline`'s
   // `setStage('executing'|'proving'|'submitting')` at the SAME boundaries, so a
@@ -947,6 +911,8 @@ const DISPATCH: Record<string, DispatchFn> = {
     // successor's row.
     const { hold } = context;
     recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
+    // Overlaps the worker's WASM load and pool start with execute and its sign.
+    if (!delegateTransaction) proveWorker.prewarm();
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
     // #784: execute AT the proposal's anchored reference block, not this realm's
@@ -992,7 +958,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     // that already reached the network.
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
     postStageEvent(context, 'proving');
-    let provenTx;
+    const txResult: sdk.TransactionResult = executedTx.result;
+    // The delegated branch submits its own proof; a worker proof goes back through
+    // `submitProven` with the result it was made from.
+    let submit: () => Promise<sdk.TransactionSubmission>;
     // Reported from here as well as from the two inline copies, because on the
     // extension THIS is the copy that runs: every guardian leaf type is offscreen
     // routable and the flag defaults on, so instrumenting only the inline path
@@ -1000,15 +969,12 @@ const DISPATCH: Record<string, DispatchFn> = {
     // almost everyone uses.
     const proveStartedAt = performance.now();
     if (!delegateTransaction) {
-      recordProveTiming('guardianPipeline proving with local prover');
-      // Local proving is deliberately unbounded — pause this realm's lock
-      // watchdog for its duration, like proveWithFallback's local attempts
-      // (#775). The delegated attempt stays on the clock.
+      recordProveTiming('guardianPipeline proving in the prove worker');
+      // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
+      // this hold, and an eviction cancels the worker (#775, #945).
       try {
-        provenTx = await withWasmLockWatchdogPaused(
-          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-          hold
-        );
+        const proof = await proveInWorker(txResult, hold);
+        submit = () => client.client.transactions.submitProven(proof, txResult);
         reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
       } catch (proveError) {
         reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
@@ -1024,9 +990,9 @@ const DISPATCH: Record<string, DispatchFn> = {
         // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
         // dead code on the shipping path. Two independent failures rode on that:
         //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
-        //      requires an initialized client and so never dispatches from a
-        //      prover-only realm — the remote prover logs no request at all and the
-        //      await never settles (#718).
+        //      requires an initialized client and so never dispatches from one that
+        //      never called createClient() - the remote prover logs no request at all
+        //      and the await never settles (#718).
         //   2. There was no client-side ceiling, unlike both fixed call sites, so
         //      nothing could convert that silence into the rejection the local
         //      fallback below needs. The write simply held the offscreen WASM mutex
@@ -1036,10 +1002,11 @@ const DISPATCH: Record<string, DispatchFn> = {
         // expires BEFORE any submit and the local re-prove cannot broadcast twice.
         const delegatedProver = remoteProver();
         recordProveTiming(`guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`);
-        provenTx = await withDelegatedProveTimeout(
+        const provenTx = await withDelegatedProveTimeout(
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        submit = () => provenTx.submit();
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
         clearConnectivityIssue('prover');
       } catch (proveError) {
@@ -1064,10 +1031,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         try {
-          provenTx = await withWasmLockWatchdogPaused(
-            () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-            hold
-          );
+          const proof = await proveInWorker(txResult, hold);
+          submit = () => client.client.transactions.submitProven(proof, txResult);
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
@@ -1081,7 +1046,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // Still pre-submit: nothing has been broadcast at this point.
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
     postStageEvent(context, 'submitting');
-    const submittedTx = await provenTx.submit();
+    const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     await submittedTx.apply();
     recordProveTiming('guardianPipeline apply returned');
@@ -1273,21 +1238,19 @@ let clientPromise: Promise<MidenClientInterface> | null = null;
  * survivable, and dropping the reference alone would leave them switched off
  * for exactly the flows that were in flight — the ones that need them.
  *
- * The prove-only client goes too: `OFFSCREEN_PROVE` runs on its own raw
- * `WebClient` in this same WASM instance, so a trap that aborts the module
- * aborts that one as well, and it is memoized with no other reset path.
+ * The prove worker is left alone (#945): its WASM instance is separate, so a trap
+ * here does not abort it, and a prove held by an evicted flow is already cancelled
+ * through that hold.
  */
 onWasmClientPoisoned(() => {
   const poisoned = clientPromise;
-  const hadProver = prover !== null;
-  prover = null;
   clientPromise = null;
   // Synchronous, unlike `markPoisoned` below: the sign closure is created with
   // the client (not resolved from it), so the guard is armed before control ever
   // returns to an abandoned dispatch.
   if (currentSignLiveness) currentSignLiveness.poisoned = true;
   currentSignLiveness = null;
-  if (!poisoned && !hadProver) return;
+  if (!poisoned) return;
   console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
   // Marking needs the resolved instance, so it lands a microtask later than the
   // synchronous drop above. A create still in flight resolves to a client built
@@ -1300,15 +1263,14 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     // Created with two Slice-5 overrides vs. the SW's plain singleton:
     //   - `signCallback: offscreenSignViaSW` — the reverse-IPC keystore stub, so
     //     a write op's mid-execute signing reaches the SW-resident vault (§2).
-    //   - `useWorker: false` — REQUIRED (design §5.2). With the SDK worker shim
-    //     (`useWorker:true`, the browser default) the client would run every
-    //     method — including the write's local prove — in a method-worker with
-    //     its own UN-pooled WASM instance, so proving would be single-threaded
-    //     and the keystore callback would live in the worker (SDK: `lastAuthError`
-    //     "meaningful only with useWorker:false"). `false` pins the client to
-    //     THIS doc's main-thread WASM instance, whose rayon pool `init()` brought
-    //     up — so reads AND the write's prove run multi-threaded and the sign
-    //     callback is reachable.
+    //   - `useWorker: false` - REQUIRED (design §5.2). The SDK worker shim
+    //     (`useWorker:true`, the browser default) would move the whole client
+    //     into its method worker, where the keystore callbacks answer within a
+    //     hard 30 s (a sign waits on the user for as long as they take) and
+    //     `lastAuthError` reads null (SDK: "meaningful only with
+    //     useWorker:false"). `false` pins the client to THIS doc's WASM instance,
+    //     whose rayon pool `init()` brought up; local proving is the one step that
+    //     leaves it, for the prove worker (#945).
     // The endpoint override is awaited HERE, not only in `init()`: `create` reads
     // `getEffectiveRpcUrl()` / `getEffectiveProverUrl()` / `getEffectiveNoteTransportUrl()`
     // and bakes them into the client for its whole lifetime, so the load has to be
@@ -1511,6 +1473,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     let failDetail = 'unreadable error';
     try {
       failDetail = String((err as { message?: string })?.message ?? err);
+      // A `ProveWorkerError`'s own `.message` is closed wallet text; its worker-side
+      // detail is what actually says why the prove failed (#945).
+      const proveDetail = proveWorkerErrorDetail(err);
+      if (proveDetail !== undefined) failDetail += ` detail=${proveDetail}`;
     } catch {
       /* keep the placeholder */
     }
@@ -1579,23 +1545,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {
       try {
+        // The field predates the prove worker, which proves locally only (#945). A
+        // string naming any other prover is refused here; null or absent has always
+        // meant local, and the one sender passes null.
+        const proverDescriptor: unknown = msg.proverDescriptor;
+        if (typeof proverDescriptor === 'string' && proverDescriptor !== 'local') {
+          sendResponse({ ok: false, error: 'unsupported prover descriptor' });
+          return;
+        }
         await ensureInit();
-        const wasmSdk = sdk as any;
-        const txResultBytes = b64ToBytes(msg.txResultB64 as string);
-        const txResult = wasmSdk.TransactionResult.deserialize(txResultBytes);
-        // SDK 0.14.6+: TransactionProver.deserialize is async (the "gpu"
-        // descriptor re-acquires a wgpu::Device, which is async). For "local"
-        // and "remote|..." descriptors the call is still effectively sync but
-        // returns a Promise — must be awaited.
-        const proverObj = msg.proverDescriptor
-          ? await wasmSdk.TransactionProver.deserialize(msg.proverDescriptor)
-          : wasmSdk.TransactionProver.newLocalProver();
-        const t = performance.now();
-        const proven = await getProver().proveTransaction(txResult, proverObj);
-        const ms = performance.now() - t;
-        console.log(`${TAG} prove duration_ms=${ms.toFixed(1)}`);
-        const provenBytes = proven.serialize() as Uint8Array;
-        sendResponse({ ok: true, provenB64: bytesToB64(provenBytes), durationMs: ms });
+        // Bytes straight to the prove worker: no WASM call in this realm at all.
+        const { proven, durationMs } = await proveWorker.prove({ txResult: b64ToBytes(String(msg.txResultB64)) });
+        console.log(`${TAG} prove duration_ms=${durationMs.toFixed(1)}`);
+        sendResponse({ ok: true, provenB64: bytesToB64(proven), durationMs });
       } catch (err) {
         console.error(`${TAG} prove failed:`, err);
         sendResponse({ ok: false, error: String((err as { message?: string })?.message ?? err) });

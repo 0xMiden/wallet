@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+
 import RotateGuardianReview from './RotateGuardianReview';
 
 const mockUnlock = jest.fn();
@@ -784,12 +786,12 @@ it('fails closed when both protector reads fail', async () => {
   mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
   expect(screen.queryByText('guardianAuthenticationUnavailable')).not.toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
-  // Back reopens the flow, which is exactly what the error text asks the user to do.
+  // Back still leaves the review.
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });
@@ -800,11 +802,31 @@ it('fails closed with no passcode entry on mobile when both protector reads fail
   mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+it('shows Retry in the footer when the protector probe does not answer in time, and Retry enables Continue (#1241)', async () => {
+  jest.useFakeTimers();
+  try {
+    mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(true);
+    render(<RotateGuardianReview />);
+
+    await act(async () => {
+      jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+    });
+    expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('protector-probe-retry'));
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+    expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('drives the queue itself when the user abandons on mobile, so the switch is not stranded', async () => {

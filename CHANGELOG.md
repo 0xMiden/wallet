@@ -5,9 +5,11 @@
 ### Features
 
 - [FEATURE][all] Seed-restored Guardian accounts recover transaction history from known operators into Activity, with local checkpoints and a shared history-and-notes progress bar. Recovered records stay out of transaction automation, separate transfer amounts from fees, retain Guardian switch details, and group swap settlement receipts; missing fee metadata stops recovery without automatic retry. Guardian switches retain their committed delta on the old operator. Wallet import opens seed-phrase entry directly, with hot-key import still available and encrypted-file import removed from onboarding.
+- [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
 
 ### Changes
 
+- [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
 - [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
@@ -28,14 +30,14 @@
 - [CHORE][all] The OpenZeppelin guardian logo, drawn as a light and a dark copy, gives a caller's id to one copy only, so it can never put a duplicate id in the page (#1066).
 - [CHORE][all] The Guardian transition hero's chip comment names the chip's real ink and drops a muted-token colour and contrast ratio that stopped being true (#1045).
 - [CHANGE][ci] The changelog check fails a pull request that adds a line under a version already released, judged per added line by the heading above it against the highest vX.Y.Z tag, so an entry under a stale (TBD) heading whose version already shipped is caught; its own tests run first in the same job (#1019).
-- [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
+- [CHANGE][mobile][desktop] A slow check of the wallet's unlock method on the recovery-phrase page no longer has its answer thrown away by a Retry: the page uses the answer whenever it arrives, even after a Retry has started a second check (#1061).
 - [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 - [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
 
 ### Fixes
 
-- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). Only when neither credential can be read does a page show an error, and it offers no unlock step (#1056).
+- [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). When neither credential can be read, a page shows an error instead of an unlock step (#1056).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.
 - [FIX][extension] The dApp connect prompt is readable in dark mode: the requesting site, its permission text and the account row no longer render black on the dark card, and the wallet icon beside the account no longer disappears into it.
@@ -88,6 +90,7 @@
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][extension] The side panel and popup stay responsive while a transaction is proved on this device: the proof runs in a worker of its own instead of on the thread those pages share, so they no longer freeze for the 20 to 75 seconds it takes (#945).
 - [FIX][all] A Guardian account recovered from its recovery phrase that holds no MIDEN no longer stays stuck on the everyday-key activation screen: the screen explains that activating the key pays a small network fee, shows the account address with a Copy button, claims the MIDEN sent there with the recovery key, and then finishes activating the key on its own (#805).
 - [FIX][all] Creating a Guardian account while its Guardian is rate-limiting no longer freezes sync, sends and claims for up to 90 seconds while the wallet waits (#1207).
 - [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
@@ -95,6 +98,7 @@
 - [FIX][all] A setting or token metadata written outside the storage hooks, or a wallet reset, no longer leaves the previous value in the storage hooks' cache: every storage write updates it, and every key-value wipe re-reads it (#1177).
 - [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
 - [FIX][all] A single-choice row no longer shows a disabled option as chosen, and its first arrow key now lands on the first option, a copy of a value that appears while an older copy is still being written is written too and "Copied" shows only for the text on screen, a file restore that already created its wallet keeps its back button hidden after browser Back and Forward, and a long error under a text field wraps instead of running off the screen (#1086).
+- [FIX][mobile][desktop] A desktop dApp listener that re-registers itself runs once per emission instead of hanging the page, and a throwing listener is logged; on the six screens that check the wallet's unlock method, a check that fails or does not answer within 5 s now ends in an error with a working Retry instead of leaving the page waiting (#1241).
 
 ## 1.16.2 (2026-09-24)
 

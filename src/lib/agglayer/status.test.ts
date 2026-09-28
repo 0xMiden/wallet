@@ -59,6 +59,60 @@ describe('AggLayer request timeout (gap 8)', () => {
       jest.useRealTimers();
     }
   });
+
+  const track = (promise: Promise<unknown>) => {
+    const state: { outcome: unknown } = { outcome: 'pending' };
+    void promise.then(
+      () => {
+        state.outcome = 'resolved';
+      },
+      (error: unknown) => {
+        state.outcome = error;
+      }
+    );
+    return state;
+  };
+
+  /** Answers with headers, then a body that ends only when the request's signal aborts, as a real stream does. */
+  const answerWith = (response: { ok: boolean; status: number }) => {
+    const seen: { signal?: AbortSignal } = {};
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const signal = init.signal ?? undefined;
+      seen.signal = signal;
+      const json = () =>
+        new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+      return { ...response, json };
+    });
+    return seen;
+  };
+
+  it.each([
+    ['fetchDeposits', () => fetchDeposits('0xdestaddress')],
+    ['fetchMerkleProof', () => fetchMerkleProof(1, 1)]
+  ])('bounds the body read of %s too, not only the headers', async (_label, call) => {
+    jest.useFakeTimers();
+    try {
+      const seen = answerWith({ ok: true, status: 200 });
+
+      const request = track(call());
+      await jest.advanceTimersByTimeAsync(16_000);
+
+      expect(request.outcome).toBe(seen.signal?.reason);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['fetchDeposits', () => fetchDeposits('0xdestaddress'), 'Agglayer bridge status 503'],
+    ['fetchMerkleProof', () => fetchMerkleProof(1, 1), 'Agglayer merkle-proof status 503']
+  ])('ends the unread body of a failed %s once it rejects', async (_label, call, message) => {
+    const seen = answerWith({ ok: false, status: 503 });
+
+    await expect(call()).rejects.toThrow(message);
+
+    expect(seen.signal?.aborted).toBe(true);
+  });
 });
 
 /**

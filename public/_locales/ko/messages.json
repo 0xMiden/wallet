@@ -4592,6 +4592,14 @@
     "message": "확인되지 않음",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "미확인",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "이 토큰은 Miden의 검증된 토큰 목록에 포함되어 있지 않습니다. 누구나 원하는 이름으로 토큰을 생성할 수 있으므로, 신뢰하기 전에 faucet의 ID를 확인하십시오.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "시뮬레이션을 통해 확인할 수 없었습니다. 아래 수치는 해당 사이트에서 공개한 내용입니다.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5390,16 +5398,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "이 지갑의 잠금 해제 방법을 확인하는 데 평소보다 시간이 더 오래 걸리고 있습니다. 다시 시도하려면 뒤로 돌아가서 이 페이지를 다시 열어 주세요.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도하려면 뒤로 돌아가서 이 페이지를 다시 열어주세요.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QR 코드 색상 변경",
