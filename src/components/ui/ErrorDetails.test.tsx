@@ -11,10 +11,12 @@ jest.mock('react-i18next', () => ({
 describe('ErrorDetails', () => {
   it('puts a caller-supplied test id on its wrapper', () => {
     render(<ErrorDetails details="Error: request timeout" data-testid="failure-details" />);
+    fireEvent.click(screen.getByRole('button', { name: 'showFullError' }));
 
-    expect(screen.getByTestId('failure-details')).toContainElement(
-      screen.getByRole('button', { name: 'showFullError' })
-    );
+    // The toggle contains itself, so only the revealed text proves the id is on the wrapper.
+    const wrapper = screen.getByTestId('failure-details');
+    expect(wrapper).toContainElement(screen.getByRole('button', { name: 'hideFullError' }));
+    expect(wrapper).toContainElement(screen.getByText('Error: request timeout'));
   });
 
   it('hides the details until the toggle is pressed, and hides them again', () => {
