@@ -263,6 +263,10 @@ describe('background.ts — Chrome side-panel restore', () => {
     expect(chrome.action.setPopup).toHaveBeenNthCalledWith(2, { popup: 'popup.html' });
     expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: false });
     expect(warnSpy).toHaveBeenCalledWith(
+      '[Background] Side panel restore could not clear the popup:',
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
       '[Background] Side panel restore failed, reverting to popup:',
       expect.any(Error)
     );

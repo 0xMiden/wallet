@@ -83,7 +83,11 @@ export async function openSidePanelToWallet(): Promise<boolean> {
   // gesture, and a failure here is non-fatal (the panel is already showing).
   try {
     await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-    await chromeApi.action.setPopup({ popup: '' });
+    await chromeApi.action
+      .setPopup({ popup: '' })
+      .catch((err: Error) =>
+        console.warn('[side-panel-handoff] clearing the popup failed; the next start retries it:', err)
+      );
     await chromeApi.storage.local.set({ [SIDEPANEL_MODE_FLAG]: true });
   } catch (err) {
     console.warn('[side-panel-handoff] enabling side-panel mode failed (panel still open):', err);

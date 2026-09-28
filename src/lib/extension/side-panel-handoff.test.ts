@@ -28,7 +28,7 @@ function makeChrome(): ChromeMock {
       open: jest.fn().mockResolvedValue(undefined),
       setPanelBehavior: jest.fn().mockResolvedValue(undefined)
     },
-    action: { setPopup: jest.fn() },
+    action: { setPopup: jest.fn().mockResolvedValue(undefined) },
     windows: { getLastFocused: jest.fn().mockResolvedValue({ id: 7 }) },
     tabs: {
       getCurrent: jest.fn().mockResolvedValue({ id: 5, windowId: 2 }),
@@ -178,15 +178,19 @@ describe('openSidePanelToWallet', () => {
     expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 7 });
   });
 
-  it('warns and leaves the side-panel flag unset when clearing the popup fails', async () => {
+  it('warns and still saves side-panel mode when clearing the popup fails', async () => {
     const chrome = makeChrome();
     chrome.action.setPopup.mockRejectedValueOnce(new Error('setPopup failed'));
     setChrome(chrome);
 
     await expect(openSidePanelToWallet()).resolves.toBe(true);
 
-    expect(chrome.storage.local.set).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set).toHaveBeenCalledWith({ sidepanel_mode: true });
     expect(warnSpy).toHaveBeenCalledWith(
+      '[side-panel-handoff] clearing the popup failed; the next start retries it:',
+      expect.any(Error)
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
       '[side-panel-handoff] enabling side-panel mode failed (panel still open):',
       expect.any(Error)
     );
