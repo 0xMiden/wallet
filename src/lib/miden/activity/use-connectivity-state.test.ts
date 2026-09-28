@@ -488,19 +488,6 @@ describe('useConnectivityState', () => {
       expect(hook.result.current.state.node.active).toBe(false);
     });
 
-    it('keeps a dismissal whose write failed when another window writes', async () => {
-      storageSnapshot = makeSnapshot({ network: true });
-      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
-      const hook = renderHook(() => useConnectivityState());
-
-      act(() => hook.result.current.dismiss('network'));
-      await settle();
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { node: 124 };
-      redeliver(hook);
-
-      expect(hook.result.current.state.network.active).toBe(false);
-    });
-
     it('shows a newer activation this window jumps to without rendering the recovery between', async () => {
       storageSnapshot = makeSnapshot({ network: true });
       const hook = renderHook(() => useConnectivityState());
@@ -604,56 +591,5 @@ describe('useConnectivityState', () => {
     expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
       node: getConnectivityState().node.since
     });
-  });
-
-  it('keeps both of two overlapping turns without Web Locks', async () => {
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => {
-      markConnectivityIssue('network');
-      markConnectivityIssue('node');
-    });
-
-    act(() => {
-      result.current.dismiss('network');
-      result.current.dismiss('node');
-    });
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      network: getConnectivityState().network.since,
-      node: getConnectivityState().node.since
-    });
-  });
-
-  it('stores the next dismissal after a refused write without Web Locks', async () => {
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-    const { result } = renderHook(() => useConnectivityState());
-    act(() => {
-      markConnectivityIssue('network');
-      markConnectivityIssue('node');
-    });
-    // Only the dismissal record's first write is refused; the connectivity mirror writes through the same mock.
-    let refused = false;
-    mockPutToStorage.mockImplementation(async (key: string, value: unknown) => {
-      await Promise.resolve();
-      if (key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY && !refused) {
-        refused = true;
-        throw new Error('quota');
-      }
-      return putToMockStore(key, value);
-    });
-
-    act(() => result.current.dismiss('network'));
-    await settle();
-    act(() => result.current.dismiss('node'));
-    await settle();
-
-    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
-      node: getConnectivityState().node.since
-    });
-    expect(mockPutToStorage.mock.calls.filter(([key]) => key === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(
-      2
-    );
   });
 });

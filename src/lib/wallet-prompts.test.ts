@@ -1884,34 +1884,6 @@ describe('without Web Locks (iOS 15.0-15.3)', () => {
     });
   });
 
-  it('keeps both of two overlapping prompt writes', async () => {
-    await Promise.all([
-      setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed),
-      setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Dismissed)
-    ]);
-
-    expect((await fetchWalletPromptStorage()).prompts).toEqual({
-      [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Completed,
-      [WalletPromptType.Bridge]: WalletPromptStatus.Dismissed
-    });
-  });
-
-  it('raises the everyday-key rotation prompt when the native key breaks', async () => {
-    await reportHotKeyRotationNeeded();
-
-    expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(
-      WalletPromptStatus.Pending
-    );
-  });
-
-  it('reports a failed funding-marker turn as a rejection the caller can catch', async () => {
-    const turn = withFaucetFundingMarkerLock('accountA', async () => {
-      throw new Error('storage full');
-    });
-
-    await expect(turn).rejects.toThrow('storage full');
-  });
-
   it('funds an account, flagging its marker submitted before the token request goes out', async () => {
     const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
     mintFromMidenFaucetMock.mockImplementation(

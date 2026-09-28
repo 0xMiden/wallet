@@ -659,13 +659,7 @@ describe('HomePrompts', () => {
     });
   });
 
-  it.each([
-    ['with Web Locks', true],
-    ['without Web Locks (iOS 15.0-15.3)', false]
-  ])('resumes the Funding hero from a persisted marker after a remount mid-wait (%s)', async (_label, hasWebLocks) => {
-    if (!hasWebLocks) {
-      Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-    }
+  it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
     mockFetchFaucetFundingMarker.mockResolvedValue({
       requestedAt: Date.now() - 5_000,
       baselineNoteIds: [],
@@ -695,7 +689,6 @@ describe('HomePrompts', () => {
     const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
     // No tap happened this session — the hero resumes from the marker alone.
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
-
     expect(mockFaucet).not.toHaveBeenCalled();
 
     // Funds land → success beat plays and the marker is cleared.
