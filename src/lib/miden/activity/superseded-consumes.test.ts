@@ -46,6 +46,11 @@ describe('supersededFailedConsumeIds (#771)', () => {
     expect(await supersededFailedConsumeIds([row('attempt', { noteId: 'n1' })])).toEqual(new Set(['attempt']));
   });
 
+  it('matches a single-note claim stored with noteId alone, which only the scalar index finds', async () => {
+    await transactions.add(row('done', { status: ITransactionStatus.Completed, noteId: 'n1' }));
+    expect(await supersededFailedConsumeIds([row('attempt', { noteId: 'n1' })])).toEqual(new Set(['attempt']));
+  });
+
   it('hides a failed batch row only when every one of its notes was claimed', async () => {
     await transactions.add(completedClaim('done-n1', ['n1']));
     const partly = row('partly', { noteId: 'n1', noteIds: ['n1', 'n2'] });
