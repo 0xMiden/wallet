@@ -803,14 +803,15 @@ mobile and desktop hardware protector already use".
 
 The table under "Against the owner's bar" (Security comparison) settles the
 password wrapping, which the design keeps and the protector does not, and
-macOS, where no device-bound PRF credential exists in Chrome. Beyond it:
+macOS, where Chrome has no device-bound PRF platform authenticator. Beyond it:
 
 - Device-bound, on Windows 11: buildable only if a device test confirms that
   Windows Hello evaluates PRF for the extension's RP ID (**Unconfirmed**;
   MetaMask reports that Hello fails its PRF check,
   [MetaMask #46400][metamask-46400], secondary).
 - Elsewhere: Windows 10 has no Hello PRF (**Unconfirmed**), ChromeOS's platform
-  authenticator has none, and Linux has only GPM (Support matrix).
+  authenticator has none, and Linux has no platform authenticator, only GPM
+  (Support matrix).
 - A security key with `hmac-secret` is device-bound on every OS from Chrome
   116, but it is not Touch ID or Windows Hello: it meets the bar and misses the
   issue's goal.
@@ -819,10 +820,10 @@ macOS, where no device-bound PRF credential exists in Chrome. Beyond it:
   entry in the provider (Mechanism, enrollment step 2).
 
 **Verdict against the bar as written:** no-go on macOS, Linux, ChromeOS and
-Windows 10 until a platform ships a device-bound PRF credential in Chrome; on
-Windows 11, go only if the device test passes, as a Windows-only feature, and
-even then only with owner decision 2 below, because Windows Hello accepts its
-PIN.
+Windows 10 until a platform authenticator in Chrome offers a device-bound PRF
+credential; on Windows 11, go only if the device test passes, as a Windows-only
+feature, and even then only with owner decision 2 below, because Windows Hello
+accepts its PIN.
 
 ### The recommended variant: accept synced PRF passkeys
 
@@ -869,9 +870,9 @@ against it.
   (**Unconfirmed**) decides whether the feature is still Touch ID unlock.
   Likewise on Windows 11: if Hello fails the PRF check, GPM may be the only
   path there, and the feature is then not Windows Hello unlock.
-- No-go if only a device-bound wrapping is acceptable, until a platform ships a
-  device-bound PRF credential in Chrome, except on Windows 11 if Hello passes
-  the device test and the owner takes decision 2.
+- No-go if only a device-bound wrapping is acceptable, until a platform
+  authenticator in Chrome offers a device-bound PRF credential, except on
+  Windows 11 if Hello passes the device test and the owner takes decision 2.
 - The evidence sharpened one condition. Whether the popup survives the native
   OS sheets is **Unconfirmed**, and a Chrome 156 change force-closes popups
   while a security dialog shows (Surfaces and focus), so milestone 1 also
