@@ -31,14 +31,11 @@ const mockStorage = {
   }
 };
 
-// Mock webextension-polyfill with default export for dynamic imports
-jest.mock('webextension-polyfill', () => ({
-  __esModule: true,
-  default: {
-    storage: mockStorage
-  },
-  storage: mockStorage
-}));
+const mockPolyfillModule = () => ({ __esModule: true, default: { storage: mockStorage }, storage: mockStorage });
+
+// Mock webextension-polyfill with default export for dynamic imports. An inline arrow, not mockPolyfillModule
+// itself, because @swc/jest hoists jest.mock above every const.
+jest.mock('webextension-polyfill', () => mockPolyfillModule());
 
 // Mock storage adapter to use the mock storage
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -466,7 +463,7 @@ describe('storage utilities', () => {
         expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(1);
       } finally {
         warn.mockRestore();
-        jest.dontMock('webextension-polyfill');
+        jest.doMock('webextension-polyfill', mockPolyfillModule);
         jest.resetModules();
       }
     });
