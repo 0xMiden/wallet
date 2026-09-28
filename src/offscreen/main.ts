@@ -1041,8 +1041,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     // All three legs, delegated included, meet here past their submit, so the node
-    // has the write whatever this apply does (#945).
-    await applySubmitted(submittedTx);
+    // has the write whatever this apply does (#945). A canonicalization refusal
+    // crosses unwrapped: the service worker's guardian catch marks that text Completed.
+    await applySubmitted(submittedTx, { passCanonicalization: true });
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
