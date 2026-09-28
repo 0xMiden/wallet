@@ -98,9 +98,11 @@ const adoptableShortfallRow = async (accountPublicKey: string) => {
  * Find (or create) the rotation transaction to track, serialized across every
  * wallet surface via a per-account Web Lock — two concurrently-mounted gate
  * instances (e.g. extension popup + side panel) would otherwise both pass the
- * pending-row lookup before either enqueues, double-rotating the key.
+ * pending-row lookup before either enqueues, double-rotating the key. Every call
+ * adopts a live rotation, so Check again, a funding trigger or a second surface
+ * never queues one beside it.
  *
- * Before adopting, orphaned `GeneratingTransaction` rows are requeued: every
+ * On mount (`adoptExisting`), orphaned `GeneratingTransaction` rows are requeued first: every
  * driver processes under the `generate-transactions-loop` Web Lock
  * (`safeGenerateTransactionsLoop`, SW included), so if that lock is free the
  * row's generation promise died with its process. The loop refuses to run
@@ -127,11 +129,11 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
             r.processingStartedAt = undefined;
           });
       });
-      const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
-      if (existing) {
-        txId = existing.id;
-        return;
-      }
+    }
+    const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
+    if (existing) {
+      txId = existing.id;
+      return;
     }
     if (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()) {
       deferred = true;

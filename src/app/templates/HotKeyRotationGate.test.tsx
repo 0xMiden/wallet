@@ -38,17 +38,35 @@ let loopLockHeld = false;
 const lockRequests: string[] = [];
 
 type LockCallback = (lock: { name: string } | null) => unknown;
+type LockOptions = { ifAvailable?: boolean };
+// One holder per lock name, the rest queued in order: two surfaces' lookups run one after the other.
+const lockTails = new Map<string, Promise<unknown>>();
+const heldLocks = new Set<string>();
 
 beforeAll(() => {
   Object.defineProperty(navigator, 'locks', {
     configurable: true,
     value: {
-      request: (name: string, optsOrCb: { ifAvailable?: boolean } | LockCallback, maybeCb?: LockCallback) => {
+      request: (name: string, optsOrCb: LockOptions | LockCallback, maybeCb?: LockCallback) => {
         lockRequests.push(name);
-        const callback = (maybeCb ?? optsOrCb) as LockCallback;
-        const opts = maybeCb ? (optsOrCb as { ifAvailable?: boolean }) : undefined;
-        if (opts?.ifAvailable && loopLockHeld) return Promise.resolve(callback(null));
-        return Promise.resolve(callback({ name }));
+        const callback = typeof optsOrCb === 'function' ? optsOrCb : maybeCb;
+        const opts = typeof optsOrCb === 'function' ? undefined : optsOrCb;
+        if (!callback) throw new Error('navigator.locks.request needs a callback');
+        const busy = heldLocks.has(name) || (name === 'generate-transactions-loop' && loopLockHeld);
+        if (opts?.ifAvailable && busy) return Promise.resolve(callback(null));
+        const granted = (lockTails.get(name) ?? Promise.resolve()).then(async () => {
+          heldLocks.add(name);
+          try {
+            return await callback({ name });
+          } finally {
+            heldLocks.delete(name);
+          }
+        });
+        lockTails.set(
+          name,
+          granted.catch(() => undefined)
+        );
+        return granted;
       }
     }
   });
@@ -241,6 +259,8 @@ describe('HotKeyRotationGate', () => {
     mockBalancesLoading = false;
     mockFaucetId = 'native-faucet';
     lockRequests.length = 0;
+    lockTails.clear();
+    heldLocks.clear();
     mockClaimable = { data: [], isFallback: false };
     mockEnqueue.mockResolvedValue('claim-tx');
     mockPlatform.isExtension = false;
@@ -428,6 +448,41 @@ describe('HotKeyRotationGate', () => {
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
       expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
+    });
+
+    it('adopts the live rotation when Check again is tapped while it activates', async () => {
+      mockBalances = [nativeBalance(0)];
+      mockTable = [rotationRow('tx-live')];
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-live'));
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'activating')
+      );
+
+      fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
+      await publishTable();
+
+      expect(mockInitiate).not.toHaveBeenCalled();
+      expect(mockUseTransactionRow).toHaveBeenLastCalledWith('tx-live');
+    });
+
+    it('queues one rotation when two surfaces see the same claim complete', async () => {
+      trackShortfall();
+      mockInitiate.mockImplementation(async () => {
+        mockTable = [...mockTable, rotationRow('tx-new', { initiatedAt: 400 })];
+        return 'tx-new';
+      });
+      render(<HotKeyRotationGate />);
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(screen.getAllByTestId('hot-key-rotation-funding')).toHaveLength(2));
+
+      mockTable = [shortfallRow(), fundingRow('claim-1')];
+      await publishTable();
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+      await publishTable();
+      await publishTable();
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
     });
   });
 
