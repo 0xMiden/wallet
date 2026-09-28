@@ -173,6 +173,46 @@ describe('faucet-api', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it('stops waiting out a 429 back-off as soon as the caller aborts', async () => {
+      jest.useFakeTimers();
+      try {
+        // One 429 asking for the capped 30s back-off; a second attempt must never happen.
+        fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const outcome = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }).then(
+          () => 'resolved',
+          (error: unknown) => error
+        );
+        await jest.advanceTimersByTimeAsync(10);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        await expect(outcome).resolves.toBe(reason);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('rejects the back-off at once when the caller aborted before it began', async () => {
+      // Real timers: the assertion itself proves the capped 30s wait was never
+      // entered. The fetch mock ignores the (already-aborted) signal and answers
+      // with the 429 anyway, so only the back-off's own synchronous `aborted`
+      // guard stands between this and a 30s wait.
+      fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      controller.abort(reason);
+
+      const startedAt = Date.now();
+      await expect(faucetFetch('https://faucet-api.example/pow', { signal: controller.signal })).rejects.toBe(reason);
+
+      expect(Date.now() - startedAt).toBeLessThan(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('aborts a request that never answers, bounded by the timeout (no infinite hang)', async () => {
       jest.useFakeTimers();
       try {

@@ -1820,6 +1820,22 @@
     "message": "Seus fundos estão prontos",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Uma solicitação anterior ainda pode chegar.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Quer repetir o pedido?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Sua solicitação anterior ainda pode chegar. Solicitar novamente poderia creditar sua carteira duas vezes.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Solicite novamente",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Detectada recuperação de conta",
     "englishSource": "Account recovery detected"

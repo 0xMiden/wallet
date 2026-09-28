@@ -133,6 +133,39 @@
     });
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
+  function watchPermission(wallet) {
+    stopPermissionWatch();
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission) {
+          // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+          const account = res.permission === null ? undefined : res.permission.address;
+          if (account !== wallet.address) wallet._applyPermission(res.permission);
+        }
+      } catch (e) {
+        // A refused or timed-out poll, or a key that cannot be decoded, leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   function injectToolbar() {
     // SECURITY: this toolbar is ordinary DOM inside the dApp's own document, and
     // this script runs in the page's main world — so the page can rewrite, restyle
@@ -277,10 +310,19 @@
           allowedPrivateData,
         });
 
+        // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
+        // leaves the provider, and any watch already running, as it was.
+        let publicKey;
+        try {
+          publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        } catch (e) {
+          throw new Error('Invalid publicKey in wallet response');
+        }
+
         // Set public properties matching MidenWindowObject
         this.address = res.accountId;
         this.network = network;
-        this.publicKey = res.publicKey ? base64ToUint8Array(res.publicKey) : undefined;
+        this.publicKey = publicKey;
         this.permission = {
           rpc: res.network,
           address: res.accountId,
@@ -289,11 +331,15 @@
           publicKey: this.publicKey
         };
 
+        // The watch starts first, so a listener that disconnects from this emission stops it.
+        watchPermission(this);
+
         // Emit accountChange event (what the adapter listens for)
         this._emit('accountChange', this.permission);
       }
 
       async disconnect() {
+        stopPermissionWatch();
         const res = await request({
           type: 'DISCONNECT_REQUEST',
           network: this.network,
@@ -308,6 +354,25 @@
         this._emit('accountChange', null);
 
         return res;
+      }
+
+      // Fields follow the new account before listeners hear of it; null clears them. The permission
+      // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+      // anything changes.
+      _applyPermission(perm) {
+        if (perm === null) {
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this._emit('accountChange', null);
+          return;
+        }
+        const publicKey = perm.publicKey ? base64ToUint8Array(perm.publicKey) : undefined;
+        const permission = { ...perm, publicKey };
+        this.permission = permission;
+        this.address = perm.address;
+        this.publicKey = publicKey;
+        this._emit('accountChange', permission);
       }
 
       async requestSend(transaction) {

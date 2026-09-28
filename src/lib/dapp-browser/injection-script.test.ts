@@ -593,7 +593,8 @@ describe('connect', () => {
       rpc: 'rpc.devnet',
       address: '0xdeadbeef',
       privateDataPermission: 'ALL',
-      allowedPrivateData: ['x']
+      allowedPrivateData: ['x'],
+      publicKey: new Uint8Array([97, 98, 99])
     });
     expect(win.midenWallet.address).toBe('0xdeadbeef');
     expect(win.midenWallet.network).toBe('devnet'); // the *arg*, not res.network
@@ -798,3 +799,211 @@ function u8ToB64Local(u8: Uint8Array): string {
   for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i]!);
   return btoa(binary);
 }
+
+describe('account switch (#174)', () => {
+  // The host names the network by id in the connect answer and by RPC URL in the poll answer
+  // (lib/miden/back/dapp.ts), so these tests connect the way the product does.
+  const CONNECT = {
+    network: 'testnet',
+    accountId: '0xabc',
+    privateDataPermission: 'ALL',
+    allowedPrivateData: ['balance'],
+    publicKey: btoa('abc')
+  };
+  const PERM = {
+    rpc: 'https://rpc.testnet.miden.io',
+    address: '0xabc',
+    privateDataPermission: 'ALL',
+    allowedPrivateData: ['balance']
+  };
+  async function connectedOnTestnet(): Promise<FakeWindow> {
+    const win = makeWindow();
+    inject(win);
+    await callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT);
+    return win;
+  }
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+  const polls = (win: FakeWindow) =>
+    sentMessages(win).filter(m => (m.payload as { type?: string })?.type === 'GET_CURRENT_PERMISSION_REQUEST');
+  async function answerPoll(win: FakeWindow, permission: unknown) {
+    jest.advanceTimersByTime(10000);
+    const poll = polls(win).at(-1)!;
+    respond(win, poll.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'GET_CURRENT_PERMISSION_RESPONSE', permission }
+    });
+    await flush();
+  }
+
+  it('does not poll before 10 s, and an unchanged grant emits nothing', async () => {
+    const win = await connectedOnTestnet();
+    const spy = jest.fn();
+    win.midenWallet.on('accountChange', spy);
+    jest.advanceTimersByTime(9999);
+    expect(polls(win)).toHaveLength(0);
+    await answerPoll(win, PERM);
+    expect(polls(win)).toHaveLength(1);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('takes a switched account before emitting it', async () => {
+    const win = await connectedOnTestnet();
+    const seen: unknown[][] = [];
+    win.midenWallet.on('accountChange', (p: unknown) =>
+      seen.push([p, win.midenWallet.address, Array.from(win.midenWallet.publicKey)])
+    );
+    const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
+    await answerPoll(win, next);
+    const taken = { ...next, publicKey: new Uint8Array([100, 101, 102]) };
+    expect(seen).toEqual([[taken, '0xdef', [100, 101, 102]]]);
+    expect(win.midenWallet.permission).toEqual(taken);
+    expect(seen[0]![0]).toBe(win.midenWallet.permission);
+  });
+
+  it('clears on null and emits it, keeps polling, and emits the grant again on the switch back', async () => {
+    const win = await connectedOnTestnet();
+    const spy = jest.fn();
+    win.midenWallet.on('accountChange', spy);
+    await answerPoll(win, null);
+    expect(spy).toHaveBeenLastCalledWith(null);
+    expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ]);
+    await answerPoll(win, { ...PERM, publicKey: btoa('abc') });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(win.midenWallet.address).toBe('0xabc');
+  });
+
+  it('emits nothing for a same-address grant on another rpc, and changes nothing on a malformed key', async () => {
+    const win = await connectedOnTestnet();
+    const spy = jest.fn();
+    win.midenWallet.on('accountChange', spy);
+    const permission = win.midenWallet.permission;
+    await answerPoll(win, { ...PERM, rpc: 'https://rpc.devnet.miden.io' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(win.midenWallet.address).toBe('0xabc');
+    expect(win.midenWallet.permission).toBe(permission);
+    expect(Array.from(win.midenWallet.publicKey)).toEqual([97, 98, 99]);
+    await answerPoll(win, { ...PERM, address: '0xdef', publicKey: '%%%' });
+    expect(win.midenWallet.address).toBe('0xabc');
+    expect(spy).not.toHaveBeenCalled();
+    await answerPoll(win, { ...PERM, address: '0xdef', publicKey: btoa('def') });
+    expect(win.midenWallet.address).toBe('0xdef');
+  });
+
+  it('a throwing accountChange listener and the one after it each hear a switch once, and the switch back', async () => {
+    const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failure = new Error('listener failed');
+    const listener = jest.fn(() => {
+      throw failure;
+    });
+    const after = jest.fn();
+    win.midenWallet.on('accountChange', listener);
+    win.midenWallet.on('accountChange', after);
+    const next = { ...PERM, address: '0xdef', publicKey: btoa('def') };
+    await answerPoll(win, next);
+    await answerPoll(win, next);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+    await answerPoll(win, { ...PERM, publicKey: btoa('abc') });
+    expect(win.midenWallet.address).toBe('0xabc');
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(after.mock.calls).toEqual([
+      [expect.objectContaining({ address: '0xdef' })],
+      [expect.objectContaining({ address: '0xabc' })]
+    ]);
+    expect(error).toHaveBeenCalledWith(expect.any(String), failure);
+    error.mockRestore();
+  });
+
+  it('a throwing accountChange listener and the one after it each hear two null polls once', async () => {
+    const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const listener = jest.fn(() => {
+      throw new Error('listener failed');
+    });
+    const after = jest.fn();
+    win.midenWallet.on('accountChange', listener);
+    win.midenWallet.on('accountChange', after);
+    await answerPoll(win, null);
+    await answerPoll(win, null);
+    expect(listener.mock.calls).toEqual([[null]]);
+    expect(after.mock.calls).toEqual([[null]]);
+    error.mockRestore();
+  });
+
+  it('stops on disconnect, and a poll answered after disconnect changes nothing', async () => {
+    const win = await connectedOnTestnet();
+    const spy = jest.fn();
+    win.midenWallet.on('accountChange', spy);
+    jest.advanceTimersByTime(10000);
+    const inFlight = polls(win).at(-1)!;
+    const disconnecting = win.midenWallet.disconnect();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    await disconnecting;
+    respond(win, inFlight.reqId, {
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { type: 'GET_CURRENT_PERMISSION_RESPONSE', permission: { ...PERM, address: '0xdef' } }
+    });
+    await flush();
+    expect(win.midenWallet.address).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(60000);
+    expect(polls(win)).toHaveLength(1);
+  });
+
+  it('a disconnect listener that throws neither rejects disconnect nor keeps the account', async () => {
+    const win = await connectedOnTestnet();
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    win.midenWallet.on('disconnect', () => {
+      throw new Error('listener failed');
+    });
+    const disconnecting = win.midenWallet.disconnect();
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    await expect(disconnecting).resolves.toBeUndefined();
+    expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ]);
+    expect(error).toHaveBeenCalledWith('[MidenWallet] Error in disconnect listener:', expect.any(Error));
+    error.mockRestore();
+  });
+
+  it('a second connect keeps one poll', async () => {
+    const win = await connectedOnTestnet();
+    await callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT);
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(1);
+  });
+
+  it('a connect listener that throws neither rejects connect nor stops the watch', async () => {
+    const win = makeWindow();
+    inject(win);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    win.midenWallet.on('connect', () => {
+      throw new Error('listener failed');
+    });
+    await expect(
+      callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT)
+    ).resolves.toMatchObject({ address: '0xabc' });
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(1);
+    error.mockRestore();
+  });
+
+  it('a poll that times out is followed by the next one', async () => {
+    const win = await connectedOnTestnet();
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(1);
+    jest.advanceTimersByTime(300000);
+    await flush();
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(2);
+  });
+});

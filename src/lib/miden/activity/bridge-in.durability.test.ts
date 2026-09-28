@@ -19,6 +19,7 @@ const mockRegistry: { records: PendingBridgeInIntent[] } = { records: [] };
 let mockFailRemoval = false;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 jest.mock('../front/storage', () => ({
+  inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   fetchFromStorage: async () => clone(mockRegistry.records),
   putToStorage: async (_key: string, value: PendingBridgeInIntent[]) => {
     if (mockFailRemoval && value.length === 0) {

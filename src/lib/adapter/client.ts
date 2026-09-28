@@ -14,6 +14,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
 
 import {
+  MidenDAppCurrentPermission,
   MidenDAppErrorType,
   MidenDAppMessageType,
   MidenDAppMetadata,
@@ -63,22 +64,29 @@ export function onAvailabilityChange(callback: (available: boolean) => void) {
   return () => clearTimeout(t);
 }
 
-export function onPermissionChange(callback: (permission: MidenDAppPermission) => void) {
+export function onPermissionChange(callback: (permission: MidenDAppCurrentPermission) => void) {
   let t: any;
-  let currentPerm: MidenDAppPermission = null;
+  let currentPerm: MidenDAppCurrentPermission = null;
+  // The clear function cannot cancel a check already awaiting its answer, so a
+  // disconnect would otherwise be undone by that answer repopulating the window object (#174).
+  let stopped = false;
   const check = async () => {
     try {
       const perm = await getCurrentPermission();
-      if (!permissionsAreEqual(perm, currentPerm)) {
-        callback(perm);
+      if (!stopped && !permissionsAreEqual(perm, currentPerm)) {
+        // Recorded first, so a callback that throws cannot freeze the baseline and hide a switch back.
         currentPerm = perm;
+        callback(perm);
       }
     } catch {}
 
-    t = setTimeout(check, 10_000);
+    if (!stopped) t = setTimeout(check, 10_000);
   };
   check();
-  return () => clearTimeout(t);
+  return () => {
+    stopped = true;
+    clearTimeout(t);
+  };
 }
 
 export async function getCurrentPermission() {
