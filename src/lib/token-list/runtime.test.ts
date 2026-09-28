@@ -414,6 +414,25 @@ describe('the request timeout', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('warns once with a TimeoutError when the request times out', async () => {
+    jest.useFakeTimers();
+    setup();
+    fetchMock.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason));
+        })
+    );
+    await loadVerifiedFaucetIds('testnet');
+    await jest.advanceTimersByTimeAsync(10_000);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('testnet'),
+      expect.objectContaining({ name: 'TimeoutError' })
+    );
+  });
+
   it('leaves no timer behind once the request settles', async () => {
     jest.useFakeTimers();
     setup();

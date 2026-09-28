@@ -69,6 +69,26 @@ describe('withRequestTimeout', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('aborts with a TimeoutError naming the milliseconds, as AbortSignal.timeout does', async () => {
+    let signal: AbortSignal | undefined;
+    const settled = withRequestTimeout(
+      10_000,
+      given =>
+        new Promise<never>((_resolve, reject) => {
+          signal = given;
+          given.addEventListener('abort', () => reject(given.reason));
+        })
+    );
+    const outcome = settled.catch((error: unknown) => error);
+
+    await jest.advanceTimersByTimeAsync(10_000);
+
+    expect(signal?.reason.name).toBe('TimeoutError');
+    expect(signal?.reason).toBeInstanceOf(DOMException);
+    expect(signal?.reason.message).toBe('Request timed out after 10000 ms');
+    await expect(outcome).resolves.toBe(signal?.reason);
+  });
+
   it('works where AbortSignal.timeout does not exist', () =>
     withoutAbortSignalTimeout(async () => {
       await expect(withRequestTimeout(10_000, async signal => signal.aborted)).resolves.toBe(false);
@@ -134,6 +154,13 @@ describe('fetchBoundedJson', () => {
     expect(response.text).not.toHaveBeenCalled();
   });
 
+  it('accepts a body stream of exactly the cap, split across chunks', async () => {
+    const bytes = new TextEncoder().encode(`${' '.repeat(62)}{}`);
+    expect(bytes.byteLength).toBe(LIMITS.maxBytes);
+    const response = streamResponse([bytes.slice(0, 22), bytes.slice(22, 44), bytes.slice(44)]);
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).resolves.toEqual({});
+  });
+
   it('decodes a body stream split inside multi-byte characters', async () => {
     const bytes = new TextEncoder().encode(JSON.stringify({ name: '€🪙' }));
     const response = streamResponse(Array.from(bytes, byte => Uint8Array.of(byte)));
@@ -148,6 +175,16 @@ describe('fetchBoundedJson', () => {
     expect(text.length).toBeLessThanOrEqual(LIMITS.maxBytes);
     await expect(fetchBoundedJson(jest.fn().mockResolvedValue(textResponse(text)), LIST_URL, LIMITS)).rejects.toThrow(
       'too large'
+    );
+  });
+
+  it('accepts a text() body of exactly the cap in UTF-8 bytes', async () => {
+    // 63 UTF-16 units, 64 bytes: the one 'é' is two bytes.
+    const text = JSON.stringify(`é${'a'.repeat(60)}`);
+    expect(text.length).toBe(LIMITS.maxBytes - 1);
+    expect(new TextEncoder().encode(text).byteLength).toBe(LIMITS.maxBytes);
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(textResponse(text)), LIST_URL, LIMITS)).resolves.toBe(
+      `é${'a'.repeat(60)}`
     );
   });
 
@@ -176,6 +213,11 @@ describe('fetchBoundedJson', () => {
       'too large'
     );
     expect(response.text).not.toHaveBeenCalled();
+  });
+
+  it('accepts a declared length of exactly the cap', async () => {
+    const response = textResponse(`${' '.repeat(62)}{}`, { 'content-length': String(LIMITS.maxBytes) });
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).resolves.toEqual({});
   });
 
   it('rejects a body past the cap that declares nothing, even when it is valid JSON', async () => {

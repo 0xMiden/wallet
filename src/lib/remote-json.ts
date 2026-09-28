@@ -23,7 +23,11 @@ export type JsonFetch = (
  */
 export async function withRequestTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
+  // Named as AbortSignal.timeout names it, so a caller's error says the request timed out.
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`Request timed out after ${ms} ms`, 'TimeoutError')),
+    ms
+  );
   try {
     return await run(controller.signal);
   } finally {
