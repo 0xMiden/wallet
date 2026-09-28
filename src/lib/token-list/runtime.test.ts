@@ -2,6 +2,7 @@ import {
   _resetTokenListForTest,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
+  TOKEN_LIST_RETRY_BACKOFF_MS,
   TOKEN_LIST_TTL_MS,
   tokenListUrl
 } from './runtime';
@@ -35,6 +36,7 @@ const response = (body: unknown, init: { ok?: boolean; length?: number } = {}) =
 
 const NOW = 1_800_000_000_000;
 const KEY = 'token_list_cache_v1:testnet';
+const ATTEMPT = 'token_list_attempt_v1:testnet';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 let storage: ReturnType<typeof memoryStorage>;
@@ -82,13 +84,13 @@ it('prefers a stale cache over the bundled snapshot while offline', async () => 
   await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['cached']));
 });
 
-it('falls back to the bundled snapshot with no cache, and a failed fetch stores nothing', async () => {
+it('falls back to the bundled snapshot with no cache, and a failed fetch stores no list', async () => {
   setup();
   fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
   const ids = await loadVerifiedFaucetIds('testnet');
   expect(ids).toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
   await flush();
-  expect(storage.set).not.toHaveBeenCalled();
+  expect(storage.data).toEqual({ [ATTEMPT]: NOW });
 });
 
 it.each([
@@ -97,13 +99,14 @@ it.each([
   ['a declared oversize body', response(doc(['x']), { length: 300 * 1_024 })],
   ['an oversize body', response(`${' '.repeat(300 * 1_024)}${JSON.stringify(doc(['x']))}`)],
   ['invalid JSON', response('{')]
-])('keeps the old cache after %s', async (_label, bad) => {
+])('keeps the old cache and records the attempt after %s', async (_label, bad) => {
   const cached = { fetchedAt: NOW - TOKEN_LIST_TTL_MS - 1, body: doc(['old']) };
   setup({ [KEY]: cached });
   fetchMock.mockResolvedValue(bad);
   await loadVerifiedFaucetIds('testnet');
   await flush();
   expect(storage.data[KEY]).toEqual(cached);
+  expect(storage.data[ATTEMPT]).toBe(NOW);
   await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['old']));
 });
 
@@ -209,4 +212,60 @@ describe('the per-realm memo', () => {
     await expect(reloaded).resolves.toEqual(new Set(['new']));
     expect(storage.get).toHaveBeenCalledTimes(2);
   });
+});
+
+describe('the retry backoff', () => {
+  it('waits an hour after a failed refresh before the next one', async () => {
+    setup();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(storage.data[ATTEMPT]).toBe(NOW);
+
+    clock = NOW + TOKEN_LIST_RETRY_BACKOFF_MS - 1;
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clock = NOW + TOKEN_LIST_RETRY_BACKOFF_MS;
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(storage.data[ATTEMPT]).toBe(NOW + TOKEN_LIST_RETRY_BACKOFF_MS);
+  });
+
+  it('waits out a failure an earlier realm recorded', async () => {
+    setup({ [ATTEMPT]: NOW - TOKEN_LIST_RETRY_BACKOFF_MS + 1 });
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores a failure older than the cached list, which a later refresh superseded', async () => {
+    // A stamp later than the clock makes the list due whatever its age, so only the failure could hold it back.
+    setup({ [KEY]: { fetchedAt: NOW + 60_000, body: doc(['a']) }, [ATTEMPT]: NOW - 1_000 });
+    fetchMock.mockResolvedValue(response(doc(['a'])));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['stamped later than the clock', NOW + 60_000],
+    ['that is not a number', 'an hour ago']
+  ])('ignores a recorded failure %s', async (_label, failedAt) => {
+    setup({ [ATTEMPT]: failedAt });
+    fetchMock.mockResolvedValue(response(doc(['a'])));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('has no list for localnet, whose faucet ids are per machine, and never fetches or reads one', async () => {
+  setup({ 'token_list_cache_v1:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
+  await expect(loadVerifiedFaucetIds('localnet')).resolves.toBeNull();
+  await flush();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(storage.get).not.toHaveBeenCalled();
 });
