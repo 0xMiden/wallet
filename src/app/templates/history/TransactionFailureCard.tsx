@@ -1,7 +1,9 @@
-import React, { FC, useState } from 'react';
+import React, { FC } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
+
+import { ErrorDetails } from 'components/ui/ErrorDetails';
 
 import { DetailSection } from './DetailSection';
 
@@ -16,7 +18,6 @@ export const TransactionFailureCard: FC<{
   isCancelled?: boolean;
 }> = ({ errorMessage, rawErrorMessage, isCancelled }) => {
   const { t } = useTranslation();
-  const [showFullError, setShowFullError] = useState(false);
 
   return (
     <DetailSection title={isCancelled ? t('cancelled') : t('error')}>
@@ -32,20 +33,7 @@ export const TransactionFailureCard: FC<{
         >
           {errorMessage}
         </p>
-        {rawErrorMessage && (
-          <div className="mt-3">
-            <button
-              type="button"
-              className="text-sm font-medium text-text-muted underline"
-              onClick={() => setShowFullError(v => !v)}
-            >
-              {showFullError ? t('hideFullError') : t('showFullError')}
-            </button>
-            {showFullError && (
-              <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">{rawErrorMessage}</p>
-            )}
-          </div>
-        )}
+        <ErrorDetails details={rawErrorMessage} className="mt-3" />
       </div>
     </DetailSection>
   );
