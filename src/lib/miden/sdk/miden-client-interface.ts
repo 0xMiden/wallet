@@ -1560,8 +1560,9 @@ export class MidenClientInterface {
               notes.push(inputNoteRecord.toNote());
             }
             recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-            // A fresh handle, not `acctId` below: wasm-bindgen can consume an
-            // `AccountId` by value, and `acctId` still has to reach `executeTransaction`.
+            // A fresh handle, not `acctId` below: defensive, not required - the pinned SDK
+            // borrows `&AccountId` here too (see the doc above buildSendExecuteArgs), and a
+            // fresh handle keeps this builder correct whichever way a later SDK passes it.
             const request: TransactionRequest = await inner.newConsumeTransactionRequest(
               notes,
               walletAccountIdToSdk(accountId)
@@ -1729,9 +1730,10 @@ export class MidenClientInterface {
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(async wasm => {
-            // `inner.executeTransaction` consumes both args by value, so every
-            // attempt hydrates its OWN request from the bytes — a shared handle
-            // would be moved-from the second time it was used.
+            // Defensive, not required: every attempt still hydrates its OWN request
+            // from the bytes. The pinned SDK borrows both args in `executeTransaction`
+            // (see the doc above buildSendExecuteArgs), so this stays correct however
+            // a later SDK passes them.
             const request = TransactionRequest.deserialize(requestBytes);
             const acctId = resolveAccountId(wasm, accountId);
             return { accountId: acctId, request };
@@ -1742,8 +1744,10 @@ export class MidenClientInterface {
         // gives the prove-fallback a seam to stop at, so a failure at or after
         // submit can never be retried into a second broadcast of this request
         // (dApp custom transactions and the Agglayer bridged-send both land here).
-        // Each attempt deserializes its own request — a wasm-bindgen request is
-        // consumed by execution, so a shared handle would be moved-from on a retry.
+        // Each attempt deserializes its own request as a defensive measure: the pinned
+        // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
+        // call - see the doc above buildSendExecuteArgs), so this stays correct however
+        // a later SDK passes it.
         recordProveTiming(`newTransaction delegated: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
         const executed = await this.client.transactions.executeRequest(
           accountId,

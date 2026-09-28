@@ -2338,8 +2338,10 @@ describe('MidenClientInterface', () => {
       // Plain JS array, NOT wasm.NoteArray.
       expect(notes).toEqual([note]);
       expect(String(account)).toBe('sdk-mtst1acc');
-      // A fresh handle, not the one execute runs on: wasm-bindgen can consume a
-      // by-value handle, so sharing one here would leave execute's moved-from.
+      // A fresh handle, not the one execute runs on: defensive, not required, since the
+      // pinned SDK borrows `&AccountId` (see the doc above buildSendExecuteArgs in
+      // miden-client-interface.ts). This assertion pins that independence as a
+      // deliberate invariant regardless.
       expect(account).not.toBe(inner.executeTransaction.mock.calls[0]![0]);
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
