@@ -3,15 +3,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
+import { Card } from 'components/ui/Card';
 import { CheckboxRow } from 'components/ui/Checkbox';
-import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
-import { Pill } from 'components/ui/Pill';
-import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
@@ -35,21 +32,6 @@ export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'seed-phrase', titleKey: 'meetGuardianSeedPhraseTitle', bodyKey: 'meetGuardianSeedPhraseBody' },
   { id: 'guardian', titleKey: 'meetGuardianProtectsTitle', bodyKey: 'meetGuardianProtectsBody' }
 ];
-
-/** What every operator guarantees, in the order the card lists them; each drawn with a check. */
-const GUARDIAN_GUARANTEE_KEYS: readonly string[] = [
-  'meetGuardianCannotMoveFunds',
-  'meetGuardianBacksUpState',
-  'meetGuardianCanSwitch'
-];
-
-/** One line about each built-in operator; an operator without one gets the generic line. */
-const OPERATOR_BIO_KEYS: Readonly<Record<string, string>> = {
-  'open-zeppelin': 'guardianBioOpenZeppelin',
-  gateway: 'guardianBioGateway',
-  'lambda-class': 'guardianBioLambdaClass',
-  kodax: 'guardianBioKoda'
-};
 
 export interface MeetGuardianScreenProps {
   /** The ticks and the locked operator, owned by the flow so the picker round trip keeps them. */
@@ -127,8 +109,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const handleNoGuardian = () => onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
-  const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
-
   // One action in every state, rendered once after the state's block: the full-width row that closes the
   // section. Settling the round swaps the block above it, never the action, so a press or focus survives.
   const chooseDifferent = noOperators ? null : (
@@ -159,105 +139,88 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         </>
       }
     >
-      {/* The Guardian leads the page, there from the start, and the facts that explain it follow.
-          Both blocks keep their full height so the body scrolls rather than squashing them. */}
+      {/* The Guardian leads the page as one outlined card: who it is and how to change it, then one
+          sentence for what it does and does not do. The facts that explain the account follow. */}
       <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
-        <SectionHeader
-          className="px-0 pb-0"
-          data-testid="meet-guardian-header"
-          action={
-            <TextAction className="-mx-1 gap-1.5" data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
-              <Icon name={IconName.Information} size="sm" fill="currentColor" />
+        {noneReachable && !chosen ? (
+          <>
+            <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
+              {t('meetGuardianNoneReachable')}
+            </Notice>
+            {chooseDifferent}
+            <TextAction
+              className="-mx-1 self-start"
+              data-testid="meet-guardian-info"
+              onClick={() => setIsInfoOpen(true)}
+            >
               {t('whatIsAGuardian')}
             </TextAction>
-          }
-        >
-          {t('meetGuardianYourGuardian')}
-        </SectionHeader>
-
-        {chosen ? (
-          <div data-testid="meet-guardian-card" className="flex flex-col" aria-busy={chosenVerdict === undefined}>
-            <div className="flex items-center gap-3">
-              <GuardianLogoTile guardianId={chosen.id} />
-              <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-                {/* max-w-full: in an items-start column a truncating span is otherwise as wide as its text. */}
-                <span className="max-w-full truncate text-title-page text-ink" data-testid="meet-guardian-name">
-                  {chosen.name}
-                </span>
-                {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
-                {!(progress.pickedByUser && options.length > 1) && (
-                  <Pill size="sm" data-testid="meet-guardian-fastest">
-                    {options.length > 1
-                      ? t('meetGuardianFastestOf', { operators: String(options.length) })
-                      : t('meetGuardianOnlyOperator')}
-                  </Pill>
+          </>
+        ) : (
+          // One card from the first round to the answer: while the round is out it holds the operator's
+          // shape (the logo row, the sentence's two lines), so the checklist below barely moves when the
+          // operator lands. Its change action sits in the same place in both, so a press or focus on it
+          // survives the round settling.
+          <Card
+            surface="outline"
+            padding="none"
+            data-testid={chosen ? 'meet-guardian-card' : 'meet-guardian-checking'}
+            aria-busy={chosenVerdict === undefined}
+            className="flex flex-col overflow-hidden"
+          >
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              {chosen ? <GuardianLogoTile guardianId={chosen.id} /> : <Skeleton className="size-12 rounded-xl" />}
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                {chosen ? (
+                  // max-w-full: in an items-start column a truncating span is otherwise as wide as its text.
+                  <span className="max-w-full truncate text-row-title text-ink" data-testid="meet-guardian-name">
+                    {chosen.name}
+                  </span>
+                ) : (
+                  <Skeleton className="h-4 w-32" />
+                )}
+                {/* The operator's state takes the label's place until it answers: checking while the card
+                    waits on its verdict (Continue waits too), offline if a later round loses it. */}
+                {!chosen ? (
+                  <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
+                ) : chosenVerdict === undefined ? (
+                  <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
+                ) : chosenVerdict.status === 'offline' ? (
+                  <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
+                ) : (
+                  <span className="text-caption-heading text-muted" data-testid="meet-guardian-header">
+                    {t('meetGuardianYourGuardian')}
+                  </span>
                 )}
               </div>
-              {/* Nothing once it answers. A card kept from before the picker has no verdict yet, so it says
-                  it is checking (Continue waits for the answer); a later round that loses the operator shows
-                  offline, which is why Continue closed. */}
-              {chosenVerdict === undefined ? (
-                <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
-              ) : chosenVerdict.status === 'offline' ? (
-                <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-              ) : null}
+              {!noOperators && (
+                <TextAction className="-mr-1" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+                  {t('meetGuardianChange')}
+                </TextAction>
+              )}
             </div>
-
-            <p className="mt-2.5 text-caption-heading text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
-
-            {/* What every operator guarantees, in an outlined list with a positive disc per line. */}
-            <ListGroup as="ul" surface="outline" className="mt-3.5 px-3 py-1" data-testid="meet-guardian-guarantees">
-              {GUARDIAN_GUARANTEE_KEYS.map(key => (
-                <FactRow
-                  key={key}
-                  as="li"
-                  variant="item"
-                  leading={
-                    <IconCircle size="sm" className="bg-positive-tint text-positive-tint-ink">
-                      <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-                    </IconCircle>
-                  }
-                  title={t(key)}
-                />
-              ))}
-            </ListGroup>
-          </div>
-        ) : noneReachable ? (
-          <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-            {t('meetGuardianNoneReachable')}
-          </Notice>
-        ) : (
-          // The card's shape while the first round is out, so the checklist below barely moves when the
-          // card replaces it: the logo row, a line where the bio goes, and the guarantees' three rows.
-          <div data-testid="meet-guardian-checking" className="flex flex-col" aria-busy>
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-12 rounded-xl" />
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3.5 w-40" />
-              </div>
+            <div className="border-t border-hairline px-4 py-3">
+              {/* The sentence once the operator lands; its two lines' placeholder until then. */}
+              {chosen ? (
+                <p className="text-caption-heading text-muted" data-testid="meet-guardian-summary">
+                  {t('meetGuardianSummary', { name: chosen.name })}
+                </p>
+              ) : (
+                <div className="flex w-full flex-col gap-1.5 py-1" aria-hidden>
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-2/3" />
+                </div>
+              )}
             </div>
-            <span className="mt-2.5 text-caption text-muted">{t('meetGuardianChecking')}</span>
-            <ListGroup
-              as="ul"
-              surface="outline"
-              className="mt-3.5 px-3 py-1"
-              aria-hidden
-              data-testid="meet-guardian-guarantees-placeholder"
-            >
-              {GUARDIAN_GUARANTEE_KEYS.map(key => (
-                <FactRow
-                  key={key}
-                  as="li"
-                  variant="item"
-                  leading={<Skeleton className="size-5 rounded-full" />}
-                  title={<Skeleton className="h-4 w-40" />}
-                />
-              ))}
-            </ListGroup>
-          </div>
+            {/* The card's footer: the explainer link on the card's `fill` well under a hairline, there from
+                the start like the header link it replaces, so it reads the same while checking. */}
+            <div className="border-t border-hairline bg-fill px-3" data-testid="meet-guardian-footer">
+              <TextAction data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
+                {t('whatIsAGuardian')}
+              </TextAction>
+            </div>
+          </Card>
         )}
-        {chooseDifferent}
       </section>
 
       {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}

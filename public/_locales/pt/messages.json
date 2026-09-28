@@ -2295,6 +2295,19 @@
     "message": "Seu Guardian",
     "englishSource": "Your Guardian"
   },
+  "meetGuardianChange": {
+    "message": "Alterar",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ faz backup da sua conta. Nunca pode movimentar seus fundos, e você pode trocar quando quiser.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianInfoDescription": {
     "message": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

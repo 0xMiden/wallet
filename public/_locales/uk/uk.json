@@ -505,6 +505,8 @@
   "guardianCheckingLabel": "Перевірка",
   "whatIsAGuardian": "Що таке «Guardian»?",
   "meetGuardianYourGuardian": "Ваш Guardian",
+  "meetGuardianChange": "Змінити",
+  "meetGuardianSummary": "$name$ зберігає резервну копію вашого акаунта. Він ніколи не зможе перемістити ваші кошти, а змінити його можна будь-коли.",
   "guardianInfoDescription": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
   "guardianInfoWhatItDoesTitle": "Як це працює",
   "guardianInfoWhatItDoesDescription": "Підписує кожну транзакцію — ані ваш пристрій, ані «Guardian» не можуть самостійно переміщувати кошти. Допомагає відновити доступ до вашого облікового запису, якщо ви втратите свій пристрій.",

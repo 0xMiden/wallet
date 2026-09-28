@@ -2295,6 +2295,19 @@
     "message": "你的Guardian",
     "englishSource": "Your Guardian"
   },
+  "meetGuardianChange": {
+    "message": "更换",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ 会备份您的账户。它永远无法转移您的资金，您也可以随时更换。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianInfoDescription": {
     "message": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

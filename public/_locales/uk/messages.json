@@ -2295,6 +2295,19 @@
     "message": "Ваш Guardian",
     "englishSource": "Your Guardian"
   },
+  "meetGuardianChange": {
+    "message": "Змінити",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ зберігає резервну копію вашого акаунта. Він ніколи не зможе перемістити ваші кошти, а змінити його можна будь-коли.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
