@@ -1208,7 +1208,6 @@
   "saveContact": "Save",
   "contactAdded": "Added",
   "guardianCardMeta": "Operated by $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again.",
   "receiveQrColorAction": "Change the QR code colour",
   "receiveAt": "Receive at",
   "earnTitle": "Your Earnings",

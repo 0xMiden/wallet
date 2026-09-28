@@ -1208,7 +1208,6 @@
   "saveContact": "Зберегти",
   "contactAdded": "Додано",
   "guardianCardMeta": "Оператор: $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз.",
   "receiveQrColorAction": "Змінити колір QR-коду",
   "receiveAt": "Отримати на",
   "earnTitle": "Ваш дохід",

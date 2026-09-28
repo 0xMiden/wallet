@@ -1208,7 +1208,6 @@
   "saveContact": "保存",
   "contactAdded": "追加日",
   "guardianCardMeta": "運営: $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
   "receiveQrColorAction": "QRコードの色を変更",
   "receiveAt": "受取先",
   "earnTitle": "あなたの収益",
