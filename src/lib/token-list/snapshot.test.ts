@@ -1,8 +1,6 @@
 import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
 
-jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => id }));
-
 it('bundles the testnet list with exactly the seeded tokens', () => {
   expect(parseTokenList(bundledTokenList('testnet'), 'testnet')).toEqual(
     new Set([
