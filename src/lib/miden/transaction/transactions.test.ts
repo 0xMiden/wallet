@@ -24,6 +24,7 @@ import {
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
+  SESSION_STARTED_AT,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
@@ -1170,7 +1171,7 @@ describe('transactions utilities', () => {
   describe('failInterruptedTransactions', () => {
     it('leaves a freshly-orphaned send untouched under cancelStuckTransactions (documents the #282 gap)', async () => {
       // A private send orphaned when the browser closed mid-prove has
-      // processingStartedAt set to "now" (stamped atomically at
+      // processingStartedAt set just before this session started (stamped atomically at
       // generateTransaction). The 30-min gate means the reaper does nothing,
       // so the row sits on "Sending" with no feedback until it finally ages out.
       const nowSec = Math.floor(Date.now() / 1000);
@@ -1180,7 +1181,7 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'sending',
         initiatedAt: nowSec - 5,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -1202,7 +1203,7 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'sending',
         initiatedAt: nowSec - 5,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -1240,7 +1241,7 @@ describe('transactions utilities', () => {
         type: 'send',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       const queued = { id: 'queued', type: 'send', status: ITransactionStatus.Queued, initiatedAt: nowSec - 2 };
       const completed = { id: 'done', type: 'send', status: ITransactionStatus.Completed, initiatedAt: nowSec - 3 };
@@ -1265,6 +1266,36 @@ describe('transactions utilities', () => {
       expect(modifiedIds).toEqual(['gen']);
     });
 
+    it('spares every row this session started and fails the ones an earlier process left (#1202)', async () => {
+      const base = {
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10
+      };
+      const rows = [
+        { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
+        { ...base, id: 'legacy' },
+        { ...base, id: 'same-second', processingStartedAt: SESSION_STARTED_AT },
+        // Stamped the way generateTransactionWithProvider stamps the Queued to GeneratingTransaction write.
+        { ...base, id: 'live', processingStartedAt: Math.floor(Date.now() / 1000) }
+      ];
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+
+      await failInterruptedTransactions();
+
+      expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
+    });
+
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
       const nowSec = Math.floor(Date.now() / 1000);
       const gen = {
@@ -1272,7 +1303,7 @@ describe('transactions utilities', () => {
         type: 'send',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
       const mockModify = jest.fn();
@@ -1298,7 +1329,7 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'proving',
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([orphan]) });
       const dbTx: any = {};

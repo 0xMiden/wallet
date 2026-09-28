@@ -459,14 +459,27 @@ export const cancelStaleQueuedTransactions = async () => {
 };
 
 /**
- * Fail every transaction still in `GeneratingTransaction`, regardless of age.
+ * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
+ * `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer of the
+ * Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write, so every
+ * row this session starts is stamped at or after it, and every row an earlier process or browser
+ * session started is stamped before it.
+ */
+export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
+
+/**
+ * Fail every transaction an earlier process or browser session left in `GeneratingTransaction`,
+ * regardless of age.
  *
- * Called from the extension's `browser.runtime.onStartup` handler, which fires
- * ONLY on a genuine browser/profile cold-start — never on a service-worker
- * idle-wake. Any row still `GeneratingTransaction` at that point is
- * definitionally orphaned: the tab/SW that was driving it died when the browser
- * closed, so nothing will ever resume it. The steady-state
- * `cancelStuckTransactions` reaper only ages these out after
+ * Called from the extension's `browser.runtime.onStartup` handler (a genuine browser or profile
+ * cold start, never a service-worker idle-wake) and, off the extension, from
+ * `OrphanedTransactionRecovery` once per app process. Whatever drove such a row died with that
+ * process or session, so nothing will ever resume it. A row this session started (stamped at or
+ * after `SESSION_STARTED_AT`) is live and is spared, so the sweep is sound whichever runs first:
+ * the unlock kick or the startup kick can move a Queued row before the sweep reads the table. A
+ * row with no stamp predates the field and is treated as an orphan.
+ *
+ * The steady-state `cancelStuckTransactions` reaper only ages these out after
  * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
  * stamped to "now" at `generateTransaction`, so a send interrupted mid-prove
  * sits on "Sending" with no feedback for up to half an hour (issue #282).
@@ -480,7 +493,9 @@ export const cancelStaleQueuedTransactions = async () => {
  * marks that same edge case Failed, so this is not a new regression).
  */
 export const failInterruptedTransactions = async () => {
-  const transactions = await getTransactionsInProgress();
+  const transactions = (await getTransactionsInProgress()).filter(
+    tx => tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT
+  );
   await Promise.all(
     transactions.map(async tx =>
       cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')
