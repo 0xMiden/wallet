@@ -35,7 +35,10 @@ it('reads the hardware protector only through probeHardwareProtector', () => {
 it.each([
   ['a call on the Vault binding', 'Vault.hasHardwareProtector()', true],
   ['a bare callback on the Vault binding', '.then(Vault.hasHardwareProtector)', true],
-  ['a member access split across a line', 'Vault\n  .hasHardwareProtector()', true],
+  ['a call split across a line', 'Vault\n  .hasHardwareProtector()', true],
+  ['a bare callback split across a line before the dot', '.then(Vault\n  .hasHardwareProtector)', true],
+  ['a space before the dot', 'Vault .hasHardwareProtector', true],
+  ['a bare callback split across a line after the dot', '.then(Vault.\n  hasHardwareProtector)', true],
   ['a destructured call', 'const { hasHardwareProtector } = Vault; hasHardwareProtector()', true],
   ['a bracket access on the Vault binding', "Vault['hasHardwareProtector']", true],
   ['the hook result field, read off another binding', 'probe.hasHardwareProtector', false],
