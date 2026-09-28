@@ -329,10 +329,18 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
    * account" → 12-word seed grid → submit → (extension: full password step,
    * unavoidable off-mobile) → ImportRecoveryMethod (probe-detected or manual)
-   * → Continue → Confirmation → submit → `completeHotKeyRotation()`, which this
-   * branch awaits itself.
+   * → Continue → Confirmation → submit, and then, by `rotation`:
+   *   - `'complete'` (default): awaits `completeHotKeyRotation()`, so it ends on a
+   *     rotated wallet past its consent prompt;
+   *   - `'await-funding'`: ends as soon as the gate shows its funding panel
+   *     (`waitForHotKeyRotationFunding()`), with the rotation still waiting for the
+   *     MIDEN to pay its fee (#805). The caller funds the address and finishes with
+   *     `completeHotKeyRotation({ fundingExpected: true })`.
    */
-  recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  recoverGuardianFromSeed(
+    seed: string,
+    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
+  ): Promise<void>;
   /**
    * Import a Guardian account with its hot and EVM private key pair — the
    * seed-less import path. Drives the real screens: Welcome → "Recover your
@@ -374,8 +382,20 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * of it, so the gate detaching is the first moment it can be answered. Callers
    * get a wallet that is rotated AND on its post-onboarding surface; none of them
    * need to dismiss the prompt themselves.
+   *
+   * By default it also throws when the gate asks for network-fee funding after a
+   * rotation fell short of its fee (#805): a spec that forgot `ensureFeeFunded`
+   * fails there, naming the cause, instead of timing out on a gate that never
+   * detaches. With `fundingExpected` the funding panel is the path to the cleared
+   * gate, and a failed funding claim throws instead. `timeoutMs` bounds the wait
+   * for the gate to clear (default 120 s).
    */
-  completeHotKeyRotation(): Promise<void>;
+  completeHotKeyRotation(opts?: { fundingExpected?: boolean; timeoutMs?: number }): Promise<void>;
+  /**
+   * Wait for the rotation gate's funding panel (#805) and return the address it
+   * shows and why it is up (`data-funding-reason`).
+   */
+  waitForHotKeyRotationFunding(): Promise<{ address: string; reason: string }>;
   /**
    * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`:
    * the active signer count and the `update_guardian` procedure threshold
@@ -1113,7 +1133,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * Recover a Guardian account from its seed phrase. See the interface doc
    * comment (ChromeWalletPageApi) for the `viaUI` split.
    */
-  async recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void> {
+  async recoverGuardianFromSeed(
+    seed: string,
+    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
+  ): Promise<void> {
     const words = seed.trim().split(/\s+/);
 
     if (!opts.viaUI) {
@@ -1162,6 +1185,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx. This also clears the consent prompt the gate was
     // covering, which is why neither recovery branch dismisses it itself.
+    if (opts.rotation === 'await-funding') {
+      await this.waitForHotKeyRotationFunding();
+      return;
+    }
     await this.completeHotKeyRotation();
   }
 
@@ -1251,34 +1278,58 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * covering. Throws if it instead reaches its terminal-failure surface within
    * the timeout.
    */
-  async completeHotKeyRotation(): Promise<void> {
+  async completeHotKeyRotation(opts: { fundingExpected?: boolean; timeoutMs?: number } = {}): Promise<void> {
+    const timeout = opts.timeoutMs ?? 120_000;
     const gate = this.page.getByTestId('hot-key-rotation-gate');
     await gate.waitFor({ state: 'visible', timeout: 30_000 });
 
-    await Promise.race([
-      gate.waitFor({ state: 'detached', timeout: 120_000 }),
+    // The gate only says "it failed". The reason is on the row -- and on a
+    // fee-charging chain the reasons differ sharply (an unpayable fee vs a
+    // guardian/register fault), so the bare surface message sends the reader
+    // to the wrong place.
+    const failedRows = async (): Promise<string> => {
+      const rows = await readTransactionRows(this.page).catch(() => []);
+      const failed = rows
+        .filter(r => r.status === 3)
+        .map(
+          r =>
+            `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+            (r.rawError ? `\n      raw: ${r.rawError}` : '')
+        )
+        .join('');
+      return failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)';
+    };
+    // A surface that ends the wait with an error. Its own timeout never settles, so only
+    // the gate's detach wait can time the race out.
+    const failsOn = (selector: string, describe: () => Promise<string>): Promise<void> =>
       this.page
-        .getByTestId('hot-key-rotation-failed')
-        .waitFor({ state: 'visible', timeout: 120_000 })
-        .then(async () => {
-          // The gate only says "it failed". The reason is on the row -- and on a
-          // fee-charging chain the reasons differ sharply (an unpayable fee vs a
-          // guardian/register fault), so the bare surface message sends the reader
-          // to the wrong place.
-          const rows = await readTransactionRows(this.page).catch(() => []);
-          const failed = rows
-            .filter(r => r.status === 3)
-            .map(
-              r =>
-                `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
-                (r.rawError ? `\n      raw: ${r.rawError}` : '')
-            )
-            .join('');
-          throw new Error(
-            'completeHotKeyRotation: rotation reached its terminal-failure surface' +
-              (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
-          );
-        })
+        .locator(selector)
+        .waitFor({ state: 'visible', timeout })
+        .then(
+          async () => {
+            throw new Error(`completeHotKeyRotation: ${await describe()}`);
+          },
+          () => new Promise<void>(() => undefined)
+        );
+
+    await Promise.race([
+      gate.waitFor({ state: 'detached', timeout }),
+      failsOn(
+        '[data-testid="hot-key-rotation-failed"]',
+        async () => `rotation reached its terminal-failure surface${await failedRows()}`
+      ),
+      opts.fundingExpected
+        ? failsOn(
+            '[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]',
+            async () => `the funding claim failed${await failedRows()}`
+          )
+        : failsOn('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]', async () => {
+            const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
+            return (
+              'rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
+              `fundingExpected (address ${address?.trim() ?? '?'})`
+            );
+          })
     ]);
 
     // Every wallet that raises this gate got here by being RECOVERED, and a
@@ -1295,6 +1346,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovery) has no prompt behind it, and neither does a profile that
     // already carries a stored telemetry choice.
     await dismissTelemetryConsent(this.page);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async waitForHotKeyRotationFunding(): Promise<{ address: string; reason: string }> {
+    const panel = this.page.getByTestId('hot-key-rotation-funding');
+    await panel.waitFor({ state: 'visible', timeout: 120_000 });
+    const address = (await this.page.getByTestId('hot-key-rotation-funding-address').textContent())?.trim() ?? '';
+    return { address, reason: (await panel.getAttribute('data-funding-reason')) ?? '' };
   }
 
   /**
