@@ -32,9 +32,11 @@ const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
 });
 
 /**
- * The rows History shows for `address`, through the same loaders and the same settlement-consume
- * suppression, so the tab never counts a row the feed does not show. Each is stamped the way
- * History dates it, so the two agree about which side of the high-water mark it falls on.
+ * The rows History shows for `address`, through the same loaders and the same suppression
+ * (`suppressLinkedConsumes`: consumes a linked swap, bridge receive or Earn withdraw row stands for,
+ * and failed claims this account has since claimed), so the tab never counts a row the feed does
+ * not show. Each is stamped the way History dates it, so the two agree about which side of the
+ * high-water mark it falls on.
  */
 async function readRecentRows(address: string): Promise<RecentRow[]> {
   const [uncompleted, completed] = await Promise.all([

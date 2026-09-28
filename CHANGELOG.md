@@ -26,6 +26,7 @@
 - [CHANGE][mobile][desktop] When checking a wallet's unlock method on the recovery-phrase page takes longer than 5 seconds, the page now says it is still checking and how to retry, and uses the answer when it arrives, instead of showing an error with a Retry that started a second check and threw the first answer away (#1061).
 - [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
+- [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
 
 ### Fixes
 
@@ -77,9 +78,12 @@
 - [FIX][all] The Home action bar's active segment grows to fit a longer translated label, and ends it with an ellipsis only when the screen is too narrow, instead of letting the label spill past its pill (#1069).
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
+- [FIX][all] The wallet's dApp provider follows an account switch: within about 10 s it takes the new account's address and key and emits `accountChange` with that account's permission for the dApp, or `null` when that account has not connected it, on the extension, the mobile in-app browser and the desktop dApp window (#174).
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
+- [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, a closed banner is now saved, Home's prompts load and can be dismissed, and Fund's request goes out (#1186).
 
 ## 1.16.2 (2026-09-24)
 

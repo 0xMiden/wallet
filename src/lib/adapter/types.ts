@@ -89,7 +89,7 @@ export interface MidenDAppGetCurrentPermissionRequest extends MidenDAppMessageBa
 
 export interface MidenDAppGetCurrentPermissionResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.GetCurrentPermissionResponse;
-  permission: MidenDAppPermission;
+  permission: MidenDAppCurrentPermission;
 }
 
 export interface MidenDAppPermissionRequest extends MidenDAppMessageBase {
@@ -247,6 +247,11 @@ export type MidenDAppPermission = {
   privateDataPermission: PrivateDataPermission;
   allowedPrivateData: AllowedPrivateData;
 } | null;
+
+// The permission GET_CURRENT_PERMISSION_RESPONSE carries: the current account's grant for the
+// origin, with that account's public key (base64 of the serialized commitment) when its session
+// stored one, so a provider can follow an account switch (#174).
+export type MidenDAppCurrentPermission = (NonNullable<MidenDAppPermission> & { publicKey?: string }) | null;
 
 export interface MidenDAppMetadata {
   name: string;

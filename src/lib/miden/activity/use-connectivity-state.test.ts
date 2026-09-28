@@ -13,24 +13,30 @@ import { act, renderHook } from '@testing-library/react';
 //
 // NOTE: `connectivity-state.ts` also imports `putToStorage` from the SAME
 // module (via the `lib/miden/front/storage` alias, which jest resolves to the
-// same file). Mocking it here therefore also neutralises the fire-and-forget
-// storage mirror inside the real state machine's `notify()`.
+// same file). Mocking it here therefore also routes the real state machine's
+// `notify()` mirror write into the same in-memory store the dismissed-
+// activations turn reads back through `fetchFromStorage`, which several tests
+// below depend on landing.
 // ---------------------------------------------------------------------------
 const mockUseStorage = jest.fn();
 // One stored record per key, shared by every hook instance (every "window"), read and written on a later microtask
 // like a real storage round trip.
 const mockStoredValues: Record<string, unknown> = {};
-const mockFetchFromStorage = jest.fn(async (key: string) => {
+const fetchFromMockStore = async (key: string) => {
   await Promise.resolve();
   return key in mockStoredValues ? mockStoredValues[key] : null;
-});
-const mockPutToStorage = jest.fn(async (key: string, value: unknown) => {
+};
+const mockFetchFromStorage = jest.fn(fetchFromMockStore);
+const putToMockStore = async (key: string, value: unknown) => {
   await Promise.resolve();
   mockStoredValues[key] = value;
-});
+};
+const mockPutToStorage = jest.fn(putToMockStore);
 const mockIsExtension = jest.fn(() => false);
 
 jest.mock('../front/storage', () => ({
+  // The real turn: the Web Lock a test installs, or without one the storage module's in-realm chain.
+  inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   useStorage: (...args: unknown[]) => mockUseStorage(...args),
   fetchFromStorage: (key: string) => mockFetchFromStorage(key),
   putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
@@ -54,7 +60,8 @@ import {
 import { CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, useConnectivityState } from './use-connectivity-state';
 
 let storageSnapshot: ConnectivityStateSnapshot | null;
-let storedDismissedActivations: Partial<Record<ConnectivityCategory, number | null>>;
+let storedDismissedActivations: unknown;
+let locks: SharedEarnLocks;
 // Every write of the record goes through the hook's storage turn; a regression to the unlocked useStorage setter fails
 // loudly instead of landing in the store.
 const mockSetStoredDismissedActivations = jest.fn(() => {
@@ -76,11 +83,15 @@ const settle = () => act(async () => new Promise<void>(resolve => setTimeout(res
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsExtension.mockReturnValue(false);
+  // A test may replace the read or write path; clearAllMocks keeps implementations, so restore the store-backed ones.
+  mockFetchFromStorage.mockImplementation(fetchFromMockStore);
+  mockPutToStorage.mockImplementation(putToMockStore);
   storageSnapshot = null;
   storedDismissedActivations = {};
   for (const key of Object.keys(mockStoredValues)) delete mockStoredValues[key];
   // One lock manager for every hook instance, as navigator.locks is for the extension's pages.
-  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+  locks = new SharedEarnLocks();
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
   // Default: storage mirror is empty, so the hook falls back to the in-memory
   // machine. Individual tests override this before rendering.
   mockUseStorage.mockImplementation((key: string) =>
@@ -96,7 +107,7 @@ describe('useConnectivityState', () => {
     const { result } = renderHook(() => useConnectivityState());
 
     expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, null);
-    expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, {});
+    expect(mockUseStorage).toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, null);
     expect(result.current.state).toEqual(getConnectivityState());
     expect(result.current.hasAnyIssue).toBe(false);
     expect(typeof result.current.dismiss).toBe('function');
@@ -139,6 +150,20 @@ describe('useConnectivityState', () => {
 
     expect(result.current.state).toBe(storageSnap);
     expect(result.current.hasAnyIssue).toBe(false);
+  });
+
+  it('renders an active mirror entry that carries no since when nothing is dismissed', () => {
+    mockIsExtension.mockReturnValue(true);
+    mockUseStorage.mockImplementation((key: string) =>
+      key === CONNECTIVITY_STATE_KEY
+        ? [{ ...makeSnapshot(), network: { active: true } }, jest.fn()]
+        : [storedDismissedActivations, mockSetStoredDismissedActivations]
+    );
+
+    const { result } = renderHook(() => useConnectivityState());
+
+    expect(result.current.state.network.active).toBe(true);
+    expect(result.current.hasAnyIssue).toBe(true);
   });
 
   it('uses live in-process state off-extension instead of a stale storage snapshot', () => {
@@ -235,25 +260,28 @@ describe('useConnectivityState', () => {
   });
 
   it('shows a later failure after the dismissed episode has recovered', () => {
-    const { result } = renderHook(() => useConnectivityState());
+    // Both activations land in one millisecond and share a since: only the forget on recovery shows the second.
+    const at = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(at);
+    try {
+      const { result } = renderHook(() => useConnectivityState());
 
-    act(() => markConnectivityIssue('network'));
-    act(() => result.current.dismiss('network'));
-    expect(result.current.state.network.active).toBe(false);
+      act(() => markConnectivityIssue('network'));
+      act(() => result.current.dismiss('network'));
+      expect(result.current.state.network.active).toBe(false);
 
-    act(() => resetConnectivityState());
-    act(() => markConnectivityIssue('network'));
+      act(() => resetConnectivityState());
+      act(() => markConnectivityIssue('network'));
 
-    expect(result.current.state.network.active).toBe(true);
+      expect(result.current.state.network.active).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
   });
 
-  it('settles on a fresh profile under the real useStorage contract (regression: fresh-profile render loop)', async () => {
-    // Complements the stable-fallback identity test below by simulating what
-    // real useStorage returns on a profile where nothing has ever been
-    // dismissed: the key is absent, so the hook receives `data ?? fallback` —
-    // the fallback object itself, not a closed-over stable stub. With the old
-    // inline `{}` fallback this mount loops until React throws "Maximum update
-    // depth exceeded"; with the hoisted constant it settles in one pass.
+  it('shows no issue and writes nothing on a fresh profile', async () => {
+    // What real useStorage returns where nothing has ever been dismissed: the key is absent, so the hook receives
+    // `data ?? fallback`, the fallback itself.
     mockUseStorage.mockImplementation((key: string, fallback: unknown) =>
       key === CONNECTIVITY_STATE_KEY ? [null, jest.fn()] : [fallback, mockSetStoredDismissedActivations]
     );
@@ -271,27 +299,6 @@ describe('useConnectivityState', () => {
     const first = result.current.dismiss;
     rerender();
     expect(result.current.dismiss).toBe(first);
-  });
-
-  it('passes a stable dismissed-activations fallback across re-renders (guards the render-loop fix)', () => {
-    // Regression guard for the fresh-profile render loop: the hook used to pass
-    // an inline `{}` fallback to useStorage, a new object every render. Since
-    // useStorage returns `data ?? fallback`, that churned identity on every
-    // render while the key was absent and made the storage-sync effect setState
-    // forever ("Maximum update depth exceeded"). The fix hoists the fallback to
-    // a module-level constant, so every render MUST pass the same reference.
-    // (Reverting to an inline `{}` makes this test fail; the deep-equality
-    // `toHaveBeenCalledWith(..., {})` assertion above does not.)
-    const { rerender } = renderHook(() => useConnectivityState());
-    rerender();
-    rerender();
-
-    const fallbacks = mockUseStorage.mock.calls
-      .filter(call => call[0] === CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)
-      .map(call => call[1]);
-
-    expect(fallbacks.length).toBeGreaterThan(1);
-    for (const fallback of fallbacks) expect(fallback).toBe(fallbacks[0]);
   });
 
   it('unsubscribes on unmount so later transitions do not update the hook', () => {
@@ -312,9 +319,26 @@ describe('useConnectivityState', () => {
   describe('across windows', () => {
     const stored = () => mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY];
     const putCallsFor = (key: string) => mockPutToStorage.mock.calls.filter(([k]) => k === key);
+    // Another window's write re-delivers the whole stored record to every window, as the change event does.
+    const redeliver = (hook: { rerender: () => void }) => {
+      storedDismissedActivations = Object.assign({}, stored());
+      hook.rerender();
+    };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mockIsExtension.mockReturnValue(true);
+      // resetConnectivityState()'s notify() mirrors an all-clear snapshot into mockStoredValues[CONNECTIVITY_STATE_KEY]
+      // on a later microtask; let it land, then drop it so the turn's own mirror read defaults to whatever this
+      // window renders, same as the one real channel the two mock variables otherwise split apart. A test that wants
+      // the turn to see a DIFFERENT mirror still sets mockStoredValues[CONNECTIVITY_STATE_KEY] itself, which this
+      // default never overrides.
+      await Promise.resolve();
+      delete mockStoredValues[CONNECTIVITY_STATE_KEY];
+      mockFetchFromStorage.mockImplementation(async (key: string) => {
+        await Promise.resolve();
+        if (key === CONNECTIVITY_STATE_KEY && !(key in mockStoredValues)) return storageSnapshot;
+        return key in mockStoredValues ? mockStoredValues[key] : null;
+      });
     });
 
     it('keeps both dismissals when two windows dismiss different categories at once', async () => {
@@ -329,6 +353,9 @@ describe('useConnectivityState', () => {
       await settle();
 
       expect(stored()).toEqual({ network: 123, node: 123 });
+      // Every window here shares one module, so its in-realm chain would serialize them too: pin that each turn took
+      // the Web Lock, which is what serializes separate extension windows.
+      expect(locks.requests.filter(name => name === 'turn:miden-connectivity-dismissed-activations')).toHaveLength(2);
 
       // The change event delivers the record to every window, the writer included.
       storedDismissedActivations = { network: 123, node: 123 };
@@ -357,42 +384,20 @@ describe('useConnectivityState', () => {
       expect(stored()).toEqual({ network: 123, node: 123 });
     });
 
-    it('keeps a newer dismissal another window stored when this window sees the old activation recover', async () => {
-      // This window still holds the dismissal of network's old activation (123), which has recovered; another window
-      // has meanwhile stored a dismissal of a newer activation (456).
-      storedDismissedActivations = { network: 123 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 456 };
-      storageSnapshot = makeSnapshot();
-
-      renderHook(() => useConnectivityState());
-      await settle();
-
-      expect(stored()).toEqual({ network: 456 });
-      // The turn read the newer stored value and decided nothing changes for it, so it writes nothing back.
-      expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
-    });
-
-    it('forgets a recovered dismissal that storage still holds as this window saw it', async () => {
-      storedDismissedActivations = { network: 123 };
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 123, node: 789 };
-      storageSnapshot = makeSnapshot({ node: true });
-
-      renderHook(() => useConnectivityState());
-      await settle();
-
-      expect(stored()).toEqual({ node: 789 });
-    });
-
-    it('never replaces a newer stored dismissal with an older one', async () => {
+    it("never replaces another window's dismissal of the activation the mirror shows", async () => {
+      // This window still renders network's old activation (123); the mirror and another window's dismissal have moved
+      // on to 999.
       storageSnapshot = makeSnapshot({ network: true });
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 456 };
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = { ...makeSnapshot(), network: { active: true, since: 999 } };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
       const { result } = renderHook(() => useConnectivityState());
 
       act(() => result.current.dismiss('network'));
       await settle();
 
-      expect(stored()).toEqual({ network: 456 });
+      expect(stored()).toEqual({ network: 999 });
       expect(mockPutToStorage).not.toHaveBeenCalledWith(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY, expect.anything());
+      expect(result.current.state.network.active).toBe(false);
     });
 
     it('keeps the dismissal when the write fails', async () => {
@@ -407,23 +412,134 @@ describe('useConnectivityState', () => {
       expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
     });
 
-    it('does not retry the cleanup write when it fails', async () => {
-      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 100 };
-      storedDismissedActivations = { network: 100 };
-      storageSnapshot = makeSnapshot();
-      mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
+    it('hides the banner where the user tapped even when the record holds a later since', async () => {
+      // A dismissal from before a clock step back holds a later since (999) than the current outage's (123).
+      storedDismissedActivations = { network: 999 };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
+      storageSnapshot = makeSnapshot({ network: true });
+      const { result } = renderHook(() => useConnectivityState());
 
-      renderHook(() => useConnectivityState());
+      act(() => result.current.dismiss('network'));
       await settle();
 
-      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(1);
+      expect(result.current.state.network.active).toBe(false);
+    });
+
+    it('keeps a dismissal storage did not take when another write re-delivers the record', async () => {
+      // This window still renders network's old activation (123) while the mirror and another window's dismissal have
+      // moved on to 999, so storage keeps 999; node's dismissal is stored.
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = {
+        ...makeSnapshot({ node: true }),
+        network: { active: true, since: 999 }
+      };
+      storedDismissedActivations = { network: 999 };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
+      storageSnapshot = makeSnapshot({ network: true, node: true });
+      const hook = renderHook(() => useConnectivityState());
+
+      act(() => {
+        hook.result.current.dismiss('network');
+        hook.result.current.dismiss('node');
+      });
+      await settle();
+      expect(stored()).toEqual({ network: 999, node: 123 });
+      redeliver(hook);
+
+      expect(hook.result.current.state.network.active).toBe(false);
+      expect(hook.result.current.state.node.active).toBe(false);
+      const puts = putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY).length;
+
+      // Both problems clear: the record is left as it is, and nothing is written.
+      storageSnapshot = makeSnapshot();
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = makeSnapshot();
+      hook.rerender();
+      await settle();
+      expect(stored()).toEqual({ network: 999, node: 123 });
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(puts);
+
+      // A window opened after the recovery leaves it as it is too.
+      hook.unmount();
+      storedDismissedActivations = Object.assign({}, stored());
+      renderHook(() => useConnectivityState());
+      await settle();
+      expect(stored()).toEqual({ network: 999, node: 123 });
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(puts);
+    });
+
+    it('shows a newer activation this window jumps to without rendering the recovery between', async () => {
+      storageSnapshot = makeSnapshot({ network: true });
+      const hook = renderHook(() => useConnectivityState());
+      act(() => hook.result.current.dismiss('network'));
+      await settle();
+
+      // The mirror went from 123 through a recovery to 999, and this window's change events landed in one render.
+      storageSnapshot = { ...makeSnapshot(), network: { active: true, since: 999 } };
+      redeliver(hook);
+
+      expect(hook.result.current.state.network.active).toBe(true);
+    });
+
+    it('stores a dismissal of the activation the mirror shows over a stale later since, so a remount keeps it hidden', async () => {
+      // A dismissal from before a clock step back holds a later since (999) than the current outage's (123).
+      storageSnapshot = makeSnapshot({ network: true });
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = storageSnapshot;
+      storedDismissedActivations = { network: 999 };
+      mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: 999 };
+      const first = renderHook(() => useConnectivityState());
+
+      act(() => first.result.current.dismiss('network'));
+      await settle();
+      expect(stored()).toEqual({ network: 123 });
+
+      first.unmount();
+      storedDismissedActivations = stored();
+      const second = renderHook(() => useConnectivityState());
+      expect(second.result.current.state.network.active).toBe(false);
     });
   });
 
-  it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), and dismiss on an active category still hides it locally', async () => {
-    // No Web Locks at all: `navigator.locks.request(...)` throws synchronously rather than rejecting. Off-extension
-    // (the default here) `merged` comes from the in-process machine, so `markConnectivityIssue` below actually
-    // makes a category active for `dismiss` to act on.
+  it('reads a malformed stored record as nothing dismissed, and stores a well-formed one on dismiss', async () => {
+    // An older build or a hand-edited profile left something other than a record under the key.
+    storedDismissedActivations = 'not-a-record';
+    mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = 'not-a-record';
+    const { result } = renderHook(() => useConnectivityState());
+
+    act(() => markConnectivityIssue('network'));
+    expect(result.current.state.network.active).toBe(true);
+    act(() => result.current.dismiss('network'));
+    await settle();
+
+    expect(result.current.state.network.active).toBe(false);
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      network: getConnectivityState().network.since
+    });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['unreadable', 'not-a-snapshot']
+  ])('stores a dismissal off the extension when the connectivity mirror is %s', async (_state, mirror) => {
+    const { result } = renderHook(() => useConnectivityState());
+    act(() => markConnectivityIssue('network'));
+    await settle();
+    // The mirror write failed, or an older build left another shape under its key; storage also holds a stale later
+    // dismissal of network, as a clock step back leaves one.
+    if (mirror === undefined) delete mockStoredValues[CONNECTIVITY_STATE_KEY];
+    else mockStoredValues[CONNECTIVITY_STATE_KEY] = mirror;
+    mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY] = { network: Number.MAX_SAFE_INTEGER };
+
+    act(() => result.current.dismiss('network'));
+    await settle();
+
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      network: getConnectivityState().network.since
+    });
+  });
+
+  it('renders without throwing when navigator.locks is unavailable (iOS 15.0-15.3), hides a dismissed category and stores its dismissal', async () => {
+    // No Web Locks at all: the turn runs on the storage module's in-realm chain. Off-extension (the default here)
+    // `merged` comes from the in-process machine, so `markConnectivityIssue` below actually makes a category active
+    // for `dismiss` to act on.
     Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
     storedDismissedActivations = { network: 123 };
 
@@ -434,5 +550,9 @@ describe('useConnectivityState', () => {
     act(() => result.current.dismiss('node'));
 
     expect(result.current.state.node.active).toBe(false);
+    await settle();
+    expect(mockStoredValues[CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY]).toEqual({
+      node: getConnectivityState().node.since
+    });
   });
 });

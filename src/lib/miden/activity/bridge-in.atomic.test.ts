@@ -11,6 +11,7 @@ jest.mock('../transaction/complete', () => ({
   updateBridgedReceivePhase: (...args: unknown[]) => mockReceivePhase(...args)
 }));
 jest.mock('../front/storage', () => ({
+  inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   fetchFromStorage: async () => mockRegistry,
   putToStorage: async (_key: string, records: PendingBridgeInIntent[]) => {
     mockRegistry = records;

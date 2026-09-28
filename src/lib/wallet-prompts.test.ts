@@ -2070,3 +2070,49 @@ describe('hot-key rotation-needed report', () => {
     expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
   });
 });
+
+describe('without Web Locks (iOS 15.0-15.3)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+    mintFromMidenFaucetMock.mockReset();
+    __resetInFlightFaucetRequestsForTest();
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+  });
+
+  it('loads the prompt record in the hook and stores a dismissal', async () => {
+    await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.isPromptPending(WalletPromptType.VerifySeedPhrase)).toBe(true);
+
+    act(() => {
+      result.current.dismissPrompt(WalletPromptType.VerifySeedPhrase);
+    });
+
+    await waitFor(async () => {
+      expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
+        WalletPromptStatus.Dismissed
+      );
+    });
+  });
+
+  it('funds an account, flagging its marker submitted before the token request goes out', async () => {
+    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        await beforeSubmit?.();
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    await faucet('accountA', marker);
+
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(await fetchFaucetFundingMarker('accountA')).toEqual({
+      ...marker,
+      submitted: true,
+      submittedAt: expect.any(Number)
+    });
+  });
+});

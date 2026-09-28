@@ -111,6 +111,7 @@ jest.mock('lib/miden/activity', () => ({
   isCancellableTransaction: () => false,
   isUserCancelledTransaction: () => false,
   suppressedLinkedConsumeIds: jest.fn(),
+  supersededFailedConsumeIds: jest.fn(async () => new Set()),
   USER_CANCELLED_TRANSACTION_REASON: 'cancelled'
 }));
 
