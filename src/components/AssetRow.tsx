@@ -1,13 +1,16 @@
 import React, { FC } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber, AssetListItem, Sparkline } from 'components/ui';
+import { AnimatedNumber, AssetListItem, Pill, Sparkline } from 'components/ui';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
   asset: TokenBalanceData;
@@ -28,6 +31,8 @@ const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixe
  * coloured 24h delta.
  */
 export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data-testid': dataTestId }) => {
+  const { t } = useTranslation();
+  const verification = useTokenVerification(asset.tokenId);
   const { metadata, balance } = asset;
   // `balance` was divided by `metadata.decimals` upstream, so when those
   // decimals are the unknown-token placeholder's guess the number is not the
@@ -82,6 +87,13 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
         quote && direction
           ? { value: <AnimatedNumber value={quote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
+      }
+      badge={
+        verification === 'unverified' ? (
+          <Pill size="xs" tone="warning">
+            {t('unverifiedToken')}
+          </Pill>
+        ) : undefined
       }
       onClick={onClick}
       data-testid={dataTestId}

@@ -2,6 +2,10 @@
 
 ## 1.16.3 (TBD)
 
+### Features
+
+- [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
+
 ### Changes
 
 - [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
