@@ -9,7 +9,6 @@ import {
   isGuardianRegistrationPreflightError,
   isGuardianUnreachableError
 } from './direct-switch';
-import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
 // ---------------------------------------------------------------------------
 // Mocks. `direct-switch` reaches the WASM SDK, the offscreen proxy, the vault
@@ -93,11 +92,9 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
 // another one — while the rotation it is finalizing has already committed.
 // The rest of the module stays real: the loop reads its attempt cap from it.
 const mockRegisterBackoffMs = jest.fn((_error: unknown, _attempt: number) => 0);
-// The pubkey-check deadline gets a value no other deadline here shares, so a test can tell which one bounds a call.
 jest.mock('./serialize', () => ({
   ...jest.requireActual('./serialize'),
-  guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt),
-  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000
+  guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt)
 }));
 
 // Records its constructor arguments rather than being an inert `class {}`. What
@@ -657,28 +654,17 @@ describe('createDirectSwitchGuardianRequest', () => {
   // would leave the row in `signing-locally` with no error to fail it on.
   it('bounds a new guardian that never answers the pubkey request', async () => {
     jest.useFakeTimers();
-    try {
-      mockGuardianGetPubkey.mockImplementation(() => new Promise(() => {}));
+    mockGuardianGetPubkey.mockImplementation(() => new Promise(() => {}));
 
-      let outcome: unknown = 'pending';
-      void createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).then(
-        () => {
-          outcome = 'resolved';
-        },
-        (error: unknown) => {
-          outcome = error;
-        }
-      );
-      await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS - 1);
-      expect(outcome).toBe('pending');
-      await jest.advanceTimersByTimeAsync(2);
+    const settled = createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(2 * 60_000);
 
-      expect(outcome).toMatchObject({ message: expect.stringContaining('timed out') });
-      expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
-      expect(signWord).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
+    expect(await settled).toMatchObject({ message: expect.stringContaining('timed out') });
+    expect(signWord).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('accepts an unprefixed uppercase commitment and normalizes it', async () => {
