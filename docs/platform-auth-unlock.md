@@ -930,16 +930,16 @@ against it.
      `prfOutput` would not be. The PRF output therefore travels under a key with
      a listed part, such as `prfSecret`, or `prf` joins the list, and a
      redaction test covers it.
-4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and
-   calls `signalUnknownCredential` (Mechanism, enrollment step 2; Open
-   question 12); re-enrollment replaces the record. A wallet setup already
-   wipes every storage key but the preserved ones
-   (`src/lib/miden/reset.ts:13-18`, `src/lib/miden/reset.ts:22-42`), so
-   Forgot password removes the record. Removal is not revocation: the vault
-   key never rotates, so a profile copy taken before removal plus the passkey,
-   if it survives in the provider, still opens the old record. The removal
-   step therefore tells the user to delete the passkey in the provider as
-   well. Open questions 12 to 18 are settled here, before release.
+4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and calls
+   `signalUnknownCredential` (Mechanism, enrollment step 2; Open question 12);
+   re-enrollment replaces the record. A wallet setup already wipes every storage
+   key but the preserved ones (`src/lib/miden/reset.ts:13-18`,
+   `src/lib/miden/reset.ts:22-42`), so Forgot password removes the record.
+   Removal is not revocation: the vault key never rotates, so a profile copy
+   taken before removal plus the passkey, if it survives in the provider, still
+   opens the old record. The removal step therefore tells the user to delete the
+   passkey in the provider as well. Open questions 12 to 18 are settled here,
+   before release, by the device tests their rows name.
 
 What stays out:
 
