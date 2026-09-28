@@ -40,6 +40,15 @@ export class ProveWorkerError extends Error {
   }
 }
 
+/**
+ * A `ProveWorkerError`'s worker-side text, flattened to one line so a marker built
+ * from it still matches the trail's one-line-per-entry format (#945).
+ */
+export function proveWorkerErrorDetail(error: unknown): string | undefined {
+  if (!(error instanceof ProveWorkerError) || typeof error.detail !== 'string') return undefined;
+  return error.detail.replace(/\r?\n/g, ' ');
+}
+
 export interface LocalProveRequest {
   /** `TransactionResult.serialize()`. The transport may transfer its buffer. */
   txResult: Uint8Array;

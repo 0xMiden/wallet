@@ -5,7 +5,8 @@ import {
   type LocalProveRequest,
   type LocalProveTransport,
   ProveWorkerError,
-  proveInWorker
+  proveInWorker,
+  proveWorkerErrorDetail
 } from './local-prove-transport';
 import { withWasmClientLock } from './miden-client';
 import { beginProveAttempt } from './prove-telemetry';
@@ -51,6 +52,18 @@ describe('ProveWorkerError', () => {
     expect(error.message).toBe('Local prove failed in the prove worker (crashed)');
     expect(error.kind).toBe('crashed');
     expect(error.detail).toBe('RuntimeError: unreachable');
+  });
+});
+
+describe('proveWorkerErrorDetail', () => {
+  it('reads a ProveWorkerError’s detail, flattened to one line', () => {
+    const error = new ProveWorkerError('crashed', 'line one\nline two');
+    expect(proveWorkerErrorDetail(error)).toBe('line one line two');
+  });
+
+  it('is undefined for anything that is not a ProveWorkerError, or with no detail set', () => {
+    expect(proveWorkerErrorDetail(new Error('plain'))).toBeUndefined();
+    expect(proveWorkerErrorDetail(new ProveWorkerError('crashed'))).toBeUndefined();
   });
 });
 

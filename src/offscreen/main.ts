@@ -69,7 +69,7 @@ import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransa
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { installLocalProveTransport, proveInWorker } from 'lib/miden/sdk/local-prove-transport';
+import { installLocalProveTransport, proveInWorker, proveWorkerErrorDetail } from 'lib/miden/sdk/local-prove-transport';
 import {
   type WasmLockHold,
   assertWasmHoldCurrent,
@@ -1468,6 +1468,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     let failDetail = 'unreadable error';
     try {
       failDetail = String((err as { message?: string })?.message ?? err);
+      // A `ProveWorkerError`'s own `.message` is closed wallet text; its worker-side
+      // detail is what actually says why the prove failed (#945).
+      const proveDetail = proveWorkerErrorDetail(err);
+      if (proveDetail !== undefined) failDetail += ` detail=${proveDetail}`;
     } catch {
       /* keep the placeholder */
     }

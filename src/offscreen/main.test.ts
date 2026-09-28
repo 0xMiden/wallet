@@ -4654,4 +4654,30 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       expect(markerLines(posted)).toEqual([]);
     });
   });
+
+  // #945: `ProveWorkerError.detail` carries the prover's real failure text, which
+  // this realm's own `.message` never does (it is closed wallet text - see the
+  // class doc). Without it on the FAILED marker too, a worker crash during a
+  // guardian write leaves this trail saying only "crashed", the one thing a
+  // developer already knew.
+  it('carries a ProveWorkerError’s detail on the FAILED marker (#945)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
+      mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('crashed', 'RuntimeError: unreachable'));
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const lines = markerLines(posted);
+      expect(lines.some(l => /call 'guardianPipeline' FAILED .*detail=RuntimeError: unreachable$/.test(l))).toBe(true);
+    });
+  });
 });

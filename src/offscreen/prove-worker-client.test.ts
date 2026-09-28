@@ -494,8 +494,40 @@ describe('ProveWorkerClient E2E markers', () => {
       '[prove-timing] prove-worker spawned',
       expect.stringMatching(/^\[prove-timing\] prove-worker ready threads=6 coi=true ms=\d+$/),
       '[prove-timing] prove-worker posted id=1 bytes=3',
-      '[prove-timing] prove-worker result id=1 ok=false',
-      '[prove-timing] prove-worker retired reason=prove-failed'
+      '[prove-timing] prove-worker result id=1 ok=false detail=boom',
+      '[prove-timing] prove-worker retired reason=prove-failed detail=boom'
+    ]);
+  });
+
+  // #945: `ProveWorkerError.detail` used to be written and never read, so the
+  // prover's real failure text reached nothing a developer could see - these two
+  // markers are this realm's only debug channel. A detail spanning several lines
+  // (a worker stack trace) would otherwise break the marker parser's one-line
+  // format, so it is flattened before either marker is written.
+  it('flattens a multi-line prove failure detail to one line on both markers', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const lines: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    let Client: typeof ProveWorkerClient | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('lib/miden/sdk/prove-telemetry', () => ({ recordProveMarker: (line: string) => lines.push(line) }));
+      ({ ProveWorkerClient: Client } =
+        jest.requireActual<typeof import('./prove-worker-client')>('./prove-worker-client'));
+    });
+    if (!Client) throw new Error('the client module did not load');
+    const client = new Client();
+    const proving = outcome(client.prove(request()));
+    await flush();
+    worker(0).ready(6);
+    worker(0).emit({ type: 'result', id: 1, ok: false, message: 'RuntimeError: unreachable\nsecond line' });
+    await proving;
+
+    expect(lines).toEqual([
+      '[prove-timing] prove-worker spawned',
+      expect.stringMatching(/^\[prove-timing\] prove-worker ready threads=6 coi=true ms=\d+$/),
+      '[prove-timing] prove-worker posted id=1 bytes=3',
+      '[prove-timing] prove-worker result id=1 ok=false detail=RuntimeError: unreachable second line',
+      '[prove-timing] prove-worker retired reason=prove-failed detail=RuntimeError: unreachable second line'
     ]);
   });
 

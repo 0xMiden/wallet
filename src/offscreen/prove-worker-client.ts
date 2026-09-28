@@ -13,6 +13,7 @@ import {
   type LocalProveTransport,
   ProveWorkerError,
   type ProveWorkerErrorKind,
+  proveWorkerErrorDetail,
   recordProveTiming
 } from 'lib/miden/sdk/local-prove-transport';
 
@@ -176,7 +177,10 @@ export class ProveWorkerClient implements LocalProveTransport {
         }
         recordProveTiming(
           `prove-worker result id=${message.id} ok=${message.ok}` +
-            (message.ok ? ` ms=${message.durationMs.toFixed(0)}` : '')
+            (message.ok
+              ? ` ms=${message.durationMs.toFixed(0)}`
+              : // On one line: the worker's raw text may embed newlines (a stack trace).
+                ` detail=${message.message.replace(/\r?\n/g, ' ')}`)
         );
         if (!message.ok) {
           this.fail('prove-failed', message.message);
@@ -218,7 +222,8 @@ export class ProveWorkerClient implements LocalProveTransport {
       if (live.readyTimer) clearTimeout(live.readyTimer);
       live.worker.terminate();
     }
-    recordProveTiming(`prove-worker retired reason=${reason}`);
+    const detail = proveWorkerErrorDetail(error);
+    recordProveTiming(`prove-worker retired reason=${reason}${detail === undefined ? '' : ` detail=${detail}`}`);
     if (reason !== 'idle') this.failHead(error);
     this.schedulePump();
   }
