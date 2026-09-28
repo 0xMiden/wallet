@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -74,10 +74,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // page or unmounting advances it, so a verdict that lands later belongs to a URL no
   // longer on screen and is dropped instead of submitting it.
   const customCheck = useRef(0);
-  const abandonCustomCheck = () => {
+  const abandonCustomCheck = useCallback(() => {
     customCheck.current++;
     setCheckingCustom(false);
-  };
+  }, []);
   useEffect(
     () => () => {
       customCheck.current++;
@@ -87,10 +87,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // A page being left stays mounted through its exit animation, so leaving is not an unmount.
   const pageActive = usePageActive();
   useEffect(() => {
-    if (pageActive) return;
-    customCheck.current++;
-    setCheckingCustom(false);
-  }, [pageActive]);
+    if (!pageActive) abandonCustomCheck();
+  }, [pageActive, abandonCustomCheck]);
 
   // Providers that run a Guardian on the active network, resolved to their
   // endpoint on it.
