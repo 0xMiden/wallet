@@ -91,7 +91,9 @@ describe('OrphanedTransactionRecovery', () => {
   it('never re-runs the age-independent sweep after a REMOUNT in the same process', async () => {
     // The module-scope latch saves a redundant sweep and kick when the provider
     // remounts inside a live app process. A second run would still be safe,
-    // because `failInterruptedTransactions` spares every row this session started.
+    // because `failInterruptedTransactions` spares this realm's rows by id
+    // (`markStartedInThisRealm`) and rows another realm of this session started
+    // by the `SESSION_STARTED_AT` cutoff.
     mockGetAllUncompleted.mockResolvedValue([{ id: 'tx-orphan' }]);
 
     const first = render(<OrphanedTransactionRecovery />);

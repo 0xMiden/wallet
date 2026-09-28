@@ -7,8 +7,9 @@ import { useMidenContext } from './client';
 /**
  * Module-scope one-shot latch: a provider remount inside a live app process skips
  * a second sweep and a second kick. A second sweep would still be safe, because
- * `failInterruptedTransactions` spares every row this session started
- * (`SESSION_STARTED_AT`); the latch only saves the redundant work.
+ * `failInterruptedTransactions` spares this realm's rows by id
+ * (`markStartedInThisRealm`) and rows another realm of this session started by
+ * the `SESSION_STARTED_AT` cutoff; the latch only saves the redundant work.
  */
 let coldStartSweepDone = false;
 
@@ -63,8 +64,10 @@ export function OrphanedTransactionRecovery(): null {
         // Fail every row an earlier app process left in `GeneratingTransaction`,
         // AGE-INDEPENDENTLY, which is what the extension does from
         // `browser.runtime.onStartup` (src/background.ts, issue #282). Whatever
-        // drove such a row died with that process. A row this process already
-        // started (the unlock kick can start one first, #1202) is spared.
+        // drove such a row died with that process. A row this realm already
+        // started (the unlock kick can start one first, #1202) is spared by id
+        // (`markStartedInThisRealm`), and a row another realm of this session
+        // started by the `SESSION_STARTED_AT` cutoff.
         //
         // The age-gated `cancelStuckTransactions()` this replaces was an order of
         // magnitude too slow to unblock the queue: MAX_WAIT_BEFORE_CANCEL is 30
