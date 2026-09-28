@@ -143,7 +143,10 @@ export interface CreatedGuardianKeys {
 }
 
 /**
- * The guardian's key for a new account, plus the deadline its registration shares.
+ * The guardian's key for a new account, plus what's left of the rate-limit budget
+ * for its registration to spend. Not an absolute deadline: the wait for the WASM
+ * lock and the account build (Task 3) sit between this fetch and the registration,
+ * are not guardian waits, and must not be charged against the 429 budget (#1207).
  * `guardianPubkey` is optional because the wire response is (`PubkeyResponse.pubkey?`)
  * and `client.create` already accepts an absent one (`MultisigConfig.guardianPublicKey?`);
  * today's code passes it through unchecked, so this keeps that behavior rather than
@@ -153,18 +156,20 @@ export interface GuardianCreateKey {
   guardianEndpoint: string;
   guardianCommitment: string;
   guardianPubkey?: string;
-  rateLimitDeadlineMs: number;
+  rateLimitBudgetLeftMs: number;
 }
 
 /**
  * A created account's guardian registration, run after the WASM hold ends
  * (#1207). `stateBase64` is the account state `client.create` returned,
  * serialized under the hold so `registerOnGuardian` needs no client call.
+ * `rateLimitBudgetLeftMs` carries forward phase 1's unspent budget (see
+ * `GuardianCreateKey`); registration starts its own deadline from it.
  */
 export interface PendingGuardianRegistration {
   multisig: Multisig;
   stateBase64: string;
-  rateLimitDeadlineMs: number;
+  rateLimitBudgetLeftMs: number;
 }
 
 export interface CreatedGuardianAccount {
@@ -331,21 +336,24 @@ async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
 
 /**
  * The guardian's key for a new account, fetched with no WASM client hold: its 429 waits
- * (#906) must not block the realm's other client work (#1207). Starts the rate-limit
- * deadline the registration shares.
+ * (#906) must not block the realm's other client work (#1207). Hands on what's left of
+ * the rate-limit budget after this fetch's own waits, not a deadline fixed at this call's
+ * start, so the wait for the WASM lock and the account build (Task 3) that follow this
+ * function are not themselves charged against the registration's budget.
  */
 export async function fetchGuardianCreateKey(guardianEndpointOverride?: string): Promise<GuardianCreateKey> {
   // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
   // inherits the frozen global key (#408 stage 3).
   const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
   registerGuardianOrigin(guardianEndpoint);
-  const rateLimitDeadlineMs = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
+  const startMs = monotonicNowMs();
   try {
     const { commitment, pubkey } = await withGuardianRateLimitRetry(
       () => new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
-      { deadlineMs: rateLimitDeadlineMs, sleepFn: sleepKeepingWorkerAlive }
+      { deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, sleepFn: sleepKeepingWorkerAlive }
     );
-    return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitDeadlineMs };
+    const rateLimitBudgetLeftMs = GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS - (monotonicNowMs() - startMs);
+    return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitBudgetLeftMs };
   } catch (e) {
     console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });
@@ -361,7 +369,7 @@ export async function fetchGuardianCreateKey(guardianEndpointOverride?: string):
  * client-side (see Phase 0 in the migration plan).
  *
  * @param webClient - The Miden WebClient instance.
- * @param createKey - The guardian's key and rate-limit deadline, from
+ * @param createKey - The guardian's key and rate-limit budget, from
  *   `fetchGuardianCreateKey`.
  * @param coldSeed - HD-derived seed for the cold key. Random if absent (only
  *   appropriate for tests / non-recoverable flows).
@@ -466,7 +474,7 @@ export async function createGuardianAccount(
         coldSecretKeyHex
       },
       guardianEndpoint: createKey.guardianEndpoint,
-      registration: { multisig, stateBase64, rateLimitDeadlineMs: createKey.rateLimitDeadlineMs }
+      registration: { multisig, stateBase64, rateLimitBudgetLeftMs: createKey.rateLimitBudgetLeftMs }
     };
   } catch (e) {
     // The lock's kill classifiers read the poison error's identity; wrapped, an
@@ -482,13 +490,17 @@ export async function createGuardianAccount(
 /**
  * Registers a created account on its guardian, with no WASM client hold: `registerOnGuardian`
  * gets the serialized state, so it makes no client call, and signs with the standalone cold key,
- * as the rotation path's registration already does outside the lock. Its 429 waits share the
- * creation's deadline.
+ * as the rotation path's registration already does outside the lock. Its 429 waits get their
+ * own deadline, anchored to when this call starts, from what phase 1 left of the creation's
+ * budget.
  */
 export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
   try {
+    // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
+    // account build (Task 3) sit between the two and are not guardian waits (#1207).
+    const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
     await withGuardianRateLimitRetry(() => registration.multisig.registerOnGuardian(registration.stateBase64), {
-      deadlineMs: registration.rateLimitDeadlineMs,
+      deadlineMs,
       sleepFn: sleepKeepingWorkerAlive
     });
   } catch (e) {

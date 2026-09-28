@@ -554,7 +554,7 @@ describe('createGuardianAccount', () => {
       guardianEndpoint: 'https://picked.guardian',
       guardianCommitment: 'g-commit',
       guardianPubkey: 'g-pubkey',
-      rateLimitDeadlineMs: expect.any(Number)
+      rateLimitBudgetLeftMs: expect.any(Number)
     });
 
     const created = await createGuardianAccount(webClient as never, createKey, new Uint8Array(32));
@@ -717,6 +717,28 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
       expect(performance.now() - startedAt).toBe(60_000);
       expect(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS).toBeLessThan(WASM_LOCK_WATCHDOG_MS / 2);
+    });
+
+    // Phase 1 hands registration what it did NOT spend, not the full budget re-measured
+    // from phase 1's own start: the wait for the WASM lock and the account build (Task 3)
+    // sit between the two, are not guardian waits, and must not eat into registration's
+    // 429 budget before its own deadline even starts.
+    it('does not fail registration from time the lock queue and the account build spent, not phase 1', async () => {
+      const createKey = await fetchGuardianCreateKey();
+      // Stands in for queueing for the WASM lock and building the account (Task 3).
+      await jest.advanceTimersByTimeAsync(120_000);
+
+      const webClient = makeWebClient();
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const created = await createGuardianAccount(webClient as never, createKey, new Uint8Array(32));
+
+      const pending = registerGuardianAccount(created.registration);
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      await expect(pending).resolves.toBeUndefined();
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
     });
 
     it('still fails at once on a registration error that is not a 429', async () => {
