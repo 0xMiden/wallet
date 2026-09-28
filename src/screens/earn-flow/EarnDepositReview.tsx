@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -256,7 +257,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
             <EarnHero
               labelId="earn-deposit-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} />}
               label={t('earnDepositAmountTitle')}
             />

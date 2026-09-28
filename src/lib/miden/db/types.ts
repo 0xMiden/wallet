@@ -205,7 +205,7 @@ export interface IEarnDepositExtraInputs {
   intentNonce?: string;
   /** solver/intent hash (informational). */
   evmTxHash?: string;
-  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  /** quoted destination deposit size; nothing writes or displays it today. */
   outputAmount?: string;
   /** destination token symbol (e.g. `USDC`). */
   outputSymbol?: string;

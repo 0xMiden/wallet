@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import { openEarnPosition } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -275,8 +275,8 @@ describe('EarnDepositReview', () => {
       expect(mark).toHaveAttribute('data-asset', 'USDC');
       expect(screen.getByRole('banner')).toContainElement(mark);
 
-      // Amount from the query string, formatted to 2 dp.
-      expect(screen.getByText('1000.00')).toBeInTheDocument();
+      // Amount from the query string, as typed: never padded.
+      expect(within(screen.getByTestId('earn-hero')).getByText('1000')).toBeInTheDocument();
 
       // The deposit asset is always USDC (Epoch Earn is USDC-only).
       const logo = screen.getByTestId('token-logo');
@@ -291,7 +291,7 @@ describe('EarnDepositReview', () => {
       // The header gets the vault it found, never the placeholder vault: it names the route instead.
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
       expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
-      expect(screen.getByText('500.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('500')).toBeInTheDocument();
       // No vault id => nothing to deposit into => CTA disabled.
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     });
@@ -302,19 +302,25 @@ describe('EarnDepositReview', () => {
       expect(screen.getByTestId('open-position-btn')).toHaveAttribute('data-accent', 'earn');
     });
 
-    it('strips thousands separators from the amount before parsing', () => {
+    it('strips thousands separators and trailing zeros from the amount', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,234.50');
-      expect(screen.getByText('1234.50')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('1234.5')).toBeInTheDocument();
     });
 
-    it('defaults the amount to 0.00 when the query string has no amount param', () => {
+    // The deposit is the typed amount exactly, so a third decimal is never rounded away.
+    it('shows a typed amount exactly, never rounded to two decimals', () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=0.015');
+      expect(within(screen.getByTestId('earn-hero')).getByText('0.015')).toBeInTheDocument();
+    });
+
+    it('defaults the amount to 0 when the query string has no amount param', () => {
       renderReview('aave-usdc-ethereum-1', '');
-      expect(screen.getByText('0.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
     });
 
-    it('coerces a non-numeric amount to 0.00 (parseAmount `|| 0` branch)', () => {
+    it('shows a non-numeric amount as 0', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=not-a-number');
-      expect(screen.getByText('0.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
     });
   });
 
@@ -509,7 +515,7 @@ describe('EarnDepositReview', () => {
 
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
-      expect(screen.getByText('1000.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('1000')).toBeInTheDocument();
     });
 
     it('reopens the challenge after a stale Earn authorization without losing the deposit amount', async () => {
@@ -527,7 +533,7 @@ describe('EarnDepositReview', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'authorize-limit' }));
 
       expect(await screen.findByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
-      expect(screen.getByText('1000.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('1000')).toBeInTheDocument();
     });
 
     it('routes to the generating-transaction page as soon as the tx row exists', async () => {
@@ -650,7 +656,7 @@ describe('EarnDepositReview', () => {
 
     it('renders zero rewards when the amount is zero', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=0');
-      expect(screen.getByText('0.00')).toBeInTheDocument();
+      expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
       // All three reward tiles collapse to +$0.00.
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
