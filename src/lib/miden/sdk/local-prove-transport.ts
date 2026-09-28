@@ -90,7 +90,9 @@ export function getLocalProveTransport(): LocalProveTransport | null {
 
 // #945: E2E-only markers for the prove worker client. Defined once here rather than
 // in the client, since more than one caller needs it. Gated on the same build flag as
-// every other realm's marker helper.
+// every other realm's marker helper, and folds away exactly like those per-realm
+// copies when the flag is false - being exported to more than one caller costs
+// nothing here, since the bundler drops the branch before it ever reaches a caller.
 const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
 
 export function recordProveTiming(message: string): void {

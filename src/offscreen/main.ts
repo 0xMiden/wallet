@@ -133,8 +133,12 @@ const TAG = '[offscreen-prover]';
 //
 // Gated on the E2E build flag, so production records nothing. Mirrors the identical
 // helper in `sdk/miden-client-interface` and `sdk/native-prover-mobile`; kept local
-// rather than shared because the gate is a build-time constant each bundle folds
-// away on its own, and importing a shared wrapper would defeat that.
+// rather than shared for consistency with those two, not because sharing would cost
+// anything: `local-prove-transport.ts`'s own exported `recordProveTiming` gates on
+// the same flag and folds away just as completely (verified against `yarn
+// build:chrome`, minified or not - Vite's `define` bakes `MIDEN_E2E_TEST` into a
+// build-time constant and the bundler drops the always-false branch on its own; no
+// `[prove-timing]` text from ANY of the three copies survives in the built output).
 const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
 
 function recordProveTiming(message: string): void {
