@@ -70,9 +70,10 @@ export async function faucetFetch<T>(
   // instead (abort either way, preserving the caller's abort reason).
   const external = init?.signal ?? undefined;
   const attempt = async <R>(settle: (response: Response) => Promise<R>): Promise<R> => {
+    // An attempt the caller already gave up on is never sent, so no hook reports it as out.
+    if (external?.aborted) throw external.reason;
     const controller = new AbortController();
     const abortFromExternal = () => controller.abort(external?.reason);
-    if (external?.aborted) abortFromExternal();
     external?.addEventListener('abort', abortFromExternal, { once: true });
     const timer = setTimeout(() => controller.abort(requestTimeoutError(timeoutMs)), timeoutMs);
     try {
@@ -208,8 +209,9 @@ export async function requestTokens(
     challenge,
     nonce: nonce.toString()
   });
-  // The body is read inside faucetFetch's bound, and its outcome comes back as data, so a
-  // rejection of faucetFetch still means only that no response arrived.
+  // The body is read inside faucetFetch's bound and its outcome comes back as data, so a rejection
+  // is an unknown outcome only while a token request is out (onAttempt fired and no status
+  // arrived); any other rejection is the caller's abort, rethrown.
   const readOutcome = async (response: Response): Promise<TokenResponse> => {
     if (!response.ok) {
       // The status decides what happened; an unreadable body only loses the explanation.
@@ -222,14 +224,23 @@ export async function requestTokens(
       return { kind: 'unreadable', error };
     }
   };
+  let requestOut = false;
   let outcome: TokenResponse;
   try {
     outcome = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal }, readOutcome, undefined, {
-      onAttempt: () => onMayMint?.(true),
-      onStatus: status => onMayMint?.(faucetStatusMayHaveMinted(status))
+      onAttempt: () => {
+        requestOut = true;
+        onMayMint?.(true);
+      },
+      onStatus: status => {
+        requestOut = false;
+        onMayMint?.(faucetStatusMayHaveMinted(status));
+      }
     });
   } catch (error) {
-    // No response means no way to know whether the faucet received the request.
+    // A rejection is an unknown outcome only while a token request is out (onAttempt fired and no
+    // status arrived); any other rejection is the caller's abort, rethrown.
+    if (!requestOut) throw error;
     throw new FaucetOutcomeUnknownError('Faucet token request got no response', { cause: error });
   }
 

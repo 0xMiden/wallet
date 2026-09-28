@@ -284,15 +284,36 @@ describe('faucet-api', () => {
       }
     });
 
-    it('rejects the back-off at once when the caller aborted before it began', async () => {
-      // Real timers: the assertion itself proves the capped 30s wait was never
-      // entered. The fetch mock ignores the (already-aborted) signal and answers
-      // with the 429 anyway, so only the back-off's own synchronous `aborted`
-      // guard stands between this and a 30s wait.
-      fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+    it('sends no attempt when the caller aborted before it began', async () => {
+      // Answers as a real fetch does to an aborted signal; nothing is queued, so a stray
+      // once-value cannot reach the next test.
+      fetchMock.mockImplementation((_url: string, init: RequestInit) => Promise.reject(init.signal?.reason));
       const controller = new AbortController();
       const reason = new Error('caller gave up');
       controller.abort(reason);
+      const onAttempt = jest.fn();
+
+      await expect(
+        faucetFetch('https://faucet-api.example/pow', { signal: controller.signal }, readStatus, undefined, {
+          onAttempt
+        })
+      ).rejects.toBe(reason);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onAttempt).not.toHaveBeenCalled();
+    });
+
+    it('rejects the back-off at once when the caller aborted while its attempt was out', async () => {
+      // Real timers: the assertion itself proves the capped 30s wait was never
+      // entered. The fetch mock aborts the caller and answers with the 429 anyway,
+      // so only the back-off's own synchronous `aborted` guard stands between this
+      // and a 30s wait.
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      fetchMock.mockImplementation(async () => {
+        controller.abort(reason);
+        return errorResponse(429, 'rate limited', { 'retry-after': '30' });
+      });
 
       const startedAt = Date.now();
       await expect(
@@ -546,6 +567,60 @@ describe('faucet-api', () => {
       }
     });
 
+    it("rejects with the caller's reason when it aborts during a 429 back-off, since no request is out", async () => {
+      jest.useFakeTimers();
+      try {
+        fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '1' }));
+        const controller = new AbortController();
+        const reason = new Error('caller gave up');
+
+        const minted = track(
+          requestTokens(
+            'https://faucet-api.example',
+            'mtst1testaddress',
+            100_000_000n,
+            CHALLENGE_HEX,
+            42,
+            controller.signal
+          )
+        );
+        await jest.advanceTimersByTimeAsync(500);
+        controller.abort(reason);
+        await jest.advanceTimersByTimeAsync(0);
+
+        // The faucet refused the only request sent, so nothing can be minting.
+        const error = minted.outcome;
+        expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+        expect(error).toBe(reason);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('sends nothing and rejects with the reason when the caller aborted before the request', async () => {
+      // Answers as a real fetch does to an aborted signal; nothing is queued.
+      fetchMock.mockImplementation((_url: string, init: RequestInit) => Promise.reject(init.signal?.reason));
+      const controller = new AbortController();
+      const reason = new Error('caller gave up');
+      controller.abort(reason);
+      const onMayMint = jest.fn();
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        controller.signal,
+        onMayMint
+      ).catch((e: unknown) => e);
+
+      expect(error).toBe(reason);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onMayMint).not.toHaveBeenCalledWith(true);
+    });
+
     it.each([400, 503])('keeps a %i refusal whose body cannot be read a refusal', async status => {
       fetchMock.mockResolvedValue({
         ...errorResponse(status, ''),
@@ -722,9 +797,11 @@ describe('faucet-api', () => {
     it('does not run onBeforeSubmit when the proof of work never completes', async () => {
       // The challenge arrives, but the solve fails: the hook must follow the solve,
       // not just the challenge fetch.
-      fetchMock.mockResolvedValue(jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 }));
       const controller = new AbortController();
-      controller.abort(new Error('Faucet request timed out'));
+      fetchMock.mockImplementation(async () => {
+        controller.abort(new Error('Faucet request timed out'));
+        return jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+      });
       const onBeforeSubmit = jest.fn(async () => undefined);
 
       await expect(
