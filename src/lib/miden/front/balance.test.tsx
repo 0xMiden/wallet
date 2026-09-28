@@ -425,9 +425,14 @@ describe('instant balance loading', () => {
         return null;
       };
 
-      useWalletStore.setState({ tokenPrices: { USDC: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+      useWalletStore.setState({ tokenPrices: {} });
       await act(async () => {
         testRoot!.render(<BalanceConsumer />);
+      });
+      expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 0, change24h: 0 });
+
+      await act(async () => {
+        useWalletStore.setState({ tokenPrices: { USDC: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
       });
       expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 2, change24h: 0.5 });
     } finally {
