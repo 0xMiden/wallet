@@ -857,6 +857,28 @@ describe('MultisigService', () => {
       expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
+    // The probe settles only when its check does, so a new guardian that never answers would hold
+    // its origin routed for the session unless the check carries its own deadline.
+    it('createSwitchGuardianProposal gives up on a new guardian whose pubkey never answers and releases its origin', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        const outcome = service.createSwitchGuardianProposal('https://new').then(
+          () => 'resolved',
+          (err: Error) => err.message
+        );
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS + 1);
+        expect(await outcome).toMatch(/pubkey fetch timed out/);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
+    });
+
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
