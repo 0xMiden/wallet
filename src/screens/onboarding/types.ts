@@ -53,7 +53,8 @@ export enum OnboardingStep {
    * The create flow's guardian step: the fastest reachable operator, picked
    * for the user, on a card whose Change action pushes the full picker,
    * `ChooseGuardian`. Change shows from the first probe round unless the
-   * network has no operator; ticking the three facts opens Continue.
+   * network has no operator; Continue opens once the three facts are
+   * ticked and the chosen operator has answered online.
    */
   MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',

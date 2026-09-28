@@ -49,9 +49,9 @@ export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: bo
   );
 };
 
-/** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
- *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
+/** The title the earn flow's amount step and its deposit and withdraw reviews put in their header:
+ *  the protocol, over `EarnSubjectSubtitle`'s asset and network. Together at the title's size they
+ *  wrapped to two lines beside the back and the mark. */
 export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
 
 /** The header's line under `earnSubjectTitle`: "USDC on Ethereum". */

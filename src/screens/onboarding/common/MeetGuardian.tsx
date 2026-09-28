@@ -49,9 +49,10 @@ export interface MeetGuardianScreenProps {
  * The create flow's guardian step. The fastest reachable operator leads the page on one card: its
  * name, a Change action that opens the full picker, one sentence for what it does, and a "What is a
  * Guardian?" footer that opens the explainer sheet. The three facts about a private account follow,
- * and Continue opens once all three are ticked. The operator is chosen once, when every operator has
- * answered its first ping, so the card does not change under the user while later rounds refresh
- * the number on it. An operator that later goes offline closes Continue and says so on the card.
+ * and Continue opens once all three are ticked and the chosen operator has answered online. The
+ * operator is chosen once, when every operator has answered its first ping, so the card does not
+ * switch operator under the user while later rounds re-check the chosen one. An operator that later
+ * goes offline closes Continue and says so on the card.
  * The same card says so when none answers, still offering Change; a network with no operator at all
  * says so and offers nothing to pick.
  */
