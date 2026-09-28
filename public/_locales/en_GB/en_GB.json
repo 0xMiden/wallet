@@ -1031,6 +1031,8 @@
   "disconnect": "Disconnect",
   "declaredBySiteVerifying": "Declared by site — verifying by simulation…",
   "unverified": "unverified",
+  "unverifiedToken": "Unverified",
+  "unverifiedTokenDescription": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it.",
   "couldNotVerifyBySimulation": "Could not verify by simulation. Amounts below are as declared by the site.",
   "couldNotDecodeTransaction": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does.",
   "rawValue": "Raw value",

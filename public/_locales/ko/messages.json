@@ -4535,6 +4535,14 @@
     "message": "확인되지 않음",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "미확인",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "이 토큰은 Miden의 검증된 토큰 목록에 포함되어 있지 않습니다. 누구나 원하는 이름으로 토큰을 생성할 수 있으므로, 신뢰하기 전에 faucet의 ID를 확인하십시오.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "시뮬레이션을 통해 확인할 수 없었습니다. 아래 수치는 해당 사이트에서 공개한 내용입니다.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

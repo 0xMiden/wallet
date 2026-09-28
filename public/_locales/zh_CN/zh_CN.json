@@ -1031,6 +1031,8 @@
   "disconnect": "断开连接",
   "declaredBySiteVerifying": "由站点声明——通过仿真进行验证……",
   "unverified": "未经核实",
+  "unverifiedToken": "未验证",
+  "unverifiedTokenDescription": "该代币未列入 Miden 的已验证代币列表。任何人都可以创建任意名称的代币，因此在信任它之前，请先核对其 faucet 标识符。",
   "couldNotVerifyBySimulation": "无法通过模拟进行验证。以下数值均按该网站声明的数值列出。",
   "couldNotDecodeTransaction": "该 dApp 正在发起一笔自定义交易。钱包无法解析其详细信息——请仅在您完全清楚该交易具体作用的情况下继续操作。",
   "rawValue": "原始值",

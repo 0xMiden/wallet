@@ -1031,6 +1031,8 @@
   "disconnect": "Desconectar",
   "declaredBySiteVerifying": "Declarado pelo local — verificação por simulação…",
   "unverified": "não verificado",
+  "unverifiedToken": "Não verificado",
+  "unverifiedTokenDescription": "Este token não consta na lista de tokens verificados da Miden. Qualquer pessoa pode criar um token com qualquer nome; portanto, verifique o ID no faucet antes de confiar nele.",
   "couldNotVerifyBySimulation": "Não foi possível verificar por meio de simulação. Os valores abaixo são os declarados pelo site.",
   "couldNotDecodeTransaction": "Este dApp está solicitando uma transação personalizada. A carteira não conseguiu decodificar os detalhes da transação — só continue se você souber exatamente o que ela faz.",
   "rawValue": "Valor bruto",

@@ -1031,6 +1031,8 @@
   "disconnect": "切断",
   "declaredBySiteVerifying": "サイトごとに宣言済み — シミュレーションによる検証中…",
   "unverified": "未確認",
+  "unverifiedToken": "未確認",
+  "unverifiedTokenDescription": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
   "couldNotVerifyBySimulation": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
   "couldNotDecodeTransaction": "このdAppはカスタムトランザクションを要求しています。ウォレットはその詳細をデコードできませんでした。その動作内容を正確に把握している場合のみ、続行してください。",
   "rawValue": "生データ",
