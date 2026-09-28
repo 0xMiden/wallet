@@ -1375,6 +1375,27 @@ describe('History earn entries', () => {
     expect(entry.earnWithdrawPhase).toBe('received');
   });
 
+  it("marks a consume row an Earn withdrawal delivered, apart from a Fast deposit's", async () => {
+    const consume = (id: string, bridgeIn: Record<string, unknown>) => ({
+      id,
+      type: 'consume',
+      status: 2,
+      completedAt: 5000,
+      faucetId: 'fa1',
+      amount: 3n,
+      extraInputs: { bridgeIn: { provider: 'epoch', sourceAmount: '3', ...bridgeIn } },
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE'
+    });
+    withRows([consume('EWC', { earnWithdrawTxId: 'EW' }), consume('BIC', {})]);
+
+    await renderHistory();
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === key);
+    expect(byKey('completed-EWC').bridgeInFromEarnWithdraw).toBe(true);
+    expect(byKey('completed-BIC').bridgeInFromEarnWithdraw).toBe(false);
+  });
+
   it('surfaces the Sepolia lending-leg status on a completed earn-deposit row', async () => {
     withRows([
       {

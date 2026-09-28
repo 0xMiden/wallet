@@ -2661,22 +2661,24 @@ describe('HistoryDetails', () => {
       }
     };
 
+    const bridgedReceiveInputs: Record<string, unknown> = {
+      provider: 'epoch',
+      sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
+      sourceAmount: '10',
+      sourceSymbol: 'USDC',
+      evmTxHash: '0xevmhash',
+      phase: 'delivering',
+      outputAmount: '9.98',
+      outputSymbol: 'USDC'
+    };
+
     const bridgedReceiveTx: Tx = {
       ...baseSendTx,
       id: 'bridge-in',
       type: 'bridged-receive',
       secondaryAccountId: undefined,
       displayMessage: 'Bridging from EVM',
-      extraInputs: {
-        provider: 'epoch',
-        sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
-        sourceAmount: '10',
-        sourceSymbol: 'USDC',
-        evmTxHash: '0xevmhash',
-        phase: 'delivering',
-        outputAmount: '9.98',
-        outputSymbol: 'USDC'
-      }
+      extraInputs: bridgedReceiveInputs
     };
 
     // A bridge row created before the amount/quote were stamped still has to
@@ -2802,19 +2804,113 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
+    // The deposit is what the wallet signed for, so the hero never shows less than left the account.
+    it('rounds a Fast-route bridge-in deposit up, never down', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          sourceAmount: '151.505000000000000001'
+          sourceAmount: '151.5012'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
-      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
+      expect(screen.getByText('151.51')).toBeInTheDocument();
+      expect(screen.queryByText('151.5012')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.5')).not.toBeInTheDocument();
+    });
+
+    it('shows a Slow-route bridge-in source amount as typed, without its trailing zero', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          provider: 'agglayer',
+          // Past ETH's six display decimals, so only the typed kind shows every digit.
+          sourceAmount: '1.23456780',
+          sourceSymbol: 'ETH'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('1.2345678')).toBeInTheDocument();
+      expect(screen.queryByText('1.23456780')).not.toBeInTheDocument();
+    });
+
+    // The out side is formatted by `bridgeInRowDisplay`, which the list row reads too; a
+    // second pass here would round the typed amount the list shows exactly.
+    it('shows an in-flight "you receive" amount exactly as the list row does', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          outputAmount: '10.6555'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('10.6555')).toBeInTheDocument();
+      expect(screen.queryByText('10.65')).not.toBeInTheDocument();
+    });
+
+    it("shows a received bridge-in's credited amount rounded down, once", async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150_126_456n, // 150.126456 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          outputAmount: '150.2'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('150.12')).toBeInTheDocument();
+      expect(screen.queryByText('150.126456')).not.toBeInTheDocument();
+      expect(screen.queryByText('150.2')).not.toBeInTheDocument();
+    });
+
+    // Scaling by the placeholder's guess would misreport what arrived, and the source amount is
+    // not what was credited either, so the out side shows no number at all.
+    it('shows no credited amount for a received bridge-in whose faucet has no known scale', async () => {
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150_123_456n,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          sourceAmount: '10.6555'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const hero = screen.getByText('10.66').parentElement;
+      expect(hero?.textContent).toBe('10.66USDC-USDC');
+    });
+
+    it("reads an Earn withdrawal's delivery as received, and a Fast deposit's as paid", async () => {
+      const consume = (bridgeIn: Record<string, unknown>) => ({
+        ...baseSendTx,
+        id: 'bridge-consume',
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteIds: ['delivered-note'],
+        extraInputs: { bridgeIn: { provider: 'epoch', sourceAmount: '10.6555', sourceSymbol: 'USDC', ...bridgeIn } }
+      });
+
+      setMockRow(consume({ earnWithdrawTxId: 'withdrawal-1' }));
+      const withdrawal = await renderAndLoad({ transactionId: 'bridge-consume' });
+      expect(screen.getByText('10.65')).toBeInTheDocument();
+      withdrawal.unmount();
+
+      setMockRow(consume({}));
+      await renderAndLoad({ transactionId: 'bridge-consume' });
+      expect(screen.getByText('10.66')).toBeInTheDocument();
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
@@ -2843,7 +2939,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad({ transactionId: 'old-attempt-consume' });
 
-      expect(screen.getByText('12.50')).toBeInTheDocument();
+      expect(screen.getByText('12.5')).toBeInTheDocument();
       expect(screen.getByText('USDC')).toBeInTheDocument();
       expect(rowByLabel('from')?.textContent).toBe('0xold-owner');
       expect(rowByLabel('from')?.querySelector('a')).toHaveAttribute(

@@ -745,6 +745,41 @@ describe('bridgeInRowDisplay', () => {
     ).toBe('7');
   });
 
+  // The list row and the detail hero both read this, so a received amount is rounded here, once.
+  it("rounds a received bridge-in's credited amount down at the asset precision", () => {
+    const received = (amount: string, symbol: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount,
+          bridgeInOutputAmount: '99',
+          bridgeInOutputSymbol: symbol,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(received('150.126456', 'USDC')).toBe('150.12');
+    expect(received('0.0151236567', 'ETH')).toBe('0.015123');
+  });
+
+  it('shows an in-flight "you receive" amount as typed, without padding', () => {
+    const inFlight = (bridgeInOutputAmount: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount: '10',
+          bridgeInOutputAmount,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(inFlight('10.6555')).toBe('10.6555');
+    // A row written before the stored value went exact holds a padded display string.
+    expect(inFlight('12.00')).toBe('12');
+  });
+
   // Rows written before the fix carry the allocator's token `name` as a symbol,
   // which for Sepolia USDC is the contract address.
   it('ignores a stored symbol that is an EVM contract address', () => {

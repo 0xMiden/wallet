@@ -298,14 +298,12 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
-  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
-  // typed (at most 6 decimals), so it is shown as stored.
+  // Once received (a consume row always is) the row's own amount is what was credited. In flight
+  // the stored "you receive" amount is what was typed, on either route.
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
-      ? entry.amount?.toString()
-      : entry.bridgeInProvider === 'epoch'
-        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
-        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
+      ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
+      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed', outSymbol) ?? entry.amount);
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

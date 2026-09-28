@@ -68,8 +68,8 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   earnWithdrawAmountFields,
-  formatBridgeOutputAmount,
   formatDate,
+  formatMoneyAmount,
   isBridgeInEntry,
   swapSettlementOf
 } from './transactionUtils';
@@ -126,18 +126,14 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
-  // Only a genuine Epoch quote (unbounded precision) is rounded for display here. A
-  // Slow-route bridge-in's amounts, and a bridge-out's Miden-side send amount on EITHER
-  // route (always what was typed, capped by AmountInput at 6 decimals, never a quote), are
-  // shown as stored. `bridgeRowDisplay` already applies this same rule to a bridge-out's OUT
-  // side (it formats `bridgeOutputAmount` only, an Epoch-only field, and passes the
-  // Agglayer/no-quote fallback to `entry.amount` through unformatted), so this component
-  // reformats nothing further for bridge-out. `break-all` + `min-w-0` keep an unexpectedly
-  // long value from widening the page (#752).
-  const isEpochBridgeIn = bridgeIn && entry.bridgeInProvider === 'epoch';
-  const inAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(rawInAmount) : rawInAmount) ?? '-';
-  const displayedOutAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(outAmount) : outAmount) ?? inAmount;
+  // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
+  // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
+  // Miden-side amount, already exact. The row helpers above format the out side, as the list row
+  // shows it, so it is not formatted again, and a missing one is never filled from the in side.
+  // `break-all` + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inKind = entry.bridgeInFromEarnWithdraw ? 'receives' : entry.bridgeInProvider === 'epoch' ? 'pays' : 'typed';
+  const inAmount = (bridgeIn ? formatMoneyAmount(entry.bridgeInSourceAmount, inKind, inSymbol) : entry.amount) ?? '-';
+  const displayedOutAmount = outAmount ?? '-';
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
@@ -431,7 +427,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
-            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined)
+            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined
         };
 
         if (tx.type === 'swap') {
