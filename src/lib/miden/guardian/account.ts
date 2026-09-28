@@ -142,11 +142,17 @@ export interface CreatedGuardianKeys {
   coldSecretKeyHex: string; // serialized AuthSecretKey hex (for cold-mirror storage)
 }
 
-/** The guardian's key for a new account, plus the deadline its registration shares. */
+/**
+ * The guardian's key for a new account, plus the deadline its registration shares.
+ * `guardianPubkey` is optional because the wire response is (`PubkeyResponse.pubkey?`)
+ * and `client.create` already accepts an absent one (`MultisigConfig.guardianPublicKey?`);
+ * today's code passes it through unchecked, so this keeps that behavior rather than
+ * refusing a guardian creation otherwise accepts.
+ */
 export interface GuardianCreateKey {
   guardianEndpoint: string;
   guardianCommitment: string;
-  guardianPubkey: string;
+  guardianPubkey?: string;
   rateLimitDeadlineMs: number;
 }
 
@@ -339,11 +345,6 @@ export async function fetchGuardianCreateKey(guardianEndpointOverride?: string):
       () => new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
       { deadlineMs: rateLimitDeadlineMs, sleepFn: sleepKeepingWorkerAlive }
     );
-    // `pubkey` is optional on the wire type; an 'ecdsa' response omitting it is
-    // itself the guardian misbehaving, not something the account build can proceed on.
-    if (!pubkey) {
-      throw new Error(`Guardian endpoint ${guardianEndpoint} returned no public key`);
-    }
     return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitDeadlineMs };
   } catch (e) {
     console.error('Error creating Guardian account:', e);

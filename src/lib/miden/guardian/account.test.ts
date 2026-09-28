@@ -577,6 +577,25 @@ describe('createGuardianAccount', () => {
     expect(multisigClientConfig.create).not.toHaveBeenCalled();
   });
 
+  // A guardian that answers /pubkey with no `pubkey` field is a shape client.create
+  // already accepts today (MultisigConfig.guardianPublicKey is optional), so creation
+  // must not start refusing it just because the key now flows through a named type.
+  it('resolves with no guardian pubkey when the guardian omits it, and passes that through to account creation', async () => {
+    multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'g-commit' });
+
+    const createKey = await fetchGuardianCreateKey();
+    expect(createKey.guardianPubkey).toBeUndefined();
+
+    const webClient = makeWebClient();
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+    await createGuardianAccount(webClient as never, createKey, new Uint8Array(32));
+
+    expect(multisigClientConfig.create).toHaveBeenCalledWith(
+      expect.objectContaining({ guardianPublicKey: undefined }),
+      expect.anything()
+    );
+  });
+
   it('wraps a registration failure in the creation error, with the cause kept', async () => {
     const multisig = makeMultisig();
     const cause = Object.assign(new Error('GUARDIAN HTTP error 500'), { status: 500 });
