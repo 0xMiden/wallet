@@ -418,6 +418,18 @@ describe('HotKeyRotationGate', () => {
     expect(screen.getByText('RuntimeError: unreachable')).toBeInTheDocument();
   });
 
+  it('puts a failed enqueue behind the generic message, with its error behind Show full error', async () => {
+    mockInitiate.mockRejectedValue(new Error('enqueue failed'));
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationFailedGeneric');
+    expect(screen.queryByText('enqueue failed')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('enqueue failed')).toBeInTheDocument();
+  });
+
   it('keeps the message and its column inside the screen width', async () => {
     mockUseTransactionRow.mockReturnValue({
       row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
