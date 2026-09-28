@@ -16,14 +16,23 @@ export function guardianHistoryIcon(type: ITransactionType): ITransactionIcon {
 
 export function guardianHistoryActionKey(type: ITransactionType, reclaimed = false): string {
   switch (type) {
-    case 'send': return 'sent';
-    case 'consume': return reclaimed ? 'reclaimed' : 'received';
-    case 'swap': return 'guardianHistorySwap';
-    case 'bridged-send': return 'guardianHistoryBridgeOut';
-    case 'earn-deposit': return 'guardianHistoryEarnDeposit';
-    case 'switch-guardian': return 'guardianHistoryGuardianChanged';
-    case 'replace-hot-key': return 'guardianHistoryDeviceReplaced';
-    case 'update-procedure-threshold': return 'guardianHistoryAccountSecured';
-    default: return 'guardianHistoryExecuted';
+    case 'send':
+      return 'sent';
+    case 'consume':
+      return reclaimed ? 'reclaimed' : 'received';
+    case 'swap':
+      return 'guardianHistorySwap';
+    case 'bridged-send':
+      return 'guardianHistoryBridgeOut';
+    case 'earn-deposit':
+      return 'guardianHistoryEarnDeposit';
+    case 'switch-guardian':
+      return 'guardianHistoryGuardianChanged';
+    case 'replace-hot-key':
+      return 'guardianHistoryDeviceReplaced';
+    case 'update-procedure-threshold':
+      return 'guardianHistoryAccountSecured';
+    default:
+      return 'guardianHistoryExecuted';
   }
 }

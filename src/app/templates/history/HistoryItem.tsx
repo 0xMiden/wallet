@@ -11,8 +11,8 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
-import { IHistoryEntry } from './IHistoryEntry';
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
+import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
@@ -59,14 +59,19 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   // leg while it is still pending or has failed (settled reads as the plain row).
   // Never on a cancelled or Miden-failed row: that failure is the real story.
   const settlement =
-    !entry.guardianRecovered && entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    !entry.isCancelled &&
+    entry.transactionIcon !== 'FAILED'
       ? earnDepositSettlementOf(entry)
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
   const title = entry.guardianRecovered
     ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-    : isFaucet ? t('faucetRequest') : entry.message;
+    : isFaucet
+      ? t('faucetRequest')
+      : entry.message;
   return (
     <div
       className={classNames(

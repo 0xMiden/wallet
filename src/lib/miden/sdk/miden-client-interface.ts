@@ -1,4 +1,3 @@
-import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import {
   Account,
   AccountFile,
@@ -54,6 +53,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
   accountRefToSdk,

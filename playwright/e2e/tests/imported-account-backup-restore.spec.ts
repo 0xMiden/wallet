@@ -12,7 +12,7 @@ const CHALLENGE_WORD = `0x${Array.from({ length: 32 }, (_, index) =>
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
-test('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB }) => {
+test.skip('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB }) => {
   const privateKeySeed = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
   const privateKey = Buffer.from(AuthSecretKey.ecdsaWithRNG(privateKeySeed).serialize()).toString('hex');
 

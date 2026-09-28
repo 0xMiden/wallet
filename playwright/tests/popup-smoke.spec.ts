@@ -43,9 +43,7 @@ const openSeedPhraseImport = async (extensionContext: BrowserContext, extensionI
   await page.locator('#import-link').click();
 
   await acknowledgeNetworkNotice(page, 15000);
-  // Import now asks WHICH credential first; this flow is the seed-phrase one.
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
-  await page.getByTestId('import-type-seed-phrase').click();
+  // Import opens the seed-phrase form directly.
   const seedForm = page.getByTestId('import-seed-phrase');
   await seedForm.waitFor({ timeout: 15000 });
   return { page, seedForm };

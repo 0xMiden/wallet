@@ -20,8 +20,15 @@ jest.mock('lib/miden/front/storage', () => ({
   }
 }));
 const checkpoint: GuardianHistoryCheckpoint = {
-  id: 'test', accountId: 'account', network: 'testnet', operator: 'https://one',
-  version: 1, completed: false, restored: 4, cursor: 'next', seenCursors: []
+  id: 'test',
+  accountId: 'account',
+  network: 'testnet',
+  operator: 'https://one',
+  version: 1,
+  completed: false,
+  restored: 4,
+  cursor: 'next',
+  seenCursors: []
 };
 
 beforeEach(() => {
