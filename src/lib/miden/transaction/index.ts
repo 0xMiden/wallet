@@ -963,9 +963,10 @@ async function reconcileStructuralApplyFailure(
       console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
     }
   }
-  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached from
-  // `isApplyAfterSubmitError`, i.e. the submit SUCCEEDED and the local apply then
-  // failed — which establishes that the node accepted the transaction, and
+  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
+  // submit SUCCEEDED (an apply-after-submit error or a canonicalization refusal, neither
+  // of which any pre-submit step produces), which establishes that the node accepted the
+  // transaction, and
   // nothing more. No commit wait ran here and `didDirectSwitchLand` was never
   // called, so this path has strictly LESS evidence of a commit than the direct
   // path's `landed === undefined` case that the flag was introduced for.
@@ -1206,11 +1207,11 @@ const generateTransactionWithProvider = async (
       // its completion handler, so the vault hot pointer, the guardian registration or the
       // cached threshold map is un-reconciled. Cancelling would strand the account. Run the
       // finalization the happy path would. A reconcile that throws fails the row HERE: falling
-      // through would reach arm E, which marks a refusal Completed with no finalization.
+      // through would reach the canonicalization-refusal arm below, which marks the row
+      // Completed with no finalization.
       if (
         STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) &&
-        (isApplyAfterSubmitError(error) ||
-          (transaction.type === 'update-procedure-threshold' && isGuardianCanonicalizationError(error)))
+        (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
       ) {
         try {
           await reconcileStructuralApplyFailure(transaction, guardianProvider);
@@ -1226,8 +1227,9 @@ const generateTransactionWithProvider = async (
       // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
       // recover a Failed one. Mirror generateTransactionsLoop's generic
       // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
-      // reconciles the note state via ConsumedExternal. (Structural ops are handled
-      // above and never reach here on success.)
+      // reconciles the note state via ConsumedExternal. (A structural op never reaches
+      // here with a post-submit error: the reconcile above returns whether it finalizes
+      // the row or fails it.)
       //
       // The result-awaiting exception among value-moving guardian ops
       // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /

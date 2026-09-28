@@ -6789,7 +6789,7 @@ describe('generateTransaction — Guardian routing', () => {
       provider as never
     );
 
-    // Reconcile failed → fall through to cancelTransaction → row Failed.
+    // The reconcile failed, so the structural reconcile handler cancels the row itself: Failed.
     expect(provider.setGuardianEndpoint).not.toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);

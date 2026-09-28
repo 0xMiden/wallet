@@ -3033,4 +3033,52 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     // The threshold changed on chain whatever the row says, so the stale cache still goes.
     expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
   });
+
+  it.each([
+    {
+      type: 'replace-hot-key',
+      row: { type: 'replace-hot-key', extraInputs: {} },
+      complete: mockComplete.replaceHotKey,
+      refusal: REFUSAL_EQUAL_NONCE
+    },
+    {
+      type: 'switch-guardian',
+      row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
+      complete: mockComplete.switchGuardian,
+      refusal: REFUSAL_ONCHAIN_COMMITMENT
+    }
+  ])(
+    '$type: a structural refusal reaches the RECONCILE handler, not the Completed-as-a-send arm (#1233)',
+    async ({ type, row, complete, refusal }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(
+        new Error(`Offscreen call 'guardianPipeline' failed: ${refusal}`)
+      );
+      const { service, provider: sp } = arrangeStructural(`s-refusal-${type}`, row);
+
+      await generateTransaction(buildTx(`s-refusal-${type}`, row) as never, signCallback, false, sp as never);
+
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
+      expect(txStore.find(r => r.id === `s-refusal-${type}`)!.displayMessage).not.toBe('Sent');
+    }
+  );
+
+  it('switch-guardian: a structural refusal whose reconcile throws ends Failed, not Completed as a send (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-switch-reconcile-throws';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`)
+    );
+    const row = { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } };
+    const { service, provider: sp } = arrangeStructural(id, row);
+    // The first build serves the proposal; the reconcile's rebuild of the outgoing service fails.
+    mockGetOrCreateMultisigService.mockResolvedValueOnce(service).mockRejectedValueOnce(new Error('rebuild failed'));
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+  });
 });
