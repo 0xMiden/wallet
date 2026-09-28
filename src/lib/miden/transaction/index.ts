@@ -1281,13 +1281,23 @@ const generateTransactionWithProvider = async (
       // was minted but before it was persisted, so a requeue would mint another;
       // switch-guardian / update-procedure-threshold re-runs can register a
       // duplicate delta. They fall through to cancelTransaction - the user retries.
+      //
+      // A repeat doubles the cooldown (#1223). Each attempt spends withGuardianConflictRetry's ~55 s before it
+      // requeues, so with two rows on one stalled account the other's 15 s has always run out and the pair holds the
+      // front of the queue for as long as the stall lasts.
+      //
+      // This arm and the ones below read the failure's stage and the row's requeue streak off the stored row: the
+      // in-memory `transaction` is the row as the loop picked it.
+      const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
         await requeueTransactionForRetry(
           transaction.id,
           transaction.type,
           'creating-proposal',
-          PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC
+          guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count),
+          { requeueStreak }
         );
         return;
       }
@@ -1315,7 +1325,6 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
-      const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
       // requeue re-broadcasts, so the classifier that permits one must name the whole
       // abandonment class rather than half of it. (Every `OperationAbortedError` that
@@ -1366,16 +1375,25 @@ const generateTransactionWithProvider = async (
       // staying locked until the guardian worker confirms. A leftover candidate
       // surfaces as a 409 on the next cycle, which the pending-conflict requeue
       // above already handles.
+      //
+      // A repeat doubles the guardian's figure (#1223): a row that came back when told and was refused again was told
+      // too short a wait, and several rows refused that way keep one eligible, and oldest, at every lap.
       if (isGuardianRateLimited(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && failedAtProposal) {
-        const cooldown = Math.min(
-          Math.max(
-            guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
-            MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+        const requeueStreak = nextRequeueStreak(currentRow, 'guardian-rate-limited');
+        const cooldown = guardianRequeueBackoffSec(
+          Math.min(
+            Math.max(
+              guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
+              MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+            ),
+            MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
           ),
-          MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC
+          requeueStreak.count
         );
         console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
+          requeueStreak
+        });
         return;
       }
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages

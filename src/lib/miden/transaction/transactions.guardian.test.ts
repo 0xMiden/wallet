@@ -3897,6 +3897,118 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('Guardian consume: a 429 between unreachable requeues starts both doublings over (#1223)', async () => {
+    // Only consecutive requeues down one arm back a row off: an answer of another kind says the last verdict ended.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-streak-reset';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-reset',
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      });
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const outcomes: unknown[] = [rateLimited, rateLimited, new TypeError('Failed to fetch')];
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw outcomes.shift();
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const waits: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const requeuedFrom = Math.floor(Date.now() / 1000);
+        await generateTransaction(
+          {
+            id: txId,
+            type: 'consume',
+            accountId: 'guardian-acc',
+            noteId: 'note-reset',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+        waits.push(Number(txStore.find(r => r.id === txId)?.nextEligibleAt) - requeuedFrom);
+      }
+
+      // The guardian's 45 s, then twice it on the repeat, then the unreachable arm's base again.
+      expect(waits).toEqual([45, 90, 60]);
+      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a second consecutive pending-delta 409 requeue waits 30 s, twice the first (#1223)', async () => {
+    // Each 409 requeue follows ~55 s of in-process retries, so two rows on one stalled account would otherwise take
+    // turns at the front of the queue.
+    jest.useFakeTimers();
+    try {
+      const txId = 'send-conflict-backoff';
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        requeueStreak: { arm: 'guardian-pending-conflict', count: 1 }
+      });
+      const conflict = { status: 409, code: 'conflict_pending_delta' };
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: 2 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {
     // The second pre-submit stage: the co-signature never came back, so no leaf ran.
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
