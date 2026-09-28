@@ -40,15 +40,20 @@ function useFitText(active: boolean, maxPx: number, network: string, language: s
 
     const fit = () => {
       const currentPx = parseFloat(getComputedStyle(text).fontSize);
-      const gapPx = parseFloat(getComputedStyle(pill).columnGap) || 0;
+      const pillStyle = getComputedStyle(pill);
+      const gapPx = parseFloat(pillStyle.columnGap) || 0;
       const separator = separatorRef.current && getComputedStyle(separatorRef.current);
       const fixedPx = separator
         ? (parseFloat(separator.paddingLeft) || 0) + (parseFloat(separator.paddingRight) || 0)
         : 0;
       // The rects, not offsetLeft and offsetWidth: those round to whole pixels, which can overstate
-      // the room by more than the 0.1px step leaves spare.
-      const available = trailing.getBoundingClientRect().left - gapPx - label.getBoundingClientRect().left;
-      const scalablePx = text.getBoundingClientRect().width - fixedPx;
+      // the room by more than the 0.1px step leaves spare. The rects also carry an ancestor's transform
+      // (the extension scales the app behind an open sheet) that the gap and padding do not, so their
+      // lengths are brought back to layout pixels first.
+      const scale = pill.getBoundingClientRect().width / parseFloat(pillStyle.width);
+      if (!(scale > 0)) return;
+      const available = (trailing.getBoundingClientRect().left - label.getBoundingClientRect().left) / scale - gapPx;
+      const scalablePx = text.getBoundingClientRect().width / scale - fixedPx;
       if (!currentPx || scalablePx <= 0 || available <= fixedPx) return;
       const next = Math.min(maxPx, Math.max(TEXT_MIN_PX, ((available - fixedPx) * currentPx) / scalablePx));
       setFontPx(Math.floor(next * 10) / 10);

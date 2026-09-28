@@ -166,16 +166,20 @@ describe('NetworkModePill: fitting the line', () => {
   // glyph sits `slot` plus the 6px gap after it. The boxes are found by the pill's structure, not by
   // the slots the fit reads, so the geometry is the same whichever way the fit finds them. The rects
   // give that geometry unrounded, and offsetLeft and offsetWidth give it rounded to whole pixels, as
-  // a browser does.
+  // a browser does. The rects also carry `scale`, a transform on an ancestor, which the offsets and
+  // computed styles never see.
   const SEPARATOR_PAD_PX = 6;
   const GAP_PX = 6;
   const LABEL_LEFT_PX = 28;
+  const PILL_WIDTH_PX = 360;
   let slot = 300;
   let mockPerPx = 30;
+  let scale = 1;
 
   const text = () => screen.getByTestId('network-mode-pill-text');
   const fontPx = () => parseFloat(text().style.fontSize);
   const lineWidth = () => text().getBoundingClientRect().width;
+  const isPill = (el: HTMLElement) => el.dataset.testid === 'network-mode-pill';
   const isPillChild = (el: HTMLElement) => el.parentElement?.dataset.testid === 'network-mode-pill';
   const isLabel = (el: HTMLElement) => isPillChild(el) && el.querySelector('[data-testid="network-mode-pill-text"]');
   const isTrailing = (el: HTMLElement) => isPillChild(el) && el.parentElement?.lastElementChild === el;
@@ -184,10 +188,12 @@ describe('NetworkModePill: fitting the line', () => {
     if (isTrailing(el)) return LABEL_LEFT_PX + slot + GAP_PX;
     return 0;
   };
-  const widthOf = (el: HTMLElement) =>
-    el.dataset.testid === 'network-mode-pill-text'
+  const widthOf = (el: HTMLElement) => {
+    if (isPill(el)) return PILL_WIDTH_PX;
+    return el.dataset.testid === 'network-mode-pill-text'
       ? mockPerPx * parseFloat(el.style.fontSize) + 2 * SEPARATOR_PAD_PX
       : 0;
+  };
 
   let resize: () => void = () => {};
   const observed: Element[] = [];
@@ -215,11 +221,12 @@ describe('NetworkModePill: fitting the line', () => {
     mockLanguage = 'en';
     slot = 300;
     mockPerPx = 30;
+    scale = 1;
     observed.length = 0;
     observerCalls.length = 0;
     observerCount = 0;
     jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      return new DOMRect(leftOf(this), 0, widthOf(this), 0);
+      return new DOMRect(leftOf(this) * scale, 0, widthOf(this) * scale, 0);
     });
     jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
       return Math.round(widthOf(this));
@@ -231,6 +238,7 @@ describe('NetworkModePill: fitting the line', () => {
     jest.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
       const style = document.createElement('span').style;
       if (el instanceof HTMLElement) style.fontSize = el.style.fontSize;
+      if (el instanceof HTMLElement && isPill(el)) style.width = `${PILL_WIDTH_PX}px`;
       if (el.classList.contains('gap-1.5')) style.columnGap = `${GAP_PX}px`;
       if (el.classList.contains('px-1.5')) {
         style.paddingLeft = `${SEPARATOR_PAD_PX}px`;
@@ -280,6 +288,15 @@ describe('NetworkModePill: fitting the line', () => {
 
     expect(fontPx()).toBe(9.6);
     expect(lineWidth()).toBeLessThanOrEqual(slot);
+  });
+
+  it('fits in layout pixels while an ancestor is scaled, as the extension scales the app behind a sheet', () => {
+    // At 0.93 the rects shrink but the gap and padding do not: mixing them fits 9.5px, not 9.6px.
+    scale = 0.93;
+    slot = 300.3;
+    render(<NetworkModePill />);
+
+    expect(fontPx()).toBe(9.6);
   });
 
   it('re-fits when the pill resizes, observing its box rather than the inline line', () => {
