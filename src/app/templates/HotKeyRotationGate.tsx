@@ -10,10 +10,18 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
+import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
+import {
+  hotKeyRotationLockName,
+  isLiveRotationFundingRow,
+  isLiveRotationRow,
+  isRotationFundingRow,
+  isRotationRow
+} from 'lib/miden/transaction/rotation-funding';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -21,6 +29,8 @@ import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { newestRow } from './HotKeyRotationGate.selectors';
 
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
@@ -50,10 +60,23 @@ interface OverlayProps {
   accountPublicKey: string;
 }
 
-const isPendingRotationRow = (r: ITransaction, accountPublicKey: string): boolean =>
-  r.type === 'replace-hot-key' &&
-  r.accountId === accountPublicKey &&
-  (r.status === ITransactionStatus.Queued || r.status === ITransactionStatus.GeneratingTransaction);
+/**
+ * The newest rotation of the account when it failed for want of its fee and no funding
+ * claim completed after it (#805). Adopting it on mount shows the funding panel again
+ * instead of queueing a rotation that must fail, minting a hot key it never uses.
+ */
+const adoptableShortfallRow = async (accountPublicKey: string) => {
+  const rows = await Repo.transactions
+    .filter(r => isRotationRow(r, accountPublicKey) || isRotationFundingRow(r, accountPublicKey))
+    .toArray();
+  const rotation = newestRow(rows.filter(r => r.type === 'replace-hot-key'));
+  if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
+  const failedAt = rotation.completedAt ?? rotation.initiatedAt;
+  const claimedSince = rows.some(
+    r => r.type === 'consume' && r.status === ITransactionStatus.Completed && (r.completedAt ?? 0) > failedAt
+  );
+  return claimedSince ? undefined : rotation;
+};
 
 /**
  * Find (or create) the rotation transaction to track, serialized across every
@@ -69,30 +92,43 @@ const isPendingRotationRow = (r: ITransaction, accountPublicKey: string): boolea
  * overlay spinning until `cancelStuckTransactions` expires it (up to 30
  * minutes off-mobile). The `ifAvailable` request makes the check race-free:
  * we only requeue while provably no loop is running.
+ *
+ * Resolves `null` when it DEFERRED (#805): the gate's funding claim is live, and a
+ * rotation now would run before the vault that claim funds, fail, and mint a hot key it
+ * never uses. The claim path takes the same lock and refuses while a rotation is live.
  */
-const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean): Promise<string> => {
+const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean): Promise<string | null> => {
   let txId: string | null = null;
-  await navigator.locks.request(`hot-key-rotation:${accountPublicKey}`, async () => {
+  let deferred = false;
+  await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
     if (adoptExisting) {
       await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
         if (!lock) return;
         await Repo.transactions
-          .filter(
-            r => isPendingRotationRow(r, accountPublicKey) && r.status === ITransactionStatus.GeneratingTransaction
-          )
+          .filter(r => isLiveRotationRow(r, accountPublicKey) && r.status === ITransactionStatus.GeneratingTransaction)
           .modify(r => {
             r.status = ITransactionStatus.Queued;
             r.processingStartedAt = undefined;
           });
       });
-      const existing = await Repo.transactions.filter(r => isPendingRotationRow(r, accountPublicKey)).first();
+      const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
       if (existing) {
         txId = existing.id;
         return;
       }
     }
+    if (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()) {
+      deferred = true;
+      return;
+    }
+    const failed = adoptExisting ? await adoptableShortfallRow(accountPublicKey) : undefined;
+    if (failed) {
+      txId = failed.id;
+      return;
+    }
     txId = await initiateReplaceHotKeyTransaction(accountPublicKey, isDelegateProofEnabled(), zustandProvider);
   });
+  if (deferred) return null;
   if (txId === null) {
     throw new Error('Hot-key rotation lock callback did not produce a transaction id');
   }
@@ -104,7 +140,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const { signTransaction } = useMidenContext();
   const [txId, setTxId] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
-  const inFlightRef = useRef<Promise<string> | null>(null);
+  const inFlightRef = useRef<Promise<string | null> | null>(null);
   const { row } = useTransactionRow(txId ?? '');
 
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
@@ -122,8 +158,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting);
       try {
         const id = await inFlightRef.current;
-        setTxId(id);
-        if (isExtension()) requestSWTransactionProcessing();
+        if (id !== null) {
+          setTxId(id);
+          if (isExtension()) requestSWTransactionProcessing();
+        }
       } catch (e) {
         setInitError(e instanceof Error ? e.message : String(e));
       } finally {

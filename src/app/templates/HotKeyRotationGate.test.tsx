@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -11,9 +11,12 @@ import { HotKeyRotationGate } from './HotKeyRotationGate';
 const mockInitiate = jest.fn();
 const mockRequestSW = jest.fn();
 const mockLoop = jest.fn();
-const mockRepoFirst = jest.fn();
-const mockRepoModify = jest.fn();
 const mockUseTransactionRow = jest.fn();
+// The transactions table the gate reads, with its filters applied for real: the rotation
+// and its funding claim are told apart by predicate (#805), so a stub that ignored them
+// would answer every query with the same row.
+type TableRow = Pick<ITransaction, 'id' | 'type' | 'accountId' | 'status' | 'initiatedAt'> & Partial<ITransaction>;
+let mockTable: TableRow[] = [];
 
 let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
@@ -56,9 +59,10 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: () => ({
-      first: () => mockRepoFirst(),
-      modify: (fn: (r: unknown) => void) => mockRepoModify(fn)
+    filter: (predicate: (row: TableRow) => boolean) => ({
+      first: async () => mockTable.find(predicate),
+      toArray: async () => mockTable.filter(predicate),
+      modify: async (change: (row: TableRow) => void) => mockTable.filter(predicate).forEach(change)
     })
   }
 }));
@@ -89,8 +93,16 @@ jest.mock('components/ui/Spinner', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    'data-testid': testId
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    'data-testid'?: string;
+  }) => (
+    <button type="button" data-testid={testId} onClick={onClick}>
       {children}
     </button>
   )
@@ -98,13 +110,36 @@ jest.mock('components/Button', () => ({
 
 const flaggedAccount = { publicKey: 'account-1', requiresHotKeyRotation: true };
 
+const rotationRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
+  id,
+  type: 'replace-hot-key',
+  accountId: 'account-1',
+  status: ITransactionStatus.Queued,
+  initiatedAt: 100,
+  ...extra
+});
+const fundingRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
+  id,
+  type: 'consume',
+  accountId: 'account-1',
+  status: ITransactionStatus.Queued,
+  initiatedAt: 200,
+  rotationFunding: true,
+  noteIds: ['note-1'],
+  ...extra
+});
+const shortfallRow = rotationRow('tx-shortfall', {
+  status: ITransactionStatus.Failed,
+  completedAt: 150,
+  error: 'assertion failed with error code: 644413868907058392'
+});
+
 describe('HotKeyRotationGate', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     storeState = { currentAccount: flaggedAccount };
     loopLockHeld = false;
-    mockRepoFirst.mockResolvedValue(undefined);
-    mockRepoModify.mockResolvedValue(0);
+    mockTable = [];
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
     mockUseTransactionRow.mockReturnValue({ row: undefined, loaded: true });
@@ -145,7 +180,7 @@ describe('HotKeyRotationGate', () => {
   });
 
   it('adopts an existing pending rotation row instead of initiating a new one', async () => {
-    mockRepoFirst.mockResolvedValue({ id: 'tx-existing', status: ITransactionStatus.Queued });
+    mockTable = [rotationRow('tx-existing')];
 
     render(<HotKeyRotationGate />);
 
@@ -154,23 +189,25 @@ describe('HotKeyRotationGate', () => {
   });
 
   it('requeues orphaned in-progress rows before adopting when no generation loop is running', async () => {
-    mockRepoFirst.mockResolvedValue({ id: 'tx-orphan', status: ITransactionStatus.GeneratingTransaction });
+    mockTable = [
+      rotationRow('tx-orphan', { status: ITransactionStatus.GeneratingTransaction, processingStartedAt: 5 })
+    ];
 
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-orphan'));
-    expect(mockRepoModify).toHaveBeenCalledTimes(1);
+    expect(mockTable[0]).toMatchObject({ status: ITransactionStatus.Queued, processingStartedAt: undefined });
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
   it('does not requeue in-progress rows while another surface holds the loop lock', async () => {
     loopLockHeld = true;
-    mockRepoFirst.mockResolvedValue({ id: 'tx-live', status: ITransactionStatus.GeneratingTransaction });
+    mockTable = [rotationRow('tx-live', { status: ITransactionStatus.GeneratingTransaction })];
 
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-live'));
-    expect(mockRepoModify).not.toHaveBeenCalled();
+    expect(mockTable[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
@@ -180,17 +217,17 @@ describe('HotKeyRotationGate', () => {
       loaded: true
     });
 
+    mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
+
     render(<HotKeyRotationGate />);
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
 
     expect(screen.getByText('hotKeyRotationFailedTitle')).toBeInTheDocument();
     expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
 
-    // Retry must NOT adopt the failed row — a new transaction is enqueued.
-    mockRepoFirst.mockClear();
+    // Failed rows are terminal: Retry enqueues a new transaction instead of adopting it.
     fireEvent.click(screen.getByText('hotKeyRotationRetry'));
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(2));
-    expect(mockRepoFirst).not.toHaveBeenCalled();
   });
 
   it('falls back to a generic failure message when the row has no error text', async () => {
@@ -212,5 +249,85 @@ describe('HotKeyRotationGate', () => {
     rerender(<HotKeyRotationGate />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe('serialized with the funding claim (#805)', () => {
+    it('defers the rotation on mount while the gate funding claim is live', async () => {
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalled());
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(mockInitiate).not.toHaveBeenCalled();
+      expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
+      expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+    });
+
+    it('defers a Retry while the funding claim is live', async () => {
+      mockUseTransactionRow.mockReturnValue({
+        row: { id: 'tx-new', status: ITransactionStatus.Failed, error: 'guardian unreachable' },
+        loaded: true
+      });
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+
+      mockTable = [fundingRow('claim-1')];
+      fireEvent.click(screen.getByText('hotKeyRotationRetry'));
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('adopts the prior shortfall on mount when no claim completed after it', async () => {
+      mockTable = [
+        fundingRow('claim-old', { status: ITransactionStatus.Completed, initiatedAt: 20, completedAt: 50 }),
+        shortfallRow
+      ];
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-shortfall'));
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
+    it('queues a fresh rotation on Retry instead of adopting the shortfall again', async () => {
+      mockTable = [shortfallRow];
+      mockUseTransactionRow.mockImplementation((txId: string) => ({
+        row: txId === 'tx-shortfall' ? shortfallRow : undefined,
+        loaded: true
+      }));
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-shortfall'));
+
+      fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('queues a fresh rotation on mount once a claim completed after the shortfall', async () => {
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-new');
+    });
+
+    it('does not adopt a rotation that failed for another reason, or only the older of two', async () => {
+      mockTable = [
+        shortfallRow,
+        rotationRow('tx-later', { status: ITransactionStatus.Failed, initiatedAt: 160, error: 'guardian unreachable' })
+      ];
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
+    });
   });
 });
