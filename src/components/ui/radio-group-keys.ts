@@ -11,8 +11,8 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  * selecting the first option for a key nobody asked to move. Home and End are absolute and ignore
  * `origin`. Returns `null` for an unhandled key and for `enabledCount` 0 (nothing to land on).
  *
- * LanguageSettings' radiogroup (`app/templates/LanguageSettings.tsx`) is the one group that does not
- * call this: its arrows move focus without selecting, it has no Home or End, and its origin is
+ * LanguageSettings' radiogroup (`app/templates/LanguageSettings.tsx`) keeps its own handler on
+ * purpose: its arrows move focus without selecting, it has no Home or End, and its origin is
  * always the focused row - there is no enabled-position walk or no-origin case to share.
  */
 export function radioGroupKeyTarget(key: string, enabledCount: number, origin: number): number | null {

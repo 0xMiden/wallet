@@ -147,7 +147,8 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
  *
  * The chosen card takes an inset `accent` ring and the mark fills with a check. Not the raised
  * bubble: raised is for compact toggles, and cards stay flat (design-system.md, "Elevation"). The
- * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way:
+ * behaviour is the `SegmentedControl`'s: ChoiceCardGroup and SegmentedControl, which share
+ * `radioGroupKeyTarget`, answer the same way:
  * a `radiogroup` of `radio`s, a `value` naming a disabled option reported as no selection, only the
  * chosen (or first choosable) option in the tab order, arrow keys and Home/End moving focus and the
  * choice together (the first arrow landing on the first option with nothing chosen and nothing focused), one
