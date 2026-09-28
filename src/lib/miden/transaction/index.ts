@@ -1292,10 +1292,10 @@ const generateTransactionWithProvider = async (
       }
       // A canonicalization refusal after submit ("Refusing to overwrite local state: ...", which
       // the multisig client's syncState throws when the guardian's view has the local nonce with
-      // another commitment, or does not match the chain): the on-chain tx is fine, only the local
-      // sync refused. Mark Completed so the user sees the success state; the next sync tick
-      // reconciles. Only value-moving rows get here: the structural reconcile arm above
-      // reconciles or fails every structural row first.
+      // another commitment, or does not match the chain; a guardian behind local is kept
+      // quietly): the on-chain tx is fine, only the local sync refused. Mark Completed so the
+      // user sees the success state; the next sync tick reconciles. Only value-moving rows get
+      // here: the structural reconcile arm above reconciles or fails every structural row first.
       if (isGuardianCanonicalizationError(error)) {
         console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
