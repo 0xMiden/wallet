@@ -65,11 +65,17 @@ const GUARDIAN_KEYS_FIXTURE = {
 const mockCreateGuardianMidenWallet = jest.fn(
   async (
     _seed: Uint8Array,
-    _guardianEndpoint?: string,
+    _createKey?: { guardianEndpoint: string },
     _assertLive?: (step?: string) => void
-  ): Promise<{ accountId: string; keys: typeof GUARDIAN_KEYS_FIXTURE; guardianEndpoint?: string }> => ({
+  ): Promise<{
+    accountId: string;
+    keys: typeof GUARDIAN_KEYS_FIXTURE;
+    guardianEndpoint?: string;
+    registration?: { stateBase64: string };
+  }> => ({
     accountId: 'guardian-acc-1',
-    keys: GUARDIAN_KEYS_FIXTURE
+    keys: GUARDIAN_KEYS_FIXTURE,
+    registration: { stateBase64: 'state' }
   })
 );
 const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
@@ -220,9 +226,13 @@ const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEnd
 // account via getGuardianCommitmentFromAccount; mock it so tests drive the
 // resolve / no-commitment branches.
 const mockGetGuardianCommitmentFromAccount = jest.fn();
+const mockFetchGuardianCreateKey = jest.fn();
+const mockRegisterGuardianAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   getGuardianCommitmentFromAccount: (...a: unknown[]) => mockGetGuardianCommitmentFromAccount(...a),
+  fetchGuardianCreateKey: (...a: unknown[]) => mockFetchGuardianCreateKey(...a),
+  registerGuardianAccount: (...a: unknown[]) => mockRegisterGuardianAccount(...a),
   resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
 }));
 
@@ -479,8 +489,16 @@ beforeEach(() => {
   mockMidenClient.createMidenWallet.mockResolvedValue('acc-pub-key-1');
   mockMidenClient.createGuardianMidenWallet.mockResolvedValue({
     accountId: 'guardian-acc-1',
-    keys: GUARDIAN_KEYS_FIXTURE
+    keys: GUARDIAN_KEYS_FIXTURE,
+    registration: { stateBase64: 'state' }
   });
+  mockFetchGuardianCreateKey.mockReset().mockImplementation(async (endpoint?: string) => ({
+    guardianEndpoint: endpoint ?? 'https://default.guardian',
+    guardianCommitment: 'c',
+    guardianPubkey: 'p',
+    rateLimitBudgetLeftMs: 90_000
+  }));
+  mockRegisterGuardianAccount.mockReset().mockResolvedValue(undefined);
   mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValue([
     {
       accountId: 'guardian-acc-imported',
@@ -3148,9 +3166,10 @@ describe('Vault hardware branches', () => {
       false,
       'https://picked-guardian.example'
     );
+    expect(mockFetchGuardianCreateKey).toHaveBeenCalledWith('https://picked-guardian.example');
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://picked-guardian.example',
+      expect.objectContaining({ guardianEndpoint: 'https://picked-guardian.example' }),
       expect.any(Function)
     );
   });
@@ -3223,19 +3242,27 @@ describe('Vault hardware branches', () => {
     expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ publicKey: 'guardian-acc-1', guardianEndpoint: 'https://first-guardian.example' })
     );
-    // …and threaded into the second account's creation. Previously this 2nd arg
-    // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
-    // global key — the regression stage 1 would otherwise introduce.
+    // …and threaded into the second account's creation as fetchGuardianCreateKey's
+    // endpoint override: without it the fetch binds to the network default instead
+    // of the sibling's operator, the regression stage 1 guards against.
+    const [fetchEndpoint, fetchAssertLive] = mockFetchGuardianCreateKey.mock.lastCall ?? [];
+    expect(fetchEndpoint).toBe('https://resolved-from-sibling.example');
+    // The second argument is the vault's own sink check: silent while the vault is live,
+    // a locked refusal once a lock retires it.
+    expect(fetchAssertLive).not.toThrow();
+    vlt.retire();
+    expect(fetchAssertLive).toThrow('Wallet is locked');
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
-      'https://resolved-from-sibling.example',
+      expect.objectContaining({ guardianEndpoint: 'https://resolved-from-sibling.example' }),
       expect.any(Function)
     );
   });
 
-  // Guardian creation waits out guardian 429s inside the hold, and an evicted
-  // flow is abandoned, not cancelled: the hold hands the creation a re-check
-  // bound to itself, live while it owns the mutex and poisoned once it does not.
+  // Guardian creation parks inside the hold (the hot key, the account build,
+  // the sync), and an evicted flow is abandoned, not cancelled: the hold
+  // hands the creation a re-check bound to itself, live while it owns the mutex
+  // and poisoned once it does not.
   describe('Guardian creation re-checks its own hold (#906)', () => {
     const recordAssertLive = () => {
       const outcomes: unknown[] = [];
@@ -3247,7 +3274,7 @@ describe('Vault hardware branches', () => {
           outcomes.push(error);
         }
       };
-      mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async (_seed, _endpoint, assertLive) => {
+      mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async (_seed, _createKey, assertLive) => {
         probe(assertLive);
         revokeWasmHold();
         probe(assertLive);
@@ -3271,6 +3298,77 @@ describe('Vault hardware branches', () => {
       await vlt.createHDAccount(WalletType.Guardian, 'Guardian 1');
       expect(outcomes[0]).toBe('live');
       expect(outcomes[1]).toBeInstanceOf(WasmClientPoisonedError);
+    });
+  });
+
+  // The guardian's 429 waits (up to 90 s) must not block the realm's other
+  // client work, and a failed registration must leave no entry in the vault's
+  // account list (#1207).
+  describe('Guardian creation keeps its guardian calls outside the WASM hold (#1207)', () => {
+    const getCurrentWasmLockHoldForTests = () => currentWasmHold;
+    // Storage keys are hashed, so the account's write is read back through the store.
+    const accountWritten = () => isStored(keys.accPubKey('guardian-acc-1'));
+
+    it.each<'spawn' | 'createHDAccount'>(['spawn', 'createHDAccount'])(
+      '%s fetches the guardian key and registers with no WASM hold, before any vault write',
+      async path => {
+        const holdAt: Record<string, boolean> = {};
+        mockFetchGuardianCreateKey.mockImplementationOnce(async (endpoint?: string) => {
+          holdAt.fetch = getCurrentWasmLockHoldForTests() !== null;
+          return {
+            guardianEndpoint: endpoint ?? 'https://default.guardian',
+            guardianCommitment: 'c',
+            guardianPubkey: 'p',
+            rateLimitBudgetLeftMs: 90_000
+          };
+        });
+        mockRegisterGuardianAccount.mockImplementationOnce(async () => {
+          holdAt.register = getCurrentWasmLockHoldForTests() !== null;
+          holdAt.accountWritten = await accountWritten();
+        });
+        if (path === 'spawn') {
+          await Vault.spawn(WalletType.Guardian, 'pw-1207', VALID_MNEMONIC, false, 'https://picked.example');
+        } else {
+          const vlt = await Vault.spawn(WalletType.OnChain, 'pw-1207');
+          await vlt.createHDAccount(WalletType.Guardian, 'Guardian 1');
+        }
+        expect(holdAt).toEqual({ fetch: false, register: false, accountWritten: false });
+        // The account is written once registration succeeds.
+        expect(await accountWritten()).toBe(true);
+      }
+    );
+
+    it('takes no creation hold when the guardian key fetch fails', async () => {
+      mockFetchGuardianCreateKey.mockRejectedValueOnce(new Error('Failed to create Guardian account'));
+      Reflect.set(globalThis, '__vaultTestLockLabels', []);
+      await expect(
+        Vault.spawn(WalletType.Guardian, 'pw-1207-fail', VALID_MNEMONIC, false, 'https://down.example')
+      ).rejects.toThrow();
+      const lockLabels: unknown = Reflect.get(globalThis, '__vaultTestLockLabels');
+      expect(lockLabels).not.toContain('vault-spawn');
+      expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+      expect(mockFetchGuardianCreateKey).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes no account when the registration fails', async () => {
+      const vlt = await Vault.spawn(WalletType.OnChain, 'pw-1207-reg');
+      const before = await vlt.fetchAccounts();
+      mockRegisterGuardianAccount.mockRejectedValueOnce(new Error('Failed to create Guardian account'));
+      await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).rejects.toThrow();
+      expect(await vlt.fetchAccounts()).toEqual(before);
+      expect(mockRegisterGuardianAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not register after an eviction in the create hold', async () => {
+      const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const vlt = await Vault.spawn(WalletType.OnChain, 'pw-1207-evict');
+      mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async () => {
+        throw new WasmClientPoisonedError('watchdog', new Error('evicted'));
+      });
+      await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).rejects.toBeInstanceOf(
+        WasmClientPoisonedError
+      );
+      expect(mockRegisterGuardianAccount).not.toHaveBeenCalled();
     });
   });
 
@@ -3966,6 +4064,34 @@ describe('insert-performing holds after a lock (#878)', () => {
     const vault = await seedVault('pw');
     lockLandedWhileQueued(vault);
     await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
+    // Refused before the key fetch, whose 429 waits run with no hold.
+    expect(mockFetchGuardianCreateKey).not.toHaveBeenCalled();
+    expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount(Guardian) refuses as locked after a key-fetch wait during which a lock landed', async () => {
+    const vault = await seedVault('pw');
+    let refusal: unknown;
+    // Stands in for a 429 wait: the fetch runs its caller's check after each one.
+    mockFetchGuardianCreateKey.mockImplementationOnce(async (endpoint: string | undefined, assertLive: () => void) => {
+      assertLive();
+      lockLandedWhileQueued(vault);
+      try {
+        assertLive();
+      } catch (error) {
+        refusal = error;
+        throw error;
+      }
+      return {
+        guardianEndpoint: endpoint ?? 'https://default.guardian',
+        guardianCommitment: 'c',
+        guardianPubkey: 'p',
+        rateLimitBudgetLeftMs: 90_000
+      };
+    });
+
+    await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
+    expect(refusal).toMatchObject({ reason: 'locked' });
     expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
   });
 

@@ -367,7 +367,7 @@ const Welcome: FC = () => {
     // ChooseGuardian / ImportRecoveryMethod screens, which the bypass skips — so
     // thread it from the `guardianUrl` param the E2E helper passes. register()
     // forwards it as the guardianEndpoint override, exactly like the real picker,
-    // so createGuardianAccount (create) and Vault.spawn's recovery scan (import)
+    // so fetchGuardianCreateKey (create) and Vault.spawn's recovery scan (import)
     // bind to it rather than the retired global GUARDIAN_URL_STORAGE_KEY read
     // (#408 stage 3). Only meaningful for a Guardian wallet.
     const bypassGuardianUrl = params.get('guardianUrl') || undefined;

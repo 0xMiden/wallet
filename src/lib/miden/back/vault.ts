@@ -69,10 +69,12 @@ import {
   getRecoveryAction,
   isRecoveryTransaction
 } from './recovery-authorization';
-import type { CreatedGuardianKeys } from '../guardian/account';
+import type { CreatedGuardianKeys, GuardianCreateKey, PendingGuardianRegistration } from '../guardian/account';
 import {
+  fetchGuardianCreateKey,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
+  registerGuardianAccount,
   resolveGuardianEndpoint
 } from '../guardian/account';
 import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
@@ -1024,6 +1026,12 @@ export class Vault {
           recoveredCold: { coldPublicKey: r.coldPublicKey, coldSecretKeyHex: r.coldSecretKeyHex }
         }));
       } else {
+        // The guardian's key is fetched, and the account registered, with no hold: their 429
+        // waits must not block the realm's other client work (#1207). The picked endpoint
+        // (stage 1 of #408) is the override; undefined falls back to the network default,
+        // never the frozen global key, for NEW accounts (#408 stage 3).
+        const guardianCreateKey =
+          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint) : undefined;
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
           async (
@@ -1034,6 +1042,7 @@ export class Vault {
             keyDerivation: KeyDerivation;
             guardianKeys?: CreatedGuardianKeys;
             guardianEndpoint?: string;
+            guardianRegistration?: PendingGuardianRegistration;
           }> => {
             // Re-resolved now that the lock is held — the reference taken before
             // queueing may have been disposed by recovery in the meantime (#775).
@@ -1046,19 +1055,15 @@ export class Vault {
             // it provably pre-write: no account exists until the create/import
             // calls, and the vault writes happen after the lock releases.
             assertWasmHoldCurrent(hold, 'in Vault.spawn after the client build');
-            if (walletType === WalletType.Guardian) {
+            if (guardianCreateKey) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await client.syncState();
               // The sync parks on the network; an abandoned flow must not go on
               // to mint a guardian account nobody is waiting for.
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
-              // Pass the caller's picked endpoint (stage 1 of #408) as the
-              // override; createGuardianAccount falls back to the network default
-              // when it is undefined (it no longer consults the frozen global key
-              // for NEW accounts — #408 stage 3).
-              // Creation waits out guardian 429s inside this hold, so it re-checks
-              // ownership after each of its own parking awaits.
-              const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint, step =>
+              // Creation parks inside this hold (the hot key, the account build,
+              // its sync), so it re-checks ownership after each of those awaits.
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
                 assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
               );
               // Guardian accounts are always ECDSA under the 3-key model.
@@ -1067,7 +1072,8 @@ export class Vault {
                 accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
                 keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
                 guardianKeys: result.keys,
-                guardianEndpoint: result.guardianEndpoint
+                guardianEndpoint: result.guardianEndpoint,
+                guardianRegistration: result.registration
               };
             }
 
@@ -1160,6 +1166,10 @@ export class Vault {
           },
           { label: 'vault-spawn' }
         );
+        // Before the account writes: a failed registration leaves the account in the SDK store and its
+        // cold key where the insert-key sink stored it, but no entry in the vault's account list
+        // (harmless: the cold key is HD-derived and a retry rewrites it).
+        if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
         createdAccounts = [
           {
             accountId: created.accountId,
@@ -1755,7 +1765,7 @@ export class Vault {
       // but stays correct for non-default ones now that onboarding threads the
       // endpoint per-account instead of writing the global key (#408 stage 1).
       // undefined when there is no existing Guardian account, in which case
-      // createGuardianAccount binds to the network default — the frozen global
+      // fetchGuardianCreateKey binds to the network default - the frozen global
       // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
       // unreachable: a custom global key is only ever written by pre-stage-1
       // Guardian onboarding, which always creates a sibling Guardian account.)
@@ -1764,6 +1774,14 @@ export class Vault {
       const guardianEndpoint = existingGuardianAccount
         ? await resolveGuardianEndpoint(existingGuardianAccount)
         : undefined;
+      // Fetched with no hold, and registered after it, as in Vault.spawn (#1207). Its 429 waits are
+      // long, so a lock that landed while this creation queued refuses it before the fetch, and one
+      // that lands during a wait refuses it after that wait, as the hold's own check would.
+      let guardianCreateKey: GuardianCreateKey | undefined;
+      if (walletType === WalletType.Guardian) {
+        this.assertRealmSinkIsMine();
+        guardianCreateKey = await fetchGuardianCreateKey(guardianEndpoint, () => this.assertRealmSinkIsMine());
+      }
 
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
@@ -1785,6 +1803,7 @@ export class Vault {
           keyDerivation: KeyDerivation;
           guardianKeys?: CreatedGuardianKeys;
           guardianEndpoint?: string;
+          guardianRegistration?: PendingGuardianRegistration;
         }> => {
           this.assertRealmSinkIsMine();
           console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
@@ -1800,17 +1819,18 @@ export class Vault {
           assertWasmHoldCurrent(hold, 'in createHDAccount after the client build');
           console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
 
-          if (walletType === WalletType.Guardian) {
+          if (guardianCreateKey) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            // Same re-check as Vault.spawn's: creation's 429 waits park inside this hold.
-            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint, step =>
+            // Same re-check as Vault.spawn's: creation parks inside this hold.
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
               assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
             );
             return {
               accountId: result.accountId,
               keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
               guardianKeys: result.keys,
-              guardianEndpoint: result.guardianEndpoint
+              guardianEndpoint: result.guardianEndpoint,
+              guardianRegistration: result.registration
             };
           }
 
@@ -1885,6 +1905,10 @@ export class Vault {
         },
         { label: 'vault-create-hd-account' }
       );
+      // Before the account writes, as in Vault.spawn: a failed registration leaves the SDK account and
+      // its cold key, but no entry in the vault's account list (harmless: the cold key is HD-derived
+      // and a retry rewrites it).
+      if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
