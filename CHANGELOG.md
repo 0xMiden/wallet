@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [FIX][extension] A recovered wallet opens in the side panel on its first Open wallet tap, as a new one does: a seed-phrase recovery registers while the confirmation screen shows, and the device-key rotation continues in the panel instead of holding a second "Your wallet is ready!" screen; the recovery confirmation no longer shows the create flow's write-it-down reminders (#1097)
+- [FIX][all] A recovered wallet opens in the side panel on its first Open wallet tap, as a new one does: a seed-phrase recovery registers while the confirmation screen shows, and the device-key rotation runs in the panel instead of holding a second "Your wallet is ready!" screen; the recovery confirmation no longer shows the create flow's write-it-down reminders (#1097)
 - [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
