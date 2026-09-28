@@ -413,7 +413,7 @@ describe('instant balance loading', () => {
     expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
   });
 
-  it('gives the placeholder row its faucet\'s quote when that faucet is priced', async () => {
+  it("gives the placeholder row its faucet's quote when that faucet is priced", async () => {
     jest.mocked(getNativeAssetIdSync).mockImplementation(() => MIDEN_USDC_FAUCET);
     try {
       testContainer = document.createElement('div');
