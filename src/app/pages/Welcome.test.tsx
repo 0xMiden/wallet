@@ -3248,50 +3248,6 @@ describe('Welcome — side-panel handoff', () => {
     expect(creatingOnConfirmation).not.toContain(false);
   });
 
-  it('leaves a Confirmation tapped before the auto-create starts to that tap', async () => {
-    mockCanHandoff = true;
-    let finishRegistration: () => void = () => undefined;
-    mockRegisterWallet.mockReturnValue(
-      new Promise<void>(resolve => {
-        finishRegistration = resolve;
-      })
-    );
-    await renderWelcome();
-    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    mockNavigate.mockClear();
-
-    // Arrive with a render slow enough that the scheduler yields between the commit that shows Confirmation and
-    // that commit's passive effects, and tap in that gap, before the auto-create effect runs. The registration stays
-    // open, or the whole attempt would finish inside that yield and the effect would find nothing in flight.
-    let tap: Promise<void> | undefined;
-    await outsideAct(async () => {
-      mockOnFlowRender.current = props => {
-        if (props.step !== OnboardingStep.Confirmation) return;
-        mockOnFlowRender.current = null;
-        outlastSchedulerFrame();
-        queueMicrotask(() => {
-          tap = props.onAction({ id: 'confirmation' });
-        });
-      };
-      mockHash = '#confirmation';
-      mockFlowProps.current.onBiometricChange(!mockFlowProps.current.useBiometric);
-      // The tap's loading state renders only after the arrival's passive effects, the auto-create among them, ran.
-      await waitFor(() => expect(mockFlowProps.current.isLoading).toBe(true));
-    });
-    expect(tap).toBeDefined();
-
-    await act(async () => {
-      finishRegistration();
-      await tap;
-    });
-
-    // The tap's attempt is the only one: the auto-create stood down rather than start a second.
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
-    expect(mockFlowProps.current.confirmCreating).toBe(false);
-  });
-
   it('keeps an Import on Confirmation while it auto-registers, so no Create flow or second attempt starts', async () => {
     mockCanHandoff = true;
     let failImport: (error: Error) => void = () => undefined;

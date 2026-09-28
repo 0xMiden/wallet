@@ -556,18 +556,11 @@ const Welcome: FC = () => {
     !!password &&
     password !== '__HARDWARE_ONLY__' &&
     !!seedPhrase &&
-    !walletFilePayload &&
-    !attemptInFlightRef.current;
+    !walletFilePayload;
   // The `confirmPhase !== 'idle'` guard makes this fire at most once per visit even though
   // `register` is (correctly) in the dependency array.
   useEffect(() => {
     if (!autoRegisterDue || confirmPhase !== 'idle') return;
-    // An attempt started after the render that decided this, and before this effect, keeps the visit: leave it to
-    // that attempt, which is the classic tap flow, rather than start a second one.
-    if (attemptInFlightRef.current) {
-      setConfirmPhase('failed');
-      return;
-    }
 
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
