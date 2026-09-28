@@ -997,6 +997,24 @@ describe('account switch (#174)', () => {
     error.mockRestore();
   });
 
+  it('a listener that disconnects from the connect emission leaves no poll', async () => {
+    const win = makeWindow();
+    inject(win);
+    const w = win.midenWallet;
+    let disconnecting: Promise<unknown> | undefined;
+    w.on('connect', () => {
+      if (!disconnecting) disconnecting = w.disconnect();
+    });
+    await callAndResolve(win, () => w.connect('ALL', 'testnet', ['balance']), CONNECT);
+    const reqId = lastMessage(win).reqId;
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(0);
+    respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    await disconnecting;
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(0);
+  });
+
   it('a poll that times out is followed by the next one', async () => {
     const win = await connectedOnTestnet();
     jest.advanceTimersByTime(10000);
@@ -1005,5 +1023,189 @@ describe('account switch (#174)', () => {
     await flush();
     jest.advanceTimersByTime(10000);
     expect(polls(win)).toHaveLength(2);
+  });
+
+  describe('a disconnect ends the connection (#1227)', () => {
+    const disconnects = (win: FakeWindow) =>
+      sentMessages(win).filter(
+        ({ payload }) =>
+          typeof payload === 'object' && payload !== null && 'type' in payload && payload.type === 'DISCONNECT_REQUEST'
+      );
+    const answerDisconnect = (win: FakeWindow, reqId: string) =>
+      respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    const refuseDisconnect = (win: FakeWindow, reqId: string) =>
+      respond(win, reqId, { type: 'MIDEN_PAGE_ERROR_RESPONSE', error: 'NOT_FOUND' });
+
+    it.each([
+      ['refuses', 'NOT_FOUND', (win: FakeWindow) => refuseDisconnect(win, lastMessage(win).reqId)],
+      ['never answers', 'Request timeout', () => jest.advanceTimersByTime(300000)]
+    ])(
+      'a disconnect the wallet %s still clears the account, signals once and polls no more',
+      async (_, error, settle) => {
+        const win = await connectedOnTestnet();
+        const onDisconnect = jest.fn();
+        win.midenWallet.on('disconnect', onDisconnect);
+        const disconnecting = win.midenWallet.disconnect();
+        settle(win);
+        await expect(disconnecting).rejects.toThrow(error);
+        expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
+          undefined,
+          undefined,
+          undefined
+        ]);
+        expect(onDisconnect).toHaveBeenCalledTimes(1);
+        jest.advanceTimersByTime(60000);
+        expect(polls(win)).toHaveLength(0);
+      }
+    );
+
+    it('a disconnect listener that disconnects again is refused once and signals nothing more', async () => {
+      const win = await connectedOnTestnet();
+      const again: Promise<unknown>[] = [];
+      const onDisconnect = jest.fn(() => {
+        again.push(win.midenWallet.disconnect());
+      });
+      win.midenWallet.on('disconnect', onDisconnect);
+      const disconnecting = win.midenWallet.disconnect();
+      answerDisconnect(win, lastMessage(win).reqId);
+      await disconnecting;
+      refuseDisconnect(win, lastMessage(win).reqId);
+      await expect(again[0]).rejects.toThrow('NOT_FOUND');
+      await flush();
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+      expect(disconnects(win)).toHaveLength(2);
+    });
+
+    it('after a switch to an account that never connected here, a refused disconnect signals nothing more', async () => {
+      const win = await connectedOnTestnet();
+      const onDisconnect = jest.fn();
+      win.midenWallet.on('disconnect', onDisconnect);
+      await answerPoll(win, null);
+      const disconnecting = win.midenWallet.disconnect();
+      refuseDisconnect(win, lastMessage(win).reqId);
+      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      expect(onDisconnect).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(60000);
+      expect(polls(win)).toHaveLength(1);
+    });
+
+    it('a disconnect listener that throws does not replace the error of a refused disconnect', async () => {
+      const win = await connectedOnTestnet();
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      win.midenWallet.on('disconnect', () => {
+        throw new Error('listener failed');
+      });
+      const disconnecting = win.midenWallet.disconnect();
+      refuseDisconnect(win, lastMessage(win).reqId);
+      await expect(disconnecting).rejects.toThrow('NOT_FOUND');
+      expect(win.midenWallet.address).toBeUndefined();
+      error.mockRestore();
+    });
+
+    it('two overlapping disconnects signal once, and the refused one still rejects', async () => {
+      const win = await connectedOnTestnet();
+      const onDisconnect = jest.fn();
+      win.midenWallet.on('disconnect', onDisconnect);
+      const first = win.midenWallet.disconnect();
+      const second = win.midenWallet.disconnect();
+      const [firstReq, secondReq] = disconnects(win).map(m => m.reqId);
+      answerDisconnect(win, firstReq!);
+      await first;
+      refuseDisconnect(win, secondReq!);
+      await expect(second).rejects.toThrow('NOT_FOUND');
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+    });
+
+    // A fresh wallet whose connect() is still waiting for its answer when disconnect() runs.
+    function connectingThenDisconnecting() {
+      const win = makeWindow();
+      inject(win);
+      const onConnect = jest.fn();
+      const onDisconnect = jest.fn();
+      win.midenWallet.on('connect', onConnect);
+      win.midenWallet.on('disconnect', onDisconnect);
+      const connecting = win.midenWallet.connect('ALL', 'testnet', ['balance']);
+      const connectReq = lastMessage(win).reqId;
+      const disconnecting = win.midenWallet.disconnect();
+      const disconnectReq = lastMessage(win).reqId;
+      return {
+        win,
+        connecting,
+        disconnecting,
+        answerConnect: () => respond(win, connectReq, { type: 'MIDEN_PAGE_RESPONSE', payload: CONNECT }),
+        answerDisconnect: () => answerDisconnect(win, disconnectReq),
+        expectNothingStarted: () => {
+          jest.advanceTimersByTime(10000);
+          expect(polls(win)).toHaveLength(0);
+          expect([win.midenWallet.address, win.midenWallet.publicKey, win.midenWallet.permission]).toEqual([
+            undefined,
+            undefined,
+            undefined
+          ]);
+          expect(onConnect).not.toHaveBeenCalled();
+          expect(onDisconnect).not.toHaveBeenCalled();
+        }
+      };
+    }
+
+    it('a connect answered after the disconnect it overlapped rejects and starts nothing', async () => {
+      const race = connectingThenDisconnecting();
+      race.answerDisconnect();
+      await race.disconnecting;
+      race.answerConnect();
+      await expect(race.connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      race.expectNothingStarted();
+    });
+
+    it('a connect answered while the disconnect it overlapped is pending rejects and starts nothing', async () => {
+      const race = connectingThenDisconnecting();
+      race.answerConnect();
+      await expect(race.connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      race.answerDisconnect();
+      await race.disconnecting;
+      race.expectNothingStarted();
+    });
+
+    it('a connect begun after a disconnect connects once the disconnect settles', async () => {
+      const win = await connectedOnTestnet();
+      const disconnecting = win.midenWallet.disconnect();
+      const disconnectReq = lastMessage(win).reqId;
+      const connecting = win.midenWallet.connect('ALL', 'testnet', ['balance']);
+      const connectReq = lastMessage(win).reqId;
+      answerDisconnect(win, disconnectReq);
+      await disconnecting;
+      respond(win, connectReq, { type: 'MIDEN_PAGE_RESPONSE', payload: CONNECT });
+      await expect(connecting).resolves.toMatchObject({ address: '0xabc' });
+      expect(win.midenWallet.address).toBe('0xabc');
+      jest.advanceTimersByTime(10000);
+      expect(polls(win)).toHaveLength(1);
+    });
+
+    // A disconnect the bridge drops never reaches the wallet's queue, so a later connect is answered first.
+    it('a disconnect that times out after a later connect was answered ends that connection and its watch', async () => {
+      const win = await connectedOnTestnet();
+      const onDisconnect = jest.fn();
+      const onAccountChange = jest.fn();
+      win.midenWallet.on('disconnect', onDisconnect);
+      win.midenWallet.on('accountChange', onAccountChange);
+      const disconnecting = win.midenWallet.disconnect();
+      await expect(
+        callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT)
+      ).resolves.toMatchObject({ address: '0xabc' });
+      jest.advanceTimersByTime(300000);
+      await expect(disconnecting).rejects.toThrow('Request timeout');
+      expect(win.midenWallet.address).toBeUndefined();
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+      expect(polls(win)).toHaveLength(1);
+      respond(win, polls(win)[0]!.reqId, {
+        type: 'MIDEN_PAGE_RESPONSE',
+        payload: { type: 'GET_CURRENT_PERMISSION_RESPONSE', permission: { ...PERM, address: '0xdef' } }
+      });
+      await flush();
+      expect(win.midenWallet.address).toBeUndefined();
+      expect(onAccountChange).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(60000);
+      expect(polls(win)).toHaveLength(1);
+    });
   });
 });
