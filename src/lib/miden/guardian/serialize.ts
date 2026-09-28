@@ -121,10 +121,12 @@ export function guardianRetryAfterSec(err: unknown): number | undefined {
   return isCooldownSecs(raw) ? raw : undefined;
 }
 
-// Backoff for re-registering an account on its guardian after a key/guardian
-// rotation (consumed by `registerOnGuardianWithRetry` in ./index). Right after
-// the guardian accepts a rotation delta it can reject `/configure` for a few
-// seconds while it canonicalizes the new state; the capped exponential sequence
+// Backoff between guardian register attempts: the rotation re-register
+// (`registerOnGuardianWithRetry` in ./index), the direct switch, the 429 waits of
+// `withGuardianRateLimitRetry` below, and Guardian creation's retry of a timed-out
+// registration (./account). Right after the guardian accepts a rotation delta it
+// can reject `/configure` for a few seconds while it canonicalizes the new state;
+// the capped exponential sequence
 // (1+2+4+8+8+8+8s ≈ 39s between GUARDIAN_RETRY_MAX_ATTEMPTS calls) clears that
 // window while still bounding a genuinely-down guardian. Getting the budget wrong
 // is costly: a re-register that silently exhausts leaves the new hot key
@@ -132,9 +134,9 @@ export function guardianRetryAfterSec(err: unknown): number | undefined {
 // re-register finally lands.
 export const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
 export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
-// The one call cap for every guardian register retry loop: the rotation
-// re-register (./index), the direct switch's registration (./direct-switch) and
-// `withGuardianRateLimitRetry` below.
+// The call cap for the rotation re-register (./index), the direct switch's
+// registration (./direct-switch) and `withGuardianRateLimitRetry` below. Guardian
+// creation's timed-out registration retry (./account) has its own, smaller cap.
 export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
@@ -201,11 +203,12 @@ export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: C
  * a deadline the wait is clamped to a minute; with one, the deadline bounds it.
  * Any other error propagates at once; after GUARDIAN_RETRY_MAX_ATTEMPTS calls the
  * last 429 is rethrown unchanged, so callers still see the guardian's own error.
- * A caller holding a lock bounds the waits with `deadlineMs`, an absolute time on
- * `monotonicNowMs()`: a wait that would end past it is not started, and the 429
- * is rethrown as at the attempt limit. It also passes `afterWait`, run after each
- * wait and before the next call, to re-check it still owns that lock: whatever
- * `afterWait` throws ends the retry, unwrapped.
+ * A caller bounds the waits with `deadlineMs`, an absolute time on
+ * `monotonicNowMs()`, whether or not it holds a lock: a wait that would end past
+ * it is not started, and the 429 is rethrown as at the attempt limit. `afterWait`,
+ * run after each wait and before the next call, is the caller's own liveness
+ * check (Guardian creation's key fetch passes the vault's locked refusal):
+ * whatever it throws ends the retry, unwrapped.
  */
 export async function withGuardianRateLimitRetry<T>(
   fn: () => Promise<T>,
