@@ -125,6 +125,7 @@ import {
 import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
+  ApplyAfterSubmitError,
   errorMessageParts,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
@@ -2128,7 +2129,13 @@ const runGuardianPipeline = async (
     await setStage('submitting');
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
-    await submittedTx.apply();
+    // A rejected submit stays as it is: the node may not have the write. Once submit resolved
+    // it does, so a failed local apply must classify as submitted (#1233).
+    try {
+      await submittedTx.apply();
+    } catch (error) {
+      throw new ApplyAfterSubmitError(error);
+    }
     return executedTx.result;
   });
 };
