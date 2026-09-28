@@ -26,7 +26,7 @@ export interface MeetGuardianPoint {
   bodyKey: string;
 }
 
-/** The three facts the step asks the user to tick before a guardian is offered. */
+/** The three facts the step asks the user to tick before Continue opens. */
 export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'local-state', titleKey: 'meetGuardianLocalStateTitle', bodyKey: 'meetGuardianLocalStateBody' },
   { id: 'seed-phrase', titleKey: 'meetGuardianSeedPhraseTitle', bodyKey: 'meetGuardianSeedPhraseBody' },
