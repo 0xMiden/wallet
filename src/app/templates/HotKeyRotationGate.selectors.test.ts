@@ -139,7 +139,7 @@ describe('resolveRotationGateView: the funding status', () => {
     });
   });
 
-  it('is not claim-failed once a later rotation attempt superseded the failed claim', () => {
+  it('stays claim-failed after a later rotation attempt while the failed claim notes are still listed', () => {
     const failed = claim('claim-1', { status: ITransactionStatus.Failed });
     const later = row('rotation-2', {
       status: ITransactionStatus.Failed,
@@ -154,7 +154,7 @@ describe('resolveRotationGateView: the funding status', () => {
         listedNoteIds: new Set(['note-1'])
       })
     );
-    expect(view).toMatchObject({ status: 'waiting' });
+    expect(view).toMatchObject({ status: 'claim-failed', failedClaim: failed });
   });
 
   it('is not claim-failed when the failed claim notes are no longer listed', () => {

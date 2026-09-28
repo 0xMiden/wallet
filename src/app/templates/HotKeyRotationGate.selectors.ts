@@ -85,13 +85,10 @@ const fundingStatus = (
 ): { status: RotationFundingStatus; failedClaim?: GateRow } => {
   if (claimLive) return { status: 'claiming' };
   if (input.rotationRows.some(isLiveTransaction)) return { status: 'activating' };
+  // Whatever rotation ran since: one that fell short again leaves the failed claim's notes
+  // waiting, and Try again claims them now rather than after the backoff.
   const claim = newestRow(input.fundingRows);
-  const rotation = newestRow(input.rotationRows);
-  if (
-    claim?.status === ITransactionStatus.Failed &&
-    (rotation === undefined || queuedLater(claim, rotation)) &&
-    claimNoteIds(claim).some(id => input.listedNoteIds.has(id))
-  ) {
+  if (claim?.status === ITransactionStatus.Failed && claimNoteIds(claim).some(id => input.listedNoteIds.has(id))) {
     return { status: 'claim-failed', failedClaim: claim };
   }
   return { status: input.tooSmall ? 'too-small' : 'waiting' };
