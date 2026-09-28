@@ -90,11 +90,10 @@ export function OrphanedTransactionRecovery(): null {
         if (disposed) return;
 
         // Only Queued rows and this process's own in-flight rows can remain after
-        // that sweep, plus an earlier row stamped from `SESSION_STARTED_AT` to the
-        // sweep's own second (stamped in the same second, or the clock stepped
-        // back across the restart), which falls to the age-gated reaper; a stamp
-        // later than the sweep's clock cannot come from a live driver and fails.
-        // Drive the FIFO loop the same way the dApp and auto-consume flows do.
+        // that sweep, plus an earlier row not stamped before `SESSION_STARTED_AT`
+        // (stamped in the same second, or the clock stepped back across the
+        // restart), which falls to the age-gated reaper. Drive the FIFO loop the
+        // same way the dApp and auto-consume flows do.
         const uncompleted = await getAllUncompletedTransactions();
         if (disposed || uncompleted.length === 0) return;
         startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);

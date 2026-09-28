@@ -461,15 +461,12 @@ export const cancelStaleQueuedTransactions = async () => {
 /**
  * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
  * `failInterruptedTransactions` spares, by id, the rows this realm started, whatever the clock does,
- * and spares any other row only when its stamp lies from this cutoff to the sweep's own second, which
- * covers the rows another realm of this session started. `generateTransactionWithProvider` (index.ts,
- * which imports this module) is the only writer of the Queued to GeneratingTransaction transition and
- * stamps `processingStartedAt` in that write. For a row another realm started the stamp is all the
- * sweep has. A stamp later than the sweep's own second cannot come from a live driver, since this
- * realm's own rows are spared by id. A row an earlier process or browser session started is stamped
- * before the cutoff unless it was stamped in the second this realm loaded or the clock stepped back
- * across the restart; only such a row stamped no later than the sweep's own second is spared, and it
- * falls to the age-gated reaper.
+ * and judges every other row by this cutoff, which covers the rows another realm of this session
+ * started. `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer
+ * of the Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write.
+ * For a row another realm started the stamp is all the sweep has: a row an earlier process or browser
+ * session started is stamped before the cutoff unless it was stamped in the second this realm loaded
+ * or the clock stepped back across the restart; such a row is spared and falls to the age-gated reaper.
  */
 export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
 
@@ -493,12 +490,8 @@ export const markStartedInThisRealm = (id: string): void => {
  * process or session, so nothing will ever resume it. A row this realm started is live and is
  * spared by its id (`markStartedInThisRealm`), whatever the clock does, so the sweep is sound
  * whichever runs first: the unlock kick or the startup kick can move a Queued row before the sweep
- * reads the table. A row another realm of this session started is spared when stamped from
- * `SESSION_STARTED_AT` to the second the sweep reads its clock, just after it reads the table; a
- * later stamp cannot come from a live driver and fails. A row with no stamp predates the field and
- * is treated as an orphan. Only an earlier process's row stamped inside that window (in the second
- * this realm loaded, or after the clock stepped back across the restart) is spared and falls to the
- * age-gated reaper.
+ * reads the table. A row another realm of this session started is spared when stamped at or after
+ * `SESSION_STARTED_AT`. A row with no stamp predates the field and is treated as an orphan.
  *
  * The steady-state `cancelStuckTransactions` reaper only ages these out after
  * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
@@ -514,14 +507,10 @@ export const markStartedInThisRealm = (id: string): void => {
  * marks that same edge case Failed, so this is not a new regression).
  */
 export const failInterruptedTransactions = async () => {
-  const inProgress = await getTransactionsInProgress();
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const transactions = inProgress.filter(
+  const transactions = (await getTransactionsInProgress()).filter(
     tx =>
       !startedInThisRealm.has(tx.id) &&
-      (tx.processingStartedAt === undefined ||
-        tx.processingStartedAt < SESSION_STARTED_AT ||
-        tx.processingStartedAt > nowSeconds)
+      (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT)
   );
   await Promise.all(
     transactions.map(async tx =>
