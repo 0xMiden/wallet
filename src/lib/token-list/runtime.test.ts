@@ -137,6 +137,31 @@ it('ignores a cache entry of the wrong shape', async () => {
   expect(ids).toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
 });
 
+it('ignores a cache entry whose fetchedAt is not a number, and refreshes', async () => {
+  setup({ [KEY]: { fetchedAt: '2026-09-28', body: doc(['cached']) } });
+  fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+  const ids = await loadVerifiedFaucetIds('testnet');
+  expect(ids).toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+  expect(ids).not.toContain('cached');
+  await flush();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('refreshes a list stamped later than the clock, since its age is unknown', async () => {
+  setup({ [KEY]: { fetchedAt: NOW + 60_000, body: doc(['a']) } });
+  fetchMock.mockResolvedValue(response(doc(['a'])));
+  await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['a']));
+  await flush();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('falls back to the snapshot when storage cannot be read', async () => {
+  setup();
+  storage.get.mockRejectedValue(new Error('storage unavailable'));
+  fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+  await expect(loadVerifiedFaucetIds('testnet')).resolves.toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+});
+
 it('stops notifying an unsubscribed listener', async () => {
   setup();
   fetchMock.mockResolvedValue(response(doc(['a'])));
