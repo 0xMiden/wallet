@@ -225,3 +225,33 @@ describe('probeGuardianOrigin', () => {
     expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('web');
   });
 });
+
+describe('withGuardianProbe', () => {
+  it('routes the origin while the check runs and keeps it routed once the check resolves', async () => {
+    let duringCheck: 'native' | 'web' | undefined;
+
+    const result = await nativeHttp.withGuardianProbe(CUSTOM, async () => {
+      duringCheck = await transportFor(`${CUSTOM}/pubkey`);
+      return 'commitment';
+    });
+
+    expect(result).toBe('commitment');
+    expect(duringCheck).toBe('native');
+    expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('native');
+  });
+
+  it('releases the origin and rethrows when the check rejects', async () => {
+    const refused = new Error('malformed key commitment');
+    let duringCheck: 'native' | 'web' | undefined;
+
+    await expect(
+      nativeHttp.withGuardianProbe(CUSTOM, async () => {
+        duringCheck = await transportFor(`${CUSTOM}/pubkey`);
+        throw refused;
+      })
+    ).rejects.toBe(refused);
+
+    expect(duringCheck).toBe('native');
+    expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('web');
+  });
+});

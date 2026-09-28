@@ -100,6 +100,23 @@ export function probeGuardianOrigin(endpoint: string): (isGuardian: boolean) => 
   };
 }
 
+/**
+ * Run `check` under a probe of `endpoint` (`probeGuardianOrigin`): the origin
+ * stays routed once `check` resolves, and is released when it rejects, with the
+ * rejection passed on.
+ */
+export async function withGuardianProbe<T>(endpoint: string, check: () => Promise<T>): Promise<T> {
+  const settle = probeGuardianOrigin(endpoint);
+  try {
+    const result = await check();
+    settle(true);
+    return result;
+  } finally {
+    // A no-op after the `true` above: only the first settle counts.
+    settle(false);
+  }
+}
+
 function isRoutedOrigin(origin: string): boolean {
   if (!guardianOrigins.has(origin) && !probeHolds.has(origin)) return false;
   // Read per request, never at import (see seedBuiltinGuardianOrigins), so an endpoint override applies at once.

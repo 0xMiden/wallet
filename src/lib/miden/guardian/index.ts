@@ -23,7 +23,7 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { probeGuardianOrigin, registerGuardianOrigin } from './native-http';
+import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -511,22 +511,14 @@ export class MultisigService {
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
-      const settleProbe = probeGuardianOrigin(newGuardianEndpoint);
-      let commitment: string;
-      try {
+      const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
         const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
         // Fetch the new guardian's ECDSA commitment to match the account's scheme.
         // Validated before use: the SDK interpolates this wire value into
         // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
         // nor length. Same boundary the direct-switch path applies.
-        commitment = assertGuardianKeyCommitment(
-          (await newGuardian.getPubkey('ecdsa')).commitment,
-          newGuardianEndpoint
-        );
-        settleProbe(true);
-      } finally {
-        settleProbe(false);
-      }
+        return assertGuardianKeyCommitment((await newGuardian.getPubkey('ecdsa')).commitment, newGuardianEndpoint);
+      });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await withWasmClientLock(() =>

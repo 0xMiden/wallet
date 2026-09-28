@@ -185,17 +185,31 @@ jest.mock('./account', () => ({
 
 // Each native-HTTP probe's verdict. The first settle decides, as in native-http.
 const mockProbeVerdicts: [string, boolean][] = [];
-jest.mock('./native-http', () => ({
-  registerGuardianOrigin: jest.fn(),
-  probeGuardianOrigin: (endpoint: string) => {
+jest.mock('./native-http', () => {
+  const probeGuardianOrigin = (endpoint: string) => {
     let settled = false;
     return (isGuardian: boolean) => {
       if (settled) return;
       settled = true;
       mockProbeVerdicts.push([endpoint, isGuardian]);
     };
-  }
-}));
+  };
+  return {
+    registerGuardianOrigin: jest.fn(),
+    probeGuardianOrigin,
+    // native-http's own lifetime (pinned in native-http.test.ts), over the recording probe above.
+    withGuardianProbe: async <T>(endpoint: string, check: () => Promise<T>): Promise<T> => {
+      const settle = probeGuardianOrigin(endpoint);
+      try {
+        const result = await check();
+        settle(true);
+        return result;
+      } finally {
+        settle(false);
+      }
+    }
+  };
+});
 
 // atob is globally available on Node 16+ but jsdom stubs can vary — provide
 // a deterministic polyfill for these tests.
