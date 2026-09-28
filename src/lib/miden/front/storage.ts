@@ -129,22 +129,22 @@ const ignoreFailedWrite = () => {};
 let changeListener: Promise<void> | 'attached' | undefined;
 
 // One listener per extension page settles every cached key, mounted or not, from any realm's commit (a removal carries
-// no newValue). It is never removed. Returns the pending attach; undefined off the extension and once attached.
+// no newValue). It is never removed. Returns the pending attach; undefined off the extension and once attached. A
+// failed attach, the import or addListener, resets so the next read retries; a kept rejection would fail every read.
 function listenForChanges(): Promise<void> | undefined {
   if (changeListener === 'attached' || !isExtension()) return undefined;
-  changeListener ??= import('webextension-polyfill').then(
-    ({ default: browser }) => {
+  changeListener ??= import('webextension-polyfill')
+    .then(({ default: browser }) => {
       browser.storage.onChanged.addListener((changes, areaName) => {
         if (areaName !== 'local') return;
         for (const [key, change] of Object.entries(changes)) settle(key, begin(), change.newValue);
       });
       changeListener = 'attached';
-    },
-    error => {
+    })
+    .catch(error => {
       changeListener = undefined;
       console.warn('[storage] not listening for storage changes yet:', error);
-    }
-  );
+    });
   return changeListener;
 }
 

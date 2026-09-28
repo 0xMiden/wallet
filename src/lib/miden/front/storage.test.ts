@@ -395,6 +395,31 @@ describe('storage utilities', () => {
       expect(attachedAt).toBeLessThan(readAt!);
     });
 
+    it('resets an attach whose addListener throws, so a later read attaches and settles changes', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      mockStorage.onChanged.addListener.mockImplementationOnce(() => {
+        throw new Error('no storage events');
+      });
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { preloadStorage: preloadFresh } = await import('./storage');
+          const { SWRConfig } = await import('swr');
+
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(2);
+          expect(warn).toHaveBeenCalledTimes(1);
+
+          const [, [listener]] = mockStorage.onChanged.addListener.mock.calls;
+          listener({ k: { newValue: 'changed' } }, 'local');
+          expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('changed');
+        });
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it('logs a failed attach, lets the read through, and attaches on the next read', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockStorage.local.get.mockResolvedValue({ k: 'v' });
