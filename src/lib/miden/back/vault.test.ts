@@ -3341,6 +3341,7 @@ describe('Vault hardware branches', () => {
       const lockLabels: unknown = Reflect.get(globalThis, '__vaultTestLockLabels');
       expect(lockLabels).not.toContain('vault-spawn');
       expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+      expect(mockFetchGuardianCreateKey).toHaveBeenCalledTimes(1);
     });
 
     it('writes no account when the registration fails', async () => {
@@ -3349,6 +3350,7 @@ describe('Vault hardware branches', () => {
       mockRegisterGuardianAccount.mockRejectedValueOnce(new Error('Failed to create Guardian account'));
       await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).rejects.toThrow();
       expect(await vlt.fetchAccounts()).toEqual(before);
+      expect(mockRegisterGuardianAccount).toHaveBeenCalledTimes(1);
     });
 
     it('does not register after an eviction in the create hold', async () => {
@@ -3357,7 +3359,9 @@ describe('Vault hardware branches', () => {
       mockMidenClient.createGuardianMidenWallet.mockImplementationOnce(async () => {
         throw new WasmClientPoisonedError('watchdog', new Error('evicted'));
       });
-      await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).rejects.toThrow();
+      await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).rejects.toBeInstanceOf(
+        WasmClientPoisonedError
+      );
       expect(mockRegisterGuardianAccount).not.toHaveBeenCalled();
     });
   });

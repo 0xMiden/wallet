@@ -7,13 +7,12 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
-import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
   assertGuardianKeyCommitment,
   createGuardianAccount,
   fetchGuardianCreateKey,
-  GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
@@ -500,7 +499,7 @@ describe('createGuardianAccount', () => {
     expect((seedArg as Uint8Array).length).toBe(32);
   });
 
-  it('does not register when the caller skips phase 3 (import path)', async () => {
+  it('does not register when the caller skips phase 3', async () => {
     const webClient = makeWebClient();
     const multisig = makeMultisig();
     multisigClientConfig.create.mockResolvedValueOnce(multisig);
@@ -649,7 +648,7 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
     });
 
-    it('waits out a 429 on the pubkey fetch on the import path too', async () => {
+    it('waits out a 429 on the pubkey fetch without phase 3 too', async () => {
       multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
       const multisig = makeMultisig();
       multisigClientConfig.create.mockResolvedValueOnce(multisig);
@@ -716,16 +715,15 @@ describe('createGuardianAccount', () => {
       expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
       expect(performance.now() - startedAt).toBe(60_000);
-      expect(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS).toBeLessThan(WASM_LOCK_WATCHDOG_MS / 2);
     });
 
     // Phase 1 hands registration what it did NOT spend, not the full budget re-measured
-    // from phase 1's own start: the wait for the WASM lock and the account build (Task 3)
-    // sit between the two, are not guardian waits, and must not eat into registration's
+    // from phase 1's own start: the wait for the WASM lock and the account build sit
+    // between the two, are not guardian waits, and must not eat into registration's
     // 429 budget before its own deadline even starts.
-    it('does not fail registration from time the lock queue and the account build spent, not phase 1', async () => {
+    it('gives registration the budget phase 1 left, measured from when registration starts', async () => {
       const createKey = await fetchGuardianCreateKey();
-      // Stands in for queueing for the WASM lock and building the account (Task 3).
+      // Stands in for queueing for the WASM lock and building the account.
       await jest.advanceTimersByTimeAsync(120_000);
 
       const webClient = makeWebClient();

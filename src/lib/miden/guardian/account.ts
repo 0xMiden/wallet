@@ -144,19 +144,18 @@ export interface CreatedGuardianKeys {
 }
 
 /**
- * The guardian's key for a new account, plus what's left of the rate-limit budget
- * for its registration to spend. Not an absolute deadline: the wait for the WASM
- * lock and the account build (Task 3) sit between this fetch and the registration,
- * are not guardian waits, and must not be charged against the 429 budget (#1207).
- * `guardianPubkey` is optional because the wire response is (`PubkeyResponse.pubkey?`)
- * and `client.create` already accepts an absent one (`MultisigConfig.guardianPublicKey?`);
- * today's code passes it through unchecked, so this keeps that behavior rather than
- * refusing a guardian creation otherwise accepts.
+ * The guardian's key for a new account and what's left of its rate-limit
+ * budget for registration to spend.
  */
 export interface GuardianCreateKey {
-  guardianEndpoint: string;
-  guardianCommitment: string;
+  guardianEndpoint: string; // the resolved operator endpoint this key and the account are for
+  guardianCommitment: string; // the operator's guardian key commitment
+  // Optional because the wire response is (`PubkeyResponse.pubkey?`); `client.create`
+  // accepts an absent key, so an absent one is passed through (`MultisigConfig.guardianPublicKey?`).
   guardianPubkey?: string;
+  // What this fetch's own waits left of the budget, not a deadline fixed at its start:
+  // the wait for the WASM lock and the account build that follow are not guardian
+  // waits, and must not be charged against the 429 budget (#1207).
   rateLimitBudgetLeftMs: number;
 }
 
@@ -166,6 +165,11 @@ export interface GuardianCreateKey {
  * serialized under the hold so `registerOnGuardian` needs no client call.
  * `rateLimitBudgetLeftMs` carries forward phase 1's unspent budget (see
  * `GuardianCreateKey`); registration starts its own deadline from it.
+ *
+ * Consumed only by `registerGuardianAccount`, which calls
+ * `multisig.registerOnGuardian(stateBase64)` and nothing else. Any other
+ * `Multisig` call, or `registerOnGuardian()` called without the state, reads
+ * the WASM client outside the hold.
  */
 export interface PendingGuardianRegistration {
   multisig: Multisig;
@@ -342,7 +346,7 @@ async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
  * The guardian's key for a new account, fetched with no WASM client hold: its 429 waits
  * (#906) must not block the realm's other client work (#1207). Hands on what's left of
  * the rate-limit budget after this fetch's own waits, not a deadline fixed at this call's
- * start, so the wait for the WASM lock and the account build (Task 3) that follow this
+ * start, so the wait for the WASM lock and the account build that follow this
  * function are not themselves charged against the registration's budget.
  */
 export async function fetchGuardianCreateKey(guardianEndpointOverride?: string): Promise<GuardianCreateKey> {
@@ -506,7 +510,7 @@ export async function createGuardianAccount(
 export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
   try {
     // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
-    // account build (Task 3) sit between the two and are not guardian waits (#1207).
+    // account build sit between the two and are not guardian waits (#1207).
     const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
     await withGuardianRateLimitRetry(
       () =>
