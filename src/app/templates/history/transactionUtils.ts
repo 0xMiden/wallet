@@ -299,13 +299,6 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
 export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
 
-/** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
-export const formatEarnWithdrawAmount = (human: string): string => {
-  const n = new BigNumber(human);
-  if (!n.isFinite()) return human;
-  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
-};
-
 /** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
 export interface EarnWithdrawAmountFields {
   amount?: string;
@@ -320,7 +313,8 @@ export interface EarnWithdrawAmountFields {
  * `amount`. Once the bridged note is consumed (`phase === 'received'`) the
  * consume path patches the row with the amount that actually arrived,
  * denominated in `faucetId`'s asset — so the row must switch to its own amount
- * scaled by that faucet's metadata. The consume row is suppressed from Activity
+ * scaled by that faucet's metadata. Both sides round down: each is what the
+ * withdrawal delivers at most. The consume row is suppressed from Activity
  * (this row is the single trace), so keeping the source side would let the row
  * claim "+10 USDC" when a different amount of a different asset landed.
  */
@@ -335,11 +329,11 @@ export const earnWithdrawAmountFields = (
       // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
       // that faucet never resolved, scaling by the placeholder's guess reports a
       // withdrawal the user did not receive; the asset is still named.
-      amount: hasKnownScale(destinationMetadata) ? formatAmount(rowAmount, destinationMetadata?.decimals) : undefined,
+      amount: creditedAmount(rowAmount, destinationMetadata),
       token: destinationMetadata?.symbol ?? extra.outputSymbol
     };
   }
-  return { amount: formatEarnWithdrawAmount(extra.sourceAmount), token: extra.sourceSymbol };
+  return { amount: formatMoneyAmount(extra.sourceAmount, 'receives', extra.sourceSymbol), token: extra.sourceSymbol };
 };
 
 /** Settlement state of a Smart Deposit's Sepolia lending leg (`extraInputs.epochStatus`). */

@@ -219,7 +219,7 @@ export interface IEarnDepositExtraInputs {
  * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
  *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
  *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
- *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - received   : the bridged note was auto-consumed; the row's `amount` patched from it
  *   - failed     : the intent failed / expired, or the row was reconciled dead
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
@@ -264,7 +264,7 @@ export interface IEarnWithdrawExtraInputs {
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
   midenNoteId?: string;
-  /** actual bridged amount (human-formatted) from the consumed note. */
+  /** actual bridged amount; nothing writes it today (the row's own `amount` records what landed). */
   outputAmount?: string;
   /** destination token symbol of the consumed note. */
   outputSymbol?: string;

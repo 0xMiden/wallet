@@ -18,7 +18,6 @@ import {
   earnWithdrawAmountFields,
   fontColorForType,
   formatDate,
-  formatEarnWithdrawAmount,
   formatMoneyAmount,
   isBridgeInEntry,
   isCompletedTransaction,
@@ -870,17 +869,17 @@ describe('earn withdraw helpers', () => {
   });
 
   it('trims a human decimal amount to two places, rounding down', () => {
-    expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
-    expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
-    expect(formatEarnWithdrawAmount('7')).toBe('7');
+    expect(formatMoneyAmount('2.50000000', 'receives')).toBe('2.5');
+    expect(formatMoneyAmount('1.239', 'receives')).toBe('1.23');
+    expect(formatMoneyAmount('7', 'receives')).toBe('7');
   });
 
   it('expands precision for a small non-zero withdrawal amount', () => {
-    expect(formatEarnWithdrawAmount('0.001239')).toBe('0.0012');
+    expect(formatMoneyAmount('0.001239', 'receives')).toBe('0.0012');
   });
 
   it('passes a non-numeric amount through unchanged', () => {
-    expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
+    expect(formatMoneyAmount('not-a-number', 'receives')).toBe('not-a-number');
   });
 });
 
@@ -889,7 +888,8 @@ describe('earnWithdrawAmountFields', () => {
     phase: 'redeeming' as const,
     evmOwner: '0x1111111111111111111111111111111111111111',
     marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
-    sourceAmount: '10.500000',
+    // A remainder above half: rounded down it reads 10.5, typed 10.509 and rounded up 10.51.
+    sourceAmount: '10.509000',
     sourceSymbol: 'USDC',
     destinationFaucetId: 'native-id'
   };
@@ -907,13 +907,16 @@ describe('earnWithdrawAmountFields', () => {
     }
   );
 
-  it('switches to the delivered destination amount once the note is received', () => {
+  it('switches to the delivered destination amount, rounded down, once the note is received', () => {
+    mockFormatAmount.mockReturnValueOnce('2.599999');
+
     // The consume path patches the row with what actually landed; the consume
     // row itself is suppressed, so this row must not keep claiming the USDC side.
     expect(earnWithdrawAmountFields({ ...extra, phase: 'received' }, 250_000_000n, destinationMetadata)).toEqual({
-      amount: formatAmount(250_000_000n, 8),
+      amount: '2.59',
       token: 'MIDEN'
     });
+    expect(mockFormatAmount).toHaveBeenCalledWith(250_000_000n, 8);
   });
 
   // This branch exists BECAUSE the received leg is denominated in the

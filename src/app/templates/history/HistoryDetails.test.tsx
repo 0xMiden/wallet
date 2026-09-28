@@ -3040,6 +3040,16 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(document.body.textContent).not.toContain('10.5');
   });
 
+  // The amount is already formatted by `earnWithdrawAmountFields`; the hero's 3-decimal pass would
+  // round 0.0012 to 0.001, so the detail and the Activity row would disagree.
+  it('shows the withdrawal amount as its helper formatted it, not re-rounded', async () => {
+    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '0.001239' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('0.0012')).toBeInTheDocument();
+    expect(screen.queryByText('0.001')).not.toBeInTheDocument();
+  });
+
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
     setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined }));
     await renderAndLoad();

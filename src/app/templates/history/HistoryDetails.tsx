@@ -675,7 +675,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {entry.amount !== undefined && (
-                        <span className="text-ink">{formatDisplayAmount(entry.amount)}</span>
+                        // An Earn withdrawal's amount is already formatted, as its Activity row shows it.
+                        <span className="text-ink">
+                          {entry.txType === 'earn-withdraw' ? entry.amount : formatDisplayAmount(entry.amount)}
+                        </span>
                       )}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>

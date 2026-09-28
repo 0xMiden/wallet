@@ -92,6 +92,7 @@ jest.mock('components/ui', () => ({
       value: string;
       symbol?: string;
       direction?: string;
+      preformatted?: boolean;
       extra?: { key: string; value: string; symbol?: string }[];
     };
     status: string;
@@ -108,6 +109,7 @@ jest.mock('components/ui', () => ({
       data-amount-value={amount?.value ?? ''}
       data-amount-symbol={amount?.symbol ?? ''}
       data-amount-direction={amount?.direction ?? ''}
+      data-amount-preformatted={amount?.preformatted ? 'yes' : 'no'}
       // Flattened as `key:value symbol|…` so both the contents AND the order
       // (the row renders them unsorted, first-seen) are assertable.
       data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
@@ -607,6 +609,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+2');
     expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
+    // Already formatted by `earnWithdrawAmountFields`, so the row must not round it again.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
     expect(row).toHaveAttribute('data-status', 'delivering');
   });
 
@@ -617,6 +621,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
     expect(row).toHaveAttribute('data-amount-value', '-5');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
+    expect(row).toHaveAttribute('data-amount-preformatted', 'no');
   });
 
   it('renders a date separator per calendar day', () => {

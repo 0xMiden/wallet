@@ -2,7 +2,8 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { Hero } from 'components/ui/Hero';
@@ -10,6 +11,8 @@ import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { useWalletStore } from 'lib/store';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -39,6 +42,8 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
 
   if (!loaded || !row)
@@ -56,7 +61,19 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     (inputs.submissionState === undefined && Boolean(inputs.withdrawIntentNonce)) ||
     inputs.phase === 'delivering' ||
     inputs.phase === 'received';
-  const amountLabel = `${formatEarnWithdrawAmount(inputs.sourceAmount)} ${inputs.sourceSymbol}`;
+  const amountLabel = `${formatMoneyAmount(inputs.sourceAmount, 'receives', inputs.sourceSymbol)} ${inputs.sourceSymbol}`;
+  // Once received, the arrow points at what was credited, as the Activity row shows it.
+  const credited =
+    inputs.phase === 'received' && row.amount !== undefined
+      ? earnWithdrawAmountFields(
+          inputs,
+          row.amount,
+          resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId)
+        )
+      : undefined;
+  const destinationLabel = credited
+    ? [credited.amount, credited.token].filter(part => part !== undefined).join(' ')
+    : 'Miden';
 
   if (submitted && !failed) {
     return (
@@ -73,7 +90,12 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         }}
         onClose={onDone}
       >
-        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
+        <TransactionSummaryBadge
+          lhs={amountLabel}
+          rhs={destinationLabel}
+          fillForArrow={EARN_ARROW_FILL}
+          className="mt-4"
+        />
         <ReceiptRows
           className="mt-4"
           rows={[

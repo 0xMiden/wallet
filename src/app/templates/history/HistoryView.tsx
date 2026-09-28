@@ -139,7 +139,13 @@ function buildRowProps(
       amount:
         failed || entry.amount === undefined
           ? undefined
-          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+          : {
+              value: `+${entry.amount}`,
+              symbol: entry.token,
+              direction: 'positive' as const,
+              // `earnWithdrawAmountFields` already formatted it; the row must not round it again.
+              preformatted: true
+            },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
     };
