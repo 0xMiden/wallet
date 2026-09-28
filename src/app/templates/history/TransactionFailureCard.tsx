@@ -33,7 +33,7 @@ export const TransactionFailureCard: FC<{
         >
           {errorMessage}
         </p>
-        <ErrorDetails details={rawErrorMessage} className="mt-3" />
+        <ErrorDetails details={rawErrorMessage} className="mt-1" />
       </div>
     </DetailSection>
   );

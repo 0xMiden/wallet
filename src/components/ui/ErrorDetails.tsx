@@ -31,7 +31,12 @@ export const ErrorDetails: React.FC<ErrorDetailsProps> = ({ details, className, 
 
   return (
     <div data-testid={dataTestId} className={cn('flex flex-col items-start gap-2', className)}>
-      <TextAction aria-expanded={open} aria-controls={open ? detailsId : undefined} onClick={() => setOpen(v => !v)}>
+      <TextAction
+        className="-mx-1"
+        aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
+        onClick={() => setOpen(v => !v)}
+      >
         {open ? t('hideFullError') : t('showFullError')}
       </TextAction>
       {open && (
