@@ -223,7 +223,12 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     }
   );
 
-  it('the Guardian selector deselects a pull request based off main, marker or not', () => {
+  it("the Guardian selector maps BASE_REF from the pull request's own base ref", () => {
+    const src = configSource('.github/workflows/pr-e2e-guardian-lifecycle.yml');
+    expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  });
+
+  it('the Guardian selector deselects a pull request stacked on another branch, marker or not', () => {
     const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
     const arms = [
       { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'feature', PR_BODY: 'Guardian PR: #5', expected: 'run=false' },
