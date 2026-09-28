@@ -448,7 +448,7 @@ describe('storage utilities', () => {
       jest.doMock('webextension-polyfill', () => {
         imports += 1;
         if (imports === 1) throw new Error('chunk failed to load');
-        return { __esModule: true, default: { storage: mockStorage }, storage: mockStorage };
+        return mockPolyfillModule();
       });
       try {
         const { preloadStorage: preloadFresh } = await import('./storage');
