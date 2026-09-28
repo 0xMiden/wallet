@@ -348,4 +348,46 @@ describe('the cold-start sweep against a row the real writer moved to Generating
     finishSend(makeResult());
     await sending;
   });
+
+  it('spares the row this realm is sending even when the clock stepped back before its stamp', async () => {
+    let sendReached!: () => void;
+    const reached = new Promise<void>(resolve => (sendReached = resolve));
+    let finishSend!: (result: ReturnType<typeof makeResult>) => void;
+    mockProxySendTransaction.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finishSend = resolve;
+          sendReached();
+        })
+    );
+    const clockStepped = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT - 5) * 1000);
+    const sending = runSend('tx-live-clock-stepped-back');
+    await reached;
+    clockStepped.mockRestore();
+
+    const live = txStore.find(r => r.id === 'tx-live-clock-stepped-back')!;
+    expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(live.processingStartedAt).toBe(SESSION_STARTED_AT - 5);
+
+    txStore.push({
+      id: 'tx-orphan',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: SESSION_STARTED_AT - 10,
+      processingStartedAt: SESSION_STARTED_AT - 1
+    });
+    jest
+      .mocked(Repo.transactions.filter)
+      .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
+    const liveBefore = { ...live };
+
+    await failInterruptedTransactions();
+
+    expect(live).toEqual(liveBefore);
+    expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+
+    finishSend(makeResult());
+    await sending;
+  });
 });

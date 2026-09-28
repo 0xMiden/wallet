@@ -460,14 +460,25 @@ export const cancelStaleQueuedTransactions = async () => {
 
 /**
  * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
- * `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer of the
- * Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write, so every
- * row this session starts is stamped at or after it. A row an earlier process or browser session
- * started is stamped before it unless it was stamped in that same second or the clock stepped back
- * across the restart; such a row is spared by `failInterruptedTransactions` and falls to the
- * age-gated reaper.
+ * `failInterruptedTransactions` spares, by id, the rows this realm started, whatever the clock does,
+ * and judges every other row by this cutoff, which covers the rows another realm of this session
+ * started. `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer
+ * of the Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write.
+ * For a row another realm started the stamp is all the sweep has: a row an earlier process or browser
+ * session started is stamped before the cutoff unless it was stamped in the second this realm loaded
+ * or the clock stepped back across the restart; such a row is spared and falls to the age-gated reaper.
  */
 export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
+
+const startedInThisRealm = new Set<string>();
+
+/**
+ * Records that this realm is driving the row `id`, so `failInterruptedTransactions` spares it whatever
+ * the clock does. `generateTransactionWithProvider` calls it just before its GeneratingTransaction write.
+ */
+export const markStartedInThisRealm = (id: string): void => {
+  startedInThisRealm.add(id);
+};
 
 /**
  * Fail every transaction an earlier process or browser session left in `GeneratingTransaction`,
@@ -476,10 +487,11 @@ export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
  * Called from the extension's `browser.runtime.onStartup` handler (a genuine browser or profile
  * cold start, never a service-worker idle-wake) and, off the extension, from
  * `OrphanedTransactionRecovery` once per app process. Whatever drove such a row died with that
- * process or session, so nothing will ever resume it. A row this session started (stamped at or
- * after `SESSION_STARTED_AT`) is live and is spared, so the sweep is sound whichever runs first:
- * the unlock kick or the startup kick can move a Queued row before the sweep reads the table. A
- * row with no stamp predates the field and is treated as an orphan.
+ * process or session, so nothing will ever resume it. A row this realm started is live and is
+ * spared by its id (`markStartedInThisRealm`), whatever the clock does, so the sweep is sound
+ * whichever runs first: the unlock kick or the startup kick can move a Queued row before the sweep
+ * reads the table. A row another realm of this session started is spared when stamped at or after
+ * `SESSION_STARTED_AT`. A row with no stamp predates the field and is treated as an orphan.
  *
  * The steady-state `cancelStuckTransactions` reaper only ages these out after
  * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
@@ -496,7 +508,9 @@ export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
  */
 export const failInterruptedTransactions = async () => {
   const transactions = (await getTransactionsInProgress()).filter(
-    tx => tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT
+    tx =>
+      !startedInThisRealm.has(tx.id) &&
+      (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT)
   );
   await Promise.all(
     transactions.map(async tx =>
