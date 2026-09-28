@@ -228,7 +228,7 @@ jest.mock('lib/miden-chain/constants', () => ({
 
 const mockVerifyToken = jest.fn();
 jest.mock('lib/token-list/useTokenVerification', () => ({
-  useTokenVerification: () => mockVerifyToken
+  useTokenVerification: (id: string) => mockVerifyToken(id)
 }));
 
 const mockOpenExternalUrl = jest.fn();

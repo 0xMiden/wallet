@@ -95,7 +95,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
-  const verification = useTokenVerification()(tokenId);
+  const verification = useTokenVerification(tokenId);
 
   const handleBack = () => goBack();
 

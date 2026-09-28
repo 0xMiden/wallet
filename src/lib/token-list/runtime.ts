@@ -42,8 +42,9 @@ const refreshing = new Set<string>();
 // The last failed refresh per network: this realm's own, or one an earlier realm stored.
 const lastFailure = new Map<string, number>();
 const listeners = new Set<(network: string) => void>();
+let foregroundCheckInstalled = false;
 
-/** Test-only: swap the storage, fetch and clock, and forget in-flight refreshes and listeners. */
+/** Test-only: swap the storage, fetch and clock, and forget in-flight refreshes, listeners and the foreground check. */
 export function _resetTokenListForTest(
   overrides: { storage?: StorageProvider; fetch?: typeof fetch; now?: () => number } = {}
 ): void {
@@ -58,6 +59,8 @@ export function _resetTokenListForTest(
   refreshing.clear();
   lastFailure.clear();
   listeners.clear();
+  if (foregroundCheckInstalled) document.removeEventListener('visibilitychange', checkOnForeground);
+  foregroundCheckInstalled = false;
 }
 
 export function onTokenListUpdated(listener: (network: string) => void): () => void {
@@ -126,15 +129,26 @@ function isDue(network: string, fetchedAt: number | null): boolean {
   return failedAt === undefined || now < failedAt || now - failedAt >= TOKEN_LIST_RETRY_BACKOFF_MS;
 }
 
+// Home stays mounted for the app's lifetime on mobile and desktop, so a return to the foreground is
+// what lets a day-old list start its refresh. One listener per realm checks every list read so far.
+function checkOnForeground(): void {
+  if (document.visibilityState !== 'visible') return;
+  loaded.forEach((_list, network) => void loadVerifiedFaucetIds(network));
+}
+
 /**
  * The verified faucet ids for `network`: the cached list at any age, else the bundled snapshot,
  * else `null` (no list known for this network, so nothing is marked). A cache that is missing or
- * older than a day starts one background refresh unless one failed within the hour; subscribers
- * hear when it lands. Localnet never has a list.
+ * older than a day starts one background refresh, on this load or on a return to the foreground,
+ * unless one failed within the hour; subscribers hear when it lands. Localnet never has a list.
  */
 export async function loadVerifiedFaucetIds(network: string): Promise<Set<string> | null> {
   // Localnet faucet ids are minted per machine, so no published list can name them.
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  if (!foregroundCheckInstalled && typeof document !== 'undefined') {
+    foregroundCheckInstalled = true;
+    document.addEventListener('visibilitychange', checkOnForeground);
+  }
   let pending = loaded.get(network);
   if (!pending) {
     pending = readList(network);

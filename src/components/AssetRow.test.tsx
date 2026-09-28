@@ -61,7 +61,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 const mockVerify = jest.fn();
-jest.mock('lib/token-list/useTokenVerification', () => ({ useTokenVerification: () => mockVerify }));
+jest.mock('lib/token-list/useTokenVerification', () => ({ useTokenVerification: (id: string) => mockVerify(id) }));
 
 // The sparkline hook fetches, so it is stubbed; the price lookup is the real one.
 jest.mock('lib/prices', () => ({

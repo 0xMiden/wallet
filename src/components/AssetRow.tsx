@@ -32,7 +32,7 @@ const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixe
  */
 export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data-testid': dataTestId }) => {
   const { t } = useTranslation();
-  const verification = useTokenVerification()(asset.tokenId);
+  const verification = useTokenVerification(asset.tokenId);
   const { metadata, balance } = asset;
   // `balance` was divided by `metadata.decimals` upstream, so when those
   // decimals are the unknown-token placeholder's guess the number is not the

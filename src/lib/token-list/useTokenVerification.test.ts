@@ -32,41 +32,37 @@ beforeEach(() => {
   mockNative = 'native';
 });
 
-afterEach(() => {
-  Reflect.deleteProperty(document, 'visibilityState');
-});
-
-const setVisibility = (state: DocumentVisibilityState) => {
-  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
-  document.dispatchEvent(new Event('visibilitychange'));
-};
+/** Renders the hook for one id, which a test can change with `rerender({ id })`. */
+const renderVerification = (id: string) =>
+  renderHook((props: { id: string }) => useTokenVerification(props.id), { initialProps: { id } });
 
 it('is unknown while the list loads', () => {
   mockLoad.mockReturnValue(new Promise(() => undefined));
-  const { result } = renderHook(() => useTokenVerification());
-  expect(result.current('listed')).toBe('unknown');
+  const { result } = renderVerification('listed');
+  expect(result.current).toBe('unknown');
 });
 
 it('is unknown on a network with no list', async () => {
   mockLoad.mockResolvedValue(null);
-  const { result } = renderHook(() => useTokenVerification());
+  const { result } = renderVerification('anything');
   await waitFor(() => expect(mockLoad).toHaveBeenCalled());
   await act(async () => undefined);
-  expect(result.current('anything')).toBe('unknown');
+  expect(result.current).toBe('unknown');
 });
 
 it('marks listed tokens verified and others unverified, normalizing both the list and the queried id', async () => {
   // The runtime hands over the ids as the list publishes them.
   mockLoad.mockResolvedValue(new Set(['Listed']));
-  const { result } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('other')).toBe('unverified'));
-  expect(result.current('LISTED')).toBe('verified');
+  const { result, rerender } = renderVerification('other');
+  await waitFor(() => expect(result.current).toBe('unverified'));
+  rerender({ id: 'LISTED' });
+  expect(result.current).toBe('verified');
 });
 
 it('treats the native token as verified even when the list omits it', async () => {
   mockLoad.mockResolvedValue(new Set(['listed']));
-  const { result } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('NATIVE')).toBe('verified'));
+  const { result } = renderVerification('NATIVE');
+  await waitFor(() => expect(result.current).toBe('verified'));
 });
 
 it('re-renders when the native id is discovered after mount', async () => {
@@ -75,73 +71,70 @@ it('re-renders when the native id is discovered after mount', async () => {
   let renders = 0;
   const { result } = renderHook(() => {
     renders += 1;
-    return useTokenVerification();
+    return useTokenVerification('late-native');
   });
-  await waitFor(() => expect(result.current('late-native')).toBe('unverified'));
+  await waitFor(() => expect(result.current).toBe('unverified'));
   const rendersBefore = renders;
   mockNative = 'late-native';
   act(() => mockNativeChanged?.('late-native'));
   expect(renders).toBeGreaterThan(rendersBefore);
-  expect(result.current('late-native')).toBe('verified');
+  expect(result.current).toBe('verified');
 });
 
 it('treats the native token as verified once its id is cached, even when no change event fired', async () => {
   mockNative = null;
   mockLoad.mockResolvedValue(new Set(['listed']));
-  const { result, rerender } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('hydrated-native')).toBe('unverified'));
+  const { result, rerender } = renderVerification('hydrated-native');
+  await waitFor(() => expect(result.current).toBe('unverified'));
   // A storage hydrate fills the native-asset cache without firing onNativeAssetChanged.
   mockNative = 'hydrated-native';
-  rerender();
-  expect(result.current('hydrated-native')).toBe('verified');
+  rerender({ id: 'hydrated-native' });
+  expect(result.current).toBe('verified');
 });
 
 it('reloads when a refresh for the current network lands, and ignores other networks', async () => {
   mockLoad.mockResolvedValueOnce(new Set(['a'])).mockResolvedValueOnce(new Set(['a', 'b']));
-  const { result } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('b')).toBe('unverified'));
+  const { result } = renderVerification('b');
+  await waitFor(() => expect(result.current).toBe('unverified'));
   act(() => mockUpdated?.('devnet'));
   expect(mockLoad).toHaveBeenCalledTimes(1);
   await act(async () => mockUpdated?.('testnet'));
-  await waitFor(() => expect(result.current('b')).toBe('verified'));
+  await waitFor(() => expect(result.current).toBe('verified'));
+});
+
+it('re-renders nothing when an update notice reloads an unchanged list', async () => {
+  mockLoad.mockResolvedValue(new Set(['listed']));
+  let renders = 0;
+  const { result } = renderHook(() => {
+    const verdict = useTokenVerification('listed');
+    if (verdict === 'verified') renders += 1;
+    return verdict;
+  });
+  await waitFor(() => expect(result.current).toBe('verified'));
+  mockLoad.mockResolvedValue(new Set(['listed']));
+  await act(async () => mockUpdated?.('testnet'));
+  expect(mockLoad).toHaveBeenCalledTimes(2);
+  expect(renders).toBe(1);
 });
 
 it('reloads for a new effective network on the next render', async () => {
   mockLoad.mockImplementation(async (network: string) => (network === 'testnet' ? new Set(['t']) : new Set(['d'])));
-  const { result, rerender } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('t')).toBe('verified'));
+  const { result, rerender } = renderVerification('t');
+  await waitFor(() => expect(result.current).toBe('verified'));
   mockNetwork = 'devnet';
-  rerender();
-  await waitFor(() => expect(result.current('d')).toBe('verified'));
-  expect(result.current('t')).toBe('unverified');
+  rerender({ id: 'd' });
+  await waitFor(() => expect(result.current).toBe('verified'));
+  rerender({ id: 't' });
+  expect(result.current).toBe('unverified');
 });
 
 it('does not let a loaded network speak for another network still loading', async () => {
   mockLoad.mockImplementation((network: string) =>
     network === 'testnet' ? Promise.resolve(new Set(['t'])) : new Promise<Set<string> | null>(() => undefined)
   );
-  const { result, rerender } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('t')).toBe('verified'));
+  const { result, rerender } = renderVerification('t');
+  await waitFor(() => expect(result.current).toBe('verified'));
   mockNetwork = 'devnet';
-  rerender();
-  expect(result.current('t')).toBe('unknown');
-});
-
-it('reloads when the app returns to the foreground, and stops listening once unmounted', async () => {
-  mockLoad.mockResolvedValue(new Set(['a']));
-  const { result, unmount } = renderHook(() => useTokenVerification());
-  await waitFor(() => expect(result.current('b')).toBe('unverified'));
-  expect(mockLoad).toHaveBeenCalledTimes(1);
-
-  await act(async () => setVisibility('hidden'));
-  expect(mockLoad).toHaveBeenCalledTimes(1);
-
-  mockLoad.mockResolvedValue(new Set(['a', 'b']));
-  await act(async () => setVisibility('visible'));
-  expect(mockLoad).toHaveBeenCalledTimes(2);
-  await waitFor(() => expect(result.current('b')).toBe('verified'));
-
-  unmount();
-  setVisibility('visible');
-  expect(mockLoad).toHaveBeenCalledTimes(2);
+  rerender({ id: 't' });
+  expect(result.current).toBe('unknown');
 });

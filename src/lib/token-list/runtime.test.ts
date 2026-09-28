@@ -352,6 +352,29 @@ describe('the request timeout', () => {
   });
 });
 
+describe('the foreground check', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'visibilityState');
+    jest.restoreAllMocks();
+  });
+
+  // Every earlier test loaded a list, so a listener or installed flag the reset left behind fails this.
+  it('installs one listener for every load, and a return to the foreground refreshes a stale list once', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: doc(['a']) } });
+    const addListener = jest.spyOn(document, 'addEventListener');
+    fetchMock.mockResolvedValue(response(doc(['a', 'b'])));
+    await Promise.all([1, 2, 3].map(() => loadVerifiedFaucetIds('testnet')));
+    expect(addListener.mock.calls.filter(([type]) => type === 'visibilitychange')).toHaveLength(1);
+
+    clock = NOW - 1_000 + TOKEN_LIST_TTL_MS;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(storage.data[KEY]).toEqual({ fetchedAt: clock, body: doc(['a', 'b']) });
+  });
+});
+
 it('has no list for localnet, whose faucet ids are per machine, and never fetches or reads one', async () => {
   setup({ 'token_list_cache_v1:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
   await expect(loadVerifiedFaucetIds('localnet')).resolves.toBeNull();
