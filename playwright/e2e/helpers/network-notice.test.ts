@@ -1,8 +1,7 @@
-import { acknowledgeNetworkNotice, NETWORK_NOTICE_CHECK_TEST_IDS, NoticePage } from './network-notice';
+import { acknowledgeNetworkNotice, NoticePage } from './network-notice';
 
-/** A fake page whose checkboxes flip on click, recording every call in order. */
-const fakePage = (initiallyChecked: readonly string[] = []) => {
-  const checked = new Set(initiallyChecked);
+/** A fake page recording every call in order. */
+const fakePage = () => {
   const calls: string[] = [];
   const page: NoticePage = {
     getByTestId: (testId: string) => ({
@@ -11,32 +10,26 @@ const fakePage = (initiallyChecked: readonly string[] = []) => {
       },
       click: async () => {
         calls.push(`click:${testId}`);
-        if (checked.has(testId)) checked.delete(testId);
-        else checked.add(testId);
       },
-      getAttribute: async (name: string) => (name === 'aria-checked' ? String(checked.has(testId)) : null)
+      getAttribute: async () => null
     })
   };
-  return { page, calls, checked };
+  return { page, calls };
 };
 
 describe('acknowledgeNetworkNotice', () => {
-  it('ticks all three facts before acknowledging', async () => {
-    const { page, calls, checked } = fakePage();
+  it('waits for I understand and taps it, with the given timeout', async () => {
+    const { page, calls } = fakePage();
     await acknowledgeNetworkNotice(page, 30_000);
     expect(calls).toEqual([
       'wait:onboarding-network-notice-acknowledge:30000',
-      ...NETWORK_NOTICE_CHECK_TEST_IDS.map(id => `click:${id}`),
       'click:onboarding-network-notice-acknowledge'
     ]);
-    NETWORK_NOTICE_CHECK_TEST_IDS.forEach(id => expect(checked.has(id)).toBe(true));
   });
 
-  it('leaves a box already ticked alone, so a retry never unticks it', async () => {
-    const { page, calls, checked } = fakePage([NETWORK_NOTICE_CHECK_TEST_IDS[1]]);
+  it('defaults the timeout to 15 s', async () => {
+    const { page, calls } = fakePage();
     await acknowledgeNetworkNotice(page);
-    expect(calls).not.toContain(`click:${NETWORK_NOTICE_CHECK_TEST_IDS[1]}`);
     expect(calls[0]).toBe('wait:onboarding-network-notice-acknowledge:15000');
-    NETWORK_NOTICE_CHECK_TEST_IDS.forEach(id => expect(checked.has(id)).toBe(true));
   });
 });

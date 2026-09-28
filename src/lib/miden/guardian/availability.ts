@@ -1,7 +1,7 @@
 /**
- * Guardian endpoint liveness probe for the guardian picker.
+ * Guardian endpoint liveness and latency probe for the guardian screens.
  *
- * Answers one question — "is this operator responding right now?" — via the
+ * Answers "is this operator responding right now, and how fast?" via the
  * same unauthenticated `GET /pubkey` the operator reverse-map uses (see
  * `operator-map.ts`): no account data, no signer, and a real proof the
  * guardian service itself (not just some host at that URL) is up, since only
@@ -10,8 +10,8 @@
  * Deliberately tiny and dependency-light: plain HTTP only, no WASM, no
  * intercom — it runs from onboarding screens where none of that is loaded.
  * A ping that fails for ANY reason (network error, timeout, non-guardian
- * response) reports offline, and the picker then disables that operator's
- * card until a later round reports it online.
+ * response) reports offline: the picker disables that operator's card until a
+ * later round reports it online, and onboarding never picks it.
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
@@ -26,16 +26,19 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 export const GUARDIAN_PING_TIMEOUT_MS = 5_000;
 
 /**
- * `true` iff the guardian at `endpoint` answers `GET /pubkey` with a key
- * commitment within `timeoutMs`. Never throws.
+ * The round trip of one `GET /pubkey`, in milliseconds, when the guardian at
+ * `endpoint` answers with a key commitment within `timeoutMs`; `null` when it
+ * does not. The onboarding step that picks a guardian for the user ranks the
+ * operators by this number. Never throws.
  */
-export async function pingGuardianEndpoint(
+export async function pingGuardianEndpointLatency(
   endpoint: string,
   timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
-): Promise<boolean> {
+): Promise<number | null> {
   // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
   // so a custom/overridden endpoint also routes through native HTTP.
   registerGuardianOrigin(endpoint);
+  const startedAt = performance.now();
   try {
     const result = await new Promise<{ commitment?: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`guardian ping to ${endpoint} timed out`)), timeoutMs);
@@ -56,8 +59,9 @@ export async function pingGuardianEndpoint(
     // the same unvalidated value `fetchOperatorCommitment` refuses, on the same
     // endpoint, for the same reason. Fails toward "offline", which is what every
     // other non-guardian response already reports.
-    return typeof result?.commitment === 'string' && result.commitment.length > 0;
+    const isGuardian = typeof result?.commitment === 'string' && result.commitment.length > 0;
+    return isGuardian ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
   } catch {
-    return false;
+    return null;
   }
 }

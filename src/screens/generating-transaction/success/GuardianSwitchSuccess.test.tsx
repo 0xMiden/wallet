@@ -2,6 +2,7 @@ import React from 'react';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { accentForTransactionType } from 'components/flow/accent';
 import { ITransaction } from 'lib/miden/db/types';
 
 import { GuardianSwitchSuccess } from './GuardianSwitchSuccess';
@@ -424,5 +425,11 @@ describe('GuardianSwitchSuccess', () => {
     expect(mockLayoutProps!.secondaryAction!.variant).toBe('secondary');
     // "View in Activities" sits ABOVE "Done" on this receipt.
     expect(mockLayoutProps!.secondaryFirst).toBe(true);
+    // `accentForTransactionType('switch-guardian')` resolves to 'brand', which is
+    // also `TransactionSuccessLayout`'s own default — so asserting only the value
+    // would still pass if the component stopped passing `accent` at all. Assert
+    // both: the prop is actually wired, and its value is the derived one.
+    expect(mockLayoutProps!.accent).not.toBeUndefined();
+    expect(mockLayoutProps!.accent).toBe(accentForTransactionType('switch-guardian'));
   });
 });

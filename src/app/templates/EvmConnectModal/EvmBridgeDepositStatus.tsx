@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { formatBridgeOutputAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
@@ -31,6 +32,11 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
+  // The Fast route stores the exact 18-decimal quote and is rounded here the way Activity
+  // does; the Slow route stores what was typed (already capped at 6 decimals), so it is shown unchanged.
+  const roundedSourceAmount =
+    inputs.provider === 'epoch' ? formatBridgeOutputAmount(inputs.sourceAmount) : inputs.sourceAmount;
+  const sourceLabel = `${roundedSourceAmount} ${inputs.sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
@@ -56,9 +62,13 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
         }
         onClose={onDone}
       >
+        {/* A bridge-in row wears the bridge slate in Activity and on its detail page, so its
+            arrow does too — the badge's default is the Send blue, which is another flow's colour
+            on a screen about money arriving. */}
         <TransactionSummaryBadge
-          lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`}
+          lhs={sourceLabel}
           rhs={inputs.outputAmount ? `${inputs.outputAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
+          fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />
         <ReceiptRows
@@ -89,7 +99,12 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
             name={failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
           />
-          <TransactionSummaryBadge lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`} rhs="Miden" className="mt-4" />
+          <TransactionSummaryBadge
+            lhs={sourceLabel}
+            rhs="Miden"
+            fillForArrow={TRANSACTION_COLORS.bridge}
+            className="mt-4"
+          />
           <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed ? (inputs.error ?? t('transactionErrorDescription')) : t('bridgeDepositProcessingDescription')}
           </p>

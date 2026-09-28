@@ -4,7 +4,9 @@ import { useWalletInfo } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { hapticLight } from 'lib/mobile/haptics';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { truncateHash } from 'utils/string';
 
@@ -39,51 +41,50 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
   const name = walletInfo?.name ?? t('connectedWallet');
   const icon = walletInfo?.icon;
 
+  // `ListRow` fires the tap haptic itself, so this only closes and hands over.
   const handleConnectAnother = () => {
-    hapticLight();
     onOpenChange(false);
     onConnectAnother();
   };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-switch-wallet">
-      <DrawerContent className="px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <DrawerContent className="pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('switchWallet')}</DrawerTitle>
         </DrawerHeader>
 
-        <span className="px-1 text-xs font-bold uppercase tracking-wide text-text-tertiary-token">{t('current')}</span>
+        <div className="flex flex-col gap-5 px-4">
+          <section>
+            <SectionHeader>{t('current')}</SectionHeader>
+            <ListGroup>
+              <ListRow
+                title={name}
+                subtitle={truncateHash(address, 6, 4)}
+                avatar={
+                  icon ? (
+                    <img src={icon} alt="" className="h-10 w-10 rounded-full object-cover" />
+                  ) : (
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-page text-ink">
+                      <Icon name={IconName.Wallet} size="sm" fill="currentColor" />
+                    </span>
+                  )
+                }
+                value={ethLoading ? t('loading') : `${ethBalance} ETH`}
+                checked
+              />
+            </ListGroup>
+          </section>
 
-        <div className="mt-3 flex w-full items-center gap-3 px-1">
-          {icon ? (
-            <img
-              src={icon}
-              alt={name}
-              className="h-11 w-11 shrink-0 rounded-xl border border-border-faint object-cover"
+          <ListGroup>
+            <ListRow
+              title={t('connectAnotherWallet')}
+              icon={<Icon name={IconName.Add} fill="currentColor" />}
+              chevron
+              onClick={handleConnectAnother}
             />
-          ) : (
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border-faint bg-gray-100">
-              <Icon name={IconName.Wallet} className="h-5 w-5 text-ink" fill="currentColor" />
-            </span>
-          )}
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="font-heading text-base font-bold text-ink">{name}</span>
-            <span className="text-sm text-text-tertiary-token">{truncateHash(address, 6, 4)}</span>
-          </div>
-          <span className="shrink-0 text-sm font-semibold text-text-tertiary-token">
-            {ethLoading ? t('loading') : `${ethBalance} ETH`}
-          </span>
-          <Icon name={IconName.CheckboxCircleFill} className="h-5 w-5 shrink-0 text-primary-500" fill="currentColor" />
+          </ListGroup>
         </div>
-
-        <button
-          type="button"
-          onClick={handleConnectAnother}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-100 py-4 font-heading text-base font-bold text-ink transition-colors active:bg-gray-200"
-        >
-          <Icon name={IconName.Add} className="h-5 w-5" fill="currentColor" />
-          {t('connectAnotherWallet')}
-        </button>
       </DrawerContent>
     </Drawer>
   );

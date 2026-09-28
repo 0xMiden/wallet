@@ -3,8 +3,11 @@ import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
 import { StrictActionAuthentication } from 'components/StrictActionAuthentication';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
 import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { useWalletStore } from 'lib/store';
@@ -189,28 +192,28 @@ const SpendingLimits: FC = () => {
   );
 
   return (
-    <div className="w-full flex flex-col gap-4 pb-6" data-testid="spending-limits-settings">
-      <div className="rounded-xl bg-fill p-4 flex flex-col gap-2">
-        <p className="text-sm text-muted">{t('spendingLimitLocalDisclosure')}</p>
-        <p className="text-sm text-muted">{t('spendingLimitNotOnChain')}</p>
-        <p className="text-sm text-muted">{t('spendingLimitCoverage')}</p>
-      </div>
+    <SubPageLayout data-testid="spending-limits-settings">
+      <Notice tone="neutral">
+        <span className="flex flex-col gap-2">
+          <span>{t('spendingLimitLocalDisclosure')}</span>
+          <span>{t('spendingLimitNotOnChain')}</span>
+          <span>{t('spendingLimitCoverage')}</span>
+        </span>
+      </Notice>
       {loading ? (
-        <p role="status" className="text-sm text-text-secondary-token">
+        <Notice variant="inline" role="status">
           {t('loading')}
-        </p>
+        </Notice>
       ) : loadError ? (
-        <p role="alert" className="text-sm text-status-negative">
-          {t('spendingLimitLoadFailed')}
-        </p>
+        <ErrorLine>{t('spendingLimitLoadFailed')}</ErrorLine>
       ) : (
-        <section className="rounded-xl border border-border-faint bg-white p-4 flex flex-col gap-4">
-          <Input
+        <SubPageSection className="gap-4">
+          <TextField
             type="text"
             inputMode="decimal"
             label={t('spendingLimitUsdCap')}
             aria-label={t('spendingLimitUsdCap')}
-            prefix="$"
+            leading="$"
             value={value}
             disabled={saving}
             onChange={event => {
@@ -218,11 +221,7 @@ const SpendingLimits: FC = () => {
               setError(null);
             }}
           />
-          {error && (
-            <p role="alert" className="text-sm text-status-negative">
-              {error}
-            </p>
-          )}
+          <ErrorLine>{error}</ErrorLine>
           {authenticating ? (
             <StrictActionAuthentication
               reason={t('spendingLimitAuthenticationReason')}
@@ -236,9 +235,9 @@ const SpendingLimits: FC = () => {
               onClick={prepareSave}
             />
           )}
-        </section>
+        </SubPageSection>
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 

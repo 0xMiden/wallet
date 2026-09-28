@@ -88,6 +88,21 @@ export function springToLinearEasing(
   return { duration, easing: `linear(${points.join(',')})` };
 }
 
+let linearEasingSupported: boolean | undefined;
+
+/**
+ * Whether the engine parses `linear()` easing. WebKit does only from Safari 17.2, and
+ * `Element.animate` throws on an easing it cannot parse, so every caller of
+ * `springToLinearEasing` checks this first. Computed once; false where `CSS.supports` is missing.
+ */
+export function supportsLinearEasing(): boolean {
+  linearEasingSupported ??=
+    typeof CSS !== 'undefined' &&
+    typeof CSS.supports === 'function' &&
+    CSS.supports('transition-timing-function', 'linear(0, 1)');
+  return linearEasingSupported;
+}
+
 /**
  * Returns displacement from the target over time, in the spring's own units.
  * `t` is in seconds.

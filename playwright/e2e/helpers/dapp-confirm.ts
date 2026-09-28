@@ -327,3 +327,83 @@ export async function readQueuedTransactions(page: Page): Promise<QueuedTransact
       })
   );
 }
+
+export type LowContrastRow = { text: string; color: string; background: string; ratio: number };
+
+/**
+ * Every visible text run and `currentColor` icon glyph on `page` whose contrast against the
+ * background it actually sits on is below `minRatio` (WCAG 3:1 is the floor for
+ * large text and UI glyphs).
+ *
+ * This exists because a colour a component never sets is inherited, and `body`
+ * sets none: text that looked right on a light card rendered browser-default
+ * black on the dark one, and nothing that asserts text CONTENT could see it.
+ * Colours are normalised through a canvas so `oklch(...)` and `color(...)`
+ * computed values compare the same as `rgb(...)`.
+ */
+export async function readLowContrastText(page: Page, minRatio = 3): Promise<LowContrastRow[]> {
+  return page.evaluate(min => {
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+    const rgba = (css: string): [number, number, number, number] => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = '#000';
+      ctx.fillStyle = css;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r = 0, g = 0, b = 0, a = 0] = ctx.getImageData(0, 0, 1, 1).data;
+      return [r, g, b, a / 255];
+    };
+    const over = (top: number[], under: number[]) => {
+      const alpha = top[3] ?? 1;
+      return top.slice(0, 3).map((c, i) => c * alpha + (under[i] ?? 0) * (1 - alpha));
+    };
+    const backgroundOf = (el: Element | null): number[] => {
+      const layers: number[][] = [];
+      for (let node = el; node; node = node.parentElement) {
+        const bg = rgba(getComputedStyle(node).backgroundColor);
+        if (bg[3] > 0) layers.push(bg);
+        if (bg[3] === 1) break;
+      }
+      return layers.reduceRight<number[]>((under, top) => over(top, under), [255, 255, 255]);
+    };
+    const luminance = (rgb: number[]) => {
+      const [r = 0, g = 0, b = 0] = rgb.map(v => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const visible = (el: Element) => {
+      const style = getComputedStyle(el);
+      return el.getClientRects().length > 0 && style.visibility !== 'hidden' && Number(style.opacity) > 0;
+    };
+
+    const rows: LowContrastRow[] = [];
+    const check = (el: Element, text: string, colorCss: string) => {
+      const bg = backgroundOf(el);
+      const fg = over(rgba(colorCss), bg);
+      const [a, b] = [luminance(fg), luminance(bg)];
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      if (ratio < min) {
+        rows.push({ text, color: colorCss, background: `rgb(${bg.map(Math.round).join(', ')})`, ratio });
+      }
+    };
+
+    for (const el of Array.from(document.body.querySelectorAll('*'))) {
+      if (!visible(el)) continue;
+      if (el instanceof SVGGeometryElement) {
+        // Only `currentColor` glyphs inherit like text; literal-fill brand art
+        // layers shapes over each other, which a background walk cannot see.
+        const { fill, color } = getComputedStyle(el);
+        if (fill === color) check(el.ownerSVGElement ?? el, `<svg ${el.tagName}>`, fill);
+        continue;
+      }
+      const own = Array.from(el.childNodes)
+        .filter(node => node.nodeType === Node.TEXT_NODE)
+        .map(node => node.textContent ?? '')
+        .join('')
+        .trim();
+      if (own) check(el, own, getComputedStyle(el).color);
+    }
+    return rows;
+  }, minRatio);
+}

@@ -2,17 +2,18 @@ import fs from 'fs';
 import path from 'path';
 
 // The review screen's recall (expiration) copy must describe what the wallet
-// actually does with an unclaimed send after its recall height passes.
+// actually does with a send the recipient never accepted, once its recall
+// height passes.
 //
 // It used to read "the $amount$ returns to your wallet automatically". Nothing
-// automatic happens for a non-native token: background auto-consume is gated on
-// the native faucet id (`sync-manager.ts`), so a reclaimed TST/USDC note sits in
-// the pending list until the user claims it — which is exactly what
+// automatic happens for a non-native token: background auto-accept is gated on
+// the native faucet id (`sync-manager.ts`), so a recalled TST/USDC transfer sits
+// in the pending list until the user accepts it — which is exactly what
 // `playwright/e2e/tests/recall-reclaim.spec.ts` has to do (`claimAllNotes`) to
 // get the money back. Promising an automatic return on the screen where a user
 // decides whether a payment is recoverable is the worst place to be wrong.
 //
-// These guards pin the corrected claim so it cannot drift back.
+// These guards pin the corrected promise so it cannot drift back.
 
 const EN_DIR = path.join(__dirname, '../../../public/_locales/en');
 type Entry = { message: string };
@@ -26,16 +27,16 @@ const msg = (key: string): string => {
 };
 
 describe('recall/expiration copy accuracy', () => {
-  it('does not promise the unclaimed amount comes back on its own', () => {
+  it('does not promise the unaccepted amount comes back on its own', () => {
     const note = msg('recallReturnsNote');
-    // Only the native asset auto-consumes; every other token needs a claim.
+    // Only the native asset is auto-accepted; every other token needs an accept.
     expect(note).not.toMatch(/automatic/i);
     expect(note).not.toMatch(/by itself|on its own/i);
   });
 
-  it('tells the sender they can claim it back, and names the amount', () => {
+  it('tells the sender they get it back by accepting it, and names the amount', () => {
     const note = msg('recallReturnsNote');
-    expect(note).toMatch(/claim/i);
+    expect(note).toMatch(/accept/i);
     // The placeholder is what makes the sentence concrete ("the 250 TST");
     // losing it turns the copy into a generic reassurance.
     expect(note).toContain('$amount$');

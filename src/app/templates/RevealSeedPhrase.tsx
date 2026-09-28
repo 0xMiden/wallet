@@ -1,27 +1,27 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
-import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
-import { Vault } from 'lib/miden/back/vault';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -32,9 +32,8 @@ type FormData = {
 // The page opens on the privacy warning; the auth gate and the words come only after View.
 type Step = 'warning' | 'reveal';
 
-// The protector probe reads platform storage, which can hang rather than fail. The
-// bound only has to be shorter than a user's patience: its whole job is to convert a
-// hang into the retryable error path.
+// The protector probe reads platform storage, which can hang rather than fail. Past this bound the
+// page says it is still checking and how to retry (leave and reopen); the probe itself stays in flight.
 const PROBE_TIMEOUT_MS = 5_000;
 
 const RevealSeedPhrase: FC = () => {
@@ -48,15 +47,14 @@ const RevealSeedPhrase: FC = () => {
     },
     [seedStatus]
   );
-  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
   const [secret, setSecret] = useSecretState();
+  const { copy, copied } = useClipboardCopy(secret ?? '');
   const [step, setStep] = useState<Step>('warning');
-  // Every exit from this page goes through `leave`, never `goBack()` directly.
-  // Several paths want out at once — a failed biometric reveal's catch, then the
-  // auto-close effect once `finally` clears isSubmitting; Hide and the drawer's
-  // close, which also trip that effect — and `history.go(-1)` settles on a later
-  // task, so each call popped another page (Settings too). The hook fires once
-  // per location, and routes to the Settings root when opened cold.
+  // Every exit from this page goes through `leave`, never `goBack()` directly: it
+  // bumps the generation, resets the step and the drawer, then pops through this
+  // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
+  // each pop a page (Settings too); the hook fires once per location as a safety
+  // net, and routes to the Settings root when the page was opened cold.
   const popPage = useBackWithFallback('/settings');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
@@ -64,10 +62,14 @@ const RevealSeedPhrase: FC = () => {
   // store the mnemonic and swap the rendered branch to the word grid on a page the
   // user has already dismissed. Bumping the generation gives that in-flight promise
   // the same mismatch unmount already produces. Wrapped at the binding rather than
-  // at each call site: there are seven, and a list is one edit away from being six.
+  // at each call site: there are many, and a list is one edit away from missing one.
   const leave = useCallback(() => {
     secretGeneration.current += 1;
     setSecret(null);
+    // An exited instance must never rest on the empty auth branch (a reused layer
+    // showed it until Back, #1122).
+    setStep('warning');
+    setShowPasswordDrawer(false);
     popPage();
   }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
@@ -81,7 +83,7 @@ const RevealSeedPhrase: FC = () => {
   // transient and the mount probe runs once.
   const [probeError, setProbeError] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
-  const probeGeneration = useRef(0);
+  const [probeSlow, setProbeSlow] = useState(false);
   const probeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
@@ -103,101 +105,47 @@ const RevealSeedPhrase: FC = () => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
 
-  // Detect the auth type, so View knows which gate to open.
+  // Detect the auth type, so View knows which gate to open. `probeHardwareProtector` resolves a
+  // failed read through the password protector instead of guessing; only a failure of both reads
+  // reaches `probeError`.
   //
-  // A REJECTION MUST NOT BE READ AS "no hardware". Both protectors are a `getPlain`
-  // read of their own key, so a failure of the hardware read says nothing about the
-  // password one - and answering `false` sends a hardware-only wallet into
-  // `unlockWithPassword`, which finds no stored password key and throws a fixed
-  // English string telling the user to use the biometrics this page has just stopped
-  // offering. So resolve the unknown with the complement instead of guessing it:
-  // a password credential means the password gate is genuinely right, and its absence
-  // means hardware, which then either works or fails loudly and correctly.
-  // Only a failure of BOTH reads is unresolvable, and that is storage being
-  // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
-  // returns false without touching storage, so none of this runs there.
-  const probe = useCallback(async () => {
-    try {
-      return await Vault.hasHardwareProtector();
-    } catch (hardwareError) {
-      try {
-        return !(await Vault.hasPasswordProtector());
-      } catch (passwordError) {
-        // Carry both. The log is the only evidence for this state, and a bare rethrow
-        // could only ever name the complement's failure.
-        throw new Error('both protector reads failed', { cause: { hardwareError, passwordError } });
-      }
-    }
-  }, []);
-
-  // One runner for both entry points, with a monotonic token guarding every write.
-  // The token is NOT redundant: the deadline below releases the button without settling
-  // the read, so a user can start a second probe while the first is still outstanding -
-  // an overlap that could not happen before that change. The token is what makes the
-  // first probe's late settle a no-op instead of a write from a superseded run.
+  // One probe per page at a time. Retry exists only once a probe has settled with both reads
+  // rejected, so no second probe can start while one is in flight, and staying on the page adopts the
+  // first read's answer however late. During a hang the only retry is leaving and reopening, which
+  // ends this probe with the page: its late settle writes to an unmounted component, which React
+  // ignores, and the new page's read answers if the first was lost rather than wedged.
   const runProbe = useCallback(() => {
-    const generation = (probeGeneration.current += 1);
-    const isCurrent = () => generation === probeGeneration.current;
-    // At most one line per run. The deadline and a rejection can both land for the same
-    // run - a read that outlives the bound and then fails - and two lines for one banner
-    // would over-count probes in a report.
-    let logged = false;
-    const raiseBanner = (message: string) => {
-      if (!isCurrent()) return;
-      if (!logged) {
-        logged = true;
-        console.warn(`[RevealSeedPhrase] ${message}`);
-      }
-      setProbeError('couldNotCheckUnlockMethod');
-      setProbing(false);
-    };
-
     setProbing(true);
-    clearTimeout(probeTimer.current);
-    // Held in a LOCAL as well as the ref, and the local is what `.finally` clears. The
-    // ref alone was wrong: a superseded probe settles late by design here, and its
-    // `.finally` would then clear whatever handle the ref holds - which after a Retry is
-    // the LIVE probe's deadline. That left the second probe unbounded and put the page
-    // back in the dead end this whole mechanism exists to prevent. The ref stays for the
-    // unmount cleanup and the pre-arm clear, both of which do want the newest handle.
-    // A WAIT, not a failure. This fires on any read slower than the bound, and such a
-    // read is adopted below - so calling it a failure made the common mobile case, a slow
-    // bridge read that succeeds, report an error that never happened.
-    const timer = setTimeout(
-      () => raiseBanner(`protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`),
-      PROBE_TIMEOUT_MS
-    );
-    probeTimer.current = timer;
+    let waited = false;
+    probeTimer.current = setTimeout(() => {
+      waited = true;
+      console.warn(`[RevealSeedPhrase] protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`);
+      // The wait notice replaces an earlier failure's error: one message on screen at a time.
+      setProbeError(null);
+      setProbeSlow(true);
+    }, PROBE_TIMEOUT_MS);
 
-    probe()
+    probeHardwareProtector()
       .then(hasHw => {
-        if (!isCurrent()) return;
-        // Withdraw the wait, so "slow then answered" is separable from "never answered".
-        if (logged) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
+        if (waited) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
         setProbeError(null);
         setHasHardwareProtector(hasHw);
       })
-      .catch(err => raiseBanner(`protector probe failed: ${err instanceof Error ? err.message : String(err)}`))
+      .catch(err => {
+        console.warn(`[RevealSeedPhrase] protector probe failed: ${err instanceof Error ? err.message : String(err)}`);
+        setProbeError('couldNotCheckUnlockMethod');
+      })
       .finally(() => {
-        clearTimeout(timer);
-        if (isCurrent()) setProbing(false);
+        clearTimeout(probeTimer.current);
+        setProbeSlow(false);
+        setProbing(false);
       });
-  }, [probe]);
+  }, []);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
     runProbe();
-    // Bump on the way out, the same way `secretGeneration` is: round 2 replaced this
-    // effect's `cancelled` flag with the token and then never invalidated on unmount,
-    // so an in-flight probe could still write. Harmless under React 18, but the
-    // asymmetry with its sibling is the kind that bites later.
-    return () => {
-      probeGeneration.current += 1;
-      // The generation bump invalidates the WRITE; this invalidates the TIMER. Round 3
-      // added the first and not the second, which left a live handle behind on exactly
-      // the hanging read the bound exists for.
-      clearTimeout(probeTimer.current);
-    };
+    return () => clearTimeout(probeTimer.current);
   }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.
@@ -265,14 +213,17 @@ const RevealSeedPhrase: FC = () => {
       setIsSubmitting(true);
       clearErrors();
       setAuthError(null);
+      const generation = secretGeneration.current;
       try {
-        const generation = secretGeneration.current;
         const mnemonic = await revealMnemonic(data.password);
         if (generation !== secretGeneration.current) return;
         setSecret(mnemonic);
         setShowPasswordDrawer(false);
       } catch (err: any) {
         await new Promise(res => setTimeout(res, 300));
+        // Checked after the delay, as RevealSecret does: leave() bumps the generation, and
+        // the user can leave while this await runs, so a guard above it protects nothing.
+        if (generation !== secretGeneration.current) return;
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
         setIsSubmitting(false);
@@ -287,147 +238,197 @@ const RevealSeedPhrase: FC = () => {
     leave();
   }, [setSecret, leave]);
 
-  const handlePasswordDrawerClose = useCallback(() => {
-    setShowPasswordDrawer(false);
-    leave();
-  }, [leave]);
+  // Passcode / password drawer (for non-hardware wallets). Mobile vaults are protected
+  // by the 6-digit onboarding passcode, so they get the numpad; extension/desktop use a
+  // typed password.
+  const usePasscodeEntry = isMobile();
+
+  // A sibling of the 'warning' and 'auth' branches below, not a child of either: closing
+  // the drawer (X, scrim, Escape, drag-release) runs leave(), which resets step to
+  // 'warning' in the same batch (#1122). Nested inside the 'auth' branch, that reset
+  // unmounted the Drawer before vaul's close animation could run. Kept at the same keyed
+  // slot in both branches, it survives the step change and closes through `open`; a closed
+  // Drawer is inert, so no mount flag gates it.
+  const passwordDrawer = (
+    <Drawer
+      key="password-drawer"
+      open={showPasswordDrawer}
+      onOpenChange={open => !open && leave()}
+      screenKey="reveal-seed"
+    >
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
+        </DrawerHeader>
+        {usePasscodeEntry ? (
+          <div className="px-4 pb-6">
+            <PasscodeEntry
+              onSubmit={code => onPasswordSubmit({ password: code })}
+              onChange={() => clearErrors()}
+              error={errors.password?.message ?? null}
+              isSubmitting={isSubmitting}
+            />
+          </div>
+        ) : (
+          <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
+            <TextField
+              {...register('password', { required: t('required') })}
+              label={t('password')}
+              id="reveal-seed-password"
+              type="password"
+              placeholder="********"
+              error={errors.password?.message}
+              errorTestId="error-caption"
+              containerClassName="mb-4"
+              onChange={e => {
+                register('password').onChange(e);
+                clearErrors();
+              }}
+            />
+            <Button
+              className="w-full justify-center"
+              variant={ButtonVariant.Primary}
+              title={t('continue')}
+              disabled={isSubmitting || !passwordValue}
+              isLoading={isSubmitting}
+              onClick={handleSubmit(onPasswordSubmit)}
+            />
+          </form>
+        )}
+      </DrawerContent>
+    </Drawer>
+  );
+
+  // Hardware back runs the header callback for the screen showing (#1042), so it also goes through
+  // `leave` and abandons an in-flight reveal. A phrase is held only on the words screen.
+  useMobileBackHandler(() => {
+    (secret ? handleHide : leave)();
+    return true;
+  }, [secret, handleHide, leave]);
 
   if (seedStatus && seedStatus !== 'stored')
     return (
-      <p role="status" className="p-4">
+      // The same page the verify flow draws for this state, on the same frame.
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={leave}
+        data-testid="reveal-seed-state"
+        footer={<Button className="flex-1 max-w-none" title={t('close')} onClick={leave} />}
+      >
         {/* Three distinct states, not two: a removal still to finish, one that
             finished, and a wallet imported from a key that never had a phrase
             here at all. Telling that last user their seed was removed is false.
             VerifySeedPhraseFlow carries the identical mapping. */}
-        {t(SEED_STATE_NOTICE[seedStatus])}
-      </p>
+        <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>} />
+      </SubPageLayout>
     );
 
-  // Each branch keys its own header so React remounts it at a step change rather than
+  // Each branch keys its own frame so React remounts its header at a step change rather than
   // reconciling one instance in place - PageHeader focuses the title from a mount
   // effect, so without a remount the announcement never fires and the h1 keeps no
   // tabIndex. Keyed per BRANCH, not on `step`: three of the four run with
-  // step === 'reveal'. The drawer branch is deliberately not focused - its sheet is a
-  // portal that owns focus, and that branch remounts on every failed submit.
+  // step === 'reveal'. The auth branch passes no `focusTitleOnMount` of its own, but gets
+  // it anyway - Settings (Settings.tsx:516,527) provides `true` for this route via
+  // SubPageHeaderProvider, and SubPageLayout falls back to that context value when a page
+  // doesn't set the prop itself. A pending or failed submit stays on this branch (#1122);
+  // a successful one leaves it for the words branch.
   if (step === 'warning') {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader key="warning" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
+      <>
+        <SubPageLayout
+          key="warning"
+          title={t('recoveryPhrase')}
+          onBack={leave}
+          focusTitleOnMount
+          data-testid="reveal-seed-warning"
+          footer={
+            <>
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Secondary}
+                title={t('close')}
+                onClick={leave}
+              />
+              <Button
+                className="flex-1 max-w-none"
+                variant={ButtonVariant.Primary}
+                title={t('view')}
+                onClick={handleView}
+                disabled={hasHardwareProtector === null || isSubmitting}
+                isLoading={isSubmitting}
+              />
+            </>
+          }
+        >
+          <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
+            <SeedPhrasePlaceholder />
+          </SubPageSection>
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
-          {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
-          <div aria-hidden="true" className="bg-fill rounded-2xl px-6 py-8">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="h-1.5 w-full rounded-full bg-fill-pressed" />
-              ))}
+          {probeError ? (
+            <div>
+              <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
+                {t(probeError)}
+              </Notice>
+              <Button
+                className="mt-3"
+                variant={ButtonVariant.Secondary}
+                title={t('retry')}
+                onClick={runProbe}
+                disabled={probing}
+                isLoading={probing}
+              />
             </div>
-          </div>
+          ) : (
+            probeSlow && (
+              <Notice tone="neutral" role="status" data-testid="reveal-seed-probe-slow">
+                {t('checkingUnlockMethodSlow')}
+              </Notice>
+            )
+          )}
 
-          <p className="mt-4 text-center font-sans text-base text-muted">{t('pleaseWriteDownRecoveryPhrase')}</p>
-
-          <div className="mt-auto flex flex-col items-center pt-8 text-center">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary">
-              <Icon name={IconName.EyeOff} size="md" fill="white" />
-            </div>
-            <h2 className="mb-1 font-heading text-xl font-extrabold text-ink">{t('viewThisInPrivatePlace')}</h2>
-            <p className="font-sans text-base text-muted">{t('anyoneWithRecoveryPhrase')}</p>
-          </div>
-        </div>
-
-        {probeError && (
-          <div className="px-4 pt-4">
-            <Alert type="error" title={t('error')} description={t(probeError)} className="rounded-lg text-ink" />
-            <Button
-              className="mt-3"
-              variant={ButtonVariant.Secondary}
-              title={t('retry')}
-              onClick={runProbe}
-              disabled={probing}
-              isLoading={probing}
-            />
-          </div>
-        )}
-
-        <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
-          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
-          <Button
-            className="flex-1"
-            variant={ButtonVariant.Primary}
-            title={t('view')}
-            onClick={handleView}
-            disabled={hasHardwareProtector === null || isSubmitting}
-            isLoading={isSubmitting}
-          />
-        </div>
-      </div>
+          <SeedPhrasePrivacyHero className="mt-auto pt-4" />
+        </SubPageLayout>
+        {passwordDrawer}
+      </>
     );
-  }
-
-  // The error view is exempt: a Retry sets isSubmitting again, and blanking here
-  // would take the Alert and the Retry button off screen for the whole prompt.
-  if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
-    return null;
   }
 
   // Revealed view
   if (secret && words.length > 0) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
-        <PageHeader key="words" className="px-4" title={t('recoveryPhrase')} onBack={handleHide} focusTitleOnMount />
-
-        <div className="flex-1 flex flex-col px-4 pt-4">
-          {isGuardReady && (
-            <>
-              {/* Hidden field for copy */}
-              <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
-
-              {/* Copy button */}
-              <div className="flex justify-center mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    hapticLight();
-                    copy();
-                  }}
-                  className={classNames(
-                    'flex items-center gap-1.5 px-4 py-1.5',
-                    'border border-border-card rounded-2xl',
-                    'text-sm font-medium text-ink',
-                    'hover:opacity-80 cursor-pointer'
-                  )}
-                >
-                  <AnimatedCopyIcon copied={copied} />
-                  <CopyLabel copied={copied} copiedLabel={t('copied')}>
-                    {t('copyToClipboard')}
-                  </CopyLabel>
-                </button>
-              </div>
-
-              {/* Word grid */}
-              <div className="p-6 bg-white rounded-10">
-                <div className="grid grid-cols-4 gap-x-4 gap-y-6">
-                  {words.map((word, idx) => (
-                    <span key={idx} className="text-base font-medium text-ink text-center">
-                      {word.charAt(0).toUpperCase() + word.slice(1)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Hide button */}
-        <div className="px-4 pb-8 pt-4 mt-auto">
+      <SubPageLayout
+        key="words"
+        title={t('recoveryPhrase')}
+        onBack={handleHide}
+        focusTitleOnMount
+        data-testid="reveal-seed-review"
+        footer={
           <Button
-            className="w-full justify-center"
+            className="flex-1 max-w-none"
             variant={ButtonVariant.Primary}
             title={t('hideRecoveryPhrase')}
             onClick={handleHide}
           />
-        </div>
-      </div>
+        }
+      >
+        {isGuardReady && (
+          <SubPageSection className="gap-3">
+            <SeedPhraseGrid words={words} />
+
+            {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
+            <Pill
+              className="self-start"
+              icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
+              onClick={() => void copy()}
+              data-testid="reveal-seed-copy"
+            >
+              <CopyLabel copied={copied} copiedLabel={t('copied')}>
+                {t('copyToClipboard')}
+              </CopyLabel>
+            </Pill>
+          </SubPageSection>
+        )}
+      </SubPageLayout>
     );
   }
 
@@ -439,84 +440,43 @@ const RevealSeedPhrase: FC = () => {
   // `authError` at all, so reaching this view proves no `leave()` has run.
   if (authError) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader key="error" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
-        <div className="px-4 pt-4">
-          <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
-        </div>
-
-        <div className="mt-auto flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
-          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
-          <Button
-            className="flex-1"
-            variant={ButtonVariant.Primary}
-            title={t('retry')}
-            onClick={handleView}
-            disabled={isSubmitting}
-            isLoading={isSubmitting}
-          />
-        </div>
-      </div>
+      <SubPageLayout
+        key="error"
+        title={t('recoveryPhrase')}
+        onBack={leave}
+        focusTitleOnMount
+        data-testid="reveal-seed-error"
+        footer={
+          <>
+            <Button
+              className="flex-1 max-w-none"
+              variant={ButtonVariant.Secondary}
+              title={t('close')}
+              onClick={leave}
+            />
+            <Button
+              className="flex-1 max-w-none"
+              variant={ButtonVariant.Primary}
+              title={t('retry')}
+              onClick={handleView}
+              disabled={isSubmitting}
+              isLoading={isSubmitting}
+            />
+          </>
+        }
+      >
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {authError}
+        </Notice>
+      </SubPageLayout>
     );
   }
 
-  // Passcode / password drawer (for non-hardware wallets, shown on mount).
-  // Mobile vaults are protected by the 6-digit onboarding passcode, so they
-  // get the numpad; extension/desktop use a typed password.
-  const usePasscodeEntry = isMobile();
-
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader key="auth" className="px-4" title={t('recoveryPhrase')} onBack={leave} />
-
-      <Drawer
-        open={showPasswordDrawer}
-        onOpenChange={open => !open && handlePasswordDrawerClose()}
-        screenKey="reveal-seed"
-      >
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>
-          </DrawerHeader>
-          {usePasscodeEntry ? (
-            <div className="px-4 pb-6">
-              <PasscodeEntry
-                onSubmit={code => onPasswordSubmit({ password: code })}
-                onChange={() => clearErrors()}
-                error={errors.password?.message ?? null}
-                isSubmitting={isSubmitting}
-              />
-            </div>
-          ) : (
-            <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-              <FormField
-                {...register('password', { required: t('required') })}
-                label={t('password')}
-                id="reveal-seed-password"
-                type="password"
-                name="password"
-                placeholder="********"
-                errorCaption={errors.password?.message}
-                containerClassName="mb-4"
-                onChange={e => {
-                  register('password').onChange(e);
-                  clearErrors();
-                }}
-                labelClassName="text-ink"
-              />
-              <Button
-                className="w-full justify-center"
-                variant={ButtonVariant.Primary}
-                title={t('continue')}
-                disabled={isSubmitting || !passwordValue}
-                isLoading={isSubmitting}
-                onClick={handleSubmit(onPasswordSubmit)}
-              />
-            </form>
-          )}
-        </DrawerContent>
-      </Drawer>
-    </div>
+    <>
+      <SubPageLayout key="auth" title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth" />
+      {passwordDrawer}
+    </>
   );
 };
 

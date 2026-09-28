@@ -18,7 +18,7 @@ Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemb
 
 ## Build, Test, and Development Commands
 
-Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`.
+Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST` and `SENTRY_DSN` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how.
 
 - `yarn dev` rebuilds the Chrome extension in watch mode; load `dist/chrome_unpacked/` in Chrome.
 - `yarn build:devnet` — network-specific extension build.
@@ -42,7 +42,8 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Platform isolation**: wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform` — never apply iOS fixes globally.
 - **Haptics**: tappable components get `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`.
 - **Mobile file downloads**: `<a download>` does nothing in a WebView — use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
-- **Balance loading**: `fetchBalances` reads IndexedDB via `getAccount()` (instant); `AutoSync` calls `syncState()` separately. Never call `syncState()` from the UI path.
+- **Balance loading**: `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; sync runs separately (`useSyncTrigger` on mobile and desktop, the service worker on the extension). Never call `syncState()` from the UI path. The wait rule and the per-address in-flight guard are in CLAUDE.md's Balance loading section.
+- **Storage hooks' cache**: write a key `useStorage`/`usePassiveStorage` (`lib/miden/front/storage`) reads only through `putToStorage` or the hook's setter, and a wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. See the `CLAUDE.md` section of the same name.
 - **Transaction states** (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
@@ -96,6 +97,10 @@ E2E: `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` and `window.__TEST_IN
 ## Coding Style & Naming Conventions
 
 TypeScript is strict. No `any`, no `as` — use explicit domain types, and preserve the configured absolute imports (`app/...`, `lib/...`, `shared/...`). Prettier: 120-column width, two-space indentation, single quotes, semicolons, trailing commas. ESLint enforces formatting and ordered imports. Name React components and files in `PascalCase`, hooks as `useSomething`, and utilities in `camelCase` or established kebab-case modules. `yarn format` to fix.
+
+## UI: Shared Components and Layouts
+
+Pages supply content; the design system supplies the rest. Reuse the shared component before writing styles — a page-local frame, row, field, error line, empty state or icon circle is a defect, and the fix is to extend the shared one (a prop or variant), never to fork it. Take the shared frame too: `SubPageLayout` for pushed pages, `FlowLayout` + `FlowFooter` for flow steps, one shell for the home-group panes, so titles, gutters, section gaps and pinned actions sit in the same place everywhere. Spacing, type and colour come from the named type styles and semantic tokens; a literal padding or hex means a token is missing, so add it. See `skills/miden-wallet-frontend/SKILL.md` and its `references/design-system.md`.
 
 ## Commit & Pull Request Guidelines
 

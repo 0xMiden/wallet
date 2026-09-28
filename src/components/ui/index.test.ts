@@ -14,7 +14,8 @@ import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
 import { AlertSheet } from './AlertSheet';
 import { AnimatedCopyIcon } from './AnimatedCopyIcon';
-import { AssetListItem } from './AssetListItem';
+import { AnimatedNumber } from './AnimatedNumber';
+import { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
@@ -25,29 +26,40 @@ import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
+import { DappOrigin } from './DappOrigin';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { ErrorLine } from './ErrorLine';
+import { FactRow, IconCircle } from './FactRow';
+import { HeaderRule } from './HeaderRule';
 import { Hero } from './Hero';
 import { IconButton } from './IconButton';
 import * as UI from './index';
+import { InfoHint } from './InfoHint';
 import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
 import { Notice } from './Notice';
 import { Pill } from './Pill';
+import { Popover } from './Popover';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
 import { SectionHeader } from './SectionHeader';
+import { SeedPhraseGrid } from './SeedPhraseGrid';
 import { SegmentedActionBar } from './SegmentedActionBar';
 import { SegmentedControl } from './SegmentedControl';
+import { SelectionCheck } from './SelectionCheck';
 import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { StatusBadge } from './StatusBadge';
 import { SubPageLayout } from './SubPageLayout';
 import { TabHeader, TabHeaderAction } from './TabHeader';
+import { TabRootHeader } from './TabRootHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
+import { UnreadDot } from './UnreadDot';
+import { WaveDots } from './WaveDots';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
 // jsdom lacks the layout APIs it probes, so stub it to a passthrough. This
@@ -69,9 +81,12 @@ describe('components/ui barrel', () => {
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
     AlertSheet,
+    AnimatedNumber,
     Avatar,
+    InfoHint,
     Pill,
     StatusBadge,
+    WaveDots,
     BalanceCard,
     CopyButton,
     CopyChip,
@@ -80,19 +95,25 @@ describe('components/ui barrel', () => {
     PromptCard,
     PromptCarousel,
     AssetListItem,
+    AssetListItemSkeleton,
     SegmentedActionBar,
     SegmentedControl,
+    SelectionCheck,
     BottomNav,
+    HeaderRule,
     TabHeader,
     TabHeaderAction,
+    TabRootHeader,
     SearchInput,
     Sparkline,
     ActivityRow,
     EmptyState,
     IconButton,
+    Popover,
     Spinner,
     Skeleton,
     TextField,
+    UnreadDot,
     Button,
     DetailCard,
     DetailRow,
@@ -101,6 +122,8 @@ describe('components/ui barrel', () => {
     ListRow,
     Notice,
     SectionHeader,
+    FactRow,
+    IconCircle,
     Card,
     CardButton,
     ChoiceCard,
@@ -109,7 +132,10 @@ describe('components/ui barrel', () => {
     CheckboxRow,
     ChoiceCardGroup,
     TextAction,
-    SubPageLayout
+    SubPageLayout,
+    ErrorLine,
+    SeedPhraseGrid,
+    DappOrigin
   } as const;
 
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,

@@ -152,7 +152,9 @@ describe('LanguageSettings', () => {
     expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'overflow-y-auto');
     const rows = screen.getAllByRole('radio');
     expect(new Set(rows.map(row => row.parentElement)).size).toBe(1);
-    expect(rows[0]!.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // `plain`: the page IS the list, so the group has no surface and its rows sit on the margin.
+    expect(rows[0]!.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(rows[0]!.parentElement).not.toHaveClass('bg-fill');
     expect(rows[0]!.querySelector('[data-slot="title"]')).toHaveTextContent('English');
   });
 
@@ -276,13 +278,13 @@ describe('LanguageSettings', () => {
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
   });
 
-  it('takes a pick again once the user leaves and reopens the screen', () => {
-    // Reopening within the slide-out brings back the same instance, so a latch that never
-    // resets left every row dead on the second visit.
+  it('takes a pick again when a pop reveals the screen after history moved on', () => {
+    // A screen a pop reveals is the same instance, so a latch that never resets left every
+    // row dead on the second visit.
     render(<LanguageSettings />);
     fireEvent.click(screen.getByText('Deutsch'));
 
-    moveTo('http://localhost/#/settings', 0);
+    moveTo('http://localhost/#/settings/language/help', 2);
     moveTo('http://localhost/#/settings/language', 1);
     fireEvent.click(screen.getByText('Français'));
 

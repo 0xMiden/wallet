@@ -9,6 +9,10 @@ import EarnDepositAmount from './EarnDepositAmount';
 
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({
@@ -25,13 +29,13 @@ jest.mock('react-i18next', () => ({
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({
-  EarnFlowHeader: ({ vault }: { vault: { id: string; protocol: string; asset: string; network: string } }) => (
+  EarnFlowHeader: ({ subject }: { subject?: { id: string; protocol: string; asset: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
-      data-vault-id={vault.id}
-      data-protocol={vault.protocol}
-      data-asset={vault.asset}
-      data-network={vault.network}
+      data-vault-id={subject?.id ?? 'none'}
+      data-protocol={subject?.protocol ?? 'none'}
+      data-asset={subject?.asset ?? 'none'}
+      data-network={subject?.network ?? 'none'}
     />
   )
 }));
@@ -42,6 +46,7 @@ jest.mock('./components', () => ({
 // (`onAmountChange`, `onConfirm`, `onSelectToken`).
 jest.mock('screens/send-flow/SelectAmount', () => ({
   SelectAmount: (props: {
+    accent?: string;
     token?: { id: string; name: string; decimals: number; balance: number; fiatPrice: number };
     amount: string;
     isValidAmount: boolean;
@@ -49,20 +54,19 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
     confirmTitle?: string;
     showNetworkPill?: boolean;
     showBalanceHelper?: boolean;
-    footerClassName?: string;
     onAmountChange: (amount: string) => void;
     onSelectToken: () => void;
     onConfirm?: () => void;
   }) => (
     <div
       data-testid="select-amount"
+      data-accent={props.accent}
       data-amount={props.amount}
       data-valid={String(props.isValidAmount)}
       data-label={String(props.label)}
       data-confirm-title={props.confirmTitle}
       data-show-network-pill={String(props.showNetworkPill)}
       data-show-balance-helper={String(props.showBalanceHelper)}
-      data-footer={props.footerClassName}
       data-token-id={props.token?.id}
       data-token-name={props.token?.name}
       data-token-decimals={String(props.token?.decimals)}
@@ -81,31 +85,32 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
 jest.mock('./useEarnPositions', () => {
   const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
   return {
+    ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
     useEarnPositions: () => ({
       summary: EARN_DATA.summary,
       positions: EARN_DATA.positions,
       vaults: EARN_DATA.vaults,
-      isLoading: false,
-      error: undefined
+      ...mockLoadState,
+      refetch: mockRefetch
     })
   };
 });
 
-// The deposit token comes from the account's USDC balance row. Stub the wallet
-// hooks with a fixed USDC row so the token props are deterministic.
+// The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
+// capture from when balances were read (0 here: read before any quote), which the screen must not
+// trust; its price comes from the live quote in the store.
+const USDC_ROW = { tokenId: '0xusdcfaucet', balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
   useAllTokensBaseMetadata: () => ({}),
-  useAllBalances: () => ({
-    data: [
-      {
-        tokenId: '0xusdcfaucet',
-        balance: 200,
-        fiatPrice: 1,
-        metadata: { symbol: 'USDC', decimals: 6 }
-      }
-    ]
-  })
+  useAllBalances: () => ({ data: mockBalanceRows })
+}));
+
+const USDC_QUOTE = { USDC: { price: 1.0002, change24h: 0, percentageChange24h: 0 } };
+let mockTokenPrices: Record<string, unknown> = USDC_QUOTE;
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
 
 // `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the USDC
@@ -124,6 +129,8 @@ const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount
 
 beforeEach(() => {
   mockNavigate.mockClear();
+  mockBalanceRows = [USDC_ROW];
+  mockTokenPrices = USDC_QUOTE;
 });
 
 describe('EarnDepositAmount', () => {
@@ -148,28 +155,53 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
-    expect(select).toHaveAttribute('data-token-fiat', '1');
+    // The live USDC quote, not the 0 the row captured before prices landed.
+    expect(select).toHaveAttribute('data-token-fiat', '1.0002');
+  });
+
+  it.each([
+    ['a USDC row', [USDC_ROW]],
+    ['no USDC row', []]
+  ])('gives the deposit token no price without a USDC quote, with %s', (_label, rows) => {
+    mockBalanceRows = rows;
+    mockTokenPrices = {};
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '0');
+  });
+
+  it('takes up the quote when prices land after the screen opened', () => {
+    mockTokenPrices = {};
+    const { rerender } = render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '0');
+
+    mockTokenPrices = USDC_QUOTE;
+    rerender(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '1.0002');
+  });
+
+  it('prices the deposit token from the quote when the account holds no USDC yet', () => {
+    mockBalanceRows = [];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-fiat', '1.0002');
   });
 
   it('forwards the static SelectAmount presentation props', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-accent', 'earn');
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
-    expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
   });
 
-  it('falls back to the placeholder vault when vaultId matches nothing', () => {
+  it('names no vault in the header when vaultId matches nothing', () => {
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
-    // `find` returns undefined, so `?? placeholderVault()` supplies an empty-id
-    // vault whose display fields are the "—" placeholder.
-    const header = screen.getByTestId('earn-flow-header');
-    expect(header).toHaveAttribute('data-vault-id', '');
-    expect(header).toHaveAttribute('data-protocol', '—');
-    expect(header).toHaveAttribute('data-asset', '—');
+    // The header gets the vault it found, never the "—" placeholder.
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
   });
 
   it('shows the balance helper and blocks confirm while the amount is empty', () => {
@@ -235,6 +267,67 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     expect(() => fireEvent.click(screen.getByTestId('select-token'))).not.toThrow();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('EarnDepositAmount after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of taking an amount for a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByTestId('select-amount')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure said while a retry is loading, with no vault in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
+  });
+
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('select-amount')).toBeNull();
+  });
+
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+  });
+});
+
+describe('EarnDepositAmount with no vault', () => {
+  it('never continues a valid amount into a deposit for the placeholder vault', () => {
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+    setAmount('10');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

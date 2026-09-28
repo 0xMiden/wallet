@@ -80,8 +80,9 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
     />
   );
 
+  // SendManager's back handler closes this sheet, so the sheet does not register its own.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts">
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts" closeOnBack={false}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('addressBook')}</DrawerTitle>
@@ -106,7 +107,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
               />
               <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto pt-5">
                 {mine.length === 0 && contacts.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted">{t('noContactsFound')}</p>
+                  <p className="py-4 text-center text-body-sm text-muted">{t('noContactsFound')}</p>
                 ) : (
                   <>
                     {mine.length > 0 && (

@@ -1,6 +1,9 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
+
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -26,12 +29,10 @@ import Explore from './Explore';
 // ---------------------------------------------------------------------------
 
 let mockFaucetId: string | null = 'faucet-native';
-let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
+let mockAccount: { publicKey: string; requiresHotKeyRotation?: boolean } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockClaimableNotesAreCached = false;
-let mockIsExtension = true;
-let mockIsMobile = true;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
@@ -60,12 +61,12 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 
-// Balance is a render-prop that hands its child the total fiat BigNumber; the
-// child immediately runs it through the (mocked) toLocalFormat, so any value is
-// fine here.
+// Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
+// to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
+let mockPortfolioTotal: BigNumber | null = new BigNumber(0);
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: unknown) => React.ReactElement }) => children(0)
+  default: ({ children }: { children: (b: BigNumber | null) => React.ReactElement }) => children(mockPortfolioTotal)
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -109,6 +110,8 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
+  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   BalanceCard: ({
     accountNumber,
     accountId,
@@ -119,7 +122,7 @@ jest.mock('components/ui', () => ({
   }: {
     accountNumber: string;
     accountId: string;
-    amount: string;
+    amount: React.ReactNode;
     onMore: () => void;
     state?: string;
     // Surfaced so a test can see what Home passes: a stub that drops it makes the call site
@@ -143,6 +146,7 @@ jest.mock('components/ui', () => ({
         </button>
       </div>
     ) : null,
+  AssetListItemSkeleton: (props: { 'data-testid'?: string }) => <div data-testid={props['data-testid']} />,
   SearchInput: ({
     value,
     onChange,
@@ -198,10 +202,13 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { name: 'zustand-provider' }
 }));
 
-jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension,
-  isMobile: () => mockIsMobile
-}));
+// The factory owns the state: the token registry reads the platform while it loads, before any
+// `let` in this file is initialised.
+jest.mock('lib/platform', () => {
+  const state = { isExtension: true, isMobile: true };
+  return { state, isExtension: () => state.isExtension, isMobile: () => state.isMobile };
+});
+const mockPlatform: { isExtension: boolean; isMobile: boolean } = jest.requireMock('lib/platform').state;
 
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume,
@@ -255,10 +262,11 @@ describe('Explore', () => {
     mockFaucetId = 'faucet-native';
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
+    mockPortfolioTotal = new BigNumber(0);
     mockClaimableNotes = undefined;
     mockClaimableNotesAreCached = false;
-    mockIsExtension = true;
-    mockIsMobile = true;
+    mockPlatform.isExtension = true;
+    mockPlatform.isMobile = true;
     mockAutoConsume = false;
     mockDelegateProof = false;
     mockTokenPrices = {};
@@ -289,8 +297,10 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
-      // amount is `$${toLocalFormat(balance)}` and account fields flow through.
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$0');
+      // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
+      // fields flow through.
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
+      expect(screen.getByTestId('balance-amount')).not.toHaveTextContent('$');
       expect(screen.getByTestId('balance-account-id')).toHaveTextContent('mtst1account');
       expect(screen.getByTestId('balance-account-number')).toHaveTextContent('mtst1acc');
       expect(screen.getByTestId('home-prompts')).toHaveTextContent('mtst1account');
@@ -342,13 +352,46 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
     });
 
-    it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
+    it('shows a loading row, not the zero placeholder, in Assets until the first balance read completes (#1123)', async () => {
+      // The hook hands back a "0 MIDEN" placeholder while nothing has been read. Under a
+      // loading card that row still said the imported wallet was empty.
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 0)];
+      mockBalancesLoading = true;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('asset-row-skeleton')).toBeInTheDocument();
+      expect(screen.queryAllByTestId('asset-row')).toHaveLength(0);
+      expect(screen.getByTestId('asset-list')).toHaveAttribute('aria-busy', 'true');
+    });
+
+    it('replaces the loading row with the asset rows once balances have loaded', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockBalancesLoading = false;
+
+      await renderExplore();
+
+      expect(screen.queryByTestId('asset-row-skeleton')).not.toBeInTheDocument();
+      expect(screen.getAllByTestId('asset-row')).toHaveLength(1);
+      expect(screen.getByTestId('asset-list')).toHaveAttribute('aria-busy', 'false');
+    });
+
+    it('shows the portfolio total as "—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
       mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
       mockTokenPrices = {}; // price feed unavailable / not yet loaded
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
+      mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
+      mockPortfolioTotal = null;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
     });
 
     // The same rule as the "$-" total above, one row down: a change figure the app does not have is
@@ -376,6 +419,38 @@ describe('Explore', () => {
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
       expect(tokens).toEqual(['faucet-native', 't-btc', 't-eth']);
+    });
+
+    it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+        makeToken('t-other', 'OTH', 'Other', 1000),
+        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+      ];
+      mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
+      const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      expect(tokens).toEqual(['faucet-native', 't-eth', TOKEN_IETH.faucetId, 't-other']);
+    });
+
+    it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
+        // would outrank everything by a factor of a million.
+        { tokenId: 't-unsized', balance: 1_000_000, metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true } }
+      ];
+      mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      expect(tokens).toEqual(['faucet-native', 't-eth', 't-unsized']);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
@@ -541,7 +616,7 @@ describe('Explore', () => {
     });
 
     it('is disabled outside the mobile app', async () => {
-      mockIsMobile = false;
+      mockPlatform.isMobile = false;
       await renderExplore();
       const scroller = screen.getByTestId('explore-scroll-container');
 
@@ -586,6 +661,18 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
     });
 
+    it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+      mockAutoConsume = true;
+      mockAccount = { publicKey: 'mtst1account', requiresHotKeyRotation: true };
+      mockClaimableNotes = [makeNote('n1', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
     it('never auto-consumes a native note that only the cached list has shown', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [{ ...makeNote('cached', 'faucet-native'), fromCache: true }];
@@ -611,7 +698,7 @@ describe('Explore', () => {
     it('consumes matching, not-yet-claiming notes and dispatches via the SW on extension', async () => {
       mockAutoConsume = true;
       mockDelegateProof = true;
-      mockIsExtension = true;
+      mockPlatform.isExtension = true;
       mockClaimableNotes = [
         makeNote('n1', 'faucet-native', false), // consumed
         makeNote('n2', 'faucet-native', true), // already claiming -> skipped
@@ -634,7 +721,7 @@ describe('Explore', () => {
     it('clears the stale note-received notification once auto-consume takes over (#459)', async () => {
       mockAutoConsume = true;
       mockDelegateProof = false;
-      mockIsExtension = false;
+      mockPlatform.isExtension = false;
       mockClaimableNotes = [makeNote('n1', 'faucet-native', false)];
 
       await renderExplore();
@@ -658,7 +745,7 @@ describe('Explore', () => {
     it('dispatches background processing (with signer + provider) when not an extension', async () => {
       mockAutoConsume = true;
       mockDelegateProof = false;
-      mockIsExtension = false;
+      mockPlatform.isExtension = false;
       mockClaimableNotes = [makeNote('n1', 'faucet-native', false)];
 
       await renderExplore();
@@ -701,6 +788,88 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+  });
+
+  // AnimatedNumber renders its first value as-is and counts only on a change, so a figure keyed by
+  // the account lands on a switch. These pin the key: a new node for another account, the same
+  // node within one account. (AnimatedNumber.test.tsx owns the counting itself.)
+  describe('an account switch', () => {
+    beforeEach(() => {
+      // Without a loaded price the total renders the dash, not the AnimatedNumber node.
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    });
+
+    // The AnimatedNumber stub's own span; the balance-amount span around it is never keyed.
+    const totalNode = () => screen.getByTestId('balance-amount').firstChild;
+
+    it('mounts a new total for another account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+      expect(before).not.toBeNull();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).not.toBe(before);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('5');
+    });
+
+    it('keeps the total node within the same account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).toBe(before);
+    });
+
+    it('mounts a new row for a token both accounts hold', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).not.toBe(before);
+    });
+
+    it('keeps the row node when only the balance of the same account changes', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).toBe(before);
+    });
+
+    it('keeps HomeOverview state across an address change (only the figures are keyed)', async () => {
+      const { rerender } = await renderExplore();
+      fireEvent.click(screen.getByTestId('balance-more'));
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
 });

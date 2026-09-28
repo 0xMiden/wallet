@@ -16,6 +16,10 @@ export enum ITransactionStatus {
   Failed
 }
 
+/** The row can still produce a transaction: it is queued or generating. */
+export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
@@ -29,6 +33,16 @@ export type ITransactionType =
   | 'replace-hot-key'
   | 'swap'
   | 'update-procedure-threshold';
+
+/**
+ * Structural Guardian operations: they rewrite the account's own authorization rather
+ * than move value. Activity draws them alike, and none of them is requeueable.
+ */
+export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+];
 
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
@@ -400,6 +414,15 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
+/** A guardian arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
+export type IRequeueStreakArm = 'guardian-unreachable' | 'guardian-pending-conflict' | 'guardian-rate-limited';
+
+export interface IRequeueStreak {
+  arm: IRequeueStreakArm;
+  /** How many requeues in a row `arm` has made, the latest included. */
+  count: number;
+}
+
 export interface ITransaction {
   /**
    * Set on a row rebuilt from a Guardian operator's retained history. Such a
@@ -422,6 +445,12 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
+   * (#805). Generation signs such a row with the recovery key after proving every note
+   * native; any other consume for a rotation-pending account is refused. Not indexed.
+   */
+  rotationFunding?: true;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -548,6 +577,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * The guardian arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
+   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian that fails every attempt
+   * slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's transaction
+   * would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the row's last
+   * requeue, if any, was not a guardian arm's.
+   */
+  requeueStreak?: IRequeueStreak;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
@@ -798,6 +835,8 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.rotationFunding`. */
+  rotationFunding?: true;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1026,10 +1065,10 @@ export class BridgedSendTransaction implements ITransaction {
 
 /**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator
- * account. On non-Guardian accounts it is send-style, processed by the normal send
- * pipeline (`sendTransaction`) like the Epoch `bridged-send`. On Guardian accounts the
- * multisig send proposal is P2ID-only, so the P2IDE is serialized into `requestBytes`
- * and proposed as a custom proposal (see `generateGuardianTransaction` 'earn-deposit').
+ * account, built once at initiate into `requestBytes` with its mandate-binding
+ * attachment. On non-Guardian accounts those bytes run through `newTransaction`. On
+ * Guardian accounts the multisig send proposal is P2ID-only, so they are proposed as a
+ * custom proposal (see `generateGuardianTransaction` 'earn-deposit').
  * The EVM lending deposit is solver-fulfilled, so there is no manual claim.
  */
 export class EarnDepositTransaction implements ITransaction {
@@ -1240,9 +1279,10 @@ export class SwitchGuardianTransaction implements ITransaction {
 /**
  * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
  * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is filled in during
- * `generateGuardianTransaction` once the new key is minted, and consumed by
- * `completeReplaceHotKeyTransaction` to swap the WalletAccount pointer.
+ * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * `generateGuardianTransaction` once the minted key is persisted (a later run of
+ * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
+ * the WalletAccount pointer.
  */
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;
@@ -1262,7 +1302,9 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
   // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
   // allowlist push needs the self-heal to catch up.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
+  // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
+  // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1273,7 +1315,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000);
     this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
-    this.displayMessage = 'Rotating device key';
+    this.displayMessage = 'Rotating everyday key';
     this.extraInputs = {};
     this.delegateTransaction = delegateTransaction;
   }

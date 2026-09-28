@@ -2,9 +2,10 @@ import React, { FC, ReactNode } from 'react';
 
 import { motion } from 'framer-motion';
 
+import { useTabShownAgain } from 'app/layouts/page-active';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
-import { useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { tabBarSwap, useTabBarMotion, useTabIconPop, type TabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -25,18 +26,20 @@ interface SegmentProps {
   item: SegmentedActionBarItem;
   active: boolean;
   onSelect: (id: string) => void;
+  motionTokens: TabBarMotion;
+  swap: boolean;
 }
 
-const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
-  const motionTokens = useTabBarMotion();
-  const pop = useTabIconPop(active);
+const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap }) => {
+  const pop = useTabIconPop(active, swap);
 
   return (
     <HighlightItem
       value={item.id}
       asChild
       as="span"
-      className={cn('flex items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
+      // `min-w-0` lets this row shrink with its button, so a label too long for the bar reaches its ellipsis.
+      className={cn('flex min-w-0 items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
     >
       <motion.button
         type="button"
@@ -55,18 +58,22 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
         style={{ borderRadius: '9999px' }}
         className={cn(
           // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
-          // pill's shadow off at the segment's edge.
-          'group flex h-12 min-w-0 items-center justify-center rounded-full',
+          // pill's shadow off at the segment's edge. The active segment takes its label's width, never
+          // less than 112px (96px below 360px), so a longer translation grows it instead of spilling.
+          'group flex h-12 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-          active ? 'w-28 flex-none px-2.5 max-[359px]:w-24 max-[359px]:px-2' : 'flex-1 px-0'
+          active ? 'min-w-28 flex-initial px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
         )}
       >
         <motion.span
           layout="position"
           data-pop={pop.phase}
           animate={pop.animate}
-          transition={pop.transition}
+          // The pop's own transition governs the scale; `layout` is overridden separately so the
+          // icon's position move snaps together with the segment and the pill on a swap, instead of
+          // gliding on the pop spring.
+          transition={{ ...pop.transition, layout: motionTokens.highlight }}
           onAnimationComplete={pop.onAnimationComplete}
           className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
         >
@@ -76,7 +83,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative whitespace-nowrap text-pill max-[359px]:text-badge"
+            // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+            className="relative truncate font-bold text-pill leading-5 max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}
@@ -90,7 +98,11 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
 };
 
 export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
-  const motionTokens = useTabBarMotion();
+  const tabBarMotion = useTabBarMotion();
+  // The Home tab shown again takes its new segment at once, as the carousel under it does. One decision
+  // here drives the pill, the segments, the label and (below) the icon's own layout move.
+  const swap = useTabShownAgain();
+  const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
   // A tap on another segment buzzes once, here; a swipe between pages buzzes in HomeSwipeContainer,
   // which owns that gesture. A tap on the active segment is silent and changes nothing.
@@ -101,9 +113,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
   };
 
   return (
-    // No band of its own: the row sits on the page. The 48px segments set the height; 4px above them
-    // keeps it snug under the status bar, and 8px below them (room for the raised pill's shadow) and
-    // a hairline rule, like the bottom nav's top rule, divide it from the content under it.
+    // No band of its own: a caller that wants one passes it in `className` (Home, on mobile). The
+    // 48px segments set the height; 4px above them keeps it snug under the status bar, and 8px below
+    // them (room for the raised pill's shadow) and a hairline rule, like the bottom nav's top rule,
+    // divide it from the content under it.
     <div
       role="tablist"
       className={cn('flex items-center gap-1 overflow-hidden border-b border-hairline px-3 pt-1 pb-2', className)}
@@ -123,7 +136,14 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
         className={cn('inset-0', raisedBubbleClassName)}
       >
         {items.map(item => (
-          <Segment key={item.id} item={item} active={item.id === activeId} onSelect={handleSelect} />
+          <Segment
+            key={item.id}
+            item={item}
+            active={item.id === activeId}
+            onSelect={handleSelect}
+            motionTokens={motionTokens}
+            swap={swap}
+          />
         ))}
       </Highlight>
     </div>

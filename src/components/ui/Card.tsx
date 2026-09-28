@@ -1,12 +1,14 @@
 import React from 'react';
 
 import { Slot } from '@radix-ui/react-slot';
-import { cva } from 'class-variance-authority';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
 import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
+
+import { outlineSurfaceClassName } from './surfaces';
 
 /**
  * What the card holds, which sets its inner padding:
@@ -16,8 +18,13 @@ import { cn } from 'lib/ui/util';
  */
 export type CardPadding = 'none' | 'row' | 'tile';
 
-const cardVariants = cva('rounded-2xl bg-fill text-left', {
+const cardVariants = cva('rounded-2xl text-left', {
   variants: {
+    surface: {
+      fill: 'bg-fill',
+      // On `page` with a hairline edge: Activity's rows and pending transfers.
+      outline: outlineSurfaceClassName
+    },
     padding: {
       none: '',
       row: 'px-4 py-3',
@@ -25,9 +32,9 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
     },
     // Press feedback works on anything tappable, so it stays a variant: `Card` takes it from a
     // caller (HistoryView's rows). The focus ring and the disabled states do not - they only mean
-    // something on an element that can take focus, `CardButton` is the only thing here that is
-    // one, and `disabled:` matches `:disabled`, which a `div` never is. They live on CardButton
-    // directly rather than as a variant nothing else can ask for.
+    // something on an element that can take focus, and `disabled:` matches `:disabled`, which a
+    // `div` never is. They are FOCUSABLE_CLASSES, applied by the buttons themselves: CardButton,
+    // and ActivityRow when it opens something.
     pressable: {
       true: [
         'cursor-pointer transition-colors duration-150 ease-hover',
@@ -36,13 +43,16 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
       false: ''
     }
   },
-  defaultVariants: { padding: 'tile', pressable: false }
+  defaultVariants: { surface: 'fill', padding: 'tile', pressable: false }
 });
+
+type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 /**
  * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
- * Exported so the test can iterate it rather than restating its lines, which is what let half of
- * it go unpinned when it moved off the cva variant.
+ * CardButton applies it, as does ActivityRow's button when a row opens something. Card.test.tsx's
+ * CardButton test names its ten classes outright and a second test counts them; only ActivityRow's
+ * tests iterate it, to check the row's button applies whatever it holds.
  */
 export const FOCUSABLE_CLASSES = [
   'select-none outline-none',
@@ -52,6 +62,8 @@ export const FOCUSABLE_CLASSES = [
 
 export interface CardProps {
   children: React.ReactNode;
+  /** `fill` (default) or `outline`: a hairline edge on `page` instead of the fill. */
+  surface?: CardSurface;
   padding?: CardPadding;
   /**
    * Render the card's surface onto the single child instead of a `div`, for a child that is its
@@ -66,28 +78,35 @@ export interface CardProps {
   /** Layout only (margins, width, flex). */
   className?: string;
   'aria-label'?: string;
+  /** A card whose content is still loading (a skeleton, a check in flight). */
+  'aria-busy'?: boolean;
   'data-testid'?: string;
 }
 
 /**
- * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Card"): a
- * `fill` surface with 16px corners and no border. Cards sit on `page` and are separated by space,
- * never outlined; hairlines only divide the rows of a group inside one surface.
+ * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Surfaces"):
+ * 16px corners on one of two surfaces. `fill` is the default, for a card embedded in a page or a
+ * sheet that has to read as one block; `outline` is a hairline edge on `page`, for a card that has
+ * to separate itself where it sits (Activity's rows, pending transfers, Earn's cards, the home
+ * prompt card). Hairlines inside a card only divide its rows.
  */
 export const Card: React.FC<CardProps> = ({
   children,
+  surface,
   padding,
   asChild = false,
   pressable = false,
   className,
   'aria-label': ariaLabel,
+  'aria-busy': ariaBusy,
   'data-testid': dataTestId
 }) => {
   const Comp = asChild ? Slot : 'div';
   return (
     <Comp
-      className={cn(cardVariants({ padding, pressable }), className)}
+      className={cn(cardVariants({ surface, padding, pressable }), className)}
       aria-label={ariaLabel}
+      aria-busy={ariaBusy}
       data-testid={dataTestId}
     >
       {children}
@@ -103,6 +122,8 @@ export interface CardButtonProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   FramerConflictingHandlers
 > {
+  /** `fill` (default), or `outline`: a hairline edge on `page` (Earn's position cards and vault rows). */
+  surface?: CardSurface;
   padding?: CardPadding;
   /** Layout only (margins, width, flex). */
   className?: string;
@@ -114,7 +135,7 @@ export interface CardButtonProps extends Omit<
  * `fill-pressed` state and a focus ring.
  */
 export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(function CardButton(
-  { padding, className, disabled, onClick, children, ...props },
+  { surface, padding, className, disabled, onClick, children, ...props },
   ref
 ) {
   const press = usePreset('press');
@@ -126,7 +147,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ padding, pressable: true }), FOCUSABLE_CLASSES, className)}
+      className={cn(cardVariants({ surface, padding, pressable: true }), FOCUSABLE_CLASSES, className)}
       {...props}
       onClick={e => {
         hapticLight();

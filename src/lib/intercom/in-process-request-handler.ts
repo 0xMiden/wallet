@@ -129,16 +129,6 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
-      return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
-      };
-    }
-
     case WalletMessageType.RemoveAccountRequest:
       await Actions.removeAccount(req.accountPublicKey, req.password);
       return {

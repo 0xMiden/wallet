@@ -47,7 +47,7 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
       {/* Stands in for the picker's page mode: given onBack it draws the shared
-        header, the back chevron beside the one h1. */}
+        header, the back button beside the one h1. */}
       {onBack && (
         <button type="button" onClick={onBack}>
           back
@@ -66,6 +66,12 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
         onClick={() => onSubmit({ guardianId: 'g1', guardianEndpoint: mockCurrentEndpoint })}
       >
         same
+      </button>
+      <button
+        data-testid="pick-same-other-case"
+        onClick={() => onSubmit({ guardianId: 'g1', guardianEndpoint: mockCurrentEndpoint.toUpperCase() })}
+      >
+        same-other-case
       </button>
     </div>
   )
@@ -138,6 +144,15 @@ it('refuses to queue a switch onto the Guardian the account already uses', () =>
   render(<RotateGuardian />);
 
   fireEvent.click(screen.getByTestId('pick-same'));
+
+  expect(screen.getByRole('alert')).toHaveTextContent('guardianEndpointUnchanged');
+  expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+it('refuses a host-case spelling of the Guardian the account already uses', () => {
+  render(<RotateGuardian />);
+
+  fireEvent.click(screen.getByTestId('pick-same-other-case'));
 
   expect(screen.getByRole('alert')).toHaveTextContent('guardianEndpointUnchanged');
   expect(mockNavigate).not.toHaveBeenCalled();

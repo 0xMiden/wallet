@@ -53,13 +53,15 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -75,6 +77,20 @@ const renderDrawer = (props: Partial<React.ComponentProps<typeof AccountsDrawer>
   render(<AccountsDrawer open onOpenChange={jest.fn()} {...props} />);
 
 describe('AccountsDrawer', () => {
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the documented sheet header: no rule under the title', () => {
+    renderDrawer();
+    expect(screen.getByTestId('drawer-header').nextElementSibling).not.toHaveClass('h-1', 'rounded-full');
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockedUseCardColor.mockReturnValue('slate');
@@ -97,22 +113,30 @@ describe('AccountsDrawer', () => {
 
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
-    expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
+    expect(screen.getByText('settings')).toBeTruthy();
     expect(screen.getByText('importAccount')).toBeTruthy();
   });
 
-  it('gives the Settings and Import Account rows one consistent radius and the token hover fill', () => {
+  it('draws the Settings and Import Account actions as one grouped fill list with chevrons', () => {
     renderDrawer();
 
-    [screen.getByText('settings').closest('button')!, screen.getByText('importAccount').closest('button')!].forEach(
-      button => {
-        expect(button.className).toContain('rounded-2xl');
-        expect(button.className).not.toContain('rounded-xl');
-        expect(button.className).toContain('hover:bg-fill-pressed');
-        expect(button.className).not.toContain('#ECEAE7');
-        expect(button.className).not.toContain('#3f3f3f');
-      }
-    );
+    const rows = [
+      screen.getByText('settings').closest('button')!,
+      screen.getByText('importAccount').closest('button')!
+    ];
+    const group = rows[0]!.parentElement!;
+    expect(group.className).toContain('bg-fill');
+    expect(group.className).toContain('rounded-2xl');
+    expect(rows[1]!.parentElement).toBe(group);
+
+    for (const row of rows) {
+      // A row that navigates carries the chevron, and the hairline is inset past its icon.
+      expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+      expect(row.className).toContain('before:bg-hairline');
+      expect(row.className).toContain('active:bg-fill-pressed');
+      expect(row.className).not.toContain('#ECEAE7');
+      expect(row.className).not.toContain('dark:text-pure-white');
+    }
   });
 
   it('renders one swatch per card color with its background class', () => {

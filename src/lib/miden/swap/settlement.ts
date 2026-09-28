@@ -8,6 +8,7 @@ import {
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isRotationPendingAccount } from '../back/rotation-pending';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
@@ -15,6 +16,7 @@ import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } fro
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
+import { swapOrderExpired } from './expiry';
 
 export { classifySwapOrderNotes } from './classification';
 
@@ -68,6 +70,10 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
  * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
  * tick — it is an unindexed full scan of the transactions table and must not
  * be repeated per stage.
+ *
+ * The single guard site for both callers (the service worker's inline call and
+ * `settleSwapOrders` below): a rotation-pending account's orders are left untouched
+ * until the flag clears, whichever caller reached here.
  */
 export async function reconcileSwapOrderNotes(
   accountId: string,
@@ -76,6 +82,9 @@ export async function reconcileSwapOrderNotes(
   nowSeconds: number = Math.floor(Date.now() / 1000),
   preloadedOrders?: SwapOrder[]
 ): Promise<SwapSettlementResult> {
+  if (isRotationPendingAccount(accountId)) {
+    return { queuedTransactionIds: [], managedNoteIds: new Set() };
+  }
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const queuedTransactionIds: string[] = [];
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));
@@ -100,7 +109,7 @@ export async function reconcileSwapOrderNotes(
     // have no expiry fields; fabricating one from completedAt would deem every
     // pre-existing open order instantly expired and reclaim its tip.
     const expiresAt = order.extraInputs.expiresAt;
-    const expired = expiresAt != null && nowSeconds >= expiresAt;
+    const expired = swapOrderExpired(expiresAt, nowSeconds);
     if (state === 'active' && !expired) continue;
 
     if (expired && order.extraInputs.expiryTriggeredAt == null) {

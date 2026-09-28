@@ -109,7 +109,10 @@ describe('AdvancedSettings (page)', () => {
     expect(keyRow).toContainElement(queryCopyAction());
     const faucetRow = screen.getByTestId('advanced-edit-faucet-id');
     expect(faucetRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
-    expect(faucetRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(faucetRow.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(faucetRow.parentElement).not.toHaveClass('bg-fill');
+    // The detail card keeps `fill`: it is a block of data, not a page-wide list.
+    expect(keyRow.parentElement).toHaveClass('bg-fill');
   });
 
   it('triggers haptics and copies when the copy action is pressed', async () => {

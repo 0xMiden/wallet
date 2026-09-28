@@ -46,7 +46,7 @@ jest.mock('components/Button', () => ({
       </button>
     );
   },
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive', Ghost: 'ghost' }
 }));
 
 const mockInitiate = jest.fn();
@@ -74,6 +74,7 @@ jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...
 // Store that satisfies both the hook-selector call form and `.getState()`.
 const mockState: any = {
   currentAccount: { publicKey: 'pk_1' },
+  seedPhraseStatus: 'stored',
   openTransactionModal: jest.fn()
 };
 jest.mock('lib/store', () => ({
@@ -117,6 +118,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   fsbHolder.props = null;
   mockState.currentAccount = { publicKey: 'pk_1' };
+  mockState.seedPhraseStatus = 'stored';
   mockState.openTransactionModal = jest.fn();
   mockIsExtension.mockReturnValue(false);
   mockIsDelegateProofEnabled.mockReturnValue(false);
@@ -152,8 +154,8 @@ describe('GuardianReplaceHotKey — rendering', () => {
     // The section label is the shared SectionHeader (an h2), not hand-styled text.
     expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-label');
     expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-body', 'text-muted');
-    // One maintenance action on a page of links: secondary, 36px, not the page's primary CTA.
-    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'secondary');
+    // One maintenance action on a page of links: border-only, 36px, not the page's primary CTA.
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'ghost');
     expect(screen.getByTestId('submit')).toHaveAttribute('data-size', 'sm');
     expect(section).toContainElement(screen.getByTestId('submit'));
   });
@@ -167,7 +169,7 @@ describe('GuardianReplaceHotKey — rendering', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('boom');
-    expect(alert).toHaveClass('text-negative-ink');
+    expect(alert).toHaveClass('text-caption', 'text-negative-ink');
   });
 
   it('disables the button when there is no current account', () => {
@@ -202,7 +204,26 @@ describe('GuardianReplaceHotKey — guards', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
     expect(label()).toBe('confirmReplaceHotKey');
     expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
+    expect(screen.queryByText('replaceHotKeyConfirmationSeedRequired')).not.toBeInTheDocument();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Confirmation copy follows whether the vault will ask for the phrase (#1113).
+// ---------------------------------------------------------------------------
+describe('GuardianReplaceHotKey - confirmation copy', () => {
+  it.each(['removing', 'removed', 'unavailable', undefined])(
+    'says the recovery phrase will be asked for when its status is %s',
+    async status => {
+      mockState.seedPhraseStatus = status;
+      render(<GuardianReplaceHotKey />);
+
+      await click();
+
+      expect(screen.getByText('replaceHotKeyConfirmationSeedRequired')).toBeInTheDocument();
+      expect(screen.queryByText('replaceHotKeyConfirmation')).not.toBeInTheDocument();
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------

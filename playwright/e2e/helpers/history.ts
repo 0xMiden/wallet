@@ -91,6 +91,11 @@ export interface TransactionRowSnapshot {
   processingStartedAt?: number;
   /** First written by `setTransactionStage(id, 'syncing')`, before the status flip. */
   stage?: string;
+  /**
+   * Unix seconds before which the loop skips a requeued row, rewritten by every requeue. A later sample of the same
+   * row with a larger value proves the loop ran it again and requeued it again.
+   */
+  nextEligibleAt?: number;
   error?: string;
   /**
    * The untouched thrown error, kept only when the display message rewrote it
@@ -109,6 +114,10 @@ export interface TransactionRowSnapshot {
   /** Faucet the fee was paid in. Should be the chain's native fee faucet. */
   feeFaucetId?: string;
   displayMessage?: string;
+  /** Unix seconds the row went terminal; with `processingStartedAt` it bounds when the row ran. */
+  completedAt?: number;
+  /** Set on the everyday-key rotation gate's own funding claim (#805). */
+  rotationFunding?: boolean;
 }
 
 /** Anything with a Playwright page and hash navigation — both wallet page objects qualify. */
@@ -153,12 +162,15 @@ export async function readTransactionRows(page: Page): Promise<TransactionRowSna
           transactionId: row.transactionId === undefined ? undefined : String(row.transactionId),
           processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
           stage: row.stage === undefined ? undefined : String(row.stage),
+          nextEligibleAt: row.nextEligibleAt === undefined ? undefined : Number(row.nextEligibleAt),
           error: row.error === undefined ? undefined : String(row.error),
           rawError: row.rawError === undefined ? undefined : String(row.rawError),
           // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
           feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
           feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
-          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage)
+          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
+          completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
+          rotationFunding: row.rotationFunding === true ? true : undefined
         }));
       } finally {
         db.close();

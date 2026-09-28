@@ -172,6 +172,14 @@ describe('AmountInput', () => {
       render(<AmountInput showDivider={false} data-testid={TESTID} />);
       expect(screen.queryByTestId('amount-token-divider')).not.toBeInTheDocument();
     });
+
+    it('takes the flow it is told it belongs to, and the brand orange otherwise', () => {
+      const { rerender } = render(<AmountInput data-testid={TESTID} />);
+      expect(screen.getByTestId('amount-token-divider')).toHaveClass('bg-primary-500');
+
+      rerender(<AmountInput accent="swap" data-testid={TESTID} />);
+      expect(screen.getByTestId('amount-token-divider')).toHaveClass('bg-accent-swap');
+    });
   });
 
   describe('input props passthrough', () => {

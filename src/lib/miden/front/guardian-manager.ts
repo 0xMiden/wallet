@@ -5,7 +5,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
-import { sameWalletAccountId } from '../sdk/helpers';
+import { canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
@@ -23,16 +23,26 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-cl
 // recovery that was otherwise transparent. Recorded rather than watched: the
 // staleness only matters at the next access, and reading the counter there keeps
 // this module free of an import-time dependency on the SDK.
+// Both maps key on canonicalWalletAccountId, so a bare dApp id and the stored
+// composite for one account share one init and one cached service.
 type CacheEntry = { service: MultisigService; hotPublicKey: string; generation: number };
 const guardianServiceCache = new Map<string, CacheEntry>();
 
-// In-flight MultisigService.init promises, keyed by accountPublicKey. The
+// In-flight MultisigService.init promises, keyed like the cache. The
 // guardian sync runs every 3s and does not await previous ticks; without this,
 // each tick can start a fresh init before the resolved service reaches the cache.
 // Tagged with the generation it started on, so a caller arriving after a recovery
 // is not handed an init that is building on the client that just died.
-type InflightEntry = { promise: Promise<MultisigService>; generation: number };
+// `owner` identifies the init that registered the entry, for its own cache-write check.
+type InflightEntry = { promise: Promise<MultisigService>; generation: number; owner: object };
 const guardianServiceInflight = new Map<string, InflightEntry>();
+
+// Deleting an in-flight entry does not stop its initializer, so it caches its
+// service only if its own entry is still registered - otherwise it repopulates the
+// account a clear just evicted. A single-account clear deletes only that account's
+// entries, so other accounts' builds still cache. The global clear also bumps this
+// epoch, which each initializer captures at entry.
+let serviceClearGeneration = 0;
 
 /**
  * Callbacks for resolving account data.
@@ -94,7 +104,9 @@ export async function getOrCreateMultisigService(
   // await previous ticks, so without this an in-flight init can start again
   // before its resolved service reaches the cache.
   const startedAtGeneration = wasmClientGeneration();
-  const inflight = guardianServiceInflight.get(accountPublicKey);
+  const startedAtClear = serviceClearGeneration;
+  const cacheKey = canonicalWalletAccountId(accountPublicKey);
+  const inflight = guardianServiceInflight.get(cacheKey);
   if (inflight) {
     // Only coalesce onto an init that is building on the CURRENT client. One
     // started before a recovery will resolve a service bound to the dead client,
@@ -103,9 +115,10 @@ export async function getOrCreateMultisigService(
     if (inflight.generation === startedAtGeneration) {
       return inflight.promise;
     }
-    guardianServiceInflight.delete(accountPublicKey);
+    guardianServiceInflight.delete(cacheKey);
   }
 
+  const owner = {};
   const initPromise = (async () => {
     // Verify this is a Guardian account
     const accounts = await provider.getAccounts();
@@ -136,7 +149,7 @@ export async function getOrCreateMultisigService(
     //     service is still bound to the previous WalletSigner.publicKey.
     //   - WASM client generation: lock recovery replaced the client the cached
     //     service is bound to, so every call it makes now throws (#775).
-    const cached = guardianServiceCache.get(accountPublicKey);
+    const cached = guardianServiceCache.get(cacheKey);
     if (cached) {
       if (
         cached.service.guardianEndpoint === currentEndpoint &&
@@ -145,7 +158,7 @@ export async function getOrCreateMultisigService(
       ) {
         return cached.service;
       }
-      guardianServiceCache.delete(accountPublicKey);
+      guardianServiceCache.delete(cacheKey);
     }
 
     // Get the Account object from the Miden client. Always labelled; bounded only for the
@@ -186,12 +199,14 @@ export async function getOrCreateMultisigService(
     // leaves the entry already stale and the next access rebuilds. This caller
     // still gets the service and fails on its next WASM call, exactly as every
     // other in-flight user of the dead client does.
-    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey, generation: startedAtGeneration });
+    if (serviceClearGeneration === startedAtClear && guardianServiceInflight.get(cacheKey)?.owner === owner) {
+      guardianServiceCache.set(cacheKey, { service, hotPublicKey, generation: startedAtGeneration });
+    }
 
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration });
+  guardianServiceInflight.set(cacheKey, { promise: initPromise, generation: startedAtGeneration, owner });
   try {
     return await initPromise;
   } finally {
@@ -199,8 +214,8 @@ export async function getOrCreateMultisigService(
     // the next sync tick while successful inits use guardianServiceCache. Only
     // OUR entry: a generation change can have displaced it with a newer init,
     // and deleting that one would let the next tick start a third.
-    if (guardianServiceInflight.get(accountPublicKey)?.promise === initPromise) {
-      guardianServiceInflight.delete(accountPublicKey);
+    if (guardianServiceInflight.get(cacheKey)?.promise === initPromise) {
+      guardianServiceInflight.delete(cacheKey);
     }
   }
 }
@@ -220,17 +235,19 @@ export async function isGuardianAccount(accountPublicKey: string, provider: Guar
  * Clear the Guardian service cache. Call on logout/lock.
  */
 export function clearGuardianCache(): void {
+  serviceClearGeneration++;
   guardianServiceCache.clear();
   guardianServiceInflight.clear();
   clearGuardianAccountLocks();
 }
 
 /**
- * Drop a single account's cached MultisigService so the next access
- * reinitializes it — used after a guardian switch where the cached
+ * Drop a single account's cached MultisigService, whichever spelling of its id is
+ * given, so the next access reinitializes it - used after a guardian switch where the cached
  * instance still points at the old endpoint.
  */
 export function clearGuardianServiceFor(accountPublicKey: string): void {
-  guardianServiceCache.delete(accountPublicKey);
-  guardianServiceInflight.delete(accountPublicKey);
+  const cacheKey = canonicalWalletAccountId(accountPublicKey);
+  guardianServiceCache.delete(cacheKey);
+  guardianServiceInflight.delete(cacheKey);
 }

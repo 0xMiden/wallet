@@ -1,21 +1,16 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
-import { EarnFlowHeader, MetricCard, EarnSummaryPanel, ProviderLogo, PositionLogo } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary, EarnVault } from './types';
 
-// `components.tsx` imports the Aave logo as `...aave.svg?url`. The `?url` query
-// suffix means it does NOT match the `\.svg$` asset mapper (which anchors on a
-// trailing `.svg`), and the `^app/` path mapper would point at a non-existent
-// `aave.svg?url` file. A virtual mock short-circuits resolution and gives the
-// import a distinct, assertable value (mirrors `Logo.test.tsx`).
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
-jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
 // `EarnFlowHeader` hands `lib/woozie`'s `goBack` to its PageHeader's back button,
 // which reaches for browser history on import. Stub it so we can assert the
@@ -57,9 +52,27 @@ jest.mock('components/ui/IconButton', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size, className }: { symbol: string; size?: string; className?: string }) => (
-    <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className} />
+  TokenLogo: ({
+    symbol,
+    size,
+    badge,
+    className
+  }: {
+    symbol: string;
+    size?: string;
+    badge?: React.ReactNode;
+    className?: string;
+  }) => (
+    <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className}>
+      {badge}
+    </div>
   )
+}));
+
+// The network mark badged onto the token logo. A probe so the mark's wiring is assertable without
+// the real inline SVGs.
+jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: ({ kind }: { kind: string }) => <span data-testid="network-logo" data-kind={kind} />
 }));
 
 const mockGoBack = goBack as jest.Mock;
@@ -79,19 +92,55 @@ const VAULT: EarnVault = {
 };
 
 const SUMMARY: EarnSummary = {
-  totalRewards: '$218.32',
-  blendedApy: '~5.2%',
-  totalDeposited: '$4,218.32',
-  estimatedRewards: '+$24.50'
+  totalRewardsUsd: 218.32,
+  blendedApyPercent: 5.2,
+  totalDepositedUsd: 4218.32,
+  estimatedRewardsUsd: 24.5
 };
 
 beforeEach(() => {
   mockGoBack.mockClear();
 });
 
+describe('EarnAssetMark', () => {
+  it('is the token mark with the network badged on its corner, not a wide text pill', () => {
+    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+
+    const logo = screen.getByTestId('token-logo');
+    expect(logo).toHaveAttribute('data-symbol', 'USDC');
+    expect(logo).toHaveAttribute('data-size', 'md');
+    // The badge is the network's own mark, inside the avatar rather than beside it.
+    expect(within(logo).getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
+  });
+
+  it('keeps the "{asset} on {network}" name the pill used to carry, for assistive tech', () => {
+    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+
+    const label = screen.getByText('earnAssetOnNetwork');
+    expect(label).toHaveClass('sr-only');
+  });
+
+  it('takes the Miden mark only for Miden itself; every earn vault is EVM-side', () => {
+    const { rerender } = render(<EarnAssetMark asset="MIDEN" network="Miden" />);
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+
+    rerender(<EarnAssetMark asset="USDC" network="Sepolia" />);
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
+  });
+});
+
 describe('EarnFlowHeader', () => {
-  it('renders the protocol • asset title and the "asset on network" pill', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+  it('names only the route without a subject: the back button stays, no vault title and no mark', () => {
+    render(<EarnFlowHeader />);
+
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+    expect(screen.queryByTestId('token-logo')).toBeNull();
+  });
+
+  it('renders the protocol • asset title and the asset mark', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Aave');
@@ -102,12 +151,12 @@ describe('EarnFlowHeader', () => {
     expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
   });
 
-  it('wires the back button to goBack with the ChevronLeft icon and Back label', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+  it('wires the back button to goBack with the ArrowLeft icon and Back label', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const button = screen.getByTestId('icon-button');
     expect(button).toHaveAttribute('aria-label', 'back');
-    expect(button).toHaveAttribute('data-icon', String(IconName.ChevronLeft));
+    expect(button).toHaveAttribute('data-icon', String(IconName.ArrowLeft));
 
     expect(mockGoBack).not.toHaveBeenCalled();
     fireEvent.click(button);
@@ -115,30 +164,76 @@ describe('EarnFlowHeader', () => {
   });
 
   it('is the shared PageHeader row, carrying the 16px page margin its unpadded pages lack', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const header = screen.getByRole('banner');
-    expect(header).toHaveClass('h-13', 'px-4', 'shrink-0');
-    // No bespoke divider or 26px title: the page header draws neither.
-    expect(header).not.toHaveClass('border-b');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-page');
+    expect(header).toHaveClass('min-h-15');
+    // The page margin sits on the header block, so the rule under the row is inset with it.
+    expect(header.parentElement).toHaveClass('px-4', 'shrink-0');
+    // No divider beyond PageHeader's own rule, and no 26px title. The caller's class lands on the
+    // header block, so that is where a bespoke border would appear.
+    expect(header.parentElement).not.toHaveClass('border-b');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
   });
 
-  it('shows the "asset on network" label as a neutral Pill in the header actions', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+  it('puts the asset mark in the header actions, in place of the wide text pill', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
 
-    const pill = screen.getByText('earnAssetOnNetwork').closest<HTMLElement>('span.rounded-full');
-    expect(pill).toHaveClass('bg-fill', 'text-ink', 'h-8');
-    expect(screen.getByRole('banner')).toContainElement(pill);
+    // The pill was a 32px `bg-fill` capsule wide enough to spell "{asset} on {network}"; the mark
+    // is the token avatar, and the name it used to show is now screen-reader-only.
+    expect(screen.queryByText('earnAssetOnNetwork')).toHaveClass('sr-only');
+    expect(screen.getByRole('banner')).toContainElement(screen.getByTestId('token-logo'));
   });
 
   it('reflects a different vault protocol/asset/network', () => {
-    render(<EarnFlowHeader vault={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
+    render(<EarnFlowHeader subject={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Compound');
     expect(heading).toHaveTextContent('ETH');
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
+  });
+});
+
+describe('EarnHero', () => {
+  it('leads with the figure, then its caption, then the change line', () => {
+    const { container } = render(<EarnHero labelId="hero-label" value="5.24%" label="Current APY" meta="+0.02%" />);
+
+    const section = container.querySelector('section') as HTMLElement;
+    // Document order IS the design: the figure comes first, the label under it.
+    expect(section.textContent).toBe('5.24%Current APY+0.02%');
+
+    expect(screen.getByText('5.24%')).toHaveClass('text-display', 'text-ink');
+    expect(screen.getByText('Current APY')).toHaveClass('text-label', 'text-muted');
+    expect(screen.getByText('+0.02%')).toHaveClass('text-value', 'text-positive-tint-ink');
+  });
+
+  it('names the section by its caption, and the caption is not a heading', () => {
+    const { container } = render(<EarnHero labelId="hero-label" value="$1" label="Total" />);
+
+    expect(container.querySelector('section')).toHaveAttribute('aria-labelledby', 'hero-label');
+    expect(screen.getByText('Total')).toHaveAttribute('id', 'hero-label');
+    // The page's own title is its `h1`; a hero caption never competes with it.
+    expect(screen.queryByRole('heading')).toBeNull();
+  });
+
+  it('takes a value colour, a unit beside the figure and content under the hero', () => {
+    render(
+      <EarnHero
+        labelId="hero-label"
+        value="1,000"
+        valueClassName="text-positive-tint-ink"
+        unit={<span>USDC</span>}
+        label="Deposit amount"
+      >
+        <span>extra</span>
+      </EarnHero>
+    );
+
+    expect(screen.getByText('1,000')).toHaveClass('text-positive-tint-ink');
+    expect(screen.getByText('1,000')).not.toHaveClass('text-ink');
+    expect(screen.getByText('USDC')).toBeInTheDocument();
+    expect(screen.getByText('extra')).toBeInTheDocument();
   });
 });
 
@@ -157,14 +252,19 @@ describe('MetricCard', () => {
     expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('Value');
-    // Base value classes are always present; no valueClassName was supplied.
-    expect(valueEl).toHaveClass('font-bold', 'text-ink');
-    expect(valueEl).not.toHaveClass('text-[#0B0B0C]');
+    // The named row-value style, never a hand-assembled size and weight.
+    expect(valueEl).toHaveClass('text-value', 'text-ink');
+    expect(valueEl.className).not.toMatch(/text-\[|\btext-sm\b/);
   });
 
   it('merges valueClassName onto the value node and className onto the container', () => {
     const { container } = render(
-      <MetricCard label="Estimated Rewards" value="+$24.50" valueClassName="text-status-positive" className="my-card" />
+      <MetricCard
+        label="Estimated Rewards"
+        value="+$24.50"
+        valueClassName="text-positive-tint-ink"
+        className="my-card"
+      />
     );
 
     const card = container.firstChild as HTMLElement;
@@ -172,28 +272,34 @@ describe('MetricCard', () => {
     expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('+$24.50');
-    expect(valueEl).toHaveClass('text-status-positive');
+    expect(valueEl).toHaveClass('text-positive-tint-ink');
   });
 });
 
 describe('EarnSummaryPanel', () => {
-  it('renders the heading, total rewards and blended APY line', () => {
-    render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+  it('leads with the figure, then the caption and the blended APY line', () => {
+    const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
-    expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
-    expect(screen.getByText('$218.32')).toBeInTheDocument();
-    expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+    // Both figures are `AnimatedNumber`s, so the type is on the slot the hero renders around them.
+    expect(screen.getByText('$218.32').closest('div')).toHaveClass('text-display', 'text-ink');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
+    expect(screen.getByText('earnEarningBlendedApy').closest('p')).toHaveClass('text-value', 'text-positive-tint-ink');
+    // The figure precedes its caption — the same order the vault page's APY hero takes.
+    expect((container.querySelector('section') as HTMLElement).textContent).toBe(
+      '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
+    );
   });
 
-  it('links the section to the heading via titleId and applies className', () => {
+  it('links the section to the caption via titleId, and leaves the h1 to the page', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="my-title-id" className="panel-class" />);
 
     const section = container.querySelector('section') as HTMLElement;
     expect(section).toHaveAttribute('aria-labelledby', 'my-title-id');
     expect(section).toHaveClass('panel-class');
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveAttribute('id', 'my-title-id');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveAttribute('id', 'my-title-id');
+    // "Total Earned Rewards" was the page's `h1`, which is why it read as the page title.
+    expect(screen.queryByRole('heading')).toBeNull();
   });
 
   it('renders both metric cards by default (showMetrics defaults to true)', () => {
@@ -214,38 +320,94 @@ describe('EarnSummaryPanel', () => {
     expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
     expect(screen.getByText('$218.32')).toBeInTheDocument();
   });
-});
 
-describe('ProviderLogo', () => {
-  it('renders the Aave image branch with the stubbed logo url and empty alt', () => {
-    const { container } = render(<ProviderLogo protocol="Aave" className="logo-class" />);
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('while the first read is in flight', () => {
+    const LOADING: EarnSummary = {
+      totalRewardsUsd: null,
+      blendedApyPercent: null,
+      totalDepositedUsd: null,
+      estimatedRewardsUsd: null
+    };
 
-    const img = container.querySelector('img') as HTMLImageElement;
-    expect(img).toBeInTheDocument();
-    expect(img).toHaveAttribute('src', 'aave-logo-url-stub');
-    expect(img).toHaveAttribute('alt', '');
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
 
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper).toHaveClass('logo-class');
-    expect(wrapper).toHaveAttribute('aria-hidden', 'true');
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows placeholders, not zeros', () => {
+      const { container } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+      expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
+      expect(screen.getAllByText(EARN_PLACEHOLDER)).toHaveLength(3);
+      expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+      expect((container.querySelector('section') as HTMLElement).textContent).toMatch(
+        new RegExp(`^${EARN_PLACEHOLDER}earnTotalEarnedRewards`)
+      );
+    });
+
+    it('lands on the loaded figures instead of counting up to them', () => {
+      const { rerender } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      rerender(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+
+      expect(screen.getByText('$218.32')).toBeInTheDocument();
+      expect(screen.getByText('$4,218.32')).toBeInTheDocument();
+      expect(screen.getByText('+$24.50')).toBeInTheDocument();
+    });
   });
 
-  it('renders the first character fallback for a non-Aave protocol', () => {
-    const { container } = render(<ProviderLogo protocol="Compound" />);
+  describe('a figure that travels', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
 
-    expect(container.querySelector('img')).toBeNull();
-    // protocol.charAt(0) → 'C'
-    expect(container.firstChild).toHaveTextContent('C');
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('keeps two decimals on every frame of a travelling figure', async () => {
+      const { rerender } = render(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 13.0071 }} titleId="earn-title" showMetrics={false} />
+      );
+      const figure = (container: HTMLElement) =>
+        (container.querySelector('section') as HTMLElement).querySelector('.tabular-nums') as HTMLElement;
+      const node = figure(document.body);
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+
+      rerender(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 15.67 }} titleId="earn-title" showMetrics={false} />
+      );
+      frames.push(node.textContent ?? '');
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+
+      expect(node).toHaveTextContent('$15.67');
+      expect(frames.some(frame => frame !== '$13.01' && frame !== '$15.67')).toBe(true);
+      expect(frames.filter(frame => !/^\$[\d,]+\.\d{2}$/.test(frame))).toEqual([]);
+    });
   });
 });
 
-describe('PositionLogo', () => {
-  it('renders a TokenLogo for the asset symbol at size sm and forwards className', () => {
-    render(<PositionLogo asset="USDC" className="pos-class" />);
+describe('EarnAmountUnit', () => {
+  it('renders the token mark and its symbol on the unit type style', () => {
+    render(<EarnAmountUnit symbol="USDC" />);
 
-    const logo = screen.getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'USDC');
-    expect(logo).toHaveAttribute('data-size', 'sm');
-    expect(logo).toHaveClass('pos-class');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByText('USDC')).toHaveClass('text-entry-unit', 'text-ink');
   });
 });

@@ -3,6 +3,9 @@ import React, { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import type { TokenPrices } from 'lib/prices';
+
 import Balance from './Balance';
 
 // ---------------------------------------------------------------------------
@@ -13,9 +16,8 @@ import Balance from './Balance';
 // barrel, reads `tokenPrices` out of the zustand store, then folds all balances
 // into a single fiat total that it hands to a render-prop child.
 //
-// We stub the four impure inputs so we can drive the fold by hand, and mock the
-// pure `getTokenPrice` lookup so per-symbol prices are deterministic and
-// assertable. `CSSTransition` is replaced with a capturing pass-through so the
+// We stub the impure inputs so we can drive the fold by hand; the price lookup
+// is the real one, fed a price map through the store. `CSSTransition` is replaced with a capturing pass-through so the
 // component's real `cloneElement` / `classNames` output is what lands in the DOM
 // while we still get to inspect the transition props it was constructed with.
 // ---------------------------------------------------------------------------
@@ -31,15 +33,9 @@ jest.mock('lib/miden/front', () => ({
 
 // The store slice the component reads is just `tokenPrices`; run the real
 // selector against a controllable state object.
-let mockStoreState: { tokenPrices: Record<string, unknown> } = { tokenPrices: { SEED: 1 } };
+let mockStoreState: { tokenPrices: TokenPrices } = { tokenPrices: {} };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
-}));
-
-// Pure price lookup — mocked so each symbol maps to a known price.
-const mockGetTokenPrice = jest.fn((_prices: Record<string, unknown>, _symbol: string) => ({ price: 1 }));
-jest.mock('lib/prices', () => ({
-  getTokenPrice: (prices: Record<string, unknown>, symbol: string) => mockGetTokenPrice(prices, symbol)
 }));
 
 // Capture the props `Balance` builds the transition with, and render the single
@@ -57,6 +53,7 @@ jest.mock('react-transition-group/CSSTransition', () => ({
 // Helpers.
 // ---------------------------------------------------------------------------
 type TokenBalance = {
+  tokenId: string;
   balance: number;
   metadata: { symbol: string; name?: string; decimals?: number; scaleIsUnknown?: boolean };
 };
@@ -67,11 +64,13 @@ const balancesReturn = (data?: unknown[]) => ({ data });
 // a className so the merge branch runs.
 const renderChild =
   (className?: string) =>
-  (b: BigNumber): ReactElement => (
+  (b: BigNumber | null): ReactElement => (
     <span data-testid="total" className={className}>
-      {b.toString()}
+      {b === null ? 'no figure' : b.toString()}
     </span>
   );
+
+const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
 
 const total = () => screen.getByTestId('total');
 
@@ -80,8 +79,7 @@ beforeEach(() => {
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({ ETH: {} });
   mockUseAllBalances.mockReturnValue(balancesReturn([]));
-  mockGetTokenPrice.mockReturnValue({ price: 1 });
-  mockStoreState = { tokenPrices: { SEED: 1 } };
+  mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
   capturedTransitionProps = null;
 });
 
@@ -91,9 +89,7 @@ describe('Balance', () => {
 
     render(<Balance>{renderChild('base-cls')}</Balance>);
 
-    expect(total()).toHaveTextContent('0');
-    // Empty balances => the reduce never runs => the price lookup is untouched.
-    expect(mockGetTokenPrice).not.toHaveBeenCalled();
+    expect(total().textContent).toBe('0');
   });
 
   it('falls back to an empty balance list when the query returns no `data`', () => {
@@ -103,47 +99,101 @@ describe('Balance', () => {
 
     render(<Balance>{renderChild()}</Balance>);
 
-    expect(total()).toHaveTextContent('0');
-    expect(mockGetTokenPrice).not.toHaveBeenCalled();
+    expect(total().textContent).toBe('0');
   });
 
-  it('folds balance × per-symbol price across every token into the fiat total', () => {
+  it('folds balance × quoted price across every token into the fiat total', () => {
     const tokens: TokenBalance[] = [
-      { balance: 2, metadata: { symbol: 'ETH' } },
-      { balance: 3, metadata: { symbol: 'BTC' } }
+      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: 'btc-faucet', balance: 3, metadata: { symbol: 'BTC' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
-    mockGetTokenPrice.mockImplementation((_prices, symbol) => ({ price: symbol === 'ETH' ? 100 : 50 }));
 
     render(<Balance>{renderChild()}</Balance>);
 
-    // 2 * 100 + 3 * 50 = 350
-    expect(total()).toHaveTextContent('350');
-    // Price is looked up once per token, with the live store slice and symbol.
-    expect(mockGetTokenPrice).toHaveBeenCalledTimes(2);
-    expect(mockGetTokenPrice).toHaveBeenNthCalledWith(1, { SEED: 1 }, 'ETH');
-    expect(mockGetTokenPrice).toHaveBeenNthCalledWith(2, { SEED: 1 }, 'BTC');
+    // 2 * 100 + 3 * 50
+    expect(total().textContent).toBe('350');
+  });
+
+  it('values IETH at the ETH price, the symbol the feed quotes it under', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }])
+    );
+    mockStoreState = { tokenPrices: { ETH: quote(3000) } };
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('1140');
+  });
+
+  it('leaves a token the feed does not quote out of the total, never at $1 a unit', () => {
+    const tokens: TokenBalance[] = [
+      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: 'miden-faucet', balance: 1000, metadata: { symbol: 'MIDEN' } }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('200');
+  });
+
+  it('hands no figure when the account holds tokens but none of them is quoted', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: 'miden-faucet', balance: 1000, metadata: { symbol: 'MIDEN' } }])
+    );
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('no figure');
+  });
+
+  it('totals an account holding nothing as zero, even beside an unquoted empty row', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: 'miden-faucet', balance: 0, metadata: { symbol: 'MIDEN' } }])
+    );
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('0');
   });
 
   // A token whose faucet never resolved carries the unknown-token placeholder,
   // whose 6 decimals are a guess — so `balance` was scaled by the wrong power of
   // ten and can be off by a factor of a trillion. There is no way to show WHICH
   // asset spoiled a single combined number, so it is left out of the fold
-  // entirely rather than allowed to invent a portfolio.
-  it('leaves a token with an unresolved scale out of the fiat total', () => {
-    const tokens: TokenBalance[] = [
-      { balance: 2, metadata: { symbol: 'ETH' } },
-      { balance: 1_000_000, metadata: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true } }
-    ];
-    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
-    mockGetTokenPrice.mockImplementation((_prices, symbol) => ({ price: symbol === 'ETH' ? 100 : 1 }));
+  // entirely rather than allowed to invent a portfolio, even when its symbol is quoted.
+  it('hands no figure when the only holding is a quoted token whose scale never resolved', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([
+        {
+          tokenId: 'unresolved-faucet',
+          balance: 1_000_000,
+          metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+        }
+      ])
+    );
 
     render(<Balance>{renderChild()}</Balance>);
 
-    expect(total()).toHaveTextContent('200');
-    // Skipped before the price lookup, not merely multiplied by zero.
-    expect(mockGetTokenPrice).toHaveBeenCalledTimes(1);
-    expect(mockGetTokenPrice).toHaveBeenCalledWith({ SEED: 1 }, 'ETH');
+    // Something is held, so this is not an empty wallet's $0.00; nothing can be valued.
+    expect(total().textContent).toBe('no figure');
+  });
+
+  it('leaves a token with an unresolved scale out of the fiat total', () => {
+    const tokens: TokenBalance[] = [
+      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      {
+        tokenId: 'unresolved-faucet',
+        balance: 1_000_000,
+        metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+      }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('200');
   });
 
   it('forwards the account public key and metadata map into useAllBalances', () => {
@@ -192,22 +242,22 @@ describe('Balance', () => {
   });
 
   it('passes a real BigNumber instance to the render-prop child', () => {
-    const tokens: TokenBalance[] = [{ balance: 4, metadata: { symbol: 'ETH' } }];
+    const tokens: TokenBalance[] = [{ tokenId: 'eth-faucet', balance: 4, metadata: { symbol: 'ETH' } }];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
-    mockGetTokenPrice.mockReturnValue({ price: 25 });
+    mockStoreState = { tokenPrices: { ETH: quote(25) } };
 
     let received: unknown;
     render(
       <Balance>
-        {(b: BigNumber) => {
+        {b => {
           received = b;
-          return <span data-testid="total">{b.toString()}</span>;
+          return <span data-testid="total">{String(b)}</span>;
         }}
       </Balance>
     );
 
     expect(received).toBeInstanceOf(BigNumber);
     expect((received as BigNumber).toNumber()).toBe(100);
-    expect(total()).toHaveTextContent('100');
+    expect(total().textContent).toBe('100');
   });
 });

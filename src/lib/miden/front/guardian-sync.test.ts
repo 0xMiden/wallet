@@ -91,6 +91,11 @@ jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension()
 }));
 
+const mockRequestSWTransactionProcessing = jest.fn();
+jest.mock('lib/miden/activity', () => ({
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+}));
+
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
 const mockReRegister = jest.fn();
@@ -484,6 +489,33 @@ describe('syncGuardianAccounts', () => {
     jest.restoreAllMocks();
   });
 
+  it('keeps a lit fuse across a respelling of the same guardian endpoint (#777)', async () => {
+    // The key is about the node, not the spelling: a host-case respelling of the
+    // parked guardian must not buy it a fresh probe.
+    __resetSyncFuseStateForTests();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const at = (guardianEndpoint: string) => [
+      { publicKey: 'g-respelled-fuse', type: WalletType.Guardian, hotPublicKey: 'hot1', guardianEndpoint }
+    ];
+    storeState.accounts = at('https://Guardian.Example.com');
+    const sync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await syncGuardianAccounts();
+    const callsWhenFused = sync.mock.calls.length;
+
+    storeState.accounts = at('https://guardian.example.com');
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(callsWhenFused);
+
+    __resetSyncFuseStateForTests();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it('reports a guardian 429 to the fuse like any other non-eviction failure (#777)', async () => {
     // The rate-limit branch `continue`s before the shared reporting block, so it used to
     // leave the ledger untouched. That is wrong in both directions: below the threshold a
@@ -835,6 +867,42 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
 
     nowSpy.mockRestore();
+  });
+
+  // The rotation test's twin: a respelling the wallet treats as the same Guardian
+  // is not a rotation, so it keeps the stamp and the 401 streak. The first pass
+  // succeeds so there is a stamp to lose; the respelled pass fails, so it cannot
+  // re-earn one.
+  it('keeps the sync stamp and the 401 streak across a respelling of the same operator', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const pk = 'acct-respelled';
+    const at = (guardianEndpoint: string) =>
+      [
+        { publicKey: pk, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold', guardianEndpoint }
+      ] as never;
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    const sync = jest.fn().mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    storeState.accounts = at('https://Guardian.Example.com');
+
+    await syncGuardianAccounts();
+    sync.mockRejectedValue(authError);
+    await syncGuardianAccounts();
+
+    storeState.accounts = at('https://guardian.example.com');
+    await syncGuardianAccounts();
+
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining(`${pk} now points at`));
+    expect(getGuardianLastSyncAt(pk)).toEqual(expect.any(Number));
+    // The streak is 2, so the next 401 reaches the threshold (3) and re-registers;
+    // a reset at the respelling would leave it one short.
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    await syncGuardianAccounts();
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('does not re-register once this device is no longer the on-chain hot signer', async () => {
@@ -1613,6 +1681,30 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       }
     });
 
+    it('records a result when the account was only respelled while the request was open', async () => {
+      const pk = 'respell-midflight';
+      storeState.accounts = [at(pk, 'https://Guardian.Example.com')] as never;
+
+      let releaseSync = (): void => {};
+      const syncGate = new Promise<void>(resolve => {
+        releaseSync = resolve;
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(() => syncGate) });
+
+      try {
+        const pass = syncGuardianAccounts();
+
+        // Host case only: the operator the pass talked to is still the current one.
+        storeState.accounts = [at(pk, 'https://guardian.example.com')] as never;
+        releaseSync();
+        await pass;
+
+        expect(getGuardianLastSyncAt(pk)).toEqual(expect.any(Number));
+      } finally {
+        releaseSync();
+      }
+    });
+
     it('does not let a failure a rotation landed during arm the banner against the new operator', async () => {
       const pk = 'rotate-midflight-fail';
       storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
@@ -1657,6 +1749,41 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       await runSyncs(1);
       expect(getGuardianLastSyncAt(pk)).toBeUndefined();
     });
+  });
+
+  it('kicks transaction processing once when an armed outage stands down (#779)', async () => {
+    const pk = 'outage-kick';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+
+    sync.mockResolvedValue(undefined);
+    await runSyncs(2);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('kicks processing when a 401 stands an armed outage down (#779)', async () => {
+    const pk = 'outage-kick-401';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    sync.mockRejectedValue(Object.assign(new Error('nope'), { __authRejection: true }));
+    await runSyncs(1);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not kick processing for a success with no armed outage (#779)', async () => {
+    const pk = 'no-outage-no-kick';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockResolvedValue(undefined) });
+
+    await runSyncs(2);
+    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
   });
 });
 
@@ -2097,6 +2224,23 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'https://second.guardian.test',
       zustandProvider
     );
+    nowSpy.mockRestore();
+  });
+
+  it('does not re-arm for a respelling of the same endpoint', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    storeState.accounts = [{ ...account, guardianEndpoint: 'https://Guardian.Example.com' }] as never;
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Same instant, same operator, same guardian key: only a spelling-keyed budget
+    // could allow a second push. Enough passes to reach persistence even if the
+    // respelling were taken for a rotation, which would otherwise mask the key.
+    storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com' }] as never;
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
   });
 

@@ -32,20 +32,30 @@ function applyVisible() {
   document.body.removeAttribute('data-hide-navbar');
 }
 
+/**
+ * Take one hold on the hidden navbar outside React, on the same counter as the hook. Returns its
+ * release, which is idempotent. For a native listener that must flip the flag in the same task as
+ * its own layout write (lib/mobile/keyboard-inset), where a React commit would land a frame late.
+ */
+export function holdNavbarHidden(): () => void {
+  openCount += 1;
+  if (openCount === 1) {
+    applyHidden();
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    openCount = Math.max(0, openCount - 1);
+    if (openCount === 0) {
+      applyVisible();
+    }
+  };
+}
+
 export function useHideNavbarWhileOpen(open = true): void {
   useLayoutEffect(() => {
     if (!open) return;
-
-    openCount += 1;
-    if (openCount === 1) {
-      applyHidden();
-    }
-
-    return () => {
-      openCount = Math.max(0, openCount - 1);
-      if (openCount === 0) {
-        applyVisible();
-      }
-    };
+    return holdNavbarHidden();
   }, [open]);
 }

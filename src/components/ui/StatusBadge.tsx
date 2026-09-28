@@ -66,7 +66,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
-  claimed: { labelKey: 'activityTransferClaimed', tone: 'positive' },
+  claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },
   delivering: { labelKey: 'earnWithdrawStatusDelivering', tone: 'pending' },
   received: { labelKey: 'received', tone: 'positive' },

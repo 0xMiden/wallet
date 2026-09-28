@@ -2,9 +2,10 @@
  * Top-level launcher composition for the embedded dApp browser: Explore, laid out like an app store.
  *
  * Stack (top → bottom):
- *   <TabHeader/>        "Explore" title, and a search icon top right that swaps the title for a
- *                       field, as on Activity: it searches the catalog and opens a typed or pasted URL
- *   <CategoryChips/>    All, Tools, DeFi, Games, NFTs, Learn
+ *   <TabRootHeader/>    the shared tab-root band: "Explore" title with a search icon top right that
+ *                       swaps the title for a field (it searches the catalog and opens a typed or
+ *                       pasted URL), and under it the category row — All, Tools, DeFi, Games, NFTs,
+ *                       Learn — drawn by the same control, at the same height, as Activity's filters
  *   <ExploreSections/>  the catalog's sections for the chosen chip (`lib/dapp-browser/explore-catalog`):
  *                       today a featured card, the helper tools list and recents
  *
@@ -19,8 +20,9 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { TabHeader, TabHeaderAction } from 'components/ui';
-import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
+import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import type { SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { useExploreMotion } from 'lib/animation';
 import {
   EXPLORE_FILTERS,
   getExploreCatalog,
@@ -35,7 +37,6 @@ import {
 import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
-import { CategoryChips } from './CategoryChips';
 import { type ExploreEmptyState, ExploreSections } from './ExploreSections';
 import { hasRevealed, markRevealed } from './reveal-once';
 import { urlForQuery } from './search-url';
@@ -46,9 +47,8 @@ interface DappLauncherProps {
   catalog?: ExploreCatalog;
 }
 
-/** Reveal positions: the chips, then each section. */
-const CHIPS_REVEAL = 0;
-const FIRST_SECTION_REVEAL = 1;
+/** The categories are header chrome now, so the reveal starts at the first section. */
+const FIRST_SECTION_REVEAL = 0;
 
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogProp }) => {
   const { t } = useTranslation();
@@ -60,6 +60,11 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
   const results = useMemo(() => searchExploreCatalog(catalog, filter, query), [catalog, filter, query]);
+
+  const categories = useMemo<SegmentedControlItem<ExploreFilter>[]>(
+    () => EXPLORE_FILTERS.map(f => ({ id: f.id, label: t(f.labelKey), 'data-testid': `explore-chip-${f.id}` })),
+    [t]
+  );
 
   // While searching, the sections collapse into one results list (or "No results").
   const sections = useMemo<ResolvedExploreSection[]>(() => {
@@ -140,16 +145,9 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
     };
   }, []);
 
-  const revealProps = (index: number) => ({
-    custom: index,
-    variants: motionTokens.section,
-    initial: reveal ? exploreSectionVariant.hidden : false,
-    animate: exploreSectionVariant.shown
-  });
-
   return (
     <>
-      <TabHeader
+      <TabRootHeader
         title={t('explore')}
         search={{
           open: searchOpen,
@@ -170,30 +168,32 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
             data-testid="explore-search-toggle"
           />
         }
+        filter={{
+          items: categories,
+          value: filter,
+          onChange: chooseFilter,
+          'aria-label': t('exploreCategoriesLabel'),
+          'data-testid': 'explore-category-chips'
+        }}
       />
 
       {/* `layoutScroll`, so the sections' layout moves measure through the scroll. */}
+      {/* `pt-2` and nothing more: the first section title sits right under the category row. */}
       <motion.main
         layoutScroll
         className="grow overflow-y-auto pt-2 pb-24"
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >
-        <div className="flex flex-col gap-5">
-          <motion.div {...revealProps(CHIPS_REVEAL)}>
-            <CategoryChips filters={EXPLORE_FILTERS} value={filter} onChange={chooseFilter} />
-          </motion.div>
-
-          <ExploreSections
-            sections={sections}
-            recents={recents}
-            empty={empty}
-            onOpen={onOpen}
-            reveal={reveal}
-            firstRevealIndex={FIRST_SECTION_REVEAL}
-            staggered={reveal && !settled}
-          />
-        </div>
+        <ExploreSections
+          sections={sections}
+          recents={recents}
+          empty={empty}
+          onOpen={onOpen}
+          reveal={reveal}
+          firstRevealIndex={FIRST_SECTION_REVEAL}
+          staggered={reveal && !settled}
+        />
       </motion.main>
     </>
   );

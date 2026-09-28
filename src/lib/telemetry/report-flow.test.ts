@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
@@ -288,6 +291,18 @@ describe('classifyError', () => {
   ])('classifies %s as %s', (message, expected) => {
     expect(classifyError(new Error(message))).toBe(expected);
   });
+
+  it.each(['restoreAccountLookupFailed', 'createAccountLookupFailed'])(
+    'classifies the %s restore abort by its reason, not by its own copy',
+    key => {
+      // Onboarding reports these by classifying the displayed text, so their
+      // fixed copy must stay neutral and leave the category to the raw reason.
+      const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../public/_locales/en/en.json'), 'utf8'));
+      const withReason = (reason: string) => en[key].replace('$reason$', reason);
+      expect(classifyError(new Error(withReason('something nobody predicted')))).toBe('unknown');
+      expect(classifyError(new Error(withReason('quota exceeded')))).toBe('storage');
+    }
+  );
 
   it('classifies a bare string, which is how the transaction pipeline stores a failure', () => {
     // A row records its reason as text and is classified much later, by which

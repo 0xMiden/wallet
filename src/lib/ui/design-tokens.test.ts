@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { CARD_COLORS } from 'lib/settings/constants';
+import { ARROW_INK, arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
 
 import { escapeForRegExp, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
 
@@ -243,8 +245,10 @@ describe('card colors are the brand colors', () => {
 // `app-bg`). What each text needs depends on its size (WCAG 1.4.3):
 // - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
 //   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
-// - the label and the footer (13px bold) sit on the bare color too, by choice: the card keeps its
-//   plain brand color, so in light mode they fall under 4.5:1 on every color but slate. Not pinned.
+// - the label (15px bold) sits on the bare color too, by choice: the card keeps its plain brand
+//   color, so in light mode it falls under 4.5:1 on every color but slate. Not pinned.
+// - the footer (13px bold) sits on `surface-balance-footer`, which clears 4.5:1 on every color but
+//   light orange (4.47:1, accepted under rule 7). Pinned below.
 // - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
 describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
   const vars = themeVars(selector);
@@ -261,6 +265,14 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
 
   it.each(CARD_COLORS)('%s carries the large amount and currency at 3:1 on the bare color', color => {
     expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(3);
+  });
+
+  // The footer's well: 4.5:1 everywhere but light orange, held to its documented 4.47:1 (4.468 unrounded).
+  it.each(CARD_COLORS)('%s carries the footer on its well', color => {
+    const floor = selector === ':root' && color === 'orange' ? 4.46 : 4.5;
+    expect(
+      contrast(need('surface-balance-fg'), over(need('surface-balance-footer'), card(color)))
+    ).toBeGreaterThanOrEqual(floor);
   });
 
   it.each(CARD_COLORS)('%s carries the change pill at 4.5:1', color => {
@@ -391,4 +403,90 @@ describe.each([':root', '.dark'] as const)('action colour contrast in %s', selec
       expect(contrast(value(`action-${action}-ink`), value(surface))).toBeGreaterThanOrEqual(4.5);
     }
   });
+});
+
+// A glyph, the toggle thumb or the 19px bold CTA label on a flow's fill is drawn in the flow's
+// on-colour and needs 3:1. Small text in a flow's colour (the network pill) takes the ink on the tint
+// instead: no one on-colour reads at 4.5:1 on every fill.
+const FLOW_FILLS = [
+  ['brand', 'accent-primary'],
+  ['send', 'accent-send'],
+  ['receive', 'accent-receive'],
+  ['earn', 'accent-earn'],
+  ['swap', 'accent-swap']
+] as const;
+
+describe.each([':root', '.dark'] as const)('flow on-colours in %s', selector => {
+  const value = (name: string) => resolved(selector, name);
+
+  it.each(FLOW_FILLS)('%s draws on its fill at 3:1', (flow, fill) => {
+    expect(contrast(value(`accent-${flow}-on`), value(fill))).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(FLOWS)('%s ink reads at 4.5:1 on its own tint', flow => {
+    expect(contrast(value(`accent-${flow}-ink`), value(`accent-${flow}-tint`))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+it.each(FLOW_FILLS)('maps accent-%s-on to a Tailwind color', flow => {
+  expect(config).toContain(`'accent-${flow}-on': 'var(--accent-${flow}-on)'`);
+});
+
+// The QR palette. The modules are always drawn on a white tile, so these five never flip with the
+// theme: they are the light card colors, pinned.
+describe('QR palette', () => {
+  const light = themeVars(':root');
+  const dark = themeVars('.dark');
+  const NAMES = ['qr-slate', 'qr-orange', 'qr-blue', 'qr-green', 'qr-purple'] as const;
+
+  it.each(NAMES)('%s matches its light card color', name => {
+    expect(light[name]).toBe(light[name.replace('qr-', 'card-')]);
+  });
+
+  it.each(NAMES)('%s is not redeclared in dark mode', name => {
+    expect(dark[name]).toBeUndefined();
+  });
+
+  it.each(NAMES)('%s stays scannable on the white tile (3:1 or better)', name => {
+    expect(contrast(light[name]!, '#FFFFFF')).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// The summary badge draws its arrow in an ink it derives from the fill, so every spelling a caller
+// can pass must be an explicit ARROW_INK entry - not merely fall through to the white default by
+// accident - and must read at 3:1 under that ink in both themes. This inventory is independent of
+// ARROW_INK's own keys: the action, tx and accent aliases of send, receive, swap and earn, the
+// faucet rose's var() and hex spellings, and the bridge/guardian slate. A spelling the table drops
+// fails this test instead of silently vanishing from it.
+const BADGE_FILL_ALIASES = [
+  'var(--action-send)',
+  'var(--tx-sent)',
+  'var(--accent-send)',
+  'var(--action-receive)',
+  'var(--tx-received)',
+  'var(--accent-receive)',
+  'var(--action-swap)',
+  'var(--tx-swap)',
+  'var(--accent-swap)',
+  'var(--action-earn)',
+  'var(--tx-earn)',
+  'var(--accent-earn)',
+  'var(--tx-faucet)',
+  '#ba839f',
+  '#777487'
+] as const;
+
+it.each(BADGE_FILL_ALIASES)('%s is an explicit ARROW_INK entry', fill => {
+  expect(Object.prototype.hasOwnProperty.call(ARROW_INK, fill)).toBe(true);
+});
+
+describe.each([':root', '.dark'] as const)('summary badge arrow in %s', selector => {
+  const color = (value: string) => (value.startsWith('var(--') ? resolved(selector, value.slice(6, -1)) : value);
+
+  it.each([...BADGE_FILL_ALIASES, ...Object.values(TRANSACTION_COLORS)])(
+    'draws its arrow at 3:1 on the %s fill',
+    fill => {
+      expect(contrast(color(arrowInkFor(fill)), color(fill))).toBeGreaterThanOrEqual(3);
+    }
+  );
 });

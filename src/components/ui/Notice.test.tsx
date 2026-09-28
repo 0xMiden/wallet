@@ -55,6 +55,28 @@ it.each<[NoticeTone, string, string, string]>([
   expect(notice.querySelector('[data-slot="body"]')).toHaveClass(body, 'text-caption');
 });
 
+it('drops the surface for the inline variant, keeping the tone on the glyph', () => {
+  render(
+    <Notice data-testid="notice" tone="warning" variant="inline" icon={<svg />}>
+      Body
+    </Notice>
+  );
+
+  const notice = screen.getByTestId('notice');
+  expect(notice).toHaveAttribute('data-variant', 'inline');
+  expect(notice).toHaveAttribute('data-tone', 'warning');
+  // No tint, no radius, no card padding: a caption line under what it qualifies.
+  expect(notice.className).not.toMatch(/(^|\s)bg-|rounded-2xl/);
+  expect(notice.querySelector('[data-slot="icon"]')).toHaveClass('text-pending-ink');
+  expect(notice.querySelector('[data-slot="body"]')).toHaveClass('text-caption', 'text-muted');
+});
+
+it('marks the tinted card as the default variant', () => {
+  render(<Notice data-testid="notice">Body</Notice>);
+
+  expect(screen.getByTestId('notice')).toHaveAttribute('data-variant', 'block');
+});
+
 it('takes an alert role for something that just went wrong', () => {
   render(
     <Notice data-testid="notice" tone="negative" role="alert">

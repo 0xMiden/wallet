@@ -81,6 +81,21 @@ describe('DetailRow', () => {
     expect(screen.getByText('Estimated, reserved from Available')).toHaveClass('text-muted');
   });
 
+  it('renders an info hint beside the label, inside the label line', () => {
+    render(
+      <DetailRow label="Rate" info={<button data-testid="rate-info">i</button>}>
+        1 ETH
+      </DetailRow>
+    );
+    const label = screen.getByText('Rate');
+    expect(label).toContainElement(screen.getByTestId('rate-info'));
+  });
+
+  it('renders no hint when none is provided', () => {
+    render(<DetailRow label="Rate">1 ETH</DetailRow>);
+    expect(screen.getByText('Rate').children).toHaveLength(0);
+  });
+
   it('renders no action when none is provided', () => {
     render(<DetailRow label="Network">Miden</DetailRow>);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();

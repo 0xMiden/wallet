@@ -28,6 +28,7 @@ import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
+import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -486,6 +487,7 @@ async function runSync(force: boolean): Promise<void> {
                 senderAddress: note.senderAccountId ?? '',
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
+                standardPayment: note.standardPayment,
                 swapOrder: swapOrders.get(noteId)
               };
             })
@@ -578,7 +580,11 @@ async function runSync(force: boolean): Promise<void> {
       // worth one on its own. See `initiateConsumeNotesTransaction`.
       let nativeAutoConsumeBaseFee: number | null = null;
       try {
-        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
+        if (
+          !isRotationPendingAccount(accountPubKey) &&
+          (await areBackgroundSettingsMirrored()) &&
+          (await isAutoConsumeEnabledAsync())
+        ) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
             // Notes already covered by an uncompleted consume row are excluded BEFORE
@@ -602,7 +608,8 @@ async function runSync(force: boolean): Promise<void> {
             //
             // The frontend applies the same rule to live notes in `selectAutoConsumeBatch`
             // (front/auto-managed-notes.ts), which also decides what its claim prompts
-            // leave out; change the two together.
+            // leave out; change the two together. Both callers skip a rotation-pending
+            // account, as this pass does above.
             const candidates = parsedNotes.filter(
               n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
             );
@@ -684,12 +691,12 @@ async function runSync(force: boolean): Promise<void> {
 
       if (!intercom.hasClients() && newIds.length > 0) {
         // No popup open and new notes arrived — show desktop notification
-        const title = getMessage('noteReceivedTitle') || 'You have received a note';
+        const title = getMessage('noteReceivedTitle') || 'You have an incoming transfer';
         const message =
           newIds.length === 1
-            ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
+            ? getMessage('noteReceivedClickToClaim') || 'Click to review and accept it'
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
-              `You have ${newIds.length} new notes to claim`;
+              `You have ${newIds.length} new transfers to accept`;
         showBackgroundNotification(title, message, 'miden-note-received');
       }
 

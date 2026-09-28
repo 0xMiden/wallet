@@ -1,4 +1,4 @@
-import bip39English from 'bip39/src/wordlists/english.json';
+import { englishWordlist } from '@miden/hd-key';
 
 import {
   BIP39_RUN_THRESHOLD,
@@ -14,7 +14,7 @@ import {
 const wordlist = ['abandon', 'ability', 'zoo'];
 
 /** The real 2048-word list, for everything that has to behave like production. */
-const english: readonly string[] = bip39English;
+const english: readonly string[] = englishWordlist;
 
 /**
  * Valid BIP-39 mnemonics generated from the bundled wordlist. They are real in

@@ -43,11 +43,6 @@ jest.mock('lib/miden/back/actions', () => ({
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
-  revealGuardianKeys: jest.fn().mockResolvedValue({
-    coldPrivateKey: 'cold-priv',
-    coldPublicKey: 'cold-pub',
-    hotPublicKey: 'hot-pub'
-  }),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
@@ -530,19 +525,6 @@ describe('DesktopIntercomAdapter', () => {
           password: 'pw'
         } as any)
       ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, keyPairPayload: 'hot-private-key' });
-
-      expect(
-        await adapter.request({
-          type: WalletMessageType.RevealGuardianKeysRequest,
-          accountPublicKey: 'acc',
-          password: 'pw'
-        } as any)
-      ).toEqual({
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: 'cold-priv',
-        coldPublicKey: 'cold-pub',
-        hotPublicKey: 'hot-pub'
-      });
 
       expect(
         await adapter.request({

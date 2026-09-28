@@ -30,23 +30,22 @@ describe('earn-flow/types', () => {
     expect(Object.keys(point).sort()).toEqual(['label', 'value']);
   });
 
-  it('EarnSummary carries the four headline metric strings', () => {
+  it('EarnSummary carries the four headline figures, as numbers', () => {
     const summary: EarnSummary = {
-      totalRewards: '$1,204.55',
-      blendedApy: '6.2%',
-      totalDeposited: '$18,900.00',
-      estimatedRewards: '$1,320.00'
+      totalRewardsUsd: 1204.55,
+      blendedApyPercent: 6.2,
+      totalDepositedUsd: 18900,
+      estimatedRewardsUsd: 1320
     };
 
-    expect(summary).toEqual({
-      totalRewards: '$1,204.55',
-      blendedApy: '6.2%',
-      totalDeposited: '$18,900.00',
-      estimatedRewards: '$1,320.00'
-    });
-    expect(Object.keys(summary).sort()).toEqual(['blendedApy', 'estimatedRewards', 'totalDeposited', 'totalRewards']);
-    // Every headline metric is a string.
-    Object.values(summary).forEach(v => expect(typeof v).toBe('string'));
+    expect(Object.keys(summary).sort()).toEqual([
+      'blendedApyPercent',
+      'estimatedRewardsUsd',
+      'totalDepositedUsd',
+      'totalRewardsUsd'
+    ]);
+    // Every headline metric is the raw figure; the screens format and animate it.
+    Object.values(summary).forEach(v => expect(typeof v).toBe('number'));
   });
 
   it('EarnPosition holds the full position shape including a nested chart series', () => {

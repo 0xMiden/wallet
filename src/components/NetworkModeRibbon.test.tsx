@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -34,19 +34,32 @@ jest.mock('lib/miden-chain/networks-config', () => {
 });
 const { mockBuild } = jest.requireMock<{ mockBuild: { network: string } }>('lib/miden-chain/networks-config');
 
-// The real sheet, so opening from the ribbon and closing with mobile back are exercised end to end;
-// only its platform edges are stubbed.
-const mockBack: { handler: (() => boolean | void) | null } = { handler: null };
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (handler: () => boolean | void) => {
-    mockBack.handler = handler;
-  }
-}));
+// The real sheet, so opening from the ribbon and closing it are exercised end to end; only its
+// platform edges are stubbed. The shared Drawer closes the sheet on mobile back (drawer.test pins
+// how), so the stand-in records whether the sheet opts out and exposes the close it would call.
+let mockDrawerCloseOnBack: boolean | undefined = true;
 jest.mock('lib/woozie', () => ({ useLocation: () => ({ pathname: '/', hash: '' }) }));
 jest.mock('app/providers/DappBrowserProvider', () => ({ useHideForegroundDappWhileOpen: jest.fn() }));
 jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
-    open ? <div role="dialog">{children}</div> : null,
+  Drawer: ({
+    open,
+    onOpenChange,
+    closeOnBack,
+    children
+  }: {
+    open: boolean;
+    onOpenChange?: (open: boolean) => void;
+    closeOnBack?: boolean;
+    children: React.ReactNode;
+  }) => {
+    mockDrawerCloseOnBack = closeOnBack;
+    return open ? (
+      <div role="dialog">
+        <button type="button" data-testid="drawer-back" onClick={() => onOpenChange?.(false)} />
+        {children}
+      </div>
+    ) : null;
+  },
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
@@ -61,7 +74,6 @@ describe('NetworkModeRibbon', () => {
   beforeEach(() => {
     mockNetworkKey = 'testnet';
     mockBuild.network = 'testnet';
-    mockBack.handler = null;
     jest.mocked(hapticLight).mockClear();
   });
 
@@ -147,16 +159,14 @@ describe('NetworkModeRibbon', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the sheet on mobile back', () => {
+  it('closes the sheet on mobile back through the shared Drawer, which the sheet does not opt out of', () => {
     render(<NetworkModeRibbon docked />);
     fireEvent.click(ribbon());
+    expect(mockDrawerCloseOnBack).toBeUndefined();
 
-    let consumed: boolean | void = undefined;
-    act(() => {
-      consumed = mockBack.handler!();
-    });
+    // What the Drawer's back handler calls: onOpenChange(false).
+    fireEvent.click(screen.getByTestId('drawer-back'));
 
-    expect(consumed).toBe(true);
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
     expect(ribbon()).toHaveAttribute('aria-expanded', 'false');
   });

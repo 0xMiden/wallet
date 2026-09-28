@@ -147,14 +147,6 @@ describe('ReviewLayout (via barrel)', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the orange hero divider by default and omits it when heroDivider is false', () => {
-    const { container: withDivider } = render(h(ReviewLayout, makeLayoutProps()));
-    expect(withDivider.querySelector('.bg-primary-500')).toBeInTheDocument();
-
-    const { container: withoutDivider } = render(h(ReviewLayout, makeLayoutProps({ heroDivider: false })));
-    expect(withoutDivider.querySelector('.bg-primary-500')).not.toBeInTheDocument();
-  });
-
   it('applies row dividers by default and omits them when dividers is false', () => {
     const { container: withDividers } = render(h(ReviewLayout, makeLayoutProps()));
     expect(withDividers.querySelector('.divide-y')).toBeInTheDocument();

@@ -75,8 +75,8 @@ const LanguageSettings: FC = () => {
   // NOT redundant with the latch inside `useBackWithFallback`: that one only makes
   // the traversal idempotent, while this also stops a second haptic and a second
   // `updateLocale` for the row the user grazed. It re-arms when live history moves:
-  // reopening the screen within its slide-out brings back this same instance, and a
-  // latch that never reset left every row dead.
+  // a screen a pop reveals is this same instance, and a latch that never reset left
+  // every row dead.
   const claimPick = useOncePerLocation();
 
   const handleSelect = useCallback(
@@ -124,7 +124,7 @@ const LanguageSettings: FC = () => {
           control the user could un-press, when in fact activating the current row
           just leaves the screen. */}
       <div role="radiogroup" aria-label={t('language')}>
-        <ListGroup>
+        <ListGroup surface="plain">
           {LANGUAGES.map(({ code, label, bcp47 }, index) => {
             const isSelected = code === currentCode;
             return (

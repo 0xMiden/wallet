@@ -10,6 +10,7 @@ import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { FOCUSABLE_CLASSES } from './Card';
 import { Status, StatusBadge } from './StatusBadge';
 
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
@@ -50,6 +51,13 @@ export interface ActivityRowProps {
   status?: Status;
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
+  /**
+   * A mark the row positions in its own left margin rather than in the content flow — an
+   * `UnreadDot`. Absolutely placed on purpose: a dot that took layout would shift the leading
+   * avatar and the title column between a read row and an unread one, and the column has to
+   * start at the same x down the whole list.
+   */
+  leading?: ReactNode;
   onClick?: () => void;
   /**
    * Layout, or the surface a `Card asChild` draws onto the row. Merged with `cn`, so a card's
@@ -104,6 +112,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   amount,
   status,
   timestamp,
+  leading,
   onClick,
   className,
   testId,
@@ -138,18 +147,17 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // motion value. The avatar and the status dot below are plain elements whose
   // radius is a class, so under a full `layout` both draw as ovals for the whole
   // spring. Same reason as the inline radius on SegmentedActionBar's pill and segments.
-  return (
-    <motion.div
-      layout="position"
-      whileTap={onClick ? { opacity: 0.9 } : undefined}
-      transition={transition}
-      data-testid={testId}
-      data-entry-key={entryKey}
-      role={onClick ? 'button' : undefined}
-      onClick={onClick ? handleClick : undefined}
-      className={cn('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
-    >
-      <div className="flex items-center gap-2">
+  // Every row is the same height: the title and subtitle each hold one line, so a long
+  // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
+  const rowClassName = cn(
+    'relative w-full flex items-center py-4 justify-between gap-3',
+    onClick && ['cursor-pointer text-left', FOCUSABLE_CLASSES],
+    className
+  );
+  const content = (
+    <>
+      {leading}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <div
           className={classNames(
             'shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-pure-white',
@@ -160,19 +168,19 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-ink dark:text-pure-white">
-          <span data-testid={testId && `${testId}-title`} className="text-row-title">
+        <div className="flex min-w-0 flex-col text-ink dark:text-pure-white">
+          <span data-testid={testId && `${testId}-title`} className="truncate text-row-title">
             {title}
           </span>
           {subtitle && (
-            <span data-testid={testId && `${testId}-subtitle`} className="text-caption text-muted">
+            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption text-muted">
               {subtitle}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex shrink-0 flex-col items-end gap-1">
         {amount && (
           <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (
@@ -211,6 +219,35 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
         {timestamp && <span className="text-caption text-muted">{timestamp}</span>}
       </div>
+    </>
+  );
+  // A row that opens something is a native button, as CardButton is, so focus, Enter and Space are the
+  // element's own.
+  if (onClick) {
+    return (
+      <motion.button
+        type="button"
+        layout="position"
+        whileTap={{ opacity: 0.9 }}
+        transition={transition}
+        data-testid={testId}
+        data-entry-key={entryKey}
+        onClick={handleClick}
+        className={rowClassName}
+      >
+        {content}
+      </motion.button>
+    );
+  }
+  return (
+    <motion.div
+      layout="position"
+      transition={transition}
+      data-testid={testId}
+      data-entry-key={entryKey}
+      className={rowClassName}
+    >
+      {content}
     </motion.div>
   );
 };

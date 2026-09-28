@@ -214,7 +214,10 @@ describe('ExportFileComplete', () => {
     expect(screen.getByTestId('hero-icon')).toHaveAttribute('data-state', 'success');
     // The outcome is the shared Hero: its title is the 24px h2, the copy under it muted.
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('encryptedWalletFileExportedTitle1');
-    expect(screen.getByText('encryptedWalletFileExportedDesc1').parentElement).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('encryptedWalletFileExportedDesc1').parentElement).toHaveClass(
+      'text-body-sm',
+      'text-muted'
+    );
     // Done is pinned in the SubPageLayout footer, not in the scrolling body.
     const page = screen.getByTestId('export-file-complete');
     expect(page.querySelector('[data-slot="footer"]')).toContainElement(screen.getByTestId('done-button'));

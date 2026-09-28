@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 
 import ExportAccountFile from './ExportAccountFile';
 
@@ -24,33 +26,6 @@ const messages = {
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => (messages as Record<string, string>)[key] ?? key })
-}));
-
-jest.mock('app/atoms/FormField', () => ({
-  __esModule: true,
-  default: ({
-    label,
-    errorCaption,
-    labelDescription: _labelDescription,
-    containerClassName: _containerClassName,
-    ...props
-  }: React.InputHTMLAttributes<HTMLInputElement> & {
-    label: string;
-    errorCaption?: React.ReactNode;
-    labelDescription?: React.ReactNode;
-    containerClassName?: string;
-  }) => (
-    <label>
-      {label}
-      <input aria-label={label} {...props} />
-      {errorCaption ? <span>{errorCaption}</span> : null}
-    </label>
-  )
-}));
-
-jest.mock('app/templates/AccountBanner', () => ({
-  __esModule: true,
-  default: ({ className }: { className?: string }) => <div data-testid="account-banner" className={className} />
 }));
 
 jest.mock('components/Button', () => ({
@@ -102,12 +77,16 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 const mockHapticMedium = jest.fn();
-jest.mock('lib/mobile/haptics', () => ({ hapticMedium: () => mockHapticMedium() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticMedium: () => mockHapticMedium(), hapticLight: jest.fn() }));
 
 let mockMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockMobile }));
@@ -169,7 +148,8 @@ it('requires the explicit funds warning acknowledgement and password before desk
   await renderReady();
 
   expect(screen.getByText(messages.exportAccountFileWarningBody)).toBeInTheDocument();
-  expect(screen.getByTestId('account-banner')).toHaveClass('text-ink');
+  // The page names the account it would export, as the shared account row.
+  expect(screen.getByTestId('account-banner')).toHaveTextContent('Account 1');
   const saveButton = screen.getByRole('button', { name: messages.saveAccountFile });
   expect(saveButton).toBeDisabled();
 
@@ -278,11 +258,83 @@ it('does not export on Enter before the warning is acknowledged', async () => {
   await waitFor(() => expect(mockExportAccountFile).not.toHaveBeenCalled());
 });
 
-it('falls back to the password step-up when the hardware probe rejects', async () => {
-  mockHasHardwareProtector.mockRejectedValueOnce(new Error('probe unavailable'));
+// #1056: a failed hardware read is resolved through the password protector, never guessed.
+it('takes the password step-up when the hardware read fails and a password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(true);
   await renderReady();
 
   expect(screen.getByLabelText(messages.password)).toBeInTheDocument();
+  expect(screen.queryByText(messages.exportAccountFileHardwareDescription)).not.toBeInTheDocument();
+});
+
+it('takes the passcode step on mobile when the hardware read fails and a password key exists', async () => {
+  mockMobile = true;
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(true);
+  await renderReady();
+
+  expect(screen.getByRole('button', { name: 'Enter passcode' })).toBeInTheDocument();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+});
+
+it('exports through the hardware protector when the hardware read fails and no password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(false);
+  await renderReady();
+
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
+  await waitFor(() => expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', undefined));
+});
+
+it('shows an error and offers no credential step when both protector reads fail', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockRejectedValueOnce(new Error('pw-boom'));
+  render(<ExportAccountFile />);
+
+  expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+  expect(screen.getByTestId('account-banner')).toHaveTextContent('Account 1');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+});
+
+it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+  mockMobile = true;
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockRejectedValueOnce(new Error('pw-boom'));
+  render(<ExportAccountFile />);
+
+  expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+  expect(screen.queryByRole('button', { name: 'Enter passcode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+});
+
+it('keeps its header while the hardware probe is pending, with an empty body and no footer', async () => {
+  mockHasHardwareProtector.mockReturnValue(new Promise(() => undefined));
+  const onBack = jest.fn();
+  render(
+    <SubPageHeaderProvider value={{ title: 'Export account file', onBack }}>
+      <ExportAccountFile />
+    </SubPageHeaderProvider>
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(screen.getByRole('heading', { name: 'Export account file' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(onBack).toHaveBeenCalledTimes(1);
+  const page = screen.getByTestId('export-account-file');
+  expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+  expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Enter passcode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
 });
 
 it('zeroes bytes that arrive after the screen is gone, and opens no sheet over what replaced it', async () => {

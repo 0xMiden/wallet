@@ -49,6 +49,12 @@ export enum OnboardingStep {
   ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
+  /**
+   * The create flow's guardian step: three facts to acknowledge, then the
+   * fastest reachable operator, picked for the user. "Choose a different
+   * Guardian" pushes the full picker, `ChooseGuardian`.
+   */
+  MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
@@ -146,9 +152,22 @@ export type SelectRecoveryMethodAction = {
   payload: WalletType;
 };
 
+/**
+ * What the user has done on the Meet your Guardian step: the facts ticked and the operator locked in.
+ * The flow owns it, not the step, so opening the picker and coming back leaves it as it was.
+ */
+export interface MeetGuardianProgress {
+  checked: Readonly<Record<string, boolean>>;
+  chosenId: string | null;
+  /** Picked in the full picker rather than locked in as the fastest, so the card does not call it that. */
+  pickedByUser: boolean;
+}
+
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null, pickedByUser: false };
+
+/** Open the full operator picker from the Meet your Guardian step. */
 export type ChooseGuardianAction = {
   id: 'choose-guardian';
-  payload: { guardianId: string; guardianEndpoint: string };
 };
 
 export type ImportSelectRecoveryMethodAction = {

@@ -1,3 +1,4 @@
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getPriceMicro, isCoveredSymbol } from 'lib/prices/usd';
 
 import { IConsumedAssetTotal } from '../db/types';
@@ -35,7 +36,8 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  * decision: only priced assets are capped. An asset it DOES cover must be valued or the
  * transaction cannot be judged, so a missing price or untrustworthy decimals still raise rather
  * than quietly counting as nothing - otherwise "make the price lookup fail" is the way past the
- * cap.
+ * cap. A registry token is valued at the asset it stands for (IETH at ETH), as the rest of the
+ * wallet prices it (#1133).
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   let total = 0n;
@@ -43,12 +45,14 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     let symbol: string;
     let decimals: number;
     let scaleKnown: boolean;
+    // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
+    // several spellings of this faucet into one canonical hex id (the dApp custom path's
+    // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
+    // spelling and fail identification for a faucet the wallet has already met. The same
+    // canonical id is what `priceSymbolFor` matches the registry against below.
+    const faucetId = canonicalFaucetBech32Id(spend.faucetId);
     try {
-      // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
-      // several spellings of this faucet into one canonical hex id (the dApp custom path's
-      // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
-      // spelling and fail identification for a faucet the wallet has already met.
-      const { base } = await fetchTokenMetadata(canonicalFaucetBech32Id(spend.faucetId));
+      const { base } = await fetchTokenMetadata(faucetId);
       symbol = base.symbol;
       decimals = base.decimals;
       scaleKnown = hasKnownScale(base);
@@ -56,8 +60,9 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       throw new SpendingLimitPriceUnavailableError(spend.faucetId);
     }
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
-    if (!isCoveredSymbol(symbol)) continue;
-    const priceMicro = await getPriceMicro(symbol, now);
+    const priceSymbol = priceSymbolFor(faucetId, symbol);
+    if (!isCoveredSymbol(priceSymbol)) continue;
+    const priceMicro = await getPriceMicro(priceSymbol, now);
     if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);
     total += usdMicroFromAmount(spend.amount, decimals, priceMicro);
   }

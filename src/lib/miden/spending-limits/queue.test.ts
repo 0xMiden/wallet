@@ -1,7 +1,15 @@
-import { SendTransaction, Transaction } from '../db/types';
-import { spendingLimits, transactions } from '../repo';
+import { DBCore, DBCoreIndex, Middleware } from 'dexie';
+
+import { ITransaction, SendTransaction, Transaction } from '../db/types';
+import { db, spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
-import { assessOutgoingSpendingLimitDetails, hasSpendingLimits, queueOutgoingTransaction, spendsOf } from './queue';
+import {
+  assessOutgoingSpendingLimitDetails,
+  hasSpendingLimits,
+  QueueableOutgoingTransaction,
+  queueOutgoingTransaction,
+  spendsOf
+} from './queue';
 import {
   PersistedSpendingLimit,
   SpendingLimitAuthorization,
@@ -45,6 +53,72 @@ const executeRow = (id = 'tx-1'): Transaction => {
 
 // What `spendsOf(sendRow())` states by default - the spends most tests below actually queue.
 const DEFAULT_AUTHORIZED_SPENDS = [{ faucetId: 'eth', amount: 1n }];
+
+// A row inside the window, stamped the way the existing over-limit history tests stamp one
+// (`{ ...sendRow(...), spentUsd: 40_000_000n }`), so a stored row counts toward the cap exactly
+// as a real one does.
+const historyRow = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+  ...sendRow(90n, overrides.id ?? 'existing'),
+  spentUsd: 40_000_000n,
+  ...overrides
+});
+
+const proposalFor = (transaction: QueueableOutgoingTransaction) => ({
+  accountId: transaction.accountId,
+  spends: spendsOf(transaction),
+  now: NOW
+});
+
+/** Writes a row straight to IndexedDB, below Dexie's hooks, as an older build or a tampered store could have. */
+const putStoredRow = async (row: object) => {
+  await db.open();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.backendDB().transaction('transactions', 'readwrite');
+    tx.objectStore('transactions').put(row);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+/** Every count and query that reaches the `transactions` store while `run` executes, sorted. */
+const recordHistoryReads = async (run: () => Promise<unknown>): Promise<string[]> => {
+  const reads: string[] = [];
+  const indexName = (index: DBCoreIndex) => (index.isPrimaryKey ? 'primary key' : index.name);
+  const recorder: Middleware<DBCore> = {
+    stack: 'dbcore',
+    name: 'history-read-recorder',
+    create: down => ({
+      ...down,
+      table: name => {
+        const table = down.table(name);
+        if (name !== 'transactions') return table;
+        return {
+          ...table,
+          count: req => {
+            reads.push(`count ${indexName(req.query.index)}`);
+            return table.count(req);
+          },
+          query: req => {
+            reads.push(`query ${indexName(req.query.index)}`);
+            return table.query(req);
+          }
+        };
+      }
+    })
+  };
+  // A middleware joins the stack only when the database opens.
+  db.close();
+  db.use(recorder);
+  await db.open();
+  try {
+    await run();
+  } finally {
+    db.unuse({ stack: 'dbcore', name: 'history-read-recorder' });
+    db.close();
+    await db.open();
+  }
+  return reads.sort();
+};
 
 const usdAuthorization = (
   overrides: Partial<{
@@ -178,6 +252,95 @@ describe('queueOutgoingTransaction', () => {
     } finally {
       read.mockRestore();
     }
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['NaN', Number.NaN],
+    ['null', null],
+    ['negative', -1]
+  ])('refuses as unavailable when a counted row has a %s initiatedAt the index cannot place', async (_label, value) => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    const stored = { ...historyRow({ id: 'stored-1' }) };
+    if (value === undefined) delete (stored as { initiatedAt?: number }).initiatedAt;
+    else Reflect.set(stored, 'initiatedAt', value);
+    await putStoredRow(stored);
+
+    await expect(queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)).rejects.toThrow(
+      /policy is unavailable/i
+    );
+    await expect(assessOutgoingSpendingLimitDetails(proposalFor(sendRow()))).rejects.toThrow(/policy is unavailable/i);
+  });
+
+  it('does not refuse when the unplaceable row is a restored one, which the policy skips', async () => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    const stored = { ...historyRow({ id: 'stored-1' }), restoredFromBackup: true };
+    delete (stored as { initiatedAt?: number }).initiatedAt;
+    await putStoredRow(stored);
+
+    await expect(queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)).resolves.not.toThrow();
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({ spentUsd: 1n });
+  });
+
+  it('reads the whole table only when a row cannot be placed by the index', async () => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    await transactions.add(historyRow({ id: 'placed-1' }));
+    const wholeTable = jest.spyOn(transactions, 'toArray');
+
+    try {
+      await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW);
+      expect(wholeTable).not.toHaveBeenCalled();
+    } finally {
+      wholeTable.mockRestore();
+    }
+  });
+
+  it('places rows at initiatedAt 0 and -0 by the index, so it reads only the window', async () => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    await transactions.bulkAdd([
+      historyRow({ id: 'zero', initiatedAt: 0 }),
+      historyRow({ id: 'negative-zero', initiatedAt: -0 })
+    ]);
+    const wholeTable = jest.spyOn(transactions, 'toArray');
+
+    try {
+      await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW);
+      await assessOutgoingSpendingLimitDetails(proposalFor(sendRow()));
+      expect(wholeTable).not.toHaveBeenCalled();
+    } finally {
+      wholeTable.mockRestore();
+    }
+  });
+
+  it.each([
+    ['a preflight', () => assessOutgoingSpendingLimitDetails(proposalFor(sendRow()))],
+    ['the queue', () => queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW)]
+  ])('%s counts the table and the index once, then reads only the window', async (_label, assess) => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    await transactions.add(historyRow({ id: 'placed-1' }));
+
+    await expect(recordHistoryReads(assess)).resolves.toEqual([
+      'count initiatedAt',
+      'count primary key',
+      'query initiatedAt'
+    ]);
+  });
+
+  it('reads the whole table and not the window when a row cannot be placed', async () => {
+    await saveConfig();
+    mockedResolve.mockResolvedValue(1n);
+    const stored = { ...historyRow({ id: 'stored-1' }), restoredFromBackup: true };
+    delete (stored as { initiatedAt?: number }).initiatedAt;
+    await putStoredRow(stored);
+
+    await expect(
+      recordHistoryReads(() => queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW))
+    ).resolves.toEqual(['count initiatedAt', 'count primary key', 'query primary key']);
   });
 
   it.each([

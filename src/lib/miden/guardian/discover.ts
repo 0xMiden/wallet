@@ -52,7 +52,8 @@ import { Buffer } from 'buffer';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import type { KeyDerivation } from 'lib/shared/types';
 
 /** One operator that answered the probe with at least one account. */
 export interface GuardianProbeMatch {
@@ -131,8 +132,10 @@ export class GuardianProbeTimeoutError extends Error {
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
  * `timeoutMs`. The underlying request keeps running (no abort in the guardian
- * client) — its result is just dropped, which is harmless for these small
- * read-only JSON calls.
+ * client) and its late result is dropped: harmless for a read, and a caller that
+ * wraps a write makes a late landing safe itself, by retrying it idempotently
+ * (the registration loops count `account_already_exists` as success) or by
+ * recording it for reconciliation (the transaction's endpoint persist).
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -160,10 +163,10 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
  * guardian error check (see `isGuardianUnreachableError`), so it survives the
  * duplicate-package error-class instances this repo can end up with.
  *
- * Lives here rather than beside either registration path because BOTH need it:
- * the direct switch's `/configure` loop and the coordinated switch's
- * `registerOnGuardian` loop each retry a write that may have landed before its
- * response was lost, and treating the operator's "I already have it" as a failure
+ * Lives here rather than beside any one registration path because all three need
+ * it: the direct switch's `/configure` loop, the coordinated switch's
+ * `registerOnGuardian` loop and Guardian creation's `registerGuardianAccount` each
+ * retry a write that may have landed before its response was lost, and treating the operator's "I already have it" as a failure
  * would turn the idempotent case into a false `registerFailed`.
  */
 export const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
@@ -366,7 +369,7 @@ function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
   }
   return options.endpoints.map(raw => {
     const endpoint = sanitizeGuardianUrl(raw);
-    return { endpoint, option: known.find(option => sanitizeGuardianUrl(option.endpoint) === endpoint) };
+    return { endpoint, option: known.find(option => sameGuardianEndpoint(option.endpoint, endpoint)) };
   });
 }
 
@@ -379,16 +382,27 @@ function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
  * detection failing is an expected outcome the UI recovers from with the manual
  * picker). Individual operator failures are collected in `failures`.
  *
+ * The seed may have been used under either key-derivation scheme (a wallet
+ * created before #918 derived under `legacy`), so every index is probed under
+ * both; `Vault.spawn`'s recovery scan later settles which one the account is.
+ *
  * @param deriveColdSeed - Sync closure returning the HD-derived cold seed for an
- *   index; use `makeColdSeedDeriver` from `lib/miden/sdk/derive-seed` so the
- *   PBKDF2 cost is paid once.
+ *   index and scheme; use `makeColdSeedDeriver` from `lib/miden/sdk/derive-seed`
+ *   so the PBKDF2 cost is paid once.
  */
 export async function discoverGuardianForSeed(
-  deriveColdSeed: (hdIndex: number) => Uint8Array,
+  deriveColdSeed: (hdIndex: number, keyDerivation: KeyDerivation) => Uint8Array,
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
-  return discoverGuardianForKeys(hdIndex => AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex)), options);
+  return discoverGuardianForKeys(
+    (hdIndex, keyDerivation) => AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex, keyDerivation)),
+    SEED_PROBE_KEY_DERIVATIONS,
+    options
+  );
 }
+
+/** Schemes a seed probe walks, current first. */
+const SEED_PROBE_KEY_DERIVATIONS: readonly KeyDerivation[] = ['v1', 'legacy'];
 
 /**
  * Probe every known guardian operator for the account authorized by a pasted
@@ -402,7 +416,11 @@ export async function discoverGuardianForHotKey(
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
   const { deserializeHotSecretKey } = await import('./hot-key-import');
-  return discoverGuardianForKeys(() => deserializeHotSecretKey(hotSecretKeyHex), { ...options, maxHdIndex: 1 });
+  // A pasted key has no derivation scheme either: one task per operator.
+  return discoverGuardianForKeys(() => deserializeHotSecretKey(hotSecretKeyHex), ['v1'], {
+    ...options,
+    maxHdIndex: 1
+  });
 }
 
 /**
@@ -412,7 +430,8 @@ export async function discoverGuardianForHotKey(
  * freed here after the task settles.
  */
 async function discoverGuardianForKeys(
-  makeKey: (hdIndex: number) => AuthSecretKey,
+  makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
+  keyDerivations: readonly KeyDerivation[],
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
   const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
@@ -432,20 +451,22 @@ async function discoverGuardianForKeys(
     registerGuardianOrigin(endpoint);
   }
 
-  const tasks: { target: ProbeTarget; hdIndex: number }[] = [];
+  const tasks: { target: ProbeTarget; hdIndex: number; keyDerivation: KeyDerivation }[] = [];
   for (const target of targets) {
-    for (let hdIndex = 0; hdIndex < maxHdIndex; hdIndex++) {
-      tasks.push({ target, hdIndex });
+    for (const keyDerivation of keyDerivations) {
+      for (let hdIndex = 0; hdIndex < maxHdIndex; hdIndex++) {
+        tasks.push({ target, hdIndex, keyDerivation });
+      }
     }
   }
 
-  const settled = await runPooled(tasks, GUARDIAN_PROBE_CONCURRENCY, async ({ target, hdIndex }) => {
+  const settled = await runPooled(tasks, GUARDIAN_PROBE_CONCURRENCY, async ({ target, hdIndex, keyDerivation }) => {
     if (signal?.aborted) return [];
     // One AuthSecretKey + EcdsaSigner PER TASK. Key construction is
     // deterministic, so per-task instances are byte-identical to a shared one —
     // and sharing a WASM handle across concurrent `sign` calls is exactly the
     // "recursive use of an object … unsafe aliasing" hazard.
-    const secretKey = makeKey(hdIndex);
+    const secretKey = makeKey(hdIndex, keyDerivation);
     try {
       const signer = new EcdsaSigner(secretKey);
       const client = new GuardianHttpClient(target.endpoint);

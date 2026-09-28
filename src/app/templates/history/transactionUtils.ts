@@ -120,12 +120,24 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   };
 };
 
-export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
+/**
+ * Whether the wallet received this entry. A settled receive carries the `RECEIVE` icon; a claim
+ * still queued or processing has none, because the pending entries History builds do not copy the
+ * row's `displayIcon`, so it is recognised by its type.
+ */
+export const isReceiveEntry = (
+  entry: Pick<IHistoryEntry, 'transactionIcon'> & { txType?: IHistoryEntry['txType'] }
+): boolean =>
+  entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
+
+export const isFaucetRequest = (
+  entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
+    txType?: IHistoryEntry['txType'];
+  }
+): boolean => {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
-  return (
-    entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
-  );
+  return isReceiveEntry(entry) && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
 };
 
 export const isCompletedTransaction = (message: string): boolean => {
@@ -242,10 +254,14 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
+  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
+  // typed (at most 6 decimals), so it is shown as stored.
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()
-      : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
+      : entry.bridgeInProvider === 'epoch'
+        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
+        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };
@@ -320,8 +336,49 @@ export const TRANSACTION_COLORS = {
   // (HistoryView paints `[&_path]:fill-pure-white`), so it owes WCAG 1.4.11's 3:1: the original
   // #CCA4B8 sat at 2.19:1, and this is the same hue taken down in lightness until it clears.
   // Mirrors --tx-faucet in main.css - keep both in sync; the test below is what enforces it.
-  faucet: '#BA839F'
+  faucet: '#BA839F',
+  // The slate every bridge row wears — and, since it moves no money on Miden, a
+  // Guardian op too. `TransactionIcon` paints the glyph with it and `HistoryView`
+  // hard-codes the same value as `bg-[#777487]`; keep the three in sync.
+  bridge: '#777487'
 } as const;
+
+/**
+ * `isFaucetRequest` read off the transaction row instead of the history entry, for the two
+ * screens that hold an `ITransaction` and never build an entry — the summary badge and the
+ * receipt. The same three facts: a claim, of the native asset, whose sender is the faucet
+ * itself (`secondaryAccountId` is what History copies into the entry's `secondaryAddress`).
+ *
+ * `nativeFaucetId` is a parameter rather than `getNativeAssetIdSync()` because those screens
+ * take it from `useMidenFaucetId()`, which re-renders once discovery lands; `null` means "not
+ * known yet", so the claim reads as an ordinary one until it is — the same contract the badge's
+ * asset labels already follow.
+ */
+export const isFaucetMintTransaction = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
+  nativeFaucetId: string | null
+): boolean =>
+  transaction?.type === 'consume' &&
+  nativeFaucetId !== null &&
+  transaction.faucetId === nativeFaucetId &&
+  transaction.secondaryAccountId === nativeFaucetId;
+
+/**
+ * The accent a claim wears: the colour `getTransactionIconBackgroundColor` paints that same
+ * claim's glyph with, in Activity and on its detail page. A bridge-in claim takes the bridge
+ * slate, a faucet mint the dusty rose; every other claim is money arriving from someone, in the
+ * received green.
+ *
+ * The summary badge's arrow sits directly under that glyph, so it asks this instead of naming
+ * the Receive action colour — which drew a green arrow beneath a rose icon on every faucet claim.
+ */
+export const claimAccentColor = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId' | 'extraInputs'> | undefined,
+  nativeFaucetId: string | null
+): typeof TRANSACTION_COLORS.bridge | typeof TRANSACTION_COLORS.faucet | typeof TRANSACTION_COLORS.receive => {
+  if (transaction?.type === 'consume' && transaction.extraInputs?.bridgeIn) return TRANSACTION_COLORS.bridge;
+  return isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
+};
 
 export const formatDate = (timestamp: number | string): string => {
   let date: Date;

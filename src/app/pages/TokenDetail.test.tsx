@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
 
@@ -63,10 +65,11 @@ jest.mock('lib/store', () => ({
     selector({ tokenPrices: mockTokenPrices })
 }));
 
-const mockGetTokenPrice = jest.fn();
+// The kline fetch is stubbed; the price lookup is the real one, reading `mockTokenPrices`.
 const mockFetchKlineData = jest.fn();
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (...args: unknown[]) => mockGetTokenPrice(...args),
+  pricesLoaded: jest.requireActual('lib/prices/binance').pricesLoaded,
+  quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
 
@@ -135,6 +138,8 @@ jest.mock('app/templates/history/History', () => ({
 jest.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
   Line: () => <div data-testid="line" />,
+  AreaChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
+  Area: () => <div data-testid="line" />,
   YAxis: (props: { domain?: [number, number] }) => (
     <div data-testid="yaxis" data-domain={JSON.stringify(props.domain)} />
   ),
@@ -196,6 +201,9 @@ jest.mock('framer-motion', () => {
       ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
     );
   return {
+    // The real module underneath, so the value helpers `AnimatedNumber` uses (`useMotionValue`,
+    // `animate`) are the real ones; only the element factories below are stubbed.
+    ...jest.requireActual('framer-motion'),
     __esModule: true,
     motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
@@ -230,6 +238,7 @@ type Overrides = {
   metadata?: Record<string, unknown>;
   network?: { name: string };
   priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
+  tokenPrices?: Record<string, unknown>;
   klineData?: unknown;
   /** The first kline load still in flight: SWR reports `data: undefined`. */
   klineLoading?: boolean;
@@ -246,7 +255,10 @@ function configure(o: Overrides = {}) {
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
-  mockGetTokenPrice.mockReturnValue(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 });
+  // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
+  mockTokenPrices = o.tokenPrices ?? {
+    ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
+  };
   mockGetExplorerAccountUrl.mockReturnValue(
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
@@ -283,11 +295,42 @@ describe('TokenDetail', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('ETH');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
     expect(screen.getByText('12.50')).toBeInTheDocument();
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
+  });
+
+  it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
+    configure({
+      balances: [{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
+      tokenPrices: { ETH: { price: 3000, change24h: 1.5, percentageChange24h: 0.05 } }
+    });
+    render(<TokenDetail tokenId={TOKEN_IETH.faucetId} />);
+
+    // 0.38 * 3000, never 0.38 * $1.
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$1140.00')).toBeInTheDocument();
+    expect(mockFetchKlineData).toHaveBeenCalledWith('ETH', '1D');
+  });
+
+  it('shows no fiat line and no price section for a token the feed does not quote', () => {
+    // Prices have loaded, and ETH is not among them.
+    renderPage({ tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } } });
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    // No fiat line at all, not even the dash that means "not priced yet".
+    expect(hero.querySelector('p')).toBeNull();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+  });
+
+  it('shows the placeholder dash in the fiat line while prices have not loaded, not a missing line', () => {
+    renderPage({ tokenPrices: {} });
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toHaveTextContent('\u2014');
   });
 
   it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
@@ -299,8 +342,9 @@ describe('TokenDetail', () => {
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
-    expect(within(hero).getByText('12.50')).toHaveClass('text-hero-value', 'text-ink');
-    expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
+    // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
+    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 
   it('expands precision for a small non-zero hero balance and fiat value', () => {
@@ -342,16 +386,18 @@ describe('TokenDetail', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/receive');
   });
 
-  it('draws Send and Receive as the pill Button pair, primary then secondary, side by side', () => {
+  it('draws Send and Receive as a pill pair, each in the colour of the flow it opens', () => {
     renderPage();
 
     const send = screen.getByTestId('token-detail-send');
     const receive = screen.getByTestId('token-detail-receive');
     expect(send).toBe(screen.getByRole('button', { name: 'send' }));
     expect(receive).toBe(screen.getByRole('button', { name: 'receive' }));
-    // The 52px pill: accent fill for the primary, `fill` for the secondary.
-    expect(send).toHaveClass('rounded-full', 'h-13', 'bg-accent-primary', 'flex-1');
-    expect(receive).toHaveClass('rounded-full', 'h-13', 'bg-fill', 'text-ink', 'flex-1');
+    // The 48px pill, each filled with its own flow's action colour — the tab bar's pairing.
+    expect(send).toHaveClass('rounded-full', 'h-12', 'bg-accent-send', 'flex-1');
+    expect(receive).toHaveClass('rounded-full', 'h-12', 'bg-accent-receive', 'flex-1');
+    expect(send.className).not.toContain('bg-accent-primary');
+    expect(receive.className).not.toContain('bg-fill');
     // 10px apart, each taking half the row.
     expect(send.parentElement).toBe(receive.parentElement);
     expect(send.parentElement).toHaveClass('flex', 'gap-2.5');
@@ -376,7 +422,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-muted', 'text-label');
+      expect(heading).toHaveClass('text-muted', 'text-title-section');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.
@@ -414,6 +460,45 @@ describe('TokenDetail', () => {
     });
   });
 
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('a balance still loading', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
+      configure({ metadata: { [TOKEN_ID]: { symbol: 'ETH', name: 'Ether', decimals: 18 } } });
+      mockUseAllBalances.mockReturnValue({ data: undefined });
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      // The hero's placeholder, an em dash.
+      expect(hero).toHaveTextContent('\u2014');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      // The subtitle (fiat) line waits with the same dash, never a fabricated $0.00.
+      const subtitle = hero.querySelector('p');
+      expect(subtitle).toHaveTextContent('\u2014');
+      expect(subtitle).not.toHaveTextContent('$0.00');
+
+      mockUseAllBalances.mockReturnValue({
+        data: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
+      });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(within(hero).getByText('$25000.00')).toBeInTheDocument();
+    });
+  });
+
   // The hero is the most emphatic number in the wallet. For a faucet whose
   // decimals never resolved, `balance` was divided by the placeholder's guessed
   // 6 upstream, so it is not this user's holding — and the fiat line under it is
@@ -434,12 +519,13 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        priceInfo: { price: 2000, change24h: 0 }
+        tokenPrices: { Unknown: { price: 2000, change24h: 0, percentageChange24h: 0 } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
       // depend on the scale, so it stays. What goes is 12.5 × $2000, the value
       // of a holding the wallet cannot size.
+      expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
       expect(screen.queryByText('$25000.00')).not.toBeInTheDocument();
     });
 
@@ -499,7 +585,7 @@ describe('TokenDetail', () => {
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);
-      expect(pill).toHaveClass('rounded-full', 'h-6', inkClass);
+      expect(pill).toHaveClass('rounded-full', 'h-8', inkClass);
     });
 
     it('shows a skeleton in the chart slot until the first kline load resolves', () => {
@@ -592,7 +678,7 @@ describe('TokenDetail', () => {
       }
     });
 
-    it('renders the timeframes as the shared segmented control, the selected one on the raised bubble', () => {
+    it('renders the timeframes as the shared segmented control, the selected one on the accent-tint bubble', () => {
       renderPage();
 
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
@@ -600,12 +686,12 @@ describe('TokenDetail', () => {
 
       // Equal-width segments across the chart, 32px tall.
       expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-8');
+      expect(option('1D')).toHaveClass('flex-1', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');
       expect(option('1W')).toHaveAttribute('aria-checked', 'false');
-      expect(bubbleIn('1D')).toHaveClass('bg-raised', 'shadow-raised');
+      expect(bubbleIn('1D')).toHaveClass('bg-accent-tint', 'shadow-raised');
       expect(bubbleIn('1W')).toBeNull();
 
       fireEvent.click(option('1W'));
@@ -629,28 +715,29 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
+    it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
       renderPage({ network: { name: 'Devnet' } });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
-      expect(within(contract).getByText('contract')).toBeInTheDocument();
+      // One name for one thing: "Faucet ID", as the transaction detail page says it.
+      expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
-      const copy = within(contract).getByTestId('token-detail-copy-contract');
-      // Regular weight (`HashChip`'s own `font-normal` overrides `DetailRow`'s bold value style),
-      // truncated in the middle, not the full 49-char id dumped in bold.
-      expect(copy).toHaveClass('font-normal');
+      // A bare copy control in the row's value style, named by its action (its visible label is a
+      // value), showing the id cut to its first 8 and last 4 characters.
+      const copy = within(contract).getByRole('button', { name: 'copyToClipboard' });
+      expect(copy).toHaveAttribute('data-testid', 'token-detail-copy-contract');
+      expect(copy).toHaveClass('text-ink');
+      expect(copy).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
       expect(copy).not.toHaveTextContent(TOKEN_ID);
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
     });
 
-    it('copies the full contract id, not the truncated display value', async () => {
+    it('copies the full faucet id, not the truncated display value', async () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 
@@ -662,6 +749,8 @@ describe('TokenDetail', () => {
 
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
       expect(mockHapticLight).toHaveBeenCalled();
+      // Its name follows the action through: after the copy it announces that it copied.
+      expect(copy).toHaveAccessibleName('copied');
     });
 
     it('opens the MidenScan explorer for this faucet in the in-app browser', () => {
@@ -672,6 +761,11 @@ describe('TokenDetail', () => {
 
       const explorerRow = screen.getByTestId('token-detail-explorer');
       expect(explorerRow).toHaveTextContent('viewOnMidenscan');
+      // The arrow svg ships with fill="none", so it draws only with a fill of its own, like the glyph it
+      // replaced; it is decoration beside the label.
+      const arrow = explorerRow.querySelector('svg');
+      expect(arrow).toHaveAttribute('fill', 'currentColor');
+      expect(arrow).toHaveAttribute('aria-hidden', 'true');
 
       fireEvent.click(explorerRow);
 

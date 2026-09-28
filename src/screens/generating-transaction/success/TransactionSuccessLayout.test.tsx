@@ -19,8 +19,8 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
-    <button data-testid="footer-action" onClick={onClick}>
+  Button: ({ title, onClick, accent }: { title: string; onClick: () => void; accent?: string }) => (
+    <button data-testid="footer-action" data-accent={accent} onClick={onClick}>
       {title}
     </button>
   ),
@@ -125,6 +125,26 @@ it('inverts the stack when secondaryFirst is set', () => {
   );
 
   expect(footerLabels()).toEqual(['View in Activities', 'Done']);
+});
+
+it("gives the footer actions the flow's own colour, so the receipt matches the pages before it", () => {
+  render(
+    <TransactionSuccessLayout
+      {...baseProps}
+      accent="swap"
+      secondaryAction={{ label: 'View in Activities', onClick: jest.fn() }}
+    />
+  );
+
+  for (const action of screen.getAllByTestId('footer-action')) {
+    expect(action).toHaveAttribute('data-accent', 'swap');
+  }
+});
+
+it('falls back to the brand orange when no flow is named', () => {
+  render(<TransactionSuccessLayout {...baseProps} />);
+
+  expect(screen.getByTestId('footer-action')).toHaveAttribute('data-accent', 'brand');
 });
 
 it('renders a lone primary action when there is no secondary one, ordering flag notwithstanding', () => {

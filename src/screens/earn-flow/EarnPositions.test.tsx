@@ -1,17 +1,20 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
+import { buildEarnSummary } from './earn-mapping';
 import EarnPositions from './EarnPositions';
 
-// i18n: assert on keys, not English copy. Interpolated values (e.g. APY) are
-// discarded by this key-only stub, so those assertions target the key.
+// i18n: assert on keys, not English copy. An interpolated call appends its values (`key:a,b`), so a
+// test can see the value it interpolates (the APY), not just the key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
 }));
 
 // Pull the mocked router/haptics fns back out for assertions.
@@ -29,26 +32,31 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 // `app/icons/v2` is a heavy SVG barrel (coverage-ignored). Stub `Icon` to a
-// probe span and expose only the two IconName members this screen references.
+// probe span and expose only the IconName members this screen and the shared
+// page header reference.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className, fill }: { name: string; className?: string; fill?: string }) => (
     <span data-testid="icon" data-name={name} data-fill={fill} className={className} />
   ),
   IconName: {
+    ArrowLeft: 'ArrowLeft',
     ChevronLeft: 'ChevronLeft',
-    ChevronRightLucide: 'ChevronRightLucide'
+    ChevronRightLucide: 'ChevronRightLucide',
+    Earn: 'Earn'
   }
 }));
 
-// Sibling `./components` imports `aave.svg?url`, which jest's `\.svg$` mapper
-// does NOT match (the `?url` suffix defeats the `$` anchor). Stub the two
-// exports this screen consumes so the module never resolves that asset.
+// Probes for the two shared widgets this screen consumes: the summary hero, whose own coverage
+// lives in `components.test.tsx`, and the provider logo, whose own coverage lives in
+// `ProviderLogo.test.tsx`.
 jest.mock('./components', () => ({
-  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
+  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId}>
-      {summary.totalRewards}
+      {summary.totalRewardsUsd}
     </div>
-  ),
+  )
+}));
+jest.mock('./ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
     <span data-testid="provider-logo" data-protocol={protocol} className={className} />
   )
@@ -93,7 +101,7 @@ describe('EarnPositions', () => {
 
     const panel = screen.getByTestId('earn-summary-panel');
     expect(panel).toHaveAttribute('data-title-id', 'earn-positions-summary-title');
-    expect(panel).toHaveTextContent(EARN_DATA.summary.totalRewards);
+    expect(panel).toHaveTextContent(String(EARN_DATA.summary.totalRewardsUsd));
   });
 
   it('renders one position card per entry in EARN_DATA.positions', () => {
@@ -102,10 +110,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
-    // Each card is the shared fill card, never an outlined one.
+    // Each card is the shared outlined card, the same one the tab root draws for this position:
+    // Earn's cards stand on the page rather than reading as one grey block.
     cards.forEach(card => {
-      expect(card).toHaveClass('bg-fill', 'rounded-2xl');
-      expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(card).toHaveClass('bg-page', 'rounded-2xl', 'border', 'border-hairline');
+      expect(card).not.toHaveClass('bg-fill');
     });
 
     // ProviderLogo + trailing sr-only chevron Icon appear once per card.
@@ -127,8 +136,12 @@ describe('EarnPositions', () => {
     expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
       EARN_DATA.positions.length
     );
-    // APY renders via t('earnPositionsApy', { apy }); the key-only stub drops the value.
-    expect(within(region).getAllByText('earnPositionsApy')).toHaveLength(EARN_DATA.positions.length);
+    // Each card's APY is interpolated into t('earnPositionsApy', { apy }).
+    EARN_DATA.positions.forEach(position => {
+      expect(
+        within(screen.getByTestId(`earn-position-card-${position.id}`)).getByText(`earnPositionsApy:${position.apy}`)
+      ).toBeInTheDocument();
+    });
     expect(within(region).getAllByText(firstPosition.amount)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.rewards)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.depositedAmount)).toHaveLength(EARN_DATA.positions.length);
@@ -152,10 +165,10 @@ describe('EarnPositions', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('exposes the back button with the ChevronLeft icon', () => {
+  it('exposes the back button with the ArrowLeft icon', () => {
     render(<EarnPositions />);
 
-    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ChevronLeft"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ArrowLeft"]')).not.toBeNull();
   });
 
   it('fires haptics and navigates to the position route when a card is tapped', () => {
@@ -186,6 +199,44 @@ describe('EarnPositions', () => {
     expect(mockNavigate).toHaveBeenCalledTimes(EARN_DATA.positions.length);
   });
 
+  it('draws no summary while a first load is in flight, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: true,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('says there are no positions, as Earn does, when a load settles with none', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: false,
+      error: undefined,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    const empty = screen.getByTestId('earn-positions-empty');
+    expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
+    expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
+    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).not.toHaveClass('bg-fill');
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^earn-position-card-/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   describe('load failure (gap 4)', () => {
     beforeEach(() => {
       // A failed positions load with no fallback data: the misleading state this
@@ -203,11 +254,30 @@ describe('EarnPositions', () => {
     it('shows a retryable error instead of an empty "$0 / no positions" state', () => {
       render(<EarnPositions />);
 
-      expect(screen.getByTestId('earn-positions-load-error')).toBeInTheDocument();
-      expect(screen.getByText('earnPositionsLoadError')).toBeInTheDocument();
+      // The shared `Notice` in its negative tone, announced as an alert — not a page-local block.
+      const notice = screen.getByTestId('earn-positions-load-error');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveAttribute('data-tone', 'negative');
+      expect(notice).toHaveTextContent('earnPositionsLoadError');
       // The misleading empty affordances must NOT render on a load failure.
       expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
       expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
+    });
+
+    it('says a per-owner positions failure too, which is not a request failure', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: EARN_DATA.vaults,
+        isLoading: false,
+        error: 'owner unavailable',
+        loadError: undefined,
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
     });
 
     it('refetches when Retry is pressed', () => {
@@ -219,10 +289,10 @@ describe('EarnPositions', () => {
       expect(mockHapticLight).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps showing last-good positions on a transient error rather than hiding real balances', () => {
+    it('keeps last-good positions on a transient error, under a notice that they may be incomplete', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
-        positions: EARN_DATA.positions, // stale-but-real data survived via keepPreviousData
+        positions: EARN_DATA.positions, // stale-but-real data: SWR keeps a key's own data across a failed refresh
         vaults: EARN_DATA.vaults,
         isLoading: false,
         error: 'positions request failed (503)',
@@ -231,9 +301,80 @@ describe('EarnPositions', () => {
 
       render(<EarnPositions />);
 
-      // With real data to show, the error state is suppressed.
-      expect(screen.queryByTestId('earn-positions-load-error')).not.toBeInTheDocument();
+      // The real balances stay; the failure is said above them rather than hidden.
       expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+      expect(screen.getAllByTestId(/^earn-position-card-/)).toHaveLength(EARN_DATA.positions.length);
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+      fireEvent.click(screen.getByTestId('earn-positions-retry'));
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: [],
+        isLoading: true,
+        error: 'positions request failed (503)',
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the USD figure across a count', () => {
+    // jsdom has no `matchMedia`; without it AnimatedNumber never travels (see AnimatedNumber.test.tsx).
+    function installMatchMedia() {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    }
+    function removeMatchMedia() {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+
+    afterEach(() => removeMatchMedia());
+
+    it('keeps the destination decimal count through every frame (usdFormatterFor, not formatUsd)', async () => {
+      installMatchMedia();
+      const setDepositsUsd = (depositsUsd: number) =>
+        mockUseEarnPositions.mockReturnValue({
+          summary: EARN_DATA.summary,
+          positions: [{ ...EARN_DATA.positions[0]!, id: 'anim-pos', depositsUsd }],
+          vaults: EARN_DATA.vaults,
+          isLoading: false,
+          error: undefined,
+          refetch: mockRefetch
+        });
+
+      setDepositsUsd(1234.5);
+      const { rerender } = render(<EarnPositions />);
+      const card = screen.getByTestId('earn-position-card-anim-pos');
+      const node = within(card).getByText('$1,234.50');
+
+      // A destination needing 4dp: a per-frame formatter (formatUsd) reads each frame's OWN
+      // magnitude, so an early frame still above $1 would read as an ordinary 2dp figure; a
+      // formatter bound to the destination (usdFormatterFor) keeps 4dp for the whole trip.
+      setDepositsUsd(0.001234);
+      rerender(<EarnPositions />);
+
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+      await act(() => new Promise(resolve => setTimeout(resolve, 700)));
+      observer.disconnect();
+
+      const midFrames = frames.filter(text => Number(text.replace(/[$,]/g, '')) > 1);
+      expect(midFrames.length).toBeGreaterThan(0);
+      midFrames.forEach(text => expect(text).toMatch(/\.\d{4}$/));
+
+      await waitFor(() => expect(node).toHaveTextContent('$0.0012'));
     });
   });
 });

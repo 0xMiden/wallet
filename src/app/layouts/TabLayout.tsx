@@ -14,19 +14,23 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
+import {
+  PageActiveContext,
+  TabActiveContext,
+  usePageActive,
+  usePageOnScreen,
+  usePageRevealedByLayer
+} from 'app/layouts/page-active';
 import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { isAndroid, isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -84,7 +88,9 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
       aria-hidden={!active || undefined}
       style={{ visibility: active ? 'visible' : 'hidden' }}
     >
-      <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      <TabActiveContext.Provider value={active}>
+        <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      </TabActiveContext.Provider>
     </div>
   );
 };
@@ -119,6 +125,10 @@ const SCROLL_IDLE_MS = 250;
 export interface DockedNavBarHandle {
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
+
+// Android's tabs stay above the system navigation bar, so its bar reaches further into the page. The one
+// place that is decided: the bar's `clearInset` and the root mark main.css sizes flow cushions from.
+const barClearsInset = (): boolean => isAndroid();
 
 interface DockedNavBarProps {
   items: BottomNavItem[];
@@ -174,6 +184,7 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
+        clearInset={barClearsInset()}
         corner={<NetworkModeRibbon docked={isMobile()} />}
       />
     </div>
@@ -184,16 +195,13 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const hasUnreadActivity = useHasUnreadActivity();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
 
-  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
-  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
-  // hovering right above the keyboard looks odd. Refcounted with the other
-  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
-  useHideNavbarWhileOpen(useKeyboardVisible());
+  // The BottomNav hides while the soft keyboard is up, but that hold is taken by the native keyboard
+  // listener (lib/mobile/keyboard-inset), in the same task as the inset, not here a render later.
 
   const dockedBar = useRef<DockedNavBarHandle>(null);
 
@@ -201,7 +209,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
   const fade = usePreset('fade');
-  const appear = !reduce && !isReturningFromWebview();
+  const revealedByLayer = usePageRevealedByLayer();
+  const appear = !reduce && !isReturningFromWebview() && !revealedByLayer;
   const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [
@@ -225,7 +234,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'activity',
       label: t('activity'),
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
-      showDot: hasUnclaimedNotes
+      unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
       id: 'settings',
@@ -238,22 +247,22 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const actionItems = [
     {
       id: 'overview',
-      label: 'Overview',
+      label: t('home'),
       icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
-      label: 'Send',
+      label: t('send'),
       icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
-      label: 'Receive',
+      label: t('receive'),
       icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
-      label: 'Earn',
+      label: t('earn'),
       icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
@@ -261,7 +270,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       ? [
           {
             id: 'swap',
-            label: 'Swap',
+            label: t('swap'),
             icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
@@ -271,6 +280,21 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeTab = activeTabFromPath(pathname);
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
+  const onScreen = usePageOnScreen();
+
+  // Mobile, Home only: the body paints the status-bar safe area above the
+  // app, so the action bar's band is drawn up there by a fixed pseudo-element
+  // on body (main.css), keyed off this attribute — the panes clip their
+  // overflow, so nothing inside the layout can reach that strip. A slide page
+  // keeps this layer mounted underneath with its own frozen location, so the
+  // band also waits for the layer to be fully on screen: off as a push starts
+  // covering it, back once a pop's slide page has finished sliding off. A layout effect, so the
+  // strip is right in the very frame that changes it.
+  useLayoutEffect(() => {
+    if (!isMobile()) return;
+    document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
+    return () => document.body.removeAttribute('data-home-band');
+  }, [showActionBar, onScreen]);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
@@ -312,7 +336,13 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
+        <SegmentedActionBar
+          items={actionItems}
+          activeId={activeAction}
+          onChange={handleActionChange}
+          // Mobile only: the band continues up through the status bar (see data-home-band above).
+          className={isMobile() ? 'bg-action-bar' : undefined}
+        />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
         <HomeSwipeContainer />
@@ -328,6 +358,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <div
+      // main.css declares the tab bar's room for flow footers on this root, so only a page inside the layout
+      // that draws the bar reserves it; a slide page beside a covered tab layer does not (#1109).
+      data-tab-layout={isMobile() ? 'docked' : 'floating'}
+      data-navbar-clears-inset={barClearsInset() ? '' : undefined}
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
       // the BottomNav shadow can fade into the body's safe-area padding
       // strip below the container; fixed-size extension/desktop frames keep

@@ -81,7 +81,6 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           />
         </div>
       }
-      heroDivider={false}
       // The rows now live inside one DetailCard (their own hairlines), so ReviewLayout's outer
       // divide-y around a single child would be a no-op — turned off for clarity.
       dividers={false}

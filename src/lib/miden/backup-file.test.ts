@@ -4,6 +4,7 @@ import {
   MalformedBackupFileError,
   UnsupportedBackupVersionError,
   importedAccountBackupFailure,
+  isExcludedFromWalletFile,
   parseDecryptedWalletFile,
   parseImportedAccountBackupFailure
 } from './backup-file';
@@ -72,6 +73,17 @@ describe('parseDecryptedWalletFile', () => {
     ['account with an invalid wallet type', { ...legacyPayload, accounts: [{ ...hdAccount, type: 'invalid' }] }]
   ])('rejects %s', (_label, payload) => {
     expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
+  });
+
+  it.each(['legacy', 'v1', undefined])('accepts a wallet account whose keyDerivation is %p', keyDerivation => {
+    const parsed = parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [{ ...hdAccount, keyDerivation }] });
+    expect(parsed.accounts[0]!.keyDerivation).toBe(keyDerivation);
+  });
+
+  it('rejects a wallet account with an unknown keyDerivation', () => {
+    expect(() =>
+      parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [{ ...hdAccount, keyDerivation: 'v2' }] })
+    ).toThrow(MalformedBackupFileError);
   });
 
   it.each([
@@ -238,5 +250,16 @@ describe('seed phrase contract', () => {
     // still back up its imported secrets, and this is that file.
     const importedOnly = { ...versionTwoPayload, seedPhrase: '', accounts: [importedAccount] };
     expect(parseDecryptedWalletFile(importedOnly).seedPhrase).toBe('');
+  });
+});
+
+describe('isExcludedFromWalletFile (#1114)', () => {
+  it.each([
+    { label: 'a Guardian account imported from its keys', type: WalletType.Guardian, hdIndex: -1, excluded: true },
+    { label: 'a seed-derived Guardian account', type: WalletType.Guardian, hdIndex: 0, excluded: false },
+    { label: 'an imported private-key account', type: WalletType.OnChain, hdIndex: -1, excluded: false },
+    { label: 'a seed-derived on-chain account', type: WalletType.OnChain, hdIndex: 0, excluded: false }
+  ])('$label is excluded: $excluded (#1114)', ({ type, hdIndex, excluded }) => {
+    expect(isExcludedFromWalletFile({ type, hdIndex })).toBe(excluded);
   });
 });

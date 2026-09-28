@@ -67,6 +67,14 @@ export function captureEpochTraffic(page: Page): EpochExchange[] {
   return seen;
 }
 
+/**
+ * What the Fast card must show once the quote resolves: a "$" fee when the token has a price, else the
+ * "—" placeholder, because an unpriced token's fee is never invented.
+ */
+export function fastFeeExpectation(fiatPrice: number | null | undefined): 'fee' | 'placeholder' {
+  return typeof fiatPrice === 'number' && fiatPrice > 0 ? 'fee' : 'placeholder';
+}
+
 /** Read the E2E-only quote-state mirror (undefined when the build lacks the hook). */
 export async function readQuoteState(page: Page): Promise<EpochQuoteState | undefined> {
   return page.evaluate(() => {

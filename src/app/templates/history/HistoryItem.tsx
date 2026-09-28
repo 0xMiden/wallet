@@ -20,7 +20,8 @@ import {
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
-  isFaucetRequest
+  isFaucetRequest,
+  isReceiveEntry
 } from './transactionUtils';
 
 type HistoryItemProps = {
@@ -33,7 +34,7 @@ type HistoryItemProps = {
 const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry }) => {
   const { t } = useTranslation();
   const { compact } = useAppEnv();
-  const isReceive = entry.transactionIcon === 'RECEIVE' || entry.message === 'Consuming';
+  const isReceive = isReceiveEntry(entry);
   const isFaucet = isFaucetRequest(entry);
 
   const handleCancelClick = useCallback(

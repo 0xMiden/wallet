@@ -13,6 +13,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  claimAccentColor,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
@@ -22,7 +23,9 @@ import {
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
+  isFaucetMintTransaction,
   isFaucetRequest,
+  isReceiveEntry,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -286,6 +289,73 @@ describe('isFaucetRequest', () => {
     const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'other' };
     expect(isFaucetRequest(entry)).toBe(false);
   });
+
+  it('returns true for a claim in flight whose entry has no icon yet', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = {
+      transactionIcon: undefined,
+      txType: 'consume',
+      faucetId: 'native-id',
+      secondaryAddress: 'native-id'
+    };
+    expect(isFaucetRequest(entry)).toBe(true);
+  });
+});
+
+describe('isReceiveEntry', () => {
+  it('counts a settled receive by its icon', () => {
+    expect(isReceiveEntry({ transactionIcon: 'RECEIVE', txType: 'consume' })).toBe(true);
+  });
+
+  it('counts a claim still in flight, whose entry has no icon yet', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'consume' })).toBe(true);
+  });
+
+  it('does not count a send in flight', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'send' })).toBe(false);
+  });
+
+  it('does not count a failed claim', () => {
+    expect(isReceiveEntry({ transactionIcon: 'FAILED', txType: 'consume' })).toBe(false);
+  });
+
+  it('does not count a settled send', () => {
+    expect(isReceiveEntry({ transactionIcon: 'SEND', txType: 'send' })).toBe(false);
+  });
+});
+
+describe('isFaucetMintTransaction', () => {
+  // A stored row's ids can read back null; while the native faucet is still unknown (null too),
+  // only the guard stops null === null from calling an ordinary claim a faucet mint.
+  it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
+    const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
+    expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+});
+
+describe('claimAccentColor', () => {
+  const bridgeIn = { bridgeIn: { provider: 'agglayer' } };
+
+  // Activity and the detail page slate every bridge-in row, so its claim arrow does too.
+  it('gives a bridge-in claim the bridge slate', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'bridged',
+      secondaryAccountId: 'bridge',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
+
+  it('puts the bridge slate ahead of the faucet rose', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'native',
+      secondaryAccountId: 'native',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
 });
 
 describe('fontColorForType', () => {
@@ -308,7 +378,8 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: 'var(--tx-sent)',
       receive: 'var(--tx-received)',
-      faucet: '#BA839F'
+      faucet: '#BA839F',
+      bridge: '#777487'
     });
   });
 
@@ -520,6 +591,16 @@ describe('bridgeRowDisplay', () => {
       network: 'Sepolia',
       status: 'pending'
     });
+  });
+
+  // Proves the value HistoryItem/HistoryView render for a bridge-out list row: neither
+  // reformats `outAmount` themselves, so this function's return is the list row's amount.
+  // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
+  // typed Miden-side send amount and must show as entered, not cut to two decimals.
+  it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
+    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
+      '0.015'
+    );
   });
 });
 

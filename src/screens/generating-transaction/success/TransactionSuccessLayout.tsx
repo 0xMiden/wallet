@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
+import { FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -16,7 +17,7 @@ import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
 import { TransactionHeroIcon } from '../components';
-import { formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
+import { ArrowFill, formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
 
 /**
  * Shared presentational kit for the post-transaction success screens.
@@ -127,16 +128,21 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
 };
 
 /**
- * Hero summary pill under the title — "{amount} {symbol} → {recipient}" in a
- * rounded pill with the blue-circle arrow (or a caller-provided `separator`
- * glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
- * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
+ * Hero summary pill under the title: "{amount} {symbol} → {recipient}" in a
+ * rounded pill whose arrow wears the transaction's own Activity colour, which can differ from
+ * the page's flow accent (or a caller-provided `separator` glyph, e.g. the earn up-arrow).
+ * Reuses the in-progress screen's `TransactionSummaryBadge`, so it renders `null` when either
+ * side is missing.
  */
 export const SuccessSummaryPill: FC<{
   lhs?: ReactNode;
   rhs?: ReactNode;
   separator?: ReactNode;
-  fillForArrow?: string;
+  /**
+   * The arrow's fill, as the badge content reports it: the transaction's own Activity colour (send by default,
+   * received green or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent.
+   */
+  fillForArrow?: ArrowFill;
 }> = ({ lhs, rhs, separator, fillForArrow }) => (
   // `fillForArrow` is forwarded because dropping it painted a swap's success receipt in the send
   // hue: the badge falls back to send, and the caller's content object already carries the right
@@ -174,10 +180,11 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
 };
 
 // Every call passed the same layout classes, so they live here.
-const FooterAction: FC<{ action: SuccessAction }> = ({ action }) => (
+const FooterAction: FC<{ action: SuccessAction; accent: FlowAccent }> = ({ action, accent }) => (
   <Button
     type="button"
     variant={action.variant ?? ButtonVariant.Primary}
+    accent={accent}
     title={action.label}
     onClick={action.onClick}
     className="w-full max-w-none"
@@ -191,6 +198,11 @@ export interface TransactionSuccessLayoutProps {
   title: string;
   /** Custom hero artwork; defaults to the green check circle. */
   hero?: ReactNode;
+  /**
+   * The flow this receipt closes, so its CTA matches the pages that led here
+   * (design-system.md, "Action colours"). Derive it with `accentForTransactionType`.
+   */
+  accent?: FlowAccent;
   /** Body content between the title and the footer (pill, amount block, rows). */
   children?: ReactNode;
   /** Paragraph shown above the footer buttons. */
@@ -209,6 +221,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   headerTitle,
   title,
   hero,
+  accent = 'brand',
   children,
   footerDescription,
   primaryAction,
@@ -240,7 +253,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       ? [secondaryAction, primaryAction]
       : [primaryAction, secondaryAction]
     : [primaryAction];
-  const actions = ordered.map(action => <FooterAction key={action.label} action={action} />);
+  const actions = ordered.map(action => <FooterAction key={action.label} action={action} accent={accent} />);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">

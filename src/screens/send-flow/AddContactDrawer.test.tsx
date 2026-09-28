@@ -7,23 +7,31 @@ import { AddContactDrawer } from './AddContactDrawer';
 const addContactMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({ open, onOpenChange, children }: any) =>
-    open ? (
+  Drawer: ({ open, onOpenChange, closeOnBack, children }: any) => {
+    mockDrawerCloseOnBack = closeOnBack;
+    return open ? (
       <div>
         {/* vaul routes swipe, backdrop and Escape through onOpenChange; expose it so a dismiss
             can be fired in tests. */}
         <button type="button" data-testid="drawer-dismiss" onClick={() => onOpenChange(false)} />
         {children}
       </div>
-    ) : null,
+    ) : null;
+  },
   DrawerContent: ({ children }: any) => <div>{children}</div>,
   DrawerHeader: ({ children }: any) => <div>{children}</div>,
   DrawerTitle: ({ children }: any) => <h2>{children}</h2>
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
+    <button data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
 }));
 jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
@@ -58,6 +66,11 @@ function renderSheet(address = MIDEN, network?: string) {
   return onOpenChange;
 }
 
+it("leaves mobile back to SendManager's handler, which holds the sheet while a save is in flight", () => {
+  render(<AddContactDrawer open address={MIDEN} onOpenChange={jest.fn()} />);
+  expect(mockDrawerCloseOnBack).toBe(false);
+});
+
 it('shows the known address in full and asks only for a name', () => {
   renderSheet();
 
@@ -65,6 +78,12 @@ it('shows the known address in full and asks only for a name', () => {
   expect(screen.getByTestId('address-book-name-input')).toBeInTheDocument();
   expect(screen.queryByTestId('add-contact-network-sepolia')).not.toBeInTheDocument();
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+});
+
+it('gives the add-contact submit the send flow colour', () => {
+  renderSheet();
+
+  expect(screen.getByTestId('address-book-add-contact')).toHaveAttribute('data-accent', 'send');
 });
 
 it('saves a Miden contact with a trimmed name and closes', async () => {

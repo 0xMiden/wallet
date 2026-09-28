@@ -1,9 +1,11 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnPositionDetail from './EarnPositionDetail';
 
 // `EarnPositionDetail` renders a recharts `<AreaChart>` inside `ChartContainer`.
@@ -19,6 +21,10 @@ import EarnPositionDetail from './EarnPositionDetail';
 //     every branch of `if (!active || !payload?.[0]) return null` runs.
 // The factory references no out-of-scope bindings (only `require('react')`) so
 // swc's jest-hoist is happy (mirrors the sibling `lib/ui/charts.test.tsx`).
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('recharts', () => {
@@ -71,6 +77,17 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
+// Withdraw CTA's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+
 // `lib/woozie`'s real barrel reaches for browser history/analytics on import.
 // Stub `goBack`/`navigate` so we can assert the back-button and the action
 // buttons without the router.
@@ -80,9 +97,8 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // Stub the shared earn widgets to prop probes. This keeps the test focused on
-// `EarnPositionDetail`'s own JSX/branches and sidesteps `components.tsx`'s
-// `aave.svg?url` logo import + `TokenLogo` chrome (mirrors how the sibling
-// `EarnDepositAmount.test.tsx` stubs `./components`).
+// `EarnPositionDetail`'s own JSX/branches and sidesteps `TokenLogo` chrome
+// (mirrors how the sibling `EarnDepositAmount.test.tsx` stubs `./components`).
 jest.mock('./components', () => {
   const R = require('react');
   return {
@@ -92,14 +108,14 @@ jest.mock('./components', () => {
       titleId,
       showMetrics
     }: {
-      summary: { totalRewards: string };
+      summary: { totalRewardsUsd: number };
       titleId: string;
       showMetrics?: boolean;
     }) =>
       R.createElement(
         'div',
         { 'data-testid': 'earn-summary', id: titleId, 'data-showmetrics': String(showMetrics) },
-        summary.totalRewards
+        summary.totalRewardsUsd
       ),
     MetricCard: ({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) =>
       R.createElement(
@@ -107,8 +123,13 @@ jest.mock('./components', () => {
         { 'data-testid': 'metric-card', 'data-label': label, 'data-valueclass': valueClassName ?? '' },
         value
       ),
-    PositionLogo: ({ asset, className }: { asset: string; className?: string }) =>
-      R.createElement('div', { 'data-testid': 'position-logo', 'data-asset': asset, className })
+    // The token mark with its network badge, in place of the logo-plus-pill pair.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'div',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
   };
 });
 
@@ -125,12 +146,13 @@ jest.mock('lib/mobile/haptics', () => ({
 // all-equal series, so this is the only way to reach the `|| 1` arm without
 // touching the source). Unknown ids fall through to `placeholderPosition()`.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: {
-      totalRewards: '$218.32',
-      blendedApy: '~5.2%',
-      totalDeposited: '$4,218.32',
-      estimatedRewards: '+$24.50'
+      totalRewardsUsd: 218.32,
+      blendedApyPercent: 5.2,
+      totalDepositedUsd: 4218.32,
+      estimatedRewardsUsd: 24.5
     },
     positions: [
       {
@@ -192,11 +214,71 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'B', value: 50 },
           { label: 'C', value: 50 }
         ]
+      },
+      // A `depositsUsd` pair for the animated-USD-figure test below: switching `positionId`
+      // between them changes the SAME AnimatedNumber's value (no remount), so the count travels.
+      {
+        id: 'pos-usd-a',
+        vaultId: 'vault-usd-a',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '1234.5',
+        decimals: 6,
+        protocol: 'UsdProto',
+        asset: 'USDC',
+        network: 'Ethereum',
+        amount: '$1,234.50',
+        depositsUsd: 1234.5,
+        depositedAmount: '$1,234.50',
+        rewards: '+$1.00',
+        age: '1d',
+        activeDuration: '1 day active',
+        apy: '5.00%',
+        dailyAverage: '+$0.10',
+        started: 'Jan 01',
+        yearlyEstimate: '+$61.73 / yr',
+        withdrawTime: '~10 sec instant',
+        route: 'Miden -> Usd (Ethereum)',
+        chartData: [
+          { label: 'A', value: 10 },
+          { label: 'B', value: 20 }
+        ]
+      },
+      {
+        id: 'pos-usd-b',
+        vaultId: 'vault-usd-b',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '0.001234',
+        decimals: 6,
+        protocol: 'UsdProto',
+        asset: 'USDC',
+        network: 'Ethereum',
+        amount: '$0.0012',
+        depositsUsd: 0.001234,
+        depositedAmount: '$0.0012',
+        rewards: '+$0.00',
+        age: '1d',
+        activeDuration: '1 day active',
+        apy: '5.00%',
+        dailyAverage: '+$0.00',
+        started: 'Jan 01',
+        yearlyEstimate: '+$0.00 / yr',
+        withdrawTime: '~10 sec instant',
+        route: 'Miden -> Usd (Ethereum)',
+        chartData: [
+          { label: 'A', value: 10 },
+          { label: 'B', value: 20 }
+        ]
       }
     ],
     vaults: [],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -228,7 +310,7 @@ describe('EarnPositionDetail', () => {
     const summary = screen.getByTestId('earn-summary');
     expect(summary).toHaveAttribute('id', 'earn-position-summary-title');
     expect(summary).toHaveAttribute('data-showmetrics', 'false');
-    expect(summary).toHaveTextContent('$218.32');
+    expect(summary).toHaveTextContent('218.32');
 
     // Six MetricCards with the flat position's values.
     const cards = screen.getAllByTestId('metric-card');
@@ -236,16 +318,19 @@ describe('EarnPositionDetail', () => {
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('$2,000.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveTextContent('+$99.00');
-    expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-status-positive');
-    expect(byLabel('APY')).toHaveTextContent('9.99%');
+    expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-positive-tint-ink');
+    // The APY label goes through t() like its neighbours, so it is translated with them.
+    expect(byLabel('earnApyLabel')).toHaveTextContent('9.99%');
     expect(byLabel('earnMetricDailyAvg')).toHaveTextContent('+$1.11');
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
-    // PositionHeading: logo + "{protocol} • {asset}" + "{asset} on {network}" pill.
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', 'FUSD');
+    // PositionHeading: the shared asset mark + "{protocol} • {asset}".
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'FUSD');
+    expect(mark).toHaveAttribute('data-network', 'Flatnet');
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    // "{asset} on {network}" pill -> t('earnAssetOnNetwork', { asset, network }).
+    // The pair is still named in text, for assistive tech and in the details rows.
     expect(container.textContent).toContain('earnAssetOnNetwork');
     expect(container.textContent).toContain('Flatnet');
 
@@ -266,6 +351,12 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 
+  it('gives the Withdraw CTA the earn flow colour', () => {
+    renderDetail('pos-flat');
+
+    expect(screen.getByTestId('earn-withdraw-btn')).toHaveAttribute('data-accent', 'earn');
+  });
+
   it('carries only grid-placement layout on the action buttons, no restyled variant colors', () => {
     renderDetail('pos-flat');
 
@@ -281,7 +372,7 @@ describe('EarnPositionDetail', () => {
     expect(withdraw).toHaveClass('max-w-none');
     expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
 
-    // The spec's 10px gap between the two side-by-side 52px CTAs.
+    // The spec's 10px gap between the two side-by-side 48px CTAs.
     expect(depositMore.parentElement).toBe(withdraw.parentElement);
     expect(depositMore.parentElement).toHaveClass('gap-2.5');
     expect(depositMore.parentElement).not.toHaveClass('gap-3');
@@ -292,13 +383,13 @@ describe('EarnPositionDetail', () => {
 
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('earnPositionHeaderTitle');
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', EARN_PLACEHOLDER);
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('—');
-    expect(byLabel('APY')).toHaveTextContent('—');
+    expect(byLabel('earnApyLabel')).toHaveTextContent('—');
 
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
@@ -309,9 +400,13 @@ describe('EarnPositionDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/vault-flat/deposit');
+    // `Button` fires the tap haptic itself (pinned in Button.test.tsx; this suite stubs Button for
+    // its accent), so the page adds none: a direct call here would buzz twice.
+    expect(hapticLight).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   // No timeframe row: the chart draws one fixed series, so the control changed nothing.
@@ -339,7 +434,8 @@ describe('EarnPositionDetail', () => {
     // The `dot` render-prop returned exactly one <circle> for the last index.
     const circles = container.querySelectorAll('circle');
     expect(circles.length).toBeGreaterThanOrEqual(1);
-    expect(circles[0]).toHaveAttribute('fill', '#90BA89');
+    // The token, not the literal: the chart's green follows the theme.
+    expect(circles[0]).toHaveAttribute('fill', 'var(--status-positive)');
 
     // The `content` render-prop rendered the active-payload branch: formatted
     // value (toFixed(2)) + label.
@@ -358,5 +454,120 @@ describe('EarnPositionDetail', () => {
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
     expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+  });
+
+  describe('the deposited-USD figure across a count', () => {
+    // jsdom has no `matchMedia`; without it AnimatedNumber never travels (see AnimatedNumber.test.tsx).
+    function installMatchMedia() {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    }
+    function removeMatchMedia() {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+
+    afterEach(() => removeMatchMedia());
+
+    it('keeps the destination decimal count through every frame (usdFormatterFor, not formatUsd)', async () => {
+      installMatchMedia();
+      const { rerender } = renderDetail('pos-usd-a');
+      const metricValue = () =>
+        screen.getAllByTestId('metric-card').find(card => card.getAttribute('data-label') === 'earnMetricDeposited')!;
+      expect(metricValue()).toHaveTextContent('$1,234.50');
+
+      // Switching `positionId` (not remounting `EarnPositionDetail`) changes the SAME
+      // AnimatedNumber's `value`, so it travels rather than mounting fresh. The destination,
+      // 0.001234, needs 4dp; a per-frame formatter (formatUsd) would read each frame's OWN
+      // magnitude and show 2dp while the count is still above $1 - only a formatter bound to
+      // the destination (usdFormatterFor) keeps 4dp for the whole trip.
+      rerender(<EarnPositionDetail positionId="pos-usd-b" />);
+
+      const node = metricValue();
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+      await act(() => new Promise(resolve => setTimeout(resolve, 700)));
+      observer.disconnect();
+
+      const midFrames = frames.filter(text => Number(text.replace(/[$,]/g, '')) > 1);
+      expect(midFrames.length).toBeGreaterThan(0);
+      midFrames.forEach(text => expect(text).toMatch(/\.\d{4}$/));
+
+      expect(metricValue()).toHaveTextContent('$0.0012');
+    });
+  });
+});
+
+describe('EarnPositionDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
+  it('says the load failed, with Retry, instead of drawing a placeholder position', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
+  });
+
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    renderDetail('no-such-position');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+
+  it('keeps a position it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('pos-normal');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnPositionDetail with no position to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    renderDetail('no-such-position');
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnPositionsTitle$/);
   });
 });

@@ -33,7 +33,7 @@ import type { IntentResult } from './types';
  */
 
 // Miden-side collateral token (the wallet's USDC faucet) and its decimals.
-export const MIDEN_USDC_FAUCET = '0x2458e5446128e6b150b75b8ebd9ce1';
+export const MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const MIDEN_USDC_DECIMALS = 6;
 
 // E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id

@@ -38,11 +38,13 @@ const ICON_CLASSES: Record<TokenLogoSize, string> = {
 interface TokenLogoProps {
   symbol: string;
   size?: TokenLogoSize;
+  /** A mark on the corner, e.g. the network the token sits on — the `Avatar` badge, unchanged. */
+  badge?: React.ReactNode;
   className?: string;
 }
 
 /** A token's mark, in one of the app's four known-logo colors or a generic default. A thin wrapper over `Avatar`. */
-export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }) => {
+export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', badge, className }) => {
   const tokenLogo = TOKEN_LOGOS[symbol];
   const avatarSize = AVATAR_SIZES[size];
 
@@ -51,6 +53,7 @@ export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }
       <Avatar
         size={avatarSize}
         icon={<tokenLogo.Logo className={ICON_CLASSES[size]} />}
+        badge={badge}
         className={clsx(tokenLogo.bg, className)}
       />
     );
@@ -64,6 +67,7 @@ export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }
     <Avatar
       size={avatarSize}
       image="/misc/token-logos/default.svg"
+      badge={badge}
       className={clsx(size === '2xl' && 'bg-fill', className)}
     />
   );

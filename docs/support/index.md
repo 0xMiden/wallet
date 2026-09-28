@@ -27,18 +27,18 @@ Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely 
 First, check your internet connection and reopen the app to let it re-sync. If a transaction stays pending, give the network a few minutes. If the problem persists, email us at [privacy@miden.team](mailto:privacy@miden.team) with your app version and a description, and we'll investigate.
 
 ### Is my wallet data private?
-Yes. Your seed phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
+Yes. Your recovery phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
 
 ### How do I back up or move my wallet to a new device?
-Use the in-app **Export Wallet** function, and keep your recovery phrase safe. You can restore on a new device by importing that phrase or exported file. Never store your recovery phrase in plain text where others could access it.
+Keep your recovery phrase safe and import it on the new device: it restores a wallet of Guardian accounts. If the wallet also holds a fully private or imported account, **Settings → Security → Encrypted Wallet File** exports a file that restores those too. Never store your recovery phrase in plain text where others could access it.
 
-### Can I remove the seed phrase from this device?
+### Can I remove the recovery phrase from this device?
 
-Open **Settings → Security → Remove seed phrase**. Write the words on paper, complete the word check, and confirm removal. Keep the paper outside this device.
+Open **Settings → Security → Recovery Phrase → Remove recovery phrase**. Write the words on paper, complete the word check, and confirm removal. Keep the paper outside this device.
 
-Daily transactions still use the stored signing keys. When you change the Guardian, replace the everyday key, or change a procedure threshold, enter your seed phrase to continue. The wallet checks that it belongs to the account and uses the recovery key only for that action. It does not save the phrase again. If an action waits for seed input, open it in Activity and select **Enter your seed phrase**.
+Daily transactions still use the stored signing keys. When you change the Guardian, replace the everyday key, or change a procedure threshold, enter your recovery phrase to continue. The wallet checks that it belongs to the account and uses the recovery key only for that action. It does not save the phrase again. If an action waits for the recovery phrase, open it in Activity and select **Enter your recovery phrase**.
 
-Removal affects this local wallet. It does not delete backups that you previously made. Account creation without a stored seed phrase is not yet supported. Wallet export changes are planned separately.
+Removal affects this local wallet. It does not delete backups that you previously made. Account creation without a stored recovery phrase is not yet supported. Wallet export changes are planned separately.
 
 ## More
 

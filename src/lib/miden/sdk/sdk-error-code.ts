@@ -193,3 +193,46 @@ export function isTransactionDiscardedError(err: unknown): boolean {
   if (isWasmClientPoisonedError(err)) return false;
   return errorMessageParts(err).some(part => /transaction rejected/i.test(part));
 }
+
+/**
+ * True when the node refused a transaction because the account state it was
+ * built on is no longer the account's current state:
+ *
+ *   "... initial account commitment 0x... does not match the current commitment 0x... for account 0x..."
+ *
+ * The node answers this at admission, so the refused transaction never entered
+ * the mempool. A recovered Guardian device meets it when it built on state it
+ * adopted before the old device's last transaction settled (#904).
+ *
+ * Same rules as `isApplyAfterSubmitError`: both phrases must come from ONE error
+ * in the chain, and a lock-recovery eviction is never a node verdict.
+ */
+export function isStaleInitialCommitmentError(error: unknown): boolean {
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(part =>
+    /initial account commitment[\s\S]*does not match the current commitment/i.test(part)
+  );
+}
+
+/**
+ * True when importing a public account failed because the node has no such
+ * account, as opposed to the node being unreachable.
+ *
+ * web-sdk sets `ACCOUNT_NOT_FOUND_ON_CHAIN` only when the node attaches its
+ * error code, and 0.16 nodes do not: their miss arrives as a generic
+ * `get_account` InvalidArgument whose chain text contains "RPC error", which
+ * the connectivity heuristic reads as an outage (#1127). Both phrases must come
+ * from ONE link: the verdict lets a restore fall through to creating a fresh
+ * wallet, so a match assembled from two unrelated errors would hide a real
+ * account behind an empty one.
+ */
+export function isAccountNotFoundOnChainError(err: unknown): boolean {
+  if (isWasmClientPoisonedError(err)) return false;
+  if (extractSdkErrorCode(err) === 'ACCOUNT_NOT_FOUND_ON_CHAIN') return true;
+  return errorMessageParts(err).some(
+    part =>
+      /account with id \S+ not found on the network/i.test(part) ||
+      (/grpc request failed for get_account: invalid request parameters/i.test(part) &&
+        /not found at block \d+/i.test(part))
+  );
+}

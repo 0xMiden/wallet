@@ -19,9 +19,33 @@ describe('NetworkNoticeRows (#875)', () => {
     ]);
   });
 
-  it('keeps its own list layout and adds the caller spacing', () => {
+  it('sets the facts straight on the page, no group fill, and adds the caller spacing', () => {
     render(<NetworkNoticeRows className="mt-6" />);
 
-    expect(screen.getByRole('list')).toHaveClass('flex', 'flex-col', 'divide-y', 'mt-6');
+    const list = screen.getByRole('list');
+    expect(list).toHaveClass('flex', 'flex-col', 'mt-6');
+    expect(list).not.toHaveClass('bg-fill');
+  });
+
+  it('draws each fact as the shared FactRow, whose own test pins the hairline after the icon', () => {
+    render(<NetworkNoticeRows />);
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(row).toHaveAttribute('data-slot', 'fact-row');
+    // In an inset plain ListGroup, so each row keeps its hairline after the icon.
+    expect(screen.getByRole('list')).toHaveClass('[&>*]:before:left-[var(--row-flush-inset,0px)]');
+  });
+
+  it('leads each fact with a decorative Settings-style icon in its card colour', () => {
+    render(<NetworkNoticeRows />);
+
+    const tones = { 'no-value': 'text-card-green', 'no-real-funds': 'text-card-purple', reset: 'text-card-blue' };
+    for (const [id, tone] of Object.entries(tones)) {
+      const icon = screen.getByTestId(`network-notice-row-${id}`).querySelector('[data-slot="icon"]');
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+      expect(icon).toHaveClass('h-8', 'w-8', 'rounded-full', 'bg-fill', tone);
+      expect(icon?.querySelector('svg')).not.toBeNull();
+    }
   });
 });

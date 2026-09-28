@@ -4,11 +4,11 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { getTokenPrice } from 'lib/prices';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
 import { setTokensBaseMetadata } from '../../miden/front/assets';
 import { useWalletStore } from '../index';
+import { balancePrice } from './balancePrice';
 
 /**
  * Convert SerializedVaultAsset[] from the service worker's SyncCompleted broadcast
@@ -70,15 +70,13 @@ export async function updateBalancesFromSyncData(
     }
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);
-    const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);
 
     balances.push({
       tokenId: asset.faucetId,
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
-      fiatPrice: priceInfo.price,
-      balance: balance.toNumber(),
-      change24h: priceInfo.change24h
+      ...balancePrice(tokenPrices, asset.faucetId, tokenMetadata.symbol),
+      balance: balance.toNumber()
     });
   }
 
@@ -91,14 +89,12 @@ export async function updateBalancesFromSyncData(
   // Always include MIDEN token (even if 0 balance) — pre-discovery we omit
   // the placeholder row so the UI doesn't render MIDEN under a stale ID.
   if (!hasMiden && midenFaucetId) {
-    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: midenPrice.price,
-      balance: 0,
-      change24h: midenPrice.change24h
+      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
+      balance: 0
     });
   }
 

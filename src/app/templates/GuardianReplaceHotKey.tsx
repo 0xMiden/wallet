@@ -3,6 +3,7 @@ import React, { FC, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -13,8 +14,7 @@ import { navigate } from 'lib/woozie';
 
 /**
  * Proactive hot-key rotation. Cold-signed (recovery key); the on-chain proposal
- * swaps the hot signer commitment in-place via update_signers. The seed phrase
- * is NOT required — the cold key derived at create time is already in the vault.
+ * swaps the hot signer commitment in-place via update_signers.
  *
  * A section of the Keys page rather than its footer: Keys is a list of places to
  * go, and this is one maintenance action among them (Guardian accounts only), so
@@ -24,6 +24,7 @@ import { navigate } from 'lib/woozie';
 const GuardianReplaceHotKey: FC = () => {
   const { t } = useTranslation();
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
 
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -60,13 +61,18 @@ const GuardianReplaceHotKey: FC = () => {
         <>
           <p className="select-text">{t('replaceHotKeyDescription')}</p>
           {/* Ink, not muted: it is the question the second tap answers. */}
-          {confirming && <p className="mt-2 select-text text-ink">{t('replaceHotKeyConfirmation')}</p>}
+          {/* Same test as Vault.prepareRecoveryTransaction: anything but a stored phrase is prompted for. */}
+          {confirming && (
+            <p className="mt-2 select-text text-ink">
+              {t(seedPhraseStatus === 'stored' ? 'replaceHotKeyConfirmation' : 'replaceHotKeyConfirmationSeedRequired')}
+            </p>
+          )}
         </>
       }
     >
       <Button
         type="button"
-        variant={ButtonVariant.Secondary}
+        variant={ButtonVariant.Ghost}
         size="sm"
         onClick={onClick}
         isLoading={submitting}
@@ -77,11 +83,7 @@ const GuardianReplaceHotKey: FC = () => {
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
       </Button>
 
-      {error && (
-        <p role="alert" className="mt-3 px-1 font-sans text-sm wrap-break-word text-negative-ink select-text">
-          {error}
-        </p>
-      )}
+      <ErrorLine className="mt-3">{error}</ErrorLine>
     </SubPageSection>
   );
 };

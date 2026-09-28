@@ -1,4 +1,4 @@
-import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -13,12 +13,13 @@ import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
-import Unlock from 'app/pages/Unlock';
+import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
@@ -34,12 +35,14 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { armHeldOnboardingMark, useOnboardingFinishing } from './onboarding-finish';
+import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
+import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -53,19 +56,31 @@ interface RouteContext {
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
+  finishingOnboarding: boolean;
   settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
 
+// A hand-typed or truncated link can carry a stray `%`, and a URIError thrown here would take down the
+// whole route rather than send the user somewhere sensible.
+function decodeParam(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
-  // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
-  // catch-all so it renders regardless of Ready: creating the wallet flips the
-  // app to the wallet home, and this screen must survive that to let the user
-  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // Onboarding → side panel handoff (Chrome). Placed before the `*`
+  // catch-all so it renders regardless of Ready: creating the wallet turns it
+  // Ready (the root holds the loading view until the holder navigates here, then
+  // Home), and this screen must survive that to let the user open the panel. Still defers to Unlock when locked (e.g. the wallet
   // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
   ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
-  // Telemetry consent prompt. Before the `!ready` catch-all for the same reason
+  // Telemetry consent prompt. Before the `*` catch-all for the same reason
   // as the handoff screen above — it is reached the moment the wallet is created,
   // either side of the Ready flip, so an `onlyReady` guard would make it
   // unreachable and the catch-all would replace it mid-read. Locked SKIPs to
@@ -108,7 +123,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Developer endpoint override screen. Reachable during onboarding (before the wallet is
   // ready) via the 7-tap logo unlock on the Welcome screen, so this must be placed ahead of the
-  // `!ready` catch-all below — an onlyReady-wrapped route would never resolve while ctx.ready is
+  // `*` catch-all below - an onlyReady-wrapped route would never resolve while ctx.ready is
   // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
   // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
   [
@@ -129,8 +144,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         case 'unlock':
           return <Unlock />;
 
-        // Backend not yet heard from (MV3 SW cold-start): show the loading
-        // spinner, NOT onboarding — status is still the initial Idle here.
+        // Backend not yet heard from (MV3 SW cold-start, status still the initial
+        // Idle), or a just-created wallet held by the onboarding finishing mark
+        // (app/onboarding-finish): show the loading spinner, NOT onboarding or Home.
         case 'loading':
           return <RootSuspenseFallback />;
 
@@ -171,6 +187,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <AllHistory programId={programId} />
       </TabLayout>
+    ))
+  ],
+  // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
+  // the counterparty's address and is absent for a category group (`/activity/group/swap`).
+  [
+    '/activity/group/:kind/:id?',
+    onlyReady(({ kind, id }) => (
+      <FullScreenPage key={`activity-group-${kind}-${id ?? ''}`} entrance="slide">
+        <ActivityGroupPage kind={kind ?? undefined} id={decodeParam(id)} />
+      </FullScreenPage>
     ))
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
@@ -231,14 +257,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/pending-notes',
-    onlyReady(() => (
-      <FullScreenPage>
-        <PendingNotes />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/rotate-guardian',
     onlyReady(() => (
       <FullScreenPage>
@@ -289,11 +307,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/contacts/:address',
-    onlyReady(({ address }) => (
-      <FullScreenPage key={`contact-${address}`} entrance="slide">
-        <ContactDetailPage address={decodeURIComponent(address!)} />
-      </FullScreenPage>
-    ))
+    onlyReady(({ address }) => {
+      const decoded = decodeParam(address);
+      if (decoded === undefined) return <Woozie.Redirect to={ADDRESS_BOOK_PATH} />;
+      return (
+        <FullScreenPage key={`contact-${address}`} entrance="slide">
+          <ContactDetailPage address={decoded} />
+        </FullScreenPage>
+      );
+    })
   ],
   [
     '/token-detail/:tokenId',
@@ -417,6 +439,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // The retired Pending notes page: an old link or a restored URL still lands where it went.
+  ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
   ['*', () => <Woozie.Redirect to="/" />]
 ]);
 
@@ -438,6 +462,7 @@ const PageRouter: FC = () => {
   const appEnv = useAppEnv();
   const miden = useMidenContext();
   const settingsScrollTop = useRef(0);
+  const finishingOnboarding = useOnboardingFinishing();
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -446,18 +471,29 @@ const PageRouter: FC = () => {
       ready: miden.ready,
       locked: miden.locked,
       hydrated: miden.hydrated,
+      finishingOnboarding,
       settingsScrollTop
     }),
-    [appEnv.popup, appEnv.fullPage, miden]
+    [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
+  );
+  // Once the hold is on screen its safety clock must run, however long the holder's registration still takes.
+  useEffect(() => {
+    if (miden.ready && finishingOnboarding) armHeldOnboardingMark();
+  }, [miden.ready, finishingOnboarding]);
+  // Telemetry reports the wallet's own state, not the frame onboarding holds back.
+  const lifecycleCtx = useMemo(
+    () => ({ ready: miden.ready, locked: miden.locked, hydrated: miden.hydrated }),
+    [miden.ready, miden.locked, miden.hydrated]
   );
 
   // The `open` / `return` telemetry flows live here rather than in `app/App`
   // because this is the first component that can read wallet readiness — `App`
   // is what mounts `MidenProvider`.
-  useAppLifecycleTelemetry(ctx);
+  useAppLifecycleTelemetry(lifecycleCtx);
   // dApp approvals report from the confirmation store, which cannot import
   // telemetry itself — see the hook.
   useDappApprovalTelemetry();
+  useRetireLockoutOnReady(miden.ready);
 
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 

@@ -37,7 +37,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-connect">
       {/* The body scrolls and "Open wallet" stays pinned: in landscape 80vh is
           short enough for the warning to push the button out of view. */}
-      <DrawerContent className="overflow-hidden pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <DrawerContent className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="evm-connect-body">
             <DrawerHeader>
@@ -59,11 +59,14 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
               </Notice>
 
               {status === 'connecting' && (
-                <div className="flex items-center justify-center py-12 text-sm text-grey-500">{t('preparing')}</div>
+                <div className="flex items-center justify-center py-12 text-body-sm text-muted">{t('preparing')}</div>
               )}
 
               {nativeReown.error && (
-                <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+                <div
+                  className="rounded-2xl bg-negative-tint px-3 py-2 text-caption text-negative-tint-ink"
+                  role="alert"
+                >
                   {nativeReown.error}
                 </div>
               )}

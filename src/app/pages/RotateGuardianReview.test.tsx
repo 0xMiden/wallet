@@ -14,6 +14,7 @@ const mockStartBackgroundProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
 const mockCurrentAccount = {
@@ -75,41 +76,8 @@ jest.mock('app/layouts/PageLayout', () => ({
 }));
 
 jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    variant
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    variant?: string;
-  }) => (
-    <div
-      data-testid="guardian-transition"
-      data-previous={previousEndpoint}
-      data-new={newEndpoint}
-      data-variant={variant}
-    />
-  )
-}));
-
-jest.mock('app/atoms/FormField', () => ({
-  __esModule: true,
-  default: ({
-    id,
-    value,
-    onChange,
-    errorCaption
-  }: {
-    id: string;
-    value?: string;
-    onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
-    errorCaption?: React.ReactNode;
-  }) => (
-    <label>
-      <input id={id} value={value} onChange={onChange} />
-      {errorCaption ? <span role="alert">{errorCaption}</span> : null}
-    </label>
+  GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
+    <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
   )
 }));
 
@@ -168,7 +136,10 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -222,6 +193,7 @@ beforeEach(() => {
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
+  mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
@@ -257,7 +229,6 @@ it('renders the current and destination endpoints in the shared transition hero'
   const hero = screen.getByTestId('guardian-transition');
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
-  expect(hero).toHaveAttribute('data-variant', 'review');
   // The review screen owns its header now (its own PageHeader) instead
   // of PageLayout's toolbar title.
   expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
@@ -322,12 +293,25 @@ it('hardware cancellation never queues a switch', async () => {
 const LONG_GUARDIAN_ERROR =
   'GuardianHttpError: https://guardian.example.com/v1/operators/rotate?token=abcdef0123456789abcdef0123456789 failed';
 
-// (The extension password-auth sink — FormField's errorCaption — is covered by
-// its own unit test in FormField.test.tsx; this suite mocks FormField, so the
-// real errorCaption classes aren't observable here.)
+// The extension authenticates with a password, and its error renders in the real TextField.
+it('wraps the long guardian error on the extension password path so it is not clipped (#454)', async () => {
+  mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+
+  expect((await screen.findByText(LONG_GUARDIAN_ERROR)).closest('[role="alert"]')).toHaveClass('wrap-break-word');
+});
+
 it('wraps the long guardian error on the mobile hardware-auth path so it is not clipped (#454)', async () => {
   // On mobile hasHardwareProtector() is true; the error renders in the review
-  // page's own error row (line 207) instead of the auth-step FormField.
+  // page's own error row instead of the password step's TextField.
   mockHasHardwareProtector.mockResolvedValue(true);
   mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
   render(<RotateGuardianReview />);
@@ -446,6 +430,19 @@ describe('endpoint from the query string', () => {
 
     // Unsanitized this read as a real change and would have persisted a second
     // spelling of the Guardian already in use.
+    expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
+  it('treats a host-case and default-port spelling of the current endpoint as unchanged', async () => {
+    mockCurrentEndpoint = 'https://new.example';
+    mockSearch = '?endpoint=' + encodeURIComponent('https://New.Example:443/');
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
     expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
     expect(mockInitiateSwitch).not.toHaveBeenCalled();
   });
@@ -755,12 +752,57 @@ it('announces a failure rather than only rendering it above the button', async (
   expect(await screen.findByRole('alert')).toHaveTextContent('cancelled');
 });
 
-it('fails closed when hardware-protector detection fails', async () => {
+// #1056: a failed hardware read is resolved through the password protector, never guessed.
+it('takes the password step when the hardware read fails and a password key exists', async () => {
   mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(true);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+});
+
+it('switches through the hardware protector when the hardware read fails and no password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockResolvedValue(false);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  expect(screen.queryByTestId('rotate-guardian-auth-submit')).not.toBeInTheDocument();
+});
+
+it('fails closed when both protector reads fail', async () => {
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('guardianAuthenticationUnavailable')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.queryByText('guardianAuthenticationUnavailable')).not.toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  // Back reopens the flow, which is exactly what the error text asks the user to do.
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
+});
+
+it('fails closed with no passcode entry on mobile when both protector reads fail', async () => {
+  mockIsMobile.mockReturnValue(true);
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
+  render(<RotateGuardianReview />);
+
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });

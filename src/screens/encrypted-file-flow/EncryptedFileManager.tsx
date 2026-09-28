@@ -1,14 +1,12 @@
-import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect } from 'react';
 
-import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { PageHeader } from 'components/PageHeader';
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { TextFieldElement } from 'components/ui/TextField';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { navigate } from 'lib/woozie';
 import EncryptedWalletFileWalletPassword from 'screens/encrypted-file-flow/EncryptedWalletFileWalletPassword';
 
@@ -37,9 +35,8 @@ const ROUTES: Route[] = [
 export interface EncryptedFileManagerProps {}
 
 export const EncryptedFileManager: React.FC<{}> = () => {
-  const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
+  const { navigateTo, goBack, cardStack } = useNavigator();
   const { t } = useTranslation();
-  const [drawerOpen, setDrawerOpen] = useState(true);
 
   const onClose = useCallback(() => {
     navigate('/settings');
@@ -151,7 +148,6 @@ export const EncryptedFileManager: React.FC<{}> = () => {
   );
 
   const handleWalletPasswordNext = useCallback(() => {
-    setDrawerOpen(false);
     goToStep(EncryptedFileStep.ExportFilePassword);
   }, [goToStep]);
 
@@ -159,7 +155,14 @@ export const EncryptedFileManager: React.FC<{}> = () => {
     (route: Route) => {
       switch (route.name) {
         case EncryptedFileStep.WalletPassword:
-          return null;
+          return (
+            <EncryptedWalletFileWalletPassword
+              onGoNext={handleWalletPasswordNext}
+              onGoBack={onClose}
+              onPasswordChange={onWalletPasswordChange}
+              walletPassword={walletPassword}
+            />
+          );
         case EncryptedFileStep.ExportFilePassword:
           return (
             <ExportFilePassword
@@ -187,46 +190,34 @@ export const EncryptedFileManager: React.FC<{}> = () => {
           return <></>;
       }
     },
-    [goBack, onFileNameChange, fileName, onFilePasswordChange, filePassword, walletPassword, onClose, goToStep]
+    [
+      goBack,
+      onFileNameChange,
+      fileName,
+      onFilePasswordChange,
+      filePassword,
+      walletPassword,
+      onClose,
+      goToStep,
+      handleWalletPasswordNext,
+      onWalletPasswordChange
+    ]
   );
 
-  const isWalletPasswordStep = activeRoute?.name === EncryptedFileStep.WalletPassword;
-
   return (
-    <div
-      className={classNames('mx-auto overflow-hidden', 'flex flex-1', 'flex-col bg-app-bg', 'overflow-hidden relative')}
-      data-testid="encrypted-file-manager-flow"
-    >
-      <Drawer
-        open={drawerOpen && isWalletPasswordStep}
-        onOpenChange={open => {
-          if (!open) onClose();
-        }}
+    // Every step is a pushed page on the shared frame, so the flow owns the header once and each
+    // step renders only its body and its pinned action — the same contract Settings gives its
+    // sub-pages. The first step used to open as a sheet over an empty page, which is where the
+    // box around the page, the sheet's own margins and the stranded CTA all came from.
+    <SubPageHeaderProvider value={{ title: t('encryptedWalletFile'), onBack: onClose }}>
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="flex min-h-0 flex-1 flex-col"
+        data-testid="encrypted-file-manager-flow"
       >
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>{t('encryptedWalletFile')}</DrawerTitle>
-          </DrawerHeader>
-          <div className="px-4 pb-6 overflow-y-auto min-h-0">
-            <EncryptedWalletFileWalletPassword
-              onGoNext={handleWalletPasswordNext}
-              onGoBack={onClose}
-              onPasswordChange={onWalletPasswordChange}
-              walletPassword={walletPassword}
-            />
-          </div>
-        </DrawerContent>
-      </Drawer>
-
-      {!isWalletPasswordStep && (
-        <>
-          <PageHeader className="px-4" title={t('encryptedWalletFile')} onBack={onClose} />
-          <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 bg-app-bg">
-            <Navigator renderRoute={renderStep} />
-          </form>
-        </>
-      )}
-    </div>
+        <Navigator renderRoute={renderStep} />
+      </form>
+    </SubPageHeaderProvider>
   );
 };
 

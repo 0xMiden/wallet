@@ -475,6 +475,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
+      // Claims requeued while the vault was locked have nothing else to restart them (#924).
+      startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.UnlockResponse };
     case WalletMessageType.LockRequest:
       await Actions.lock();
@@ -518,15 +520,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.RevealHotKeyResponse,
         keyPairPayload: keyPairPayload ?? ''
-      };
-    }
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
-      return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
       };
     }
     case WalletMessageType.RemoveSeedPhraseRequest:

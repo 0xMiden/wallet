@@ -13,14 +13,13 @@ jest.mock('react-i18next', () => ({
 }));
 
 // The title logo is a PNG. The jest `\.(png|...)$` moduleNameMapper resolves it
-// to the shared file stub ('test-file-stub'), so no explicit mock is needed —
+// to the shared file stub ('test-file-stub'), so no explicit mock is needed -
 // but we assert against that value below.
 //
-// The plain logo is imported as `app/misc/logo.svg?url`. The `?url` query
-// suffix means it does NOT match the `\.svg$` asset mapper (which anchors on a
-// trailing `.svg`), and the `^app/` path mapper would point at a non-existent
-// `logo.svg?url` file. A virtual mock short-circuits resolution and gives the
-// import a distinct, assertable value so we can tell the two branches apart.
+// The plain logo is imported as `app/misc/logo.svg?url`, which resolves through
+// jest's `\.svg\?url$` mapper to that same file stub. The virtual mock is kept
+// so the import has a distinct, assertable value and the two branches can be
+// told apart.
 jest.mock('app/misc/logo.svg?url', () => 'plain-logo-url-stub', { virtual: true });
 
 const getImg = (container: HTMLElement) => container.querySelector('img') as HTMLImageElement;

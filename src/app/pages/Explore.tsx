@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, BalanceCard } from 'components/ui';
+import { AccountsDrawer, AnimatedNumber, AssetListItemSkeleton, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -22,9 +22,11 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
-import { getTokenPrice } from 'lib/prices';
+import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -76,18 +78,22 @@ const Explore: FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pullGestureRef = useRef<PullGesture | null>(null);
 
+  // A rotation-pending account's native notes are the rotation gate's to claim (#805).
+  // Narrower than consumeServiceFor's check (flag AND no hotPublicKey) -- deliberate:
+  // the only cost is one auto-claim delayed a sync lap, never a wrong consume.
+  const rotationPending = account.requiresHotKeyRotation === true;
   const midenNotes = useMemo(() => {
-    if (!shouldAutoConsume || !claimableNotes) {
+    if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
     return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
+  }, [claimableNotes, midenFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
   }, [midenNotes]);
 
-  // What the "You have Pending Notes" card may ask the user to act on: the notes this
+  // What the "You have transfers to accept" card may ask the user to act on: the notes this
   // page, the SW and NativeNoteAutoConsumeManager will NOT claim for them. Feeding it
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
@@ -171,16 +177,22 @@ const Explore: FC = () => {
   }, [address]);
 
   const sortedTokens = useMemo(() => {
-    const sorted = [...allTokenBalances].sort((a, b) => {
+    // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+    // nothing, never as its token count at $1 a unit.
+    const fiatValues = new Map(
+      allTokenBalances.map(token => [
+        token,
+        hasKnownScale(token.metadata)
+          ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
+          : 0
+      ])
+    );
+    return [...allTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
-
-      const aFiatValue = a.balance * getTokenPrice(tokenPrices, a.metadata.symbol).price;
-      const bFiatValue = b.balance * getTokenPrice(tokenPrices, b.metadata.symbol).price;
-      return bFiatValue - aFiatValue;
+      return fiatValues.get(b)! - fiatValues.get(a)!;
     });
-    return sorted;
   }, [allTokenBalances, midenFaucetId, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
@@ -318,6 +330,12 @@ interface HomeOverviewProps {
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
+/**
+ * The card's total: always two decimals, so a count never changes the number of them mid-flight.
+ * No currency symbol: the card shows the currency as its own unit beside the amount.
+ */
+const usdTotal = (value: number) => toLocalFormat(value, { decimalPlaces: 2 });
+
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
@@ -338,19 +356,24 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
-            // Gap 16: until real prices have loaded, every token falls back to the
-            // $1 default, so the "USD total" would be a fabricated number equal to
-            // the raw token count. When no prices are available (feed down or still
-            // loading) show "$—" rather than that fake figure; once any real price
-            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // The dash when there is no total to show: prices have not loaded yet (feed
+            // down or still loading), or tokens are held and none can be valued (Balance
+            // hands null). Once any real price lands (stale-but-real via keepPreviousData
+            // counts), the total shows.
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
-            amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
-            // Until the first balance read succeeds the store has no entry for
-            // this address and `useAllBalances` substitutes a zero placeholder
-            // row. Right after a recovery that read can lose the WASM lock to the
-            // first sync tick for several seconds, so the card must show the
-            // skeleton and not a "$0.00" that reads as lost funds (#844).
+            amount={
+              !pricesLoaded(tokenPrices) || balance === null ? (
+                '—'
+              ) : (
+                // Keyed by the account: a switch lands on the new account's total instead of
+                // counting from the old one's (AnimatedNumber counts only within one subject).
+                <AnimatedNumber key={address} value={balance.toNumber()} format={usdTotal} />
+              )
+            }
+            // Until the first balance read lands the store has no entry for this
+            // address and `useAllBalances` hands back a zero placeholder, so the
+            // card shows its skeleton, not a "0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             onMore={() => setAccountsOpen(true)}
@@ -373,15 +396,21 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <div className="flex flex-col divide-y divide-rule-default">
-        {sortedTokens.map(asset => (
-          <AssetRow
-            key={asset.tokenId}
-            asset={asset}
-            tokenPrices={tokenPrices}
-            onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
-          />
-        ))}
+      <div className="flex flex-col divide-y divide-rule-default" data-testid="asset-list" aria-busy={balancesLoading}>
+        {/* The hook's zero placeholder is not a balance: under the loading card it read as an empty wallet (#1123). */}
+        {balancesLoading ? (
+          <AssetListItemSkeleton data-testid="asset-row-skeleton" />
+        ) : (
+          sortedTokens.map(asset => (
+            <AssetRow
+              // Keyed by the account too, for the same reason as the total: a new account's row lands.
+              key={`${address}:${asset.tokenId}`}
+              asset={asset}
+              tokenPrices={tokenPrices}
+              onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+            />
+          ))
+        )}
       </div>
     </>
   );

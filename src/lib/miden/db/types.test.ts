@@ -20,6 +20,10 @@ import {
 } from './types';
 
 describe('transaction models', () => {
+  it('labels a queued key rotation with the everyday-key name its completion uses', () => {
+    expect(new ReplaceHotKeyTransaction('acc').displayMessage).toBe('Rotating everyday key');
+  });
+
   it('initializes Transaction defaults', () => {
     const tx = new Transaction('acc', new Uint8Array([1, 2]), ['n1'], true, 'recip');
     expect(tx.type).toBe('execute');

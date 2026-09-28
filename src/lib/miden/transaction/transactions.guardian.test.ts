@@ -14,9 +14,24 @@
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { ConsumableNote } from 'lib/miden/types';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import {
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
+  ERR_FEE_CONVERSION_INFO_MISSING_CODE,
+  GUARDIAN_UNREACHABLE_ERROR,
+  PROVER_PROCEDURE_MISMATCH_ERROR,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from './constants';
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -25,10 +40,13 @@ import {
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
+  generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
-  initiateSwitchGuardianTransaction
+  initiateSwitchGuardianTransaction,
+  initiateUpdateProcedureThresholdTransaction
 } from './index';
 import {
+  ConsumeTransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -49,6 +67,15 @@ const APPLY_AFTER_SUBMIT_ERROR_MESSAGE =
   "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed. " +
   'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
   '`Client::apply_transaction_update`. Do NOT resubmit the same transaction.';
+
+/**
+ * The node's admission refusal of a transaction built on a superseded account
+ * state. The two phrases the classifier keys on are the ones #904 and
+ * `guardian/account.ts` quote; the wording around them is illustrative.
+ */
+const STALE_INITIAL_COMMITMENT_REFUSAL =
+  'failed to submit proven transaction: transaction conflicts with current mempool state: initial account ' +
+  'commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333';
 
 const txStore: Array<Record<string, unknown>> = [];
 const putToStorage = jest.fn(async (..._args: unknown[]) => {});
@@ -82,6 +109,13 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
+// The legacy global guardian key is read through storage; drive it per test (undefined by default).
+const mockFetchFromStorage = jest.fn(async (_key: string): Promise<unknown> => undefined);
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  fetchFromStorage: (key: string) => mockFetchFromStorage(key)
+}));
+
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -101,6 +135,21 @@ jest.mock('lib/miden/guardian', () => ({
   MultisigService: {
     buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
   }
+}));
+
+// The rotation mints its hot key in the transaction layer (#904).
+const mockGenerateHotKey = jest.fn(async () => ({
+  ciphertext: 'new-cx',
+  publicKeyHex: 'new-hot-pub',
+  commitmentHex: '0xnewcommit'
+}));
+jest.mock('lib/secure-hot-key', () => ({
+  generateHotKey: () => mockGenerateHotKey()
+}));
+const mockCommitmentFromPublicKeyHex = jest.fn(async (_publicKeyHex: string) => '0xnewcommit');
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: (publicKeyHex: string) => mockCommitmentFromPublicKeyHex(publicKeyHex)
 }));
 
 // Direct on-chain switch fallback (old guardian unreachable). The classifier
@@ -340,6 +389,25 @@ const makeGuardianProvider = (isGuardian: boolean) => {
   };
 };
 
+// The provider stores the account under its composite id while callers (a dApp, a bare deep link) may
+// pass the bare one. A row queued under the bare spelling leaves every later step to rediscover the
+// stored one, and a step that cannot read the provider then acts on the wrong key.
+const makeSuffixGuardianProvider = () => ({
+  ...makeGuardianProvider(true),
+  getAccounts: async () => [
+    {
+      publicKey: 'acc-1_suffix',
+      name: 'Guardian account',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      guardianEndpoint: 'https://old.guardian',
+      hotPublicKey: 'old-hot-pub',
+      coldPublicKey: 'cold'
+    }
+  ]
+});
+
 describe('initiateSwitchGuardianTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -359,6 +427,13 @@ describe('initiateSwitchGuardianTransaction', () => {
     const extra = row.extraInputs as Record<string, unknown>;
     expect(extra.previousGuardianEndpoint).toBe('https://old.guardian');
     expect(extra.newGuardianEndpoint).toBe('https://new.guardian');
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -398,6 +473,18 @@ describe('initiateSwitchGuardianTransaction', () => {
     txStore.find(r => r.id === first)!.status = ITransactionStatus.GeneratingTransaction;
 
     const second = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian/', false, provider);
+
+    expect(second).toBe(first);
+    expect(txStore).toHaveLength(1);
+  });
+
+  // Host-case difference only - still the same operator, so still a duplicate.
+  it('treats a host-case variant of the in-flight target as the same rotation', async () => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    txStore.find(r => r.id === first)!.status = ITransactionStatus.GeneratingTransaction;
+
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://NEW.GUARDIAN', false, provider);
 
     expect(second).toBe(first);
     expect(txStore).toHaveLength(1);
@@ -480,6 +567,46 @@ describe('completeSwitchGuardianTransaction', () => {
     // #618: completion stamps the terminal stage through the real complete* layer.
     expect(row.stage).toBe('complete');
     expect(row.displayMessage).toBe('Guardian switched');
+  });
+
+  it('persists the endpoint and evicts the cache under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
+
+    // The vault matches the account with ===, so the raw queued id writes nothing.
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1_suffix', 'https://new.guardian');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ endpointPersistFailed: false });
+  });
+
+  it('finalizes a DIRECT switch under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    mockFinalizeDirectSwitch.mockResolvedValueOnce(undefined);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, undefined, provider as never);
+
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDirectSwitch.mock.calls[0]![0]).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ registerFailed: false });
   });
 
   // By the time this runs, `update_guardian` has COMMITTED — the account's
@@ -867,8 +994,48 @@ describe('generateTransaction — Guardian routing', () => {
       __anchorFromBytes: Array.from(bytes),
       free: jest.fn()
     }));
+    // Same reason as above: a stale-state-rebuild test queues a `mockResolvedValueOnce`
+    // here, and `clearAllMocks` would leave it queued for whichever later test's first
+    // call happens to land on this mock.
+    mockCommitmentFromPublicKeyHex.mockReset();
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (_publicKeyHex: string) => '0xnewcommit');
     txStore.length = 0;
   });
+
+  // A rotation that can run to completion: the cold service's proposal creator is
+  // scripted per test, completion runs for real with its re-register stubbed, and
+  // the hardening check that follows it finds the account already hardened.
+  const arrangeRotation = (createProposal: jest.Mock) => {
+    const client = makeClientApi(makeResult());
+    const coldService = {
+      guardianEndpoint: 'https://old.guardian',
+      createReplaceHotKeyProposal: createProposal,
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2, sync: jest.fn(async () => {}) });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client
+    });
+    const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
+    const swapHotKey = jest.fn(async (_accountPublicKey: string, _newHotPubKey: string) => {});
+    const provider = { ...makeGuardianProvider(true), persistNewHotKey, swapHotKey };
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    txStore.push({ ...tx });
+    const row = () => txStore.find(r => r.id === tx.id);
+    return { tx, row, coldService, client, persistNewHotKey, swapHotKey, provider };
+  };
+  const proposalFor = () =>
+    jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => ({ id: 'prop-replace', nonce: 7 }));
+  const PENDING_DELTA_409 = { status: 409, code: 'conflict_pending_delta' };
 
   it('waits for recovery authorization before it starts a transaction', async () => {
     const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
@@ -1734,26 +1901,23 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
   });
 
-  it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
+  it('Guardian earn-deposit proposes its pre-built collateral request via a custom proposal', async () => {
+    // The bytes carry the mandate-binding attachment built at initiate, so the leaf proposes them as they are and
+    // never builds a note of its own: a rebuilt P2IDE has an empty attachment the allocator refuses to bind.
     const txId = 'earn-guardian';
     const result = makeResult();
     const requestBytes = new Uint8Array([11, 12, 13]);
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'earn-deposit',
       amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
-      // Row says 'private', but earn collateral is always minted PUBLIC — the 4th-arg
-      // assertion ('Public') below only holds if the source ignores the row's noteType.
-      noteType: 'private',
-      requestBytes: undefined,
+      noteType: 'public',
       extraInputs: { recallBlocks: 25 },
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
@@ -1766,13 +1930,10 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    const client = Object.assign(makeClientApi(result), {
-      sync: jest.fn(async () => ({ blockNum: () => 100 }))
-    });
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
-      client
+      client: makeClientApi(result)
     });
 
     await generateTransaction(
@@ -1782,19 +1943,7 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // P2IDE collateral note to the allocator with an absolute reclaim height
-    // (syncHeight 100 + recallBlocks 25 = 125), proposed as a custom proposal —
-    // never a plain P2ID send proposal.
-    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'faucet',
-      1000n,
-      'Public',
-      125,
-      'SALT'
-    );
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
@@ -1810,21 +1959,22 @@ describe('generateTransaction — Guardian routing', () => {
     expect(completed?.displayMessage).toBe('Deposited to lending');
   });
 
-  it('Guardian earn-deposit: falls back to the last-synced height when the fresh sync fails', async () => {
-    // A transient network sync failure must NOT fail an otherwise-submittable deposit —
+  it('Guardian Epoch bridged-send: falls back to the last-synced height when the fresh sync fails', async () => {
+    // A transient network sync failure must NOT fail an otherwise-submittable bridge:
     // the note build falls back to the cached getSyncHeight() (the recall buffer absorbs
-    // mild lag), keeping the guardian path no more network-fragile than before.
-    const txId = 'earn-guardian-syncfail';
+    // mild lag), keeping the guardian path no more network-fragile than before. Only a
+    // bridged-send row without bytes still builds its collateral note here.
+    const txId = 'bridge-guardian-syncfail';
     const requestBytes = new Uint8Array([51, 52, 53]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
-      type: 'earn-deposit',
+      type: 'bridged-send',
       amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
       requestBytes: undefined,
-      extraInputs: { recallBlocks: 25 },
+      extraInputs: { provider: 'epoch', recallBlocks: 25 },
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
@@ -1832,7 +1982,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-syncfail-proposal' })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1873,7 +2023,7 @@ describe('generateTransaction — Guardian routing', () => {
       225,
       'SALT'
     );
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
   });
 
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
@@ -1917,90 +2067,9 @@ describe('generateTransaction — Guardian routing', () => {
 
     // Persisted bytes are reused verbatim — no fresh P2IDE request is built.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', requestBytes);
-  });
-
-  it('Guardian earn-deposit refuses to build a non-recallable note when recallBlocks is missing', async () => {
-    const txId = 'earn-guardian-norecall';
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
-      id: txId,
-      type: 'earn-deposit',
-      amount: 1000n,
-      secondaryAccountId: 'allocator',
-      faucetId: 'faucet',
-      noteType: 'public',
-      requestBytes: undefined,
-      extraInputs: {}, // no recallBlocks — a P2ID note would lock the collateral with no reclaim path
-      delegateTransaction: true
-    });
-    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    const multisigService = {
-      createCustomProposal: jest.fn(),
-      createSendProposal: jest.fn(),
-      signAndCreateTransactionRequest: jest.fn(),
-      sync: jest.fn(async () => {})
-    };
-    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-    mockGetMidenClient.mockResolvedValue({
-      getAccount: jest.fn(async () => undefined),
-      syncState: jest.fn(async () => {}),
-      client: makeClientApi(makeResult())
-    });
-
-    await generateTransaction(
-      transaction,
-      jest.fn(async () => new Uint8Array([2])),
-      false,
-      makeGuardianProvider(true)
-    );
-
-    // The row fails fast; no P2IDE request or proposal is built.
-    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
-    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
-  });
-
-  it('Guardian earn-deposit refuses to build a note when the allocator (secondaryAccountId) is missing', async () => {
-    const txId = 'earn-guardian-noalloc';
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
-      id: txId,
-      type: 'earn-deposit',
-      amount: 1000n,
-      secondaryAccountId: undefined, // no allocator to send the collateral to
-      faucetId: 'faucet',
-      noteType: 'public',
-      requestBytes: undefined,
-      extraInputs: { recallBlocks: 25 }, // recallBlocks present — only the allocator is missing
-      delegateTransaction: true
-    });
-    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    const multisigService = {
-      createCustomProposal: jest.fn(),
-      createSendProposal: jest.fn(),
-      signAndCreateTransactionRequest: jest.fn(),
-      sync: jest.fn(async () => {})
-    };
-    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-    mockGetMidenClient.mockResolvedValue({
-      getAccount: jest.fn(async () => undefined),
-      syncState: jest.fn(async () => {}),
-      client: makeClientApi(makeResult())
-    });
-
-    await generateTransaction(
-      transaction,
-      jest.fn(async () => new Uint8Array([2])),
-      false,
-      makeGuardianProvider(true)
-    );
-
-    // Same fail-fast as the missing-recallBlocks case — the other half of the guard.
-    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
-    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
   it('Guardian earn-deposit: refuses to submit once the caller abandoned the deposit (epochStatus=failed)', async () => {
@@ -2048,35 +2117,36 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
-  it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {
-    // An earn-deposit builds requestBytes (with an absolute reclaim height) BEFORE the
-    // custom proposal. If the proposal keeps hitting a transient pending-delta 409, the
-    // row is requeued — but the frozen bytes must be dropped, or a delayed re-submit
-    // would land a collateral note whose remaining reclaim window is below the Epoch
-    // allocator's minimum (stranding the collateral). Assert the drop.
+  // An Earn deposit row as `createEarnP2IDENote` queues it: its collateral request, with the mandate-binding
+  // attachment, is already on the row. The in-memory copy carries the same bytes, as a loop pickup would.
+  const seedEarnDeposit = (txId: string, requestBytes: Uint8Array | undefined, delegateTransaction = true) => {
+    const row = {
+      id: txId,
+      type: 'earn-deposit',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      amount: 1000n,
+      noteType: 'public',
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      requestBytes
+    };
+    txStore.push({ ...row });
+    return Object.assign(new Transaction('guardian-acc', new Uint8Array()), row);
+  };
+
+  it('Guardian earn-deposit: a still-pending 409 requeues and KEEPS its request bytes, whose attachment cannot be rebuilt', async () => {
+    // The bytes carry the mandate-binding attachment built once at initiate; any rebuild mints a plain P2IDE the
+    // allocator refuses to bind. Their frozen reclaim height is safe to reuse (the reclaim buffer outlasts the
+    // caller's wait), so the requeue keeps them.
     jest.useFakeTimers();
     try {
       const txId = 'earn-pending-conflict';
-      const requestBytes = new Uint8Array([21, 22, 23]);
-      txStore.push({
-        id: txId,
-        type: 'earn-deposit',
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        secondaryAccountId: 'allocator',
-        faucetId: 'faucet',
-        amount: 1000n,
-        noteType: 'public',
-        extraInputs: { recallBlocks: 25 },
-        delegateTransaction: true,
-        initiatedAt: Math.floor(Date.now() / 1000),
-        // Seeded on the ROW — see the recallable-send case below. Asserting
-        // "undefined after the requeue" against a row that never carried bytes
-        // pins nothing.
-        requestBytes: new Uint8Array([81, 82, 83])
-      });
-
-      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+      const seeded = new Uint8Array([81, 82, 83]);
+      const transaction = seedEarnDeposit(txId, seeded);
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
@@ -2085,6 +2155,59 @@ describe('generateTransaction — Guardian routing', () => {
         }),
         createSendProposal: jest.fn(),
         signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      // Fast-forward withGuardianConflictRetry's backoff so the retry budget exhausts.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.requestBytes).toBe(seeded);
+      expect(multisigService.createCustomProposal).toHaveBeenCalledWith(seeded, 'earn_deposit');
+      expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian earn-deposit: the attempt after a 409 requeue proposes the ORIGINAL bytes, never a rebuilt note', async () => {
+    // Cycle two starts from the STORED row, as the loop's next pickup does. Reusing cycle one's in-memory object
+    // would carry the bytes over whatever the requeue did to the row.
+    jest.useFakeTimers();
+    try {
+      const txId = 'earn-two-cycles';
+      const seeded = new Uint8Array([71, 72, 73]);
+      const transaction = seedEarnDeposit(txId, seeded);
+      // What a rebuild would propose: a P2IDE with an empty attachment.
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([0, 0, 0]) });
+
+      let guardianConflicting = true;
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(async (_bytes: Uint8Array, _kind: string) => {
+          if (guardianConflicting) throw conflict;
+          return { id: 'earn-second-proposal' };
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
         sync: jest.fn(async () => {})
       };
       mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -2097,41 +2220,195 @@ describe('generateTransaction — Guardian routing', () => {
         client
       });
 
-      const pending = generateTransaction(
-        Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
-          id: txId,
-          type: 'earn-deposit',
-          amount: 1000n,
-          secondaryAccountId: 'allocator',
-          faucetId: 'faucet',
-          noteType: 'public',
-          extraInputs: { recallBlocks: 25 },
-          delegateTransaction: true
-        }),
+      const firstCycle = generateTransaction(
+        transaction,
         jest.fn(async () => new Uint8Array([2])),
         false,
         makeGuardianProvider(true)
       );
-      // Fast-forward withGuardianConflictRetry's backoff so the retry budget exhausts.
       await jest.runAllTimersAsync();
-      await pending;
+      await firstCycle;
+      expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Queued);
 
-      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
-      // Requeued (transient lock), not terminally Failed...
-      expect(row.status).toBe(ITransactionStatus.Queued);
-      // ...and the frozen absolute-height request was dropped so the next cycle rebuilds
-      // the note against a fresh sync height (swap keeps its bytes — the PSWAP flow
-      // requires byte-identical reuse; earn-deposit and send must not).
-      expect(row.requestBytes).toBeUndefined();
-      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      guardianConflicting = false;
+      multisigService.createCustomProposal.mockClear();
+      const storedRow = { ...txStore.find(r => r.id === txId) };
+      const secondCycle = generateTransaction(
+        storedRow as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await secondCycle;
+
+      expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+      expect(multisigService.createCustomProposal.mock.calls[0]?.[0]).toBe(seeded);
+      expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Completed);
     } finally {
       jest.useRealTimers();
     }
   });
 
+  it.each([
+    ['a 429 at creating-proposal', { status: 429, code: 'rate_limit_exceeded' }],
+    ['an unreachable guardian at creating-proposal', new TypeError('Failed to fetch')]
+  ])('Guardian earn-deposit: %s requeues and keeps the request bytes', async (_label, proposalError) => {
+    jest.useFakeTimers();
+    try {
+      const txId = 'earn-requeue-arm';
+      const seeded = new Uint8Array([61, 62, 63]);
+      const transaction = seedEarnDeposit(txId, seeded);
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw proposalError;
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.stage).toBe('creating-proposal');
+      expect(row.requestBytes).toBe(seeded);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian earn-deposit (delegated, flag off): a prover outage at proving requeues and keeps the request bytes', async () => {
+    // Flag off, the inline leaf stamps 'proving' itself and nothing stamps `mayHaveSubmitted` before it, so the
+    // bytes survive only because the requeue keeps them.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'earn-prover-outage';
+    const seeded = new Uint8Array([51, 52, 54]);
+    const transaction = seedEarnDeposit(txId, seeded);
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'earn-prover-proposal', nonce: 5 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    const client = makeClientApi(makeResult());
+    client.transactions.prove.mockRejectedValue(
+      new Error('failed to prove transaction: transport error: connection refused')
+    );
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(client.transactions.prove).toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.stage).toBe('creating-proposal');
+    expect(row.mayHaveSubmitted).toBeFalsy();
+    expect(row.requestBytes).toBe(seeded);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian earn-deposit with no request bytes fails before it mints anything', async () => {
+    // Without its bytes there is no mandate binding to propose, and a rebuilt note would carry none.
+    const txId = 'earn-no-bytes';
+    const transaction = seedEarnDeposit(txId, undefined);
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    const sendTransaction = jest.fn();
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      sendTransaction,
+      client: Object.assign(makeClientApi(makeResult()), { sync: jest.fn(async () => ({ blockNum: () => 100 })) })
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(
+      'Error: Earn deposit has no collateral request with its mandate binding, so it was not sent.'
+    );
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'with no request bytes', requestBytes: undefined, abandoned: false },
+    { label: 'whose intent was abandoned', requestBytes: new Uint8Array([91, 92, 93]), abandoned: true }
+  ])(
+    'Guardian earn-deposit $label fails with its own reason while the guardian is unreachable (#779)',
+    async ({ requestBytes, abandoned }) => {
+      // Both checks run before the multisig service load, which can reach the guardian. Behind it, a refused
+      // connection would requeue a row no retry can send, until it expired.
+      const txId = abandoned ? 'earn-abandoned-unreachable' : 'earn-no-bytes-unreachable';
+      const transaction = seedEarnDeposit(txId, requestBytes);
+      const stored = txStore.find(r => r.id === txId);
+      if (abandoned && stored) stored.extraInputs = { recallBlocks: 25, epochStatus: 'failed' };
+      mockGetOrCreateMultisigService.mockRejectedValue(new TypeError('Failed to fetch'));
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      await generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toContain(abandoned ? 'already abandoned by the caller' : EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
+  );
+
   it('Guardian recallable send: a still-pending 409 requeues AND drops the frozen requestBytes', async () => {
-    // Same rule as the earn-deposit case above, for the other type that freezes a
-    // request before proposing it. A recallable send's bytes pin an absolute reclaim
+    // Unlike the earn-deposit case above, whose attachment cannot be rebuilt, a
+    // recallable send is rebuilt from its row. Its bytes pin an absolute reclaim
     // height AND the outgoing asset as first built — so a wrong callback flag there
     // would fail the kernel's remove-asset assertion on every requeue cycle for as
     // long as the bytes survive. Nothing reached the chain on a pre-submit requeue,
@@ -2291,20 +2568,17 @@ describe('generateTransaction — Guardian routing', () => {
     // send/consume/swap/execute, which mark Completed and let the next sync reconcile.
     const txId = 'earn-guardian-applyfail';
     const requestBytes = new Uint8Array([31, 32, 33]);
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'earn-deposit',
       amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
       extraInputs: { recallBlocks: 25 },
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
@@ -2358,20 +2632,17 @@ describe('generateTransaction — Guardian routing', () => {
     // resultBytes state hangs the caller, so it must Fail here too.
     const txId = 'earn-guardian-canon';
     const requestBytes = new Uint8Array([41, 42, 43]);
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+    const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'earn-deposit',
       amount: 1000n,
       secondaryAccountId: 'allocator',
       faucetId: 'faucet',
       noteType: 'public',
-      requestBytes: undefined,
       extraInputs: { recallBlocks: 25 },
       delegateTransaction: true
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),
@@ -3433,6 +3704,659 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it.each([
+    ['a refused connection', new TypeError('Failed to fetch')],
+    ['a guardian 503', Object.assign(new Error('Service Unavailable'), { status: 503 })]
+  ])('Guardian consume: %s at creating-proposal requeues instead of failing (#779)', async (_label, proposalError) => {
+    // No usable answer from the guardian. Nothing reached the chain, so a retry is safe; failing would write one Failed
+    // row per auto-consume retry.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-unreachable';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-unreachable'
+      });
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw proposalError;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const before = Math.floor(Date.now() / 1000);
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-unreachable',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.error).toBeUndefined();
+      expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
+      expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("Guardian consume: an unreachable requeue doubles the wait from the row's stored streak (#1223)", async () => {
+    // The doubling itself is pinned once by guardianRequeueBackoffSec's own unit test; this only pins that the
+    // unreachable arm reads its streak from the stored row, as the 409 and 429 arms' tests already pin for theirs.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-unreachable-backoff';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-backoff',
+        requeueStreak: { arm: 'guardian-unreachable', count: 1 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const requeuedFrom = Math.floor(Date.now() / 1000);
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-backoff',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - requeuedFrom).toBe(120);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 2 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("claims a guardian keeps failing slowly stop holding the front of the queue against another account's send (#1223)", async () => {
+    // Three claims on a guardian that answers each proposal with a gateway 504 after its 30 s read timeout, queued
+    // ahead of a send on an account whose guardian answers. Each lap takes the oldest eligible row, and at a flat 60 s
+    // one claim is eligible again by the time the other two have failed, so the send waited until they expired.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startedAt = Date.now();
+      const queuedAt = Math.floor(startedAt / 1000);
+      for (const n of [1, 2, 3]) {
+        txStore.push({
+          id: `dead-claim-${n}`,
+          type: 'consume',
+          accountId: 'dead-guardian-acc',
+          status: ITransactionStatus.Queued,
+          noteId: `note-${n}`,
+          initiatedAt: queuedAt,
+          queuedSeq: n
+        });
+      }
+      txStore.push({
+        id: 'healthy-send',
+        type: 'send',
+        accountId: 'healthy-guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: queuedAt,
+        queuedSeq: 4
+      });
+      const deadService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          jest.setSystemTime(Date.now() + 30_000);
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      let sendProposedAt: number | undefined;
+      const healthyService = {
+        createSendProposal: jest.fn(async () => {
+          sendProposedAt ??= Date.now();
+          return { id: 'prop-healthy' };
+        }),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockImplementation(async (accountId: string) =>
+        accountId === 'dead-guardian-acc' ? deadService : healthyService
+      );
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const provider = makeGuardianProvider(true);
+
+      // The service worker's processing loop: a lap, then 5 s before the next, here for up to ten minutes.
+      while (sendProposedAt === undefined && Date.now() - startedAt < 10 * 60_000) {
+        await generateTransactionsLoop(
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          provider
+        );
+        jest.setSystemTime(Date.now() + 5_000);
+      }
+
+      // The claims fail at 30, 65 and 100 s and wait 60 s; the laps at 105, 140 and 175 s retry them and double the
+      // wait to 120 s, so the lap at 210 s finds none eligible and runs the send.
+      expect(sendProposedAt).toBeDefined();
+      expect(Number(sendProposedAt) - startedAt).toBe(210_000);
+      expect(deadService.createConsumeNotesProposal).toHaveBeenCalledTimes(6);
+      expect(txStore.find(r => r.id === 'healthy-send')?.status).toBe(ITransactionStatus.Completed);
+      // Each dead claim has failed twice by the point the send finally runs, so its stored streak reads count: 2.
+      expect(txStore.find(r => r.id === 'dead-claim-1')?.requeueStreak).toEqual({
+        arm: 'guardian-unreachable',
+        count: 2
+      });
+    } finally {
+      warnSpy.mockRestore();
+      mockGetOrCreateMultisigService.mockReset();
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian consume: a 429 between unreachable requeues starts both doublings over (#1223)', async () => {
+    // Only consecutive requeues down one arm back a row off: an answer of another kind says the last verdict ended.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-streak-reset';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-reset',
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      });
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const outcomes: unknown[] = [rateLimited, rateLimited, new TypeError('Failed to fetch')];
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw outcomes.shift();
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const waits: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const requeuedFrom = Math.floor(Date.now() / 1000);
+        await generateTransaction(
+          {
+            id: txId,
+            type: 'consume',
+            accountId: 'guardian-acc',
+            noteId: 'note-reset',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+        waits.push(Number(txStore.find(r => r.id === txId)?.nextEligibleAt) - requeuedFrom);
+      }
+
+      // The guardian's 45 s, then twice it on the repeat, then the unreachable arm's base again.
+      expect(waits).toEqual([45, 90, 60]);
+      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a second consecutive pending-delta 409 requeue waits 30 s, twice the first (#1223)', async () => {
+    // Each 409 requeue follows ~55 s of in-process retries, so two rows on one stalled account would otherwise take
+    // turns at the front of the queue.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const txId = 'send-conflict-backoff';
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        requeueStreak: { arm: 'guardian-pending-conflict', count: 1 }
+      });
+      const conflict = { status: 409, code: 'conflict_pending_delta' };
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: 2 });
+      // The log states the wait the row got, as the 429 and unreachable arms' do.
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[Guardian] proposal still conflicting after retry budget, requeueing in 30s'
+      );
+    } finally {
+      warnSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {
+    // The second pre-submit stage: the co-signature never came back, so no leaf ran.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unreachable-at-signing';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 7 })),
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    const before = Math.floor(Date.now() / 1000);
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.stage).toBe('creating-proposal');
+    expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
+    expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
+    expect(multisigService.abandonCandidate).toHaveBeenCalledWith(7);
+    warnSpy.mockRestore();
+  });
+
+  it.each([
+    [
+      'a fee failure',
+      `assertion failed with error code: ${ERR_FEE_CONVERSION_INFO_MISSING_CODE}`,
+      TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR
+    ],
+    // The native-prover text captured in #487.
+    [
+      'a prover procedure mismatch',
+      'MidenNativeProver: prover rejected the transaction: failed to execute transaction kernel program: ' +
+        'procedure with root digest 0x8bf4fec02765083b9280422f01a814de8f2a53564797969fac2f608197727b22 could not be found',
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    ]
+  ])('Guardian consume: %s in a guardian 500 at creating-proposal fails at once (#779)', async (_, raw, message) => {
+    // The same request fails the same way on every retry, so a requeue would only retry it until it expired and then
+    // report the expiry instead of the cause.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-guardian-500-deterministic';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-500'
+      });
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error(raw), { status: 500 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-500',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe(message);
+      expect(row.nextEligibleAt).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a vault shortfall a guardian 502 carries at signing-proposal fails at once (#779)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-502-vault-at-signing';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 7 })),
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        throw Object.assign(new Error('the amount of the asset in the vault is less than the amount to remove'), {
+          status: 502
+        });
+      }),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+    expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): an unreachable error at the SUBMIT stage is NOT requeued (#779)', async () => {
+    // A node-side transport failure at submit is worded exactly like a silent guardian, and the send
+    // may already be on chain: the stage gate, not the error, is what keeps it Failed.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unreachable-at-submit';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.submitProven.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(client.transactions.submitProven).toHaveBeenCalled();
+    expect(row.stage).toBe('submitting');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian execute: an unreachable guardian at creating-proposal fails at once and is never requeued (#779)', async () => {
+    // A dApp waits five minutes on its execute row and reads "timed out" as failed, while a requeued row can land up to
+    // 30 minutes later.
+    const txId = 'execute-unreachable';
+    const requestBytes = new Uint8Array([3, 3]);
+    txStore.push({
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      requestBytes,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      { id: txId, type: 'execute', accountId: 'guardian-acc', requestBytes, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    expect(row.nextEligibleAt).toBeUndefined();
+  });
+
+  it('Guardian replace-hot-key: an unreachable guardian at creating-proposal still fails (#779)', async () => {
+    // Structural ops stay out for the same reason as the 409 and 429 cases: a requeue re-runs the
+    // rotation, which mints before its proposal and persists only after it.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'replace-hot-unreachable';
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
+    });
+
+    const coldService = {
+      // The mint runs in the transaction layer before this call.
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+      signAndCreateTransactionRequest: jest.fn()
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      client: makeClientApi(makeResult())
+    });
+
+    const txArg = { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false };
+
+    // Three loop cycles: a correctly-failed structural op is terminal and runs
+    // once. Under a requeue-everything bug this would re-mint every cycle.
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const current = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      if (current.status !== ITransactionStatus.Queued) break;
+      await generateTransaction(
+        txArg as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+    }
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    expect(row.error).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    expect(row.rawError).toContain('Failed to fetch');
+    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
   it('a 429 cooldown does not eat the unauthorized-retry budget it parks on top of', async () => {
     // The unauthorized budget is a wall clock, so any backoff for an unrelated
     // reason spends it. That matters here more than anywhere: a rate limit and an
@@ -3494,8 +4418,8 @@ describe('generateTransaction — Guardian routing', () => {
   });
 
   it('Guardian replace-hot-key: a 429 is NOT requeued — structural ops must not re-mint a hot key (#617)', async () => {
-    // Same exclusion as the 409 case: requeueing a structural op re-runs its
-    // proposal creator, which has already minted a hardware hot key.
+    // Same exclusion as the 409 case: requeueing a structural op re-runs the
+    // rotation, which mints before its proposal and persists only after it.
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const txId = 'replace-hot-rate-limited';
     txStore.push({
@@ -3503,12 +4427,12 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 10 } };
     const coldService = {
-      // Rejects AFTER the (elided) mint, modeling the real mint-before-POST order.
+      // The mint runs in the transaction layer before this call.
       createReplaceHotKeyProposal: jest.fn(async () => {
         throw rateLimited;
       }),
@@ -3550,6 +4474,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
     expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
   });
 
@@ -3860,70 +4785,32 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
-  it('Guardian replace-hot-key: a still-pending 409 is NOT requeued — it fails and the hot-key mint is not repeated', async () => {
-    // createReplaceHotKeyProposal MINTS a fresh hardware hot key BEFORE its
-    // proposal POST (guardian/index.ts). If that POST returns a pending-delta 409,
-    // requeueing would re-run the creator every generateTransactionsLoop cycle and
-    // orphan another unpersisted hardware key. Structural ops must fall through to
-    // cancelTransaction (Failed) — the user re-initiates.
-    const txId = 'replace-hot-pending-conflict';
-    txStore.push({
-      id: txId,
-      type: 'replace-hot-key',
-      accountId: 'guardian-acc',
-      status: ITransactionStatus.Queued,
-      extraInputs: {}
-    });
+  it('Guardian replace-hot-key: a pending delta that outlasts the retry budget fails, minting once and persisting nothing (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      createProposal.mockRejectedValue(PENDING_DELTA_409);
+      const { tx, row, persistNewHotKey, provider } = arrangeRotation(createProposal);
 
-    const conflict = { status: 409, body: 'ConflictPendingDelta' };
-    const coldService = {
-      // Rejects AFTER the (elided) mint, modeling the real mint-before-POST order.
-      createReplaceHotKeyProposal: jest.fn(async () => {
-        throw conflict;
-      }),
-      signAndCreateTransactionRequest: jest.fn()
-    };
-    mockBuildColdMultisigService.mockResolvedValue(coldService);
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
-
-    const persistNewHotKey = jest.fn(async () => {});
-    const provider = {
-      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
-      getPublicKeyForCommitment: async () => 'pk',
-      signWord: async () => 'sig',
-      persistNewHotKey,
-      swapHotKey: jest.fn(async () => {})
-    };
-    mockIsGuardianAccount.mockResolvedValue(true);
-    mockGetMidenClient.mockResolvedValue({
-      syncState: jest.fn(async () => {}),
-      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
-      client: makeClientApi(makeResult())
-    });
-
-    const txArg = { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false };
-
-    // Simulate up to 3 generateTransactionsLoop cycles. The loop only re-picks rows
-    // still Queued; a Failed row is terminal, so a correctly-failed tx runs once.
-    // On the buggy (requeue-all) behavior this would re-mint every cycle.
-    for (let cycle = 0; cycle < 3; cycle++) {
-      const current = txStore.find(r => r.id === txId) as Record<string, unknown>;
-      if (current.status !== ITransactionStatus.Queued) break;
-      await generateTransaction(
-        txArg as never,
+      const run = generateTransaction(
+        tx,
         jest.fn(async () => new Uint8Array([1])),
         false,
-        provider as never
+        provider
       );
-    }
+      await jest.runAllTimersAsync();
+      await run;
 
-    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
-    // Terminally Failed — NOT requeued back to Queued.
-    expect(row.status).toBe(ITransactionStatus.Failed);
-    // The hot key was minted exactly once — no re-mint across cycles.
-    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledTimes(1);
-    // The POST failed before persistence, so no orphaned ciphertext was written.
-    expect(persistNewHotKey).not.toHaveBeenCalled();
+      // Terminal, not requeued: a requeue would run the mint again next cycle.
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.nextEligibleAt).toBeUndefined();
+      expect(createProposal).toHaveBeenCalledTimes(12);
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      // The key is persisted only once a proposal exists; none ever did.
+      expect(persistNewHotKey).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian switch-guardian: a still-pending 409 is NOT requeued — it fails (structural op excluded from the gate)', async () => {
@@ -5015,7 +5902,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const multisigService = {
@@ -5025,10 +5912,9 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     const coldService = {
-      createReplaceHotKeyProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-replace' },
-        newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
-      })),
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace' })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -5057,21 +5943,295 @@ describe('generateTransaction — Guardian routing', () => {
     const submittedRow = txStore.find(r => r.id === txId)!;
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
     );
 
-    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalled();
+    expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
     // Persist BEFORE submit so the new ciphertext is durable on crash.
     expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
     // Cold (signingService) drives signAndCreateTransactionRequest, NOT hot.
     expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
+    // ...beside the guardian the rotation actually ran under, re-stamped from the built service.
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
     // Replace-hot-key shares the confirming wait with switch-guardian.
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+  });
+
+  it('Guardian replace-hot-key: waits out a pending delta and completes with the one key it minted (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      createProposal.mockRejectedValueOnce(PENDING_DELTA_409).mockRejectedValueOnce(PENDING_DELTA_409);
+      const { tx, row, coldService, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual([
+        '0xnewcommit',
+        '0xnewcommit',
+        '0xnewcommit'
+      ]);
+      // Persisted once, after the proposal finally existed and before anything was signed.
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
+      const persistedAt = persistNewHotKey.mock.invocationCallOrder[0]!;
+      expect(persistedAt).toBeGreaterThan(createProposal.mock.invocationCallOrder[2]!);
+      expect(persistedAt).toBeLessThan(coldService.signAndCreateTransactionRequest.mock.invocationCallOrder[0]!);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: a row that already persisted its key proposes with that key and mints nothing (#904)', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith('new-hot-pub');
+    expect(createProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(persistNewHotKey).not.toHaveBeenCalled();
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+  });
+
+  it('Guardian replace-hot-key: a node refusal of a superseded commitment is rebuilt once with the same key (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      const { tx, row, coldService, client, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValueOnce(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+      // Distinct from the mint's own '0xnewcommit' so the rebuild's commitment can only
+      // have come from THIS derivation (the persisted-key branch of resolveRotationHotKey),
+      // never from a bug that reuses the minted key's commitment across both attempts.
+      mockCommitmentFromPublicKeyHex.mockResolvedValueOnce('0xderivedcommit');
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      // The refused candidate was retracted before the rebuild.
+      expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(coldService.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+        createProposal.mock.invocationCallOrder[1]!
+      );
+      // One key: minted and persisted by the first run, read back by the rebuild.
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+      expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith('new-hot-pub');
+      // The rebuild's proposal receives the DERIVED commitment, not the minted one.
+      expect(createProposal.mock.calls.map(([, commitment]) => commitment)).toEqual(['0xnewcommit', '0xderivedcommit']);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: a second superseded-commitment refusal fails the row (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      const { tx, row, coldService, client, persistNewHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValue(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.nextEligibleAt).toBeUndefined();
+      expect(createProposal).toHaveBeenCalledTimes(2);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      expect(coldService.abandonCandidate).toHaveBeenCalledTimes(2);
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian update-procedure-threshold: a superseded-commitment refusal is not rebuilt (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const client = makeClientApi(makeResult());
+      client.transactions.submitProven.mockRejectedValue(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
+          id: 'prop-upt',
+          nonce: 9
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+        client
+      });
+      const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+      txStore.push({ ...tx });
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(txStore.find(r => r.id === tx.id)?.status).toBe(ITransactionStatus.Failed);
+      expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: the rebuild waits out its own pending-delta conflict (#904)', async () => {
+    jest.useFakeTimers();
+    try {
+      const createProposal = proposalFor();
+      createProposal
+        .mockResolvedValueOnce({ id: 'prop-replace', nonce: 7 })
+        .mockRejectedValueOnce(PENDING_DELTA_409)
+        .mockResolvedValueOnce({ id: 'prop-replace', nonce: 7 });
+      const { tx, row, client, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+      client.transactions.submitProven.mockRejectedValueOnce(new Error(STALE_INITIAL_COMMITMENT_REFUSAL));
+
+      const run = generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+      await jest.runAllTimersAsync();
+      await run;
+
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(createProposal).toHaveBeenCalledTimes(3);
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(2);
+      // One key: minted and persisted by the first run, read back by the rebuild,
+      // regardless of the rebuild's own proposal needing a conflict retry.
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(persistNewHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian replace-hot-key: stamps the endpoint it runs under before a proposal failure', async () => {
+    const txId = 'replace-hot-fail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
+    });
+
+    const multisigService = {
+      // Hot service unused in replace-hot-key; signingService flips to cold.
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const coldService = {
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw new Error('guardian unreachable');
+      }),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+    const persistNewHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey,
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result)
+    });
+
+    const submittedRow = txStore.find(r => r.id === txId)!;
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    ).catch(() => undefined);
+
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
   });
 
   it('Guardian update-procedure-threshold: cold-signs the threshold update', async () => {
@@ -5123,6 +6283,132 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
   });
 
+  describe('a bare account id finds the composite provider account', () => {
+    const compositeProvider = (extra: Record<string, unknown> = {}) => ({
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      ...extra
+    });
+
+    beforeEach(() => {
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        // The local client knows the account only by its stored id, so a read under
+        // the queued bare id finds nothing and never reaches the cold build.
+        getAccount: jest.fn(async (id: string) =>
+          id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1' }) } : undefined
+        ),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+    });
+
+    it('replace-hot-key reaches the cold service and stamps its endpoint', async () => {
+      const txId = 'replace-bare-id';
+      txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'acc-1', status: ITransactionStatus.Queued });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        guardianEndpoint: 'https://acc.guardian',
+        createReplaceHotKeyProposal: jest.fn(async () => {
+          throw new Error('guardian unreachable');
+        })
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      const row = txStore.find(r => r.id === txId)!;
+
+      await generateTransaction(
+        { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider({ persistNewHotKey: jest.fn(async () => {}), swapHotKey: jest.fn(async () => {}) }) as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalled();
+      expect((row.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://acc.guardian');
+    });
+
+    it("switch-guardian's cold co-sign reaches the cold service", async () => {
+      const txId = 'switch-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSwitchGuardianProposal: jest.fn(async () => ({
+          proposal: { id: 'prop-switch', metadata: { proposalType: 'switch_guardian' } },
+          newEndpoint: 'https://new.guardian'
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        finalizeGuardianSwitch: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      });
+      const coldService = { signProposal: jest.fn(async () => {}) };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'acc-1',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+    });
+
+    it('update-procedure-threshold reaches the cold service and its proposal', async () => {
+      const txId = 'upt-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop-upt' })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'update-procedure-threshold',
+          accountId: 'acc-1',
+          extraInputs: { procedure: 'update_guardian', threshold: 2 },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
+    });
+  });
+
   it('Guardian: unsupported transaction type cancels the transaction', async () => {
     const txId = 'unsupported-guardian';
     txStore.push({
@@ -5154,10 +6440,7 @@ describe('generateTransaction — Guardian routing', () => {
   it('replace-hot-key apply-after-submit-failure reconciles the hot pointer instead of cancelling', async () => {
     const txId = 'replace-apply-fail';
     const coldService = {
-      createReplaceHotKeyProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-replace' },
-        newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
-      })),
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace' })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -5195,7 +6478,13 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', status: ITransactionStatus.Queued });
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5213,10 +6502,8 @@ describe('generateTransaction — Guardian routing', () => {
   // but never fails the on-chain-successful rotation.
   const runReplaceHotKeyReRegister = async (txId: string, reRegister: () => Promise<void>) => {
     const coldService = {
-      createReplaceHotKeyProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-replace' },
-        newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
-      })),
+      guardianEndpoint: 'https://old.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace' })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -5244,10 +6531,16 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5264,8 +6557,9 @@ describe('generateTransaction — Guardian routing', () => {
     // On-chain rotation still succeeds; the miss is recorded, not failed.
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(true);
-    // newHotPublicKey is preserved through the completion write.
+    // newHotPublicKey and the stamped guardian are preserved through the completion write.
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('Guardian replace-hot-key: records reRegisterFailed=false on a clean re-register (#619 gap 1)', async () => {
@@ -5274,6 +6568,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(false);
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {
@@ -5842,8 +7137,111 @@ describe('initiateReplaceHotKeyTransaction', () => {
     const row = txStore[0] as Record<string, unknown>;
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('replace-hot-key');
-    // extraInputs starts empty; populated during generateGuardianTransaction.
-    expect(row.extraInputs).toEqual({});
+    // The guardian the rotation runs under is recorded now, so its history row names it for good;
+    // newHotPublicKey joins it during generateGuardianTransaction.
+    expect(row.extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian when the provider spells the account id differently', async () => {
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        {
+          publicKey: 'acc-1_suffix',
+          name: 'Guardian account',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          guardianEndpoint: 'https://old.guardian'
+        }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian a legacy account resolves to when it names none of its own', async () => {
+    // An account from before per-account endpoints has no field; every guardian operation resolves it
+    // through the legacy key and then the network default, so the rotation ran under that one.
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
+    });
+  });
+
+  it("records a legacy account's global guardian key when it names none of its own", async () => {
+    mockFetchFromStorage.mockImplementation(async key =>
+      key === 'guardian_url_setting' ? 'https://custom.guardian' : undefined
+    );
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+      expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+        guardianEndpoint: 'https://custom.guardian'
+      });
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('queues the rotation unstamped when the guardian read fails: the stamp is display only', async () => {
+    mockFetchFromStorage.mockImplementation(async () => {
+      throw new Error('storage unavailable');
+    });
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
+      expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+      expect(txStore).toHaveLength(1);
+      expect(
+        (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
+      ).toBeUndefined();
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+
+  // Eligibility and the stored id come from one account read, so a read that fails queues nothing.
+  it('refuses the rotation when the account read fails', async () => {
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      }
+    };
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow('vault read failed');
+    expect(txStore).toHaveLength(0);
+  });
+
+  it('refuses the rotation when the provider has no such account', async () => {
+    const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow(
+      'Replace hot key is only supported for Guardian accounts'
+    );
+    expect(txStore).toHaveLength(0);
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -5893,7 +7291,7 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Device key rotated');
+    expect(row.displayMessage).toBe('Everyday key rotated');
   });
 
   it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {
@@ -6035,7 +7433,9 @@ describe('completeReplaceHotKeyTransaction', () => {
       sync: jest.fn(async () => {})
     });
     const provider = {
-      getAccounts: async () => [{ publicKey: 'acc-1', coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }],
+      getAccounts: async () => [
+        { publicKey: 'acc-1', type: WalletType.Guardian, coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }
+      ],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: async () => 'sig',
       swapHotKey: jest.fn(async () => {})
@@ -6108,7 +7508,89 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(row.displayMessage).toBe('Failed to rotate device key');
+    expect(row.displayMessage).toBe('Failed to rotate everyday key');
+  });
+
+  it('moves the hot pointer of the stored account when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    // Vault.swapHotKey matches with ===, so the raw queued id leaves the pointer where it was.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+  it('moves the stored hot pointer of a rotation initiated under another spelling when every account read fails', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+    const row = txStore[0] as Record<string, unknown>;
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.extraInputs = { ...(row.extraInputs as object), newHotPublicKey: 'new-hot-pub' };
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      },
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeReplaceHotKeyTransaction(row as never, makeResult() as never, provider as never);
+      await jest.runAllTimersAsync();
+      await completion;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('reads the account and checks its hardening under the stored id when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // The SDK store knows the account only by its stored id.
+    const getAccount = jest.fn(async (id: string) =>
+      id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1_suffix' }) } : null
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), getAccount });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(getAccount).toHaveBeenCalled();
+    for (const [id] of getAccount.mock.calls) expect(id).toBe('acc-1_suffix');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
+    for (const [id] of mockGetOrCreateMultisigService.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ reRegisterFailed: false });
   });
 });
 
@@ -6133,10 +7615,33 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     );
 
     expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    // The cache is keyed canonically, so the queued spelling clears it directly.
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Account secured');
+  });
+
+  it('clears the cache and re-registers without waiting on the account list', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+
+    const completion = completeUpdateProcedureThresholdTransaction(
+      tx,
+      makeResult() as never,
+      {
+        reRegisterCurrentStateOnGuardian
+      } as never
+    );
+    const settled = await Promise.race([
+      completion.then(() => 'done'),
+      new Promise(resolve => setTimeout(() => resolve('hung'), 50))
+    ]);
+
+    expect(settled).toBe('done');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
   });
 
   it('still completes (best-effort) when the guardian re-registration fails', async () => {
@@ -6158,6 +7663,26 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
   });
 });
 
+describe('initiateUpdateProcedureThresholdTransaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateUpdateProcedureThresholdTransaction(
+      'acc-1',
+      'update_guardian',
+      2,
+      false,
+      makeSuffixGuardianProvider()
+    );
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+});
+
 describe('ensureGuardianProcedureThresholds', () => {
   beforeEach(() => {
     txStore.length = 0;
@@ -6171,7 +7696,8 @@ describe('ensureGuardianProcedureThresholds', () => {
     // left the row Queued for the rest of the session on mobile/desktop.
     mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 1 });
 
-    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, {} as never);
+    const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc', type: WalletType.Guardian }] };
+    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, provider as never);
 
     expect(typeof txId).toBe('string');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
@@ -6899,5 +8425,278 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
     releaseCoSign();
     await run;
     jest.useRealTimers();
+  });
+});
+
+describe('generateTransaction: the rotation gate claim (#805)', () => {
+  // What the mocked native-asset discovery above reports.
+  const NATIVE = '0xfee0000000000000000000000000000000';
+  const ACCOUNT = 'acc-recovered';
+
+  const recovered: WalletAccount = {
+    publicKey: ACCOUNT,
+    name: 'Recovered',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 0,
+    guardianEndpoint: 'https://old.guardian',
+    coldPublicKey: 'cold-pub',
+    requiresHotKeyRotation: true
+  };
+
+  const providerFor = (account: WalletAccount): GuardianAccountProvider => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    return {
+      getAccounts: async () => [account],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig'
+    };
+  };
+
+  /** A consumable-note DTO as the client reduces it: one fungible asset per faucet id given. */
+  const listedNote = (noteId: string, faucetIds: string[], standardPayment = true): ConsumableNoteDto => ({
+    noteId,
+    nullifier: `null-${noteId}`,
+    noteType: undefined,
+    senderAccountId: 'sender',
+    state: 2,
+    assets: faucetIds.map(faucetId => ({ faucetId, amount: '20000000' })),
+    swapAttachment: null,
+    standardPayment
+  });
+
+  const makeService = () => ({
+    createConsumeNotesProposal: jest.fn(async (_noteIds: string[]) => ({ id: 'prop-claim' })),
+    signAndCreateTransactionRequest: jest.fn(async (_proposalId: string, _requestBytes?: Uint8Array) => ({
+      serialize: () => new Uint8Array([1]),
+      authArg: () => undefined
+    })),
+    sync: jest.fn(async () => {})
+  });
+
+  /** A row's own consumed-note record; only `id` varies across notes in a batch. */
+  const noteInput = (id: string): ConsumableNote => ({
+    id,
+    faucetId: NATIVE,
+    amount: '20000000',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: 'unknown'
+  });
+
+  const arrange = (
+    listed: ReturnType<typeof listedNote>[],
+    flagged: boolean,
+    notes: ConsumableNote[] = [noteInput('note-1')]
+  ) => {
+    const hotService = makeService();
+    const coldService = makeService();
+    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    const getConsumableNoteDtos = jest.fn(async (_accountId: string, _assertLive?: unknown) => listed);
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => ACCOUNT }) })),
+      getConsumableNoteDtos,
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const row = new ConsumeTransaction(ACCOUNT, notes, false);
+    if (flagged) row.rotationFunding = true;
+    txStore.push({ ...row });
+    const stored = () => txStore.find(r => r.id === row.id);
+    return { row, stored, hotService, coldService, getConsumableNoteDtos, client };
+  };
+
+  const run = (row: ConsumeTransaction, account: WalletAccount) =>
+    generateTransaction(
+      row,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      providerFor(account)
+    );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('proposes, signs and executes a flagged claim on a rotation-pending account with the recovery key', async () => {
+    const { row, coldService, getConsumableNoteDtos, client } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(getConsumableNoteDtos).toHaveBeenCalledWith(ACCOUNT, expect.any(Function));
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-claim', undefined);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an unflagged consume on a rotation-pending account before building any service', async () => {
+    const { row, stored, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], false);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_PENDING_CONSUME_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(getConsumableNoteDtos).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim when any asset of the note is not the native one', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE, '0xother'])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note lists no fungible asset at all', async () => {
+    const { row, stored, coldService } = arrange([listedNote('note-1', [])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim while the native asset is unknown', async () => {
+    jest.mocked(getNativeAssetId).mockRejectedValueOnce(new Error('discovery failed'));
+    const { row, stored, coldService, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(getConsumableNoteDtos).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note the account no longer lists, with no guardian round trip', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-other', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // Two-note rows: the native-only check has to cover every note the row names, not just
+  // the first - a batch claim mixing a good note with a bad one must still be refused.
+  it('refuses a flagged two-note claim whose second note is not native', async () => {
+    const { row, stored, hotService, coldService } = arrange(
+      [listedNote('note-1', [NATIVE]), listedNote('note-2', ['0xother'])],
+      true,
+      [noteInput('note-1'), noteInput('note-2')]
+    );
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged two-note claim whose second note the account no longer lists', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE])], true, [
+      noteInput('note-1'),
+      noteInput('note-2')
+    ]);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  // The recovery key and the guardian sign the claim with no user step, so the note's script
+  // has to be a plain payment too, not only its assets.
+  it('refuses a flagged claim whose native-only note runs another script, before building any service', async () => {
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE], false)], true);
+
+    await run(row, recovered);
+
+    expect(stored()?.status).toBe(ITransactionStatus.Failed);
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('refuses a flagged claim whose note carries no standard-payment flag, a missing verdict failing closed', async () => {
+    const { row, stored, coldService } = arrange(
+      [{ ...listedNote('note-1', [NATIVE]), standardPayment: undefined }],
+      true
+    );
+
+    await run(row, recovered);
+
+    expect(stored()?.error).toBe(ROTATION_FUNDING_NON_NATIVE_ERROR);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
+  });
+
+  it('claims a standard payment note with the recovery key', async () => {
+    const { row, coldService, client } = arrange([listedNote('note-1', [NATIVE])], true);
+
+    await run(row, recovered);
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary consume hot-bound on a flagged account that still holds an everyday key', async () => {
+    const { row, hotService } = arrange([listedNote('note-1', [NATIVE])], false);
+
+    await run(row, { ...recovered, hotPublicKey: 'hot-pub' });
+
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+  });
+
+  it('requeues a flagged claim when the guardian cannot be reached, still flagged (#779)', async () => {
+    // Like any consume. It stays live, so the gate keeps deferring the rotation behind it.
+    jest.useFakeTimers();
+    try {
+      const { row, stored, coldService } = arrange([listedNote('note-1', [NATIVE])], true);
+      coldService.createConsumeNotesProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      const pending = run(row, recovered);
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(stored()).toMatchObject({ status: ITransactionStatus.Queued, rotationFunding: true });
+      expect(stored()?.error).toBeUndefined();
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses the hot service for a flagged claim once the account has its everyday key, still checked', async () => {
+    const { row, hotService, getConsumableNoteDtos } = arrange([listedNote('note-1', [NATIVE])], true);
+    const rotated: WalletAccount = { ...recovered, hotPublicKey: 'hot-pub', requiresHotKeyRotation: false };
+
+    await run(row, rotated);
+
+    expect(getConsumableNoteDtos).toHaveBeenCalledTimes(1);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
   });
 });

@@ -5,7 +5,7 @@ import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { reducedMotionTransition, springs, tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
-import { CheckboxIndicator, CheckboxRow } from './Checkbox';
+import { CheckboxConsent, CheckboxIndicator, CheckboxRow } from './Checkbox';
 
 let mockReduce = false;
 
@@ -83,7 +83,7 @@ describe('CheckboxIndicator', () => {
     const { container } = render(<CheckboxIndicator checked={false} />);
     const box = slot(container, 'checkbox-indicator');
     expect(box).toHaveAttribute('aria-hidden', 'true');
-    expect(box).toHaveClass('size-5.5', 'rounded-full', 'bg-page', 'ring-hairline');
+    expect(box).toHaveClass('size-5.5', 'rounded-full', 'bg-page', 'ring-muted');
   });
 
   it('fills on the snappy spring and draws the check on the tab-bar spring when checked', () => {
@@ -108,6 +108,11 @@ describe('CheckboxIndicator', () => {
 });
 
 describe('CheckboxRow', () => {
+  it('declares its flush inset (the 22px box and the 14px gap) for an inset plain ListGroup', () => {
+    render(<CheckboxRow data-testid="row" title="Fact" checked={false} onCheckedChange={() => {}} />);
+    expect(screen.getByTestId('row')).toHaveClass('[--row-flush-inset:36px]', 'before:left-[52px]');
+  });
+
   it('is one checkbox named by its title and described by its description', () => {
     render(<Row />);
     const box = screen.getByRole('checkbox', { name: 'Test tokens are not money' });
@@ -183,5 +188,49 @@ describe('CheckboxRow', () => {
     fireEvent.keyDown(screen.getByRole('checkbox'), { key: 'Enter' });
     expect(onChange).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
+  });
+});
+
+describe('CheckboxConsent', () => {
+  const Consent = ({ onChange, disabled }: { onChange?: (checked: boolean) => void; disabled?: boolean }) => {
+    const [checked, setChecked] = useState(false);
+    return (
+      <CheckboxConsent
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={next => {
+          setChecked(next);
+          onChange?.(next);
+        }}
+      >
+        I understand
+      </CheckboxConsent>
+    );
+  };
+
+  it('is one checkbox carrying the sentence, inset 4px and with no surface of its own', () => {
+    render(<Consent />);
+
+    const box = screen.getByRole('checkbox', { name: 'I understand' });
+    expect(box).toHaveAttribute('type', 'button');
+    expect(box).toHaveAttribute('aria-checked', 'false');
+    expect(box).toHaveClass('px-1');
+    expect(box.className).not.toMatch(/bg-fill/);
+
+    fireEvent.click(box);
+    expect(box).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('leaves the haptic to the caller, so a page keeps whatever it had', () => {
+    render(<Consent />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(mockHaptic).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while disabled', () => {
+    const onChange = jest.fn();
+    render(<Consent onChange={onChange} disabled />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

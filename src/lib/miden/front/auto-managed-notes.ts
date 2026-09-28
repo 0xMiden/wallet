@@ -37,6 +37,9 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * the set that will actually be claimed: counting an in-flight note let a lone new dust
  * note ride in on the in-flight batch's value and be claimed alone for a full fee.
  *
+ * None of the three calls this for a seed-recovered account whose everyday-key rotation
+ * is pending: its rotation gate claims those notes with the recovery key (#805).
+ *
  * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
  * one fee; judged per note, a backlog of individually marginal notes was refused in
  * full. It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
@@ -86,8 +89,8 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
 
 /**
  * `useClaimableNotes` minus the notes the wallet auto-consumes. This is the list for
- * attention surfaces: the home "You have Pending Notes" card, the received-note
- * notification, the unclaimed red dots. The pending-notes page deliberately keeps
+ * attention surfaces: the home "You have transfers to accept" card, the received-note
+ * notification, the unclaimed red dots. The Activity tab's Pending list deliberately keeps
  * reading the full list: an auto-consume that keeps failing (a spent note resurrected
  * by recovery, #742) must stay visible and retriable. The notification also reads
  * `allNotes`, to record every listed note as seen, and `isFallback`, so it never takes

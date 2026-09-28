@@ -50,3 +50,22 @@ export function toAdaptiveFixed(
   const decimalPlaces = getAdaptiveDecimalPlaces(bn, minimumDecimalPlaces);
   return bn.toFixed(decimalPlaces, roundingMode);
 }
+
+/**
+ * `toAdaptiveFixed` with the decimal places pinned to the ones `target` itself earns, for a figure
+ * that is being animated towards `target` (`components/ui/AnimatedNumber`).
+ *
+ * The adaptive rule picks its precision from each value's own magnitude, which is right for a
+ * figure that is simply shown and wrong for one that is travelling: every frame on the way to 1.00
+ * is a smaller number, so the frames near zero expand to four decimals and the text changes width
+ * on its way to a two-decimal destination. Pinning the target's precision keeps the shape the
+ * destination's for the whole trip. Rounding is still BigNumber's, unchanged.
+ */
+export function adaptiveFormatterFor(
+  target: BigNumber.Value,
+  minimumDecimalPlaces: number = 2,
+  roundingMode?: BigNumber.RoundingMode
+): (value: BigNumber.Value) => string {
+  const decimalPlaces = getAdaptiveDecimalPlaces(target, minimumDecimalPlaces);
+  return value => new BigNumber(value).toFixed(decimalPlaces, roundingMode);
+}

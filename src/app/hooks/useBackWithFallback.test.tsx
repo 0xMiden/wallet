@@ -97,8 +97,8 @@ describe('useBackWithFallback', () => {
   });
 
   it('replaces with the fallback when the screen was opened cold', () => {
-    // `history.go(-1)` is a no-op at position 0 — a deep link, a reload or a
-    // Replace navigation — which left the header chevron inert. It has to
+    // `history.go(-1)` is a no-op at position 0 - a deep link, a reload or a
+    // Replace navigation - which left the header back button inert. It has to
     // REPLACE: pushing would leave an entry that walks straight back in.
     setLive('/settings/language', 0);
     renderLive('/settings');
@@ -120,7 +120,7 @@ describe('useBackWithFallback', () => {
 
   it('pops once however many times it is invoked before the location changes', () => {
     // `history.go(-1)` resolves on a later task, so the screen stays mounted and
-    // its chevron live: a double tap queued two traversals and overshot the
+    // its back button live: a double tap queued two traversals and overshot the
     // intended parent. Every routed settings sub-page header uses this callback.
     renderLive('/settings');
 
@@ -142,7 +142,7 @@ describe('useBackWithFallback', () => {
   });
 
   it('re-arms once the location actually changes', () => {
-    // Otherwise a screen the user navigates back INTO would have a dead chevron.
+    // Otherwise a screen the user navigates back INTO would have a dead back button.
     renderLive('/settings');
     clickBack();
     expect(goBackMock).toHaveBeenCalledTimes(1);
@@ -237,10 +237,10 @@ describe('useBackWithFallback on a page layer (a frozen location snapshot)', () 
     expect(goBackMock).toHaveBeenCalledTimes(1);
   });
 
-  it('goes back from a slide page re-entered while its layer was still sliding out', async () => {
+  it('goes back from a slide page reopened while its old layer was still sliding out', async () => {
     // The device repro: Address Book -> New contact -> back -> New contact -> back. The
-    // pop leaves the slide page's layer mounted while it slides out, and a push to the
-    // same route before it is removed brings back that same instance, latch and all.
+    // pop leaves the slide page's layer mounted while it slides out; reopening the route
+    // before it is removed opens a new layer, whose back button must still work.
     let mounts = 0;
     const NewContact: React.FC = () => {
       const counted = useRef(false);
@@ -279,7 +279,7 @@ describe('useBackWithFallback on a page layer (a frozen location snapshot)', () 
     pushTo('/contacts/new');
     rerender(page(true));
     await settle();
-    expect(mounts).toBe(1);
+    expect(mounts).toBe(2);
     clickBack();
 
     expect(goBackMock).toHaveBeenCalledTimes(2);

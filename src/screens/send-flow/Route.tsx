@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -21,9 +22,6 @@ export interface RouteStepProps {
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
-  /** Padding classes for the confirm-button footer. The `pb-24` default clears
-   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
-  footerClassName?: string;
   onConfirm: () => void;
 }
 
@@ -126,7 +124,6 @@ export const Route: React.FC<RouteStepProps> = ({
   fastQuoteLoading,
   notice,
   confirmDisabled,
-  footerClassName = 'pt-4 pb-24',
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -145,7 +142,7 @@ export const Route: React.FC<RouteStepProps> = ({
         />
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">
+      <FlowFooter className="pt-4">
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
@@ -154,7 +151,7 @@ export const Route: React.FC<RouteStepProps> = ({
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
-      </div>
+      </FlowFooter>
     </div>
   );
 };

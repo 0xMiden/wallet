@@ -64,15 +64,17 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           onClick={handleLogoTap}
           className="cursor-default select-none [-webkit-touch-callout:none]"
         >
-          <BreadLogo className="h-auto w-[120px]" />
+          <BreadLogo className="h-auto w-[140px]" />
         </div>
-        <h1 className="mt-6 font-heading text-[40px] leading-[44px] font-black tracking-[-0.5px] text-ink">
+        <h1 className="mt-6 font-heading text-[min(56px,15vw)] leading-[1.07] font-extrabold tracking-[-0.5px] [overflow-wrap:anywhere] text-ink">
           <span className="block">{t('welcome')}</span>
           <span className="block">
             {t('toLowercase')} {t('midenWallet')}
           </span>
         </h1>
-        <p className="mt-3 max-w-80 font-sans text-base leading-6 text-muted">{t('breadWalletDescription')}</p>
+        <p className="mt-3 max-w-80 font-heading text-base leading-6 font-semibold text-muted">
+          {t('breadWalletDescription')}
+        </p>
       </div>
     </SubPageLayout>
   );

@@ -1,7 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import { useClaimNotes } from './useClaimNotes';
-import type { ReportClaim } from './useReportNoteClaim';
+import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes } from './useClaimNotes';
 
 // --- Mocked collaborators -------------------------------------------------
 // useClaimNotes fans out to the claimable-notes query, the failed-transaction
@@ -58,10 +57,6 @@ jest.mock('lib/woozie', () => ({
 }));
 
 const note = (id: string, faucetId = 'f') => ({ id, isBeingClaimed: false, amount: '1', faucetId, metadata: {} });
-
-const mockNavigate = jest.requireMock('lib/woozie').navigate as jest.Mock;
-/** Note ids passed as the 2nd arg of the n-th initiateConsumeNotesTransaction call. */
-const queuedNoteIds = (call: number) => (mockInitiateConsume.mock.calls[call]![1] as { id: string }[]).map(n => n.id);
 
 const failedConsume = (...noteIds: string[]) => ({ type: 'consume', noteIds });
 
@@ -201,205 +196,122 @@ describe('useClaimNotes failed-note check (#456)', () => {
     await act(async () => {});
   });
 
-  it('never counts a cached, unconfirmed note as unclaimed', async () => {
-    mockUseClaimableNotes.mockReturnValue({
-      data: [{ ...note('cached'), fromCache: true }, note('live')],
-      mutate: jest.fn().mockResolvedValue([])
-    });
-    const { result } = renderHook(() => useClaimNotes());
-    expect(result.current.unclaimedNotes.map(n => n.id)).toEqual(['live']);
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+  // The batch claimer that used to live here — Claim All and the per-asset group claim — went
+  // with the "Pending notes" pages it belonged to. The one bulk action left is the Activity
+  // Pending list's Accept All, covered by `useActivityClaims`.
+});
+
+describe('useClaimNotes publishes its invalid set per account', () => {
+  const allInvalid = (request: { ids: string[] }) => request.ids.map(noteId => ({ noteId, state: 'Invalid' }));
+
+  /** The published set for `account`, read the way the tab's unread hook reads it. */
+  function readStore(account: string) {
+    return renderHook(() => useClaimCheckInvalidNoteIds(account)).result;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset, not just cleared: a run a failing case never started would leave its queued gate
+    // for the next case's first call.
+    mockGetFailedTransactions.mockReset();
+    mockGetInputNoteDetails.mockReset();
+    __resetClaimChecksForTest();
+    mockUseAccount.mockReturnValue({ publicKey: 'A' });
+    mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    setNotes('a');
   });
 
-  // "Claim All" can span several faucets, but a completed consume row carries a
-  // single (faucetId, amount) pair derived from the FIRST input note, so a
-  // mixed-faucet batch recorded only the first asset and dropped the rest from
-  // history entirely. One transaction per faucet keeps each row honest.
-  it('claims the native-asset group first so the vault can pay the other fees', async () => {
-    // The fee comes out of the account's own vault. A non-native group attempted
-    // first on an empty vault fails, even though a MIDEN note is sitting right there
-    // that would have funded it -- and which group ran first was decided by note
-    // arrival order, so this failed intermittently rather than always.
-    const notes = [note('n-usdc', 'faucet-usdc'), note('n-miden', 'faucet-miden')];
-    mockUseClaimableNotes.mockReturnValue({
-      data: notes,
-      mutate: jest.fn().mockResolvedValue(notes)
-    });
-    mockInitiateConsume.mockResolvedValueOnce('tx-miden').mockResolvedValueOnce('tx-usdc');
-
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
-    expect(queuedNoteIds(0)).toEqual(['n-miden']);
-    expect(queuedNoteIds(1)).toEqual(['n-usdc']);
+  afterAll(() => {
+    mockUseAccount.mockReturnValue({ publicKey: 'mtst1account' });
   });
 
-  it("queues one consume transaction per faucet, grouping that faucet's notes together", async () => {
-    const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc'), note('n-miden-2', 'faucet-miden')];
-    mockUseClaimableNotes.mockReturnValue({
-      data: notes,
-      mutate: jest.fn().mockResolvedValue(notes)
-    });
-    mockInitiateConsume.mockResolvedValueOnce('tx-miden').mockResolvedValueOnce('tx-usdc');
+  it('publishes a finished check under the account that started it', async () => {
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    renderHook(() => useClaimNotes());
 
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
-    expect(queuedNoteIds(0)).toEqual(['n-miden', 'n-miden-2']);
-    expect(queuedNoteIds(1)).toEqual(['n-usdc']);
-    // The progress screen follows the first queued transaction.
-    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-miden');
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect(storeB.current.size).toBe(0);
   });
 
-  it('still queues a SINGLE transaction when every pending note shares one faucet', async () => {
-    const notes = [note('a', 'faucet-miden'), note('b', 'faucet-miden')];
-    mockUseClaimableNotes.mockReturnValue({
-      data: notes,
-      mutate: jest.fn().mockResolvedValue(notes)
-    });
-    mockInitiateConsume.mockResolvedValue('tx-1');
+  it('keeps each account right when B resolves before A after a switch', async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
 
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    setNotes('b');
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
 
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
-    expect(queuedNoteIds(0)).toEqual(['a', 'b']);
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['b']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect([...storeB.current]).toEqual(['b']);
   });
 
-  it('flags only the failing faucet group when one group throws at queue time', async () => {
-    const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc')];
-    mockUseClaimableNotes.mockReturnValue({
-      data: notes,
-      mutate: jest.fn().mockResolvedValue(notes)
-    });
-    mockInitiateConsume.mockRejectedValueOnce(new Error('queue failed')).mockResolvedValueOnce('tx-usdc');
-
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    await waitFor(() => expect(result.current.retriableNoteIds.has('n-miden')).toBe(true));
-    expect(result.current.retriableNoteIds.has('n-usdc')).toBe(false);
-  });
-
-  it('keeps a queue-time claim failure retriable across a focus re-run — does not wipe it (#456)', async () => {
-    // A batch claim that throws at queue time rolls back its Dexie transaction,
-    // so NO Failed row is persisted — getFailedTransactions can never re-surface
-    // it. The retriable flag lives only in memory and must survive the
-    // REPLACE-based focus/visibility recheck, or the note silently reverts to a
-    // neutral Claim button (the exact regression #456 must not introduce).
-    mockGetFailedTransactions.mockResolvedValue([]); // no durable Failed row
-    mockUseClaimableNotes.mockReturnValue({
-      data: [note('a')],
-      mutate: jest.fn().mockResolvedValue([note('a')]) // batch must see the note to queue it
-    });
-    mockInitiateConsume.mockRejectedValueOnce(new Error('queue failed'));
-
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    // Queue-time throw flags 'a' retriable in memory.
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
-
-    // Tab-return recheck (getFailedTransactions still empty): the flag must persist.
-    const callsBefore = mockGetFailedTransactions.mock.calls.length;
+  it('does not let an older run of one account overwrite the newer set', async () => {
+    const first = deferred<unknown[]>();
+    const second = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    // Whichever run reaches the note-state read first (the newer one) sees the note invalid.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
     await act(async () => {
       window.dispatchEvent(new Event('focus'));
     });
-    await waitFor(() => expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore));
-    expect(result.current.retriableNoteIds.has('a')).toBe(true); // NOT wiped
-  });
-});
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
 
-describe('useClaimNotes batch-claim reporting', () => {
-  // The hosting page owns the note_handle flow and passes in a reporter; the
-  // hook's job is to route the queue attempt through it, outcome included. The
-  // queue-time throw is caught internally, so the reporter has to wrap the
-  // consume call itself rather than the whole batch — otherwise every failure
-  // would look like a success.
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockGetFailedTransactions.mockResolvedValue([]);
-    mockGetInputNoteDetails.mockResolvedValue([]);
-    mockUseClaimableNotes.mockReturnValue({
-      data: [note('a')],
-      mutate: jest.fn().mockResolvedValue([note('a')])
-    });
+    await act(async () => second.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    await act(async () => first.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect([...storeA.current]).toEqual(['a']);
   });
 
-  it('routes the batch queue attempt through the reporter', async () => {
-    mockInitiateConsume.mockResolvedValue('batch-tx');
-    const reported = jest.fn();
-    const reportClaim: ReportClaim = attempt => {
-      reported();
-      return attempt();
-    };
+  it("starts B's own run on a switch with identical claimable ids and no focus", async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    // B resolves first and reads the note invalid; A's read afterwards finds it fine.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
 
-    const { result } = renderHook(() => useClaimNotes(reportClaim));
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
 
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(reported).toHaveBeenCalledTimes(1);
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['a']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect(storeA.current.size).toBe(0);
+    expect([...storeB.current]).toEqual(['a']);
   });
 
-  it('lets the reporter see a queue-time failure', async () => {
-    mockInitiateConsume.mockRejectedValue(new Error('queue failed'));
-    const seen: unknown[] = [];
-    const reportClaim: ReportClaim = async attempt => {
-      try {
-        return await attempt();
-      } catch (err) {
-        seen.push(err);
-        throw err;
-      }
-    };
+  it('re-renders a reader mounted before the publish', async () => {
+    const gate = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gate.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+    expect(storeA.current.size).toBe(0);
 
-    const { result } = renderHook(() => useClaimNotes(reportClaim));
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(seen.length).toBeGreaterThan(0);
-    // The hook still absorbs it: the note stays retriable rather than throwing out.
-    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
-  });
-
-  it('claims normally when no reporter is supplied', async () => {
-    mockInitiateConsume.mockResolvedValue('batch-tx');
-
-    const { result } = renderHook(() => useClaimNotes());
-    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-
-    await act(async () => {
-      await result.current.handleClaimAll();
-    });
-
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+    await act(async () => gate.resolve([]));
+    await waitFor(() => expect(storeA.current.has('a')).toBe(true));
   });
 });

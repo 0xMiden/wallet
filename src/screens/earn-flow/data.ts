@@ -6,10 +6,10 @@ export const EARN_DATA: {
   vaults: EarnVault[];
 } = {
   summary: {
-    totalRewards: '$218.32',
-    blendedApy: '~5.2%',
-    totalDeposited: '$4, 218.32',
-    estimatedRewards: '+$24.50'
+    totalRewardsUsd: 218.32,
+    blendedApyPercent: 5.2,
+    totalDepositedUsd: 4218.32,
+    estimatedRewardsUsd: 24.5
   },
   positions: [
     {
@@ -108,6 +108,7 @@ export const EARN_DATA: {
       asset: 'USDC',
       network: 'Ethereum',
       apy: '5.24%',
+      aprPercent: 5.24,
       apyChange24h: '+0.12% (24h)',
       tvl: '$1.2B',
       risk: 'Low',
@@ -140,6 +141,7 @@ export const EARN_DATA: {
       asset: 'USDC',
       network: 'Ethereum',
       apy: '5.24%',
+      aprPercent: 5.24,
       apyChange24h: '+0.12% (24h)',
       tvl: '$1.2B',
       risk: 'Low',
@@ -172,6 +174,7 @@ export const EARN_DATA: {
       asset: 'USDC',
       network: 'Ethereum',
       apy: '5.24%',
+      aprPercent: 5.24,
       apyChange24h: '+0.12% (24h)',
       tvl: '$1.2B',
       risk: 'Low',
@@ -204,6 +207,7 @@ export const EARN_DATA: {
       asset: 'USDC',
       network: 'Ethereum',
       apy: '5.24%',
+      aprPercent: 5.24,
       apyChange24h: '+0.12% (24h)',
       tvl: '$1.2B',
       risk: 'Low',

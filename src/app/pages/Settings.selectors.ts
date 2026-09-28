@@ -9,7 +9,7 @@ export enum SettingsSelectors {
   KeysButton = 'Settings/KeysButton',
   SpendingLimitsButton = 'Settings/SpendingLimitsButton',
   GuardianSettingsButton = 'Settings/GuardianSettingsButton',
-  RevealSeedPhraseButton = 'Settings/RevealSeedPhraseButton',
+  RecoveryPhraseButton = 'Settings/RecoveryPhraseButton',
   DAppsButton = 'Settings/DAppsButton',
   NetworksButton = 'Settings/NetworksButton',
   ActivateAccountButton = 'Settings/ActivateAccountButton',

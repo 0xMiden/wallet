@@ -1079,9 +1079,9 @@ export async function withWasmClientLock<T>(
 /**
  * True while any `withWasmClientLock` operation is in progress.
  *
- * Background pollers that deliberately bypass `withWasmClientLock` (currently
- * the balance poll, `fetchBalances` → `getAccount`) MUST check this and skip
- * their WASM read while it is true.
+ * A read that runs outside the lock MUST check this and skip while it is true.
+ * No wallet read does any more: the balance read takes the lock itself
+ * (`tryWithWasmClientLock` for a refresh, `withWasmClientLock` for a first read).
  *
  * Rationale: a transaction holds this lock across the SDK's
  * `_withInnerWebClient` window, and during that window the SDK runs any OTHER

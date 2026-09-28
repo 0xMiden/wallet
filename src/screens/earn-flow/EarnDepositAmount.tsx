@@ -8,6 +8,8 @@ import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'l
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
@@ -15,7 +17,8 @@ import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
-import { useEarnPositions } from './useEarnPositions';
+import { EarnLoadError } from './EarnLoadError';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
   vaultId: string;
@@ -41,11 +44,14 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       settleRouteFlow('earn', flow => flow.cancel());
     };
   }, []);
-  const { vaults } = useEarnPositions();
-  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
+  const vault = useMemo(() => found ?? placeholderVault(), [found]);
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
@@ -60,12 +66,16 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       name: depositBalance?.metadata.symbol ?? 'USDC',
       decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
       balance: depositBalance?.balance ?? 0,
-      fiatPrice: depositBalance?.fiatPrice ?? 1,
+      // The live quote, held row or not: the row's stored price is a capture from when balances
+      // were read. No quote is no price (0), never a stated $1.
+      fiatPrice:
+        tokenQuote(tokenPrices, depositBalance?.tokenId ?? MIDEN_USDC_FAUCET, depositBalance?.metadata.symbol ?? 'USDC')
+          ?.price ?? 0,
       // Either the faucet answered, or we fall back to the USDC constant — which
       // is a stated decimals for a known token, not a guess about an unknown one.
       scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : true
     }),
-    [depositBalance]
+    [depositBalance, tokenPrices]
   );
 
   const amountValue = parseAmount(amount);
@@ -73,37 +83,47 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
   const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
-  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing;
+  // Continue also needs the vault itself: the placeholder has no id to deposit into.
+  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing && Boolean(vault.id);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-amount-page">
-      <EarnFlowHeader vault={vault} />
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
+      <EarnFlowHeader subject={found} />
 
-      <div className="min-h-0 flex-1">
-        <SelectAmount
-          token={token}
-          amount={amount}
-          isValidAmount={isValidAmount}
-          label={t('earnDepositAmountLabel')}
-          confirmTitle={t('confirm')}
-          showNetworkPill={false}
-          showBalanceHelper={!hasAmount}
-          // Say WHY Continue is dead. Without this the user sees a positive,
-          // in-balance amount and a disabled button with no explanation — the
-          // send and swap flows both name the same condition. `SelectAmount`
-          // translates the key itself, so pass the key rather than the text.
-          error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
-          footerClassName="pt-4 pb-6"
-          onAmountChange={setAmount}
-          onSelectToken={() => undefined}
-          onConfirm={() => {
-            if (isValidAmount) {
-              handedOff.current = true;
-              navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
-            }
-          }}
-        />
-      </div>
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-4" />
+      ) : pending ? null : (
+        <>
+          {loadFailed && (
+            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
+          )}
+          <div className="min-h-0 flex-1">
+            <SelectAmount
+              accent="earn"
+              token={token}
+              amount={amount}
+              isValidAmount={isValidAmount}
+              label={t('earnDepositAmountLabel')}
+              confirmTitle={t('confirm')}
+              showNetworkPill={false}
+              showBalanceHelper={!hasAmount}
+              // Say WHY Continue is dead. Without this the user sees a positive,
+              // in-balance amount and a disabled button with no explanation — the
+              // send and swap flows both name the same condition. `SelectAmount`
+              // translates the key itself, so pass the key rather than the text.
+              error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
+              onAmountChange={setAmount}
+              onSelectToken={() => undefined}
+              onConfirm={() => {
+                if (isValidAmount) {
+                  handedOff.current = true;
+                  navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
+                }
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -28,11 +28,11 @@ it('renders provider names and a custom endpoint hostname between the supplied l
       newEndpoint="https://custom.guardian.example/path"
       previousLabel="Current"
       newLabel="New"
-      className="history-hero"
+      className="review-hero"
     />
   );
 
-  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('history-hero');
+  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('review-hero');
   expect(screen.getByText('Current')).toBeInTheDocument();
   expect(screen.getByText('LambdaClass')).toBeInTheDocument();
   expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowDown');
@@ -55,18 +55,14 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
       newEndpoint="https://guardian.openzeppelin.com"
       previousLabel="Current"
       newLabel="New"
-      variant="review"
     />
   );
 
-  // `text-ink`, not `text-text-muted`: the muted token is #ababab, which
-  // is 2.3:1 on this card in light mode. Both chips now carry ink that clears AA
-  // in both themes.
-  expect(screen.getByText('Current')).toHaveClass('text-ink');
+  expect(screen.getByText('Current')).toHaveClass('bg-white', 'text-ink');
   // Provider names come from the canonical brand mapping (#464).
   expect(screen.getByText('LambdaClass · EU-WEST')).toHaveClass('text-ink');
   // Fixed dark grey on the fixed white pill so the chip stays readable in dark mode.
-  expect(screen.getByText('New')).toHaveClass('text-grey-700');
+  expect(screen.getByText('New')).toHaveClass('bg-pure-white', 'text-grey-700');
   expect(screen.getByText('OpenZeppelin · US-EAST')).toHaveClass('text-pure-white');
   expect(screen.getByText('OpenZeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
 });

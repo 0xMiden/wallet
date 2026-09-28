@@ -12,7 +12,8 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
-  nextQueuedSeq
+  nextQueuedSeq,
+  STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
 
 /**
@@ -126,11 +127,10 @@ export const isRequeueableTransaction = (tx: {
 };
 
 /**
- * Structural account operations - the ones that rewrite the account's own
- * authorization rather than move value. None of them is requeueable (see
+ * Structural account operations. None of them is requeueable (see
  * `REQUEUEABLE_TYPES`): the user re-initiates them from Settings.
  */
-const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'];
+const STRUCTURAL_TYPES = STRUCTURAL_GUARDIAN_TYPES;
 
 /**
  * Whether the UI should still offer Cancel on an in-flight row.
@@ -449,6 +449,9 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // unauthorized failure, so a row that had exhausted its budget would behave
     // worse under Retry than an identical send the user initiated from scratch.
     dbTx.unauthorizedRetryUntil = undefined;
+    // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
+    // attempts had doubled (#1223).
+    dbTx.requeueStreak = undefined;
     dbTx.error = undefined;
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;

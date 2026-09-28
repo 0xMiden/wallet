@@ -88,7 +88,7 @@ describe('TabHeader — structure & title', () => {
     expect(heading.className).not.toContain('dark:text-pure-white');
   });
 
-  it('renders the outer element as a <header> with the shared layout classes and no grey rule below it', () => {
+  it('renders the outer element as a <header> with the shared layout classes', () => {
     const { container } = render(<TabHeader title="Explore" />);
 
     const header = container.querySelector('header');
@@ -97,9 +97,6 @@ describe('TabHeader — structure & title', () => {
     expect(header!.className).toContain('flex');
     expect(header!.className).toContain('items-center');
     expect(header!.className).toContain('justify-between');
-
-    // The 4px grey rule under the title is gone — the header is the last thing rendered.
-    expect(header!.nextElementSibling).toBeNull();
   });
 
   it('reflects whatever title string it is given', () => {
@@ -229,13 +226,19 @@ describe('TabHeaderAction', () => {
     jest.clearAllMocks();
   });
 
-  it('renders a bare 24px icon in a 44px hit area, with no background circle', () => {
+  it("renders a 24px icon on the app's 44px fill circle, flat, inside the 56px row", () => {
     render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
 
     const button = screen.getByRole('button', { name: 'Search' });
+    // The same circle the pushed-page back button and the sheets use, not a bare glyph.
     expect(button.className).toContain('w-11');
     expect(button.className).toContain('h-11');
-    expect(button.className).not.toMatch(/\bbg-/);
+    expect(button.className).toContain('bg-fill');
+    expect(button.className).toContain('rounded-full');
+    // Flat: the raised bubble means "selected" now, and a plain action must not claim it.
+    expect(button.className).not.toMatch(/shadow-raised|bg-raised/);
+    // No negative margin: a visible circle sits inside the page margin, unlike the bare glyph.
+    expect(button.className).not.toMatch(/-mx-/);
 
     const icon = button.querySelector('svg');
     expect(icon).not.toBeNull();
@@ -243,15 +246,17 @@ describe('TabHeaderAction', () => {
     expect(icon!.getAttribute('class')).toContain('h-6');
   });
 
-  it('is ink by default and switches to the accent color when active', () => {
+  it('is an ink glyph on fill by default and fills with the accent when active', () => {
     const { rerender } = render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
 
     expect(screen.getByRole('button', { name: 'Search' }).className).toContain('text-ink');
 
     rerender(<TabHeaderAction label="Search" icon={IconName.Search} active onClick={jest.fn()} />);
 
+    // The held state is the selected pill's pair: white on `accent`, legal at 3:1 for a glyph.
     const button = screen.getByRole('button', { name: 'Search' });
-    expect(button.className).toContain('text-accent-primary');
+    expect(button.className).toContain('bg-accent-primary');
+    expect(button.className).toContain('text-pure-white');
     expect(button.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -273,10 +278,28 @@ describe('TabHeader — search swap animation', () => {
 
   it('keeps the header at its fixed height whichever side is showing', () => {
     const { container, rerender } = render(<TabHeader title="Activity" />);
-    expect(container.querySelector('header')!.className).toContain('h-15');
+    const closed = container.querySelector('header')!.className;
 
     rerender(<TabHeader title="Activity" search={search} />);
-    expect(container.querySelector('header')!.className).toContain('h-15');
+    const open = container.querySelector('header')!.className;
+
+    // Byte-identical, so the row cannot be one height closed and another open.
+    expect(open).toBe(closed);
+    expect(open).toContain('h-14');
+  });
+
+  it('gives the title and the search field the same 36px box, and the row no padding to grow by', () => {
+    const { container, rerender } = render(<TabHeader title="Activity" />);
+
+    // No vertical padding: in a column flex parent a padded row's automatic minimum size is its
+    // content's, so the 44px icon action used to push the row past its own height. With none, the
+    // row's height is the only thing that sets the row's height.
+    const header = container.querySelector('header')!;
+    expect(header.className).not.toMatch(/\b(py|pt|pb)-/);
+    expect(screen.getByTestId('tab-header-title').className).toContain('h-9');
+
+    rerender(<TabHeader title="Activity" search={search} />);
+    expect(screen.getByTestId('tab-header-search').className).toContain('h-9');
   });
 
   it('swaps the title for the search field, and back, through one AnimatePresence slot', () => {
@@ -372,5 +395,25 @@ describe('TabHeader — search swap animation', () => {
     const button = screen.getByRole('button', { name: 'Search' });
     expect(button.className).toContain('transition-colors');
     expect(button.className).toMatch(/duration-\d/);
+  });
+});
+
+describe('TabHeader divider', () => {
+  it('draws none of its own: the rule under a tab root belongs to TabRootHeader', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    const header = container.querySelector('header')!;
+    expect(header.className).not.toMatch(/border/);
+    expect(container.querySelector('.h-1')).toBeNull();
+    // One row, nothing after it — a page cannot end up with a divider of its own choosing.
+    expect(header.nextElementSibling).toBeNull();
+  });
+
+  it('is the 56px row that leaves the 4px rule room inside the home action bar budget', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    // h-14 = 56px, and 56 + the rule's 4 = 60px, which is what Home's SegmentedActionBar
+    // occupies (4 + 48 + 8 + its hairline).
+    expect(container.querySelector('header')).toHaveClass('h-14', 'shrink-0');
   });
 });

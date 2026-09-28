@@ -3,6 +3,7 @@ import React from 'react';
 import { render, act, fireEvent } from '@testing-library/react';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
+import { TabActiveContext } from './page-active';
 
 // ---------------------------------------------------------------------------
 // Mock capture holders. All are `mock`-prefixed so jest's factory-hoisting
@@ -14,6 +15,7 @@ const mockNavigate = jest.fn();
 let mockPathname = '/';
 const mockSwapEnabled = { value: true };
 const mockReduceMotion = { value: false };
+const mockLinearEasing = { value: true };
 
 const mockAnimateStop = jest.fn();
 const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
@@ -111,7 +113,8 @@ jest.mock('lib/animation', () => ({
   // Reduced motion is asserted through the spring solver instead, which is where
   // the component actually branches on it.
   resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
-  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
+  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args),
+  supportsLinearEasing: () => mockLinearEasing.value
 }));
 
 // A swipe that lands on another page is a tab switch and buzzes once.
@@ -247,6 +250,7 @@ beforeEach(() => {
   mockRoCallback = null;
   mockSwapEnabled.value = true;
   mockReduceMotion.value = false;
+  mockLinearEasing.value = true;
   mockX = 0;
   mockReleases = [];
   document.body.removeAttribute('data-hide-navbar');
@@ -452,9 +456,15 @@ describe('HomeSwipeContainer', () => {
     // Settings shows, and this component reads the live route. None of those
     // routes is a home page, and treating them as Overview slid the hidden track
     // there, so coming back showed Overview and then slid to the page the bar named.
+    const pane = (shown: boolean) => (
+      <TabActiveContext.Provider value={shown}>
+        <HomeSwipeContainer />
+      </TabActiveContext.Provider>
+    );
+
     it('holds the track on its page instead of sliding it to Overview', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockAnimate.mockClear();
@@ -462,7 +472,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
 
       expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
@@ -471,19 +481,19 @@ describe('HomeSwipeContainer', () => {
 
     it('shows the page again without a slide when the route comes back to it', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
 
       mockPathname = '/send';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       expect(mockAnimate).not.toHaveBeenCalled();
@@ -492,12 +502,12 @@ describe('HomeSwipeContainer', () => {
 
     it('swaps straight to Overview when Home is chosen from another tab', () => {
       mockPathname = '/receive';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-600);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
@@ -505,7 +515,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       // The pane was hidden, so the change is a tab swap: no slide across the
@@ -513,6 +523,29 @@ describe('HomeSwipeContainer', () => {
       expect(mockAnimate).not.toHaveBeenCalled();
       expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
       expect(mockX).toBe(-0);
+    });
+
+    // The swap is the tab's return (#1194), the one rule the action bar and Activity's filter row
+    // share; a route that leaves the home pages and comes back while the tab stays shown slides, as
+    // the action bar above it does.
+    it('slides when the route comes back to another page while the tab stays shown', () => {
+      mockPathname = '/receive';
+      const { rerender } = render(pane(true));
+      measure(300);
+      settleAt(-600);
+      mockPathname = '/token/abc';
+      act(() => {
+        rerender(pane(true));
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+
+      mockPathname = '/';
+      act(() => {
+        rerender(pane(true));
+      });
+
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
     });
   });
 
@@ -691,6 +724,18 @@ describe('HomeSwipeContainer', () => {
 
     it('jumps straight to the page when reduced motion is on', () => {
       mockReduceMotion.value = true;
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockReleases).toHaveLength(0);
+      expect(mockMotionSet).toHaveBeenCalledWith(-300);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    // Element.animate throws on an easing the engine cannot parse (linear() before Safari 17.2).
+    it('jumps straight to the page where the engine cannot parse linear()', () => {
+      mockLinearEasing.value = false;
       mockPathname = '/';
       render(<HomeSwipeContainer />);
       measure(300);

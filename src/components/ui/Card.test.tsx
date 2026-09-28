@@ -209,3 +209,32 @@ describe('CardButton', () => {
     expect(button).toHaveAttribute('data-dapp-url', 'https://example.org');
   });
 });
+
+// @ts-expect-error The surface type stays inside Card.
+type InternalSurface = import('./Card').CardSurface;
+
+describe('Card surfaces', () => {
+  it('fills by default and outlines on request', () => {
+    const { container, rerender } = render(<Card>x</Card>);
+    expect(container.firstChild).toHaveClass('bg-fill');
+
+    rerender(<Card surface="outline">x</Card>);
+    expect(container.firstChild).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(container.firstChild).not.toHaveClass('bg-fill');
+  });
+
+  it('offers the outline on CardButton too, keeping its press and focus classes', () => {
+    const surface: InternalSurface = 'outline';
+    const { rerender } = render(<CardButton onClick={() => undefined}>x</CardButton>);
+    expect(screen.getByRole('button')).toHaveClass('bg-fill');
+
+    rerender(
+      <CardButton surface={surface} onClick={() => undefined}>
+        x
+      </CardButton>
+    );
+    expect(screen.getByRole('button')).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(screen.getByRole('button')).not.toHaveClass('bg-fill');
+    expect(screen.getByRole('button')).toHaveClass('active:bg-fill-pressed', 'focus-visible:ring-2');
+  });
+});

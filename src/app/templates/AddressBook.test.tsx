@@ -80,7 +80,7 @@ it('searches names and addresses across both sections', () => {
   expect(screen.getByText('noContactsFound')).toBeInTheDocument();
 });
 
-it('shows an empty state with no saved contacts, and opens the new-contact page', () => {
+it('shows an empty state through EmptyState with the dashed surface, and opens the new-contact page', () => {
   contactsMock.mockReturnValue([MINE]);
   render(<AddressBook />);
 
@@ -90,6 +90,8 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   const empty = screen.getByTestId('address-book-empty');
   expect(empty.querySelector('h3')).toHaveTextContent('noContactsYet');
   expect(empty).toHaveTextContent('noContactsYetHint');
+  expect(empty).toHaveClass('border-dashed');
+  expect(empty).not.toHaveClass('bg-fill');
   // Was `w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink` - the Secondary
   // variant already paints bg-fill/text-ink, so hand-painting them again was redundant.
   expect(screen.getByTestId('address-book-new-contact').className).not.toMatch(
@@ -99,22 +101,42 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   expect(navigateMock).toHaveBeenCalledWith('/contacts/new');
 });
 
-it('draws contacts as one fill group with hairlines inset past the avatar', () => {
+it('draws contacts and my-accounts as plain groups, flush on the page margin with full-width hairlines', () => {
   render(<AddressBook />);
   const first = screen.getByTestId('address-book-contact-mtst1alice');
   const second = screen.getByTestId('address-book-contact-0xzed');
-  expect(first.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  // The Address Book's body IS the list, so the group has no surface of its own.
+  expect(first.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+  expect(first.parentElement).not.toHaveClass('bg-fill');
   expect(second.parentElement).toBe(first.parentElement);
-  // The first row's hairline is hidden by `first:`; the rest start after the avatar.
+  // The first row's hairline is hidden by `first:`; the rest run the group's full width.
   expect(first).toHaveClass('first:before:hidden');
-  expect(second).toHaveClass('before:bg-hairline', 'before:left-[68px]');
+  expect(second).toHaveClass('before:bg-hairline');
+
+  const account = screen.getByTestId('address-book-account-mtst1mine');
+  expect(account.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+  expect(account.parentElement).not.toHaveClass('bg-fill');
 });
 
 it('draws the rows and labels with the shared list components', () => {
   render(<AddressBook />);
 
-  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-muted', 'text-label');
+  // The Settings-root header treatment: a 20px `ink` title behind the section's glyph.
+  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-title-section', 'text-ink');
   const contact = screen.getByTestId('address-book-contact-0xzed');
   expect(contact.querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('address-book-account-mtst1mine').querySelector('[data-slot="chevron"]')).toBeNull();
+});
+
+it('sits on the shared sub-page frame: the CTA is pinned outside the scrolling body', () => {
+  render(<AddressBook />);
+
+  const body = screen.getByTestId('address-book').querySelector('[data-slot="body"]');
+  expect(body).toHaveClass('gap-5', 'overflow-y-auto', 'px-4');
+  // The page adds no gap of its own — the 20px between its sections is the layout's.
+  expect(screen.getByTestId('address-book-search').closest('[data-slot="body"]')).toBe(body);
+
+  const cta = screen.getByTestId('address-book-new-contact');
+  expect(cta.closest('[data-slot="footer"]')).not.toBeNull();
+  expect(cta.closest('[data-slot="body"]')).toBeNull();
 });

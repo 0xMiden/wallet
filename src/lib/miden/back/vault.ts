@@ -10,11 +10,11 @@ import {
   PublicKey
 } from '@miden-sdk/miden-sdk/lazy';
 import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
-import * as Bip39 from 'bip39';
 import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
+import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -33,10 +33,8 @@ import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/pr
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
-import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
@@ -44,6 +42,7 @@ import {
   SeedPhraseStatus,
   GuardianSyncStatus,
   ImportedAccountBackup,
+  KeyDerivation,
   SignEvmOperation,
   WalletAccount,
   WalletBackupMaterial,
@@ -53,7 +52,13 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { MNEMONIC_PATTERN, importedAccountBackupFailure, isWalletAccount, normalizeBackupHex } from '../backup-file';
+import {
+  MNEMONIC_PATTERN,
+  importedAccountBackupFailure,
+  isExcludedFromWalletFile,
+  isWalletAccount,
+  normalizeBackupHex
+} from '../backup-file';
 import {
   authorizeRecovery,
   beginRecoveryAuthorization,
@@ -64,15 +69,17 @@ import {
   getRecoveryAction,
   isRecoveryTransaction
 } from './recovery-authorization';
-import { fetchFromStorage } from '../front/storage';
-import type { CreatedGuardianKeys } from '../guardian/account';
+import type { CreatedGuardianKeys, GuardianCreateKey, PendingGuardianRegistration } from '../guardian/account';
 import {
+  fetchGuardianCreateKey,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
+  registerGuardianAccount,
   resolveGuardianEndpoint
 } from '../guardian/account';
 import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
-import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
+import { deriveClientSeed, makeColdSeedDeriver, makeSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
+import { NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -83,6 +90,7 @@ import {
   withWasmClientLock
 } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -110,11 +118,44 @@ const NEW_ACCOUNT_AUTH_SCHEME: AuthScheme = 'ecdsa';
  */
 const LEGACY_AUTH_SCHEME: AuthScheme = 'falcon';
 
-/** Schemes the mnemonic-restore probe walks, in order of historical likelihood. */
-const RESTORE_PROBE_SCHEMES: readonly AuthScheme[] = ['falcon', 'ecdsa'] as const;
-
 /** Returns the auth scheme for an account, applying the legacy fallback. */
 const getAccountAuthScheme = (account: WalletAccount): AuthScheme => account.authScheme ?? LEGACY_AUTH_SCHEME;
+
+// KEY DERIVATION POLICY
+// ============================================================================
+//
+// The seed of every HD account is derived under one of two SLIP-0010 schemes
+// (see `KeyDerivation` in lib/shared/types and `@miden/hd-key`). `legacy` is
+// the `bls12_377 seed` label the wallet shipped with; `v1` is the Miden label
+// with the Miden coin type and a per-scheme path level (issue #918). A record
+// with no `keyDerivation` predates the field and is `legacy`. Restore paths
+// MUST derive under the stored scheme; mnemonic-only restore probes the
+// schemes in `RESTORE_PROBES` order against the chain.
+
+/** Derivation stamped on every NEW HD account this wallet creates. */
+const NEW_ACCOUNT_KEY_DERIVATION: KeyDerivation = 'v1';
+
+/** Records persisted before `keyDerivation` existed derived under this scheme. */
+const LEGACY_KEY_DERIVATION: KeyDerivation = 'legacy';
+
+/** Returns the key derivation for an account, applying the legacy fallback. */
+const getAccountKeyDerivation = (account: WalletAccount): KeyDerivation =>
+  account.keyDerivation ?? LEGACY_KEY_DERIVATION;
+
+/**
+ * Mnemonic-only restore probes, in order: the current scheme first so new
+ * wallets hit on the first on-chain lookup, then the legacy ECDSA derivation.
+ * Legacy Falcon accounts are no longer probed by seed phrase alone (decision
+ * in #918); an encrypted-file backup still restores them, since it carries the
+ * per-account scheme.
+ */
+const RESTORE_PROBES: readonly { keyDerivation: KeyDerivation; authScheme: AuthScheme }[] = [
+  { keyDerivation: 'v1', authScheme: 'ecdsa' },
+  { keyDerivation: 'legacy', authScheme: 'ecdsa' }
+];
+
+/** Every scheme a hot-key-only Guardian import may have been derived under, current first. */
+const RECOVERY_SEED_KEY_DERIVATIONS: readonly KeyDerivation[] = ['v1', 'legacy'];
 
 /**
  * Derives an `AuthSecretKey` from a mnemonic-derived seed under the given
@@ -432,7 +473,7 @@ export class Vault {
 
   async provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction): Promise<void> {
     const phrase = mnemonic.trim().toLowerCase().split(/\s+/).join(' ');
-    if (!Bip39.validateMnemonic(phrase)) throw new PublicError(getMessage('invalidRecoverySeed'));
+    if (!validateMnemonic(phrase)) throw new PublicError(getMessage('invalidRecoverySeed'));
     const transaction = await Repo.transactions.get(transactionId);
     if (
       !transaction ||
@@ -451,21 +492,25 @@ export class Vault {
     if (!account || account.type !== WalletType.Guardian) {
       throw new PublicError(getMessage('recoveryActionUnavailable'));
     }
-    // A seed-derived account knows its HD index. A hot-key-only import does not
-    // (hdIndex is -1) and stores no cold public key, so walk the recovery range
-    // and let the on-chain cold signer commitment pick the index. Nothing found
-    // here is persisted: the derived key lives in the recovery authorization only.
-    const hdIndices =
+    // A seed-derived account knows its HD index and its derivation scheme. A
+    // hot-key-only import does not (hdIndex is -1) and stores no cold public
+    // key, so walk the recovery range under every scheme and let the on-chain
+    // cold signer commitment pick the index. Nothing found here is persisted:
+    // the derived key lives in the recovery authorization only.
+    const candidates: { hdIndex: number; keyDerivation: KeyDerivation }[] =
       account.hdIndex >= 0
-        ? [account.hdIndex]
-        : Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => hdIndex);
+        ? [{ hdIndex: account.hdIndex, keyDerivation: getAccountKeyDerivation(account) }]
+        : RECOVERY_SEED_KEY_DERIVATIONS.flatMap(keyDerivation =>
+            Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => ({ hdIndex, keyDerivation }))
+          );
+    const deriveColdSeed = makeColdSeedDeriver(phrase, account.type);
     await withWasmClientLock(async () => {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
       const onChainCommitment = normalizeHex(commitment);
-      for (const hdIndex of hdIndices) {
-        const seed = deriveClientSeed(account.type, phrase, hdIndex);
+      for (const { hdIndex, keyDerivation } of candidates) {
+        const seed = deriveColdSeed(hdIndex, keyDerivation);
         const key = AuthSecretKey.ecdsaWithRNG(seed);
         seed.fill(0); // zero the seed out
         const publicKey = key.publicKey();
@@ -661,7 +706,14 @@ export class Vault {
         }
         if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
           console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
-          throw new PublicError('Wallet has no seed phrase to back up its derived accounts');
+          throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
+        }
+        // The record goes with the key: the restore refuses a whole file holding an imported
+        // record without its secret. Its SDK row stays in the dump, and the restore skips it.
+        const fileAccounts = accounts.filter(account => !isExcludedFromWalletFile(account));
+        if (fileAccounts.length === 0) {
+          console.error('[walletBackup] refused: every account is restored from its own keys, not a file');
+          throw new PublicError('Wallet has no accounts an encrypted file can restore');
         }
 
         const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
@@ -670,7 +722,7 @@ export class Vault {
             assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
             const backups: ImportedAccountBackup[] = [];
 
-            for (const walletAccount of accounts.filter(account => account.hdIndex < 0)) {
+            for (const walletAccount of fileAccounts.filter(account => account.hdIndex < 0)) {
               // Every abort reads the same to the user, so the reason is logged
               // here or the failure cannot be diagnosed from a report. The name is
               // the only account detail that travels; no secret or commitment does.
@@ -734,7 +786,7 @@ export class Vault {
           { label: 'vault-export-wallet-backup' }
         );
 
-        return { seedPhrase, accounts, midenClientDbContent, importedAccounts };
+        return { seedPhrase, accounts: fileAccounts, midenClientDbContent, importedAccounts };
       });
 
       if (!snapshot) throw new PublicError('Failed to prepare encrypted wallet backup');
@@ -759,7 +811,7 @@ export class Vault {
       const hasHardware = await Vault.hasHardwareProtector();
       if (hasHardware) {
         throw new PublicError(
-          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with seed phrase.'
+          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with your recovery phrase.'
         );
       }
       // Legacy wallet - fall back to old password-based unlock
@@ -808,7 +860,7 @@ export class Vault {
       const spawned = new Vault(vaultKey);
 
       if (!mnemonic) {
-        mnemonic = Bip39.generateMnemonic(128);
+        mnemonic = generateMnemonic();
       }
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
@@ -816,15 +868,9 @@ export class Vault {
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
       // the create/recovery branches below.
       //
-      // The global `GUARDIAN_URL_STORAGE_KEY` is now frozen and never written
-      // anywhere (#408 stage 3), so we no longer restore it across the wipe. We
-      // DO still snapshot its pre-wipe value into this local so the Guardian-
-      // recovery branch below can fall back to it when the operator probe
-      // detected nothing — a legacy custom/self-hosted guardian whose only
-      // pointer is this key. That fallback is now purely in-memory: the value is
-      // read once here and passed forward; it is never written back to storage.
+      // Resolved before the wipe, so a failed read aborts first: the pick, else the legacy key, else the default.
+      const resolvedGuardianEndpoint = await resolveGuardianEndpoint({ guardianEndpoint });
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
       console.log('[Vault.spawn] Step 4: storage cleared');
 
@@ -863,7 +909,15 @@ export class Vault {
       }
 
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
+      // One PBKDF2 for every scheme this spawn may derive under: the current
+      // scheme for a fresh create, and each restore probe below.
+      const deriveSpawnSeed = makeSeedDeriver(mnemonic!);
+      const walletSeed = deriveSpawnSeed({
+        keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
+        walletType,
+        authScheme: NEW_ACCOUNT_AUTH_SCHEME,
+        hdIndex: hdAccIndex
+      });
 
       console.log('[Vault.spawn] Step 5: getting miden client...');
       // Under a labelled hold: a first creation fetches genesis and can park, and this
@@ -893,6 +947,7 @@ export class Vault {
         accountId: string;
         hdIndex: number;
         authScheme: AuthScheme;
+        keyDerivation: KeyDerivation;
         guardianKeys?: CreatedGuardianKeys;
         guardianEndpoint?: string;
         recoveredCold?: { coldPublicKey: string; coldSecretKeyHex: string };
@@ -902,13 +957,6 @@ export class Vault {
 
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
-        // Prefer the endpoint the caller probed/picked for this recovery (stage 1
-        // of #408). Fall back to the legacy global key (snapshotted before the
-        // storage wipe above; it is frozen and no longer restored — #408 stage 3),
-        // then the network default, so a recovery that detected nothing still
-        // resolves exactly as before.
-        const resolvedGuardianEndpoint =
-          guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
@@ -924,23 +972,66 @@ export class Vault {
         // through the realm sink this spawn installed: safe because lock() retires by
         // identity and never re-derives the sink from the store, and because the
         // constructing flows ride the accounts queue, so nothing resyncs under a spawn (#878).
-        const recovered = await (await liveClient())
-          .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
-          .catch((err: unknown) => {
-            if (err instanceof PublicError) throw err;
-            throw new PublicError(err instanceof Error ? err.message : String(err));
+        // The scan runs under EVERY derivation scheme and merges the results. One
+        // wallet can hold accounts under both: a wallet created before #918 has
+        // legacy accounts, and any account it added after the update is v1. A
+        // scan that stopped at the first scheme with a match would silently drop
+        // the accounts (and balances) under the other one. A scheme with no
+        // accounts is a plain miss; every other failure (network, poison, a
+        // lookup error) aborts as before, and only a miss under both schemes is
+        // reported as "nothing at this endpoint for this seed".
+        const deriveColdSeed = makeColdSeedDeriver(mnemonic!, WalletType.Guardian);
+        const scanUnder = async (keyDerivation: KeyDerivation) => {
+          try {
+            const matches = await (
+              await liveClient()
+            ).recoverGuardianAccountsBySeed(
+              hdIndex => deriveColdSeed(hdIndex, keyDerivation),
+              resolvedGuardianEndpoint
+            );
+            return matches.map(match => ({ ...match, keyDerivation }));
+          } catch (err: unknown) {
+            if (err instanceof NoGuardianAccountsFoundError) {
+              console.log(`[Vault.spawn] Step 7a: no Guardian accounts under the ${keyDerivation} derivation`);
+              return [];
+            }
+            throw err;
+          }
+        };
+        const recovered = await (async () => {
+          const found = [...(await scanUnder(NEW_ACCOUNT_KEY_DERIVATION)), ...(await scanUnder(LEGACY_KEY_DERIVATION))];
+          if (found.length === 0) throw new NoGuardianAccountsFoundError();
+          // The lookup is by signer commitment, so an account that lists a cold
+          // key from each scheme as a signer answers both scans. Keep the first
+          // (current-scheme) match; a record must carry exactly one derivation.
+          const seen = new Set<string>();
+          return found.filter(match => {
+            if (seen.has(match.accountId)) return false;
+            seen.add(match.accountId);
+            return true;
           });
+        })().catch((err: unknown) => {
+          if (err instanceof PublicError) throw err;
+          throw toPublicError(err);
+        });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
           hdIndex: r.hdIndex,
           // Guardian accounts are always ECDSA under the 3-key model.
           authScheme: NEW_ACCOUNT_AUTH_SCHEME,
+          keyDerivation: r.keyDerivation,
           // Recovery is scoped to a single operator endpoint, so every adopted
           // account is registered with the same endpoint we looked up against.
           guardianEndpoint: resolvedGuardianEndpoint,
           recoveredCold: { coldPublicKey: r.coldPublicKey, coldSecretKeyHex: r.coldSecretKeyHex }
         }));
       } else {
+        // The guardian's key is fetched, and the account registered, with no hold: their 429
+        // waits must not block the realm's other client work (#1207). The picked endpoint
+        // (stage 1 of #408) is the override; undefined falls back to the network default,
+        // never the frozen global key, for NEW accounts (#408 stage 3).
+        const guardianCreateKey =
+          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint) : undefined;
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
           async (
@@ -948,8 +1039,10 @@ export class Vault {
           ): Promise<{
             accountId: string;
             accAuthScheme: AuthScheme;
+            keyDerivation: KeyDerivation;
             guardianKeys?: CreatedGuardianKeys;
             guardianEndpoint?: string;
+            guardianRegistration?: PendingGuardianRegistration;
           }> => {
             // Re-resolved now that the lock is held — the reference taken before
             // queueing may have been disposed by recovery in the meantime (#775).
@@ -962,34 +1055,44 @@ export class Vault {
             // it provably pre-write: no account exists until the create/import
             // calls, and the vault writes happen after the lock releases.
             assertWasmHoldCurrent(hold, 'in Vault.spawn after the client build');
-            if (walletType === WalletType.Guardian) {
+            if (guardianCreateKey) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await client.syncState();
               // The sync parks on the network; an abandoned flow must not go on
               // to mint a guardian account nobody is waiting for.
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
-              // Pass the caller's picked endpoint (stage 1 of #408) as the
-              // override; createGuardianAccount falls back to the network default
-              // when it is undefined (it no longer consults the frozen global key
-              // for NEW accounts — #408 stage 3).
-              const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint);
+              // Creation parks inside this hold (the hot key, the account build,
+              // its sync), so it re-checks ownership after each of those awaits.
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
+                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
+              );
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
                 accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
+                keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
                 guardianKeys: result.keys,
-                guardianEndpoint: result.guardianEndpoint
+                guardianEndpoint: result.guardianEndpoint,
+                guardianRegistration: result.registration
               };
             }
 
             if (ownMnemonic && client.network !== 'mock') {
-              // Non-guardian mnemonic restore. Probe each known auth scheme — the
-              // user's real on-chain account at hdIndex=0 was created under exactly
-              // one of them, but we have no metadata to tell us which. Falcon first
-              // (the pre-migration default); ECDSA second so post-migration
-              // restorers work too. If neither probe finds an on-chain match the
-              // mnemonic is "fresh" — fall through to a brand-new ECDSA create.
-              for (const scheme of RESTORE_PROBE_SCHEMES) {
+              // Non-guardian mnemonic restore. Probe each known derivation and
+              // auth scheme pair — the user's real on-chain account at hdIndex=0
+              // was created under exactly one of them, but we have no metadata to
+              // tell us which. The current scheme first so new wallets hit at
+              // once; the legacy ECDSA derivation second so pre-#918 restorers
+              // work too. If no probe finds an on-chain match the mnemonic is
+              // "fresh" — fall through to a brand-new create.
+              for (const probe of RESTORE_PROBES) {
+                const scheme = probe.authScheme;
+                const probeSeed = deriveSpawnSeed({
+                  keyDerivation: probe.keyDerivation,
+                  walletType,
+                  authScheme: scheme,
+                  hdIndex: hdAccIndex
+                });
                 // Per-iteration: each probe is a parking on-chain lookup, and an
                 // eviction during probe N must neither let probe N+1 re-borrow a
                 // client a successor is inside, nor let the loop fall through to
@@ -998,9 +1101,9 @@ export class Vault {
                 // network-error abort.
                 assertWasmHoldCurrent(hold, 'in Vault.spawn before an import probe');
                 try {
-                  console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
-                  const id = await client.importPublicMidenWalletFromSeed(walletSeed, scheme);
-                  return { accountId: id, accAuthScheme: scheme };
+                  console.log(`[Vault.spawn] Step 8a: probing ${probe.keyDerivation} ${scheme} import...`);
+                  const id = await client.importPublicMidenWalletFromSeed(probeSeed, scheme);
+                  return { accountId: id, accAuthScheme: scheme, keyDerivation: probe.keyDerivation };
                 } catch (probeError) {
                   // An abandonment is not a "not on chain" answer, and neither is a
                   // client that was disposed under us. Swallowed as a miss, either
@@ -1014,6 +1117,13 @@ export class Vault {
                   if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
                     throw probeError;
                   }
+                  // The node answered "no such account": a miss. On a 0.16 node that
+                  // answer carries "RPC error", which the network check below would
+                  // read as an outage (#1127).
+                  if (isAccountNotFoundOnChainError(probeError)) {
+                    console.warn(`[Vault.spawn] no ${probe.keyDerivation} ${scheme} account on chain`, probeError);
+                    continue;
+                  }
                   // A probe miss and an UNREACHABLE NODE are different answers, and
                   // swallowing both is a fund-loss-shaped bug: if the RPC is down
                   // mid-restore, every scheme "misses", we fall through, and the user
@@ -1023,12 +1133,21 @@ export class Vault {
                   // restore so it can be retried against a reachable node.
                   if (isLikelyNetworkError(probeError)) {
                     console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
+                    const reason = probeError instanceof Error ? probeError.message : String(probeError);
                     throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
-                        'please check your connection and try restoring again.'
+                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                        `Please check your connection and try restoring again. Details: ${reason}`
                     );
                   }
-                  // probe miss; try next scheme
+                  // Anything else (a local store failure after the lookup, say) says
+                  // nothing about the chain; counting it as a miss could put a fresh
+                  // wallet in place of the account the other scheme holds.
+                  console.error(`[Vault.spawn] ${probe.keyDerivation} ${scheme} probe failed`, probeError);
+                  throw new PublicError(
+                    getMessage('restoreAccountLookupFailed', {
+                      reason: probeError instanceof Error ? probeError.message : String(probeError)
+                    })
+                  );
                 }
               }
               console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
@@ -1043,15 +1162,20 @@ export class Vault {
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the wallet create');
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
-            return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
+            return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
           },
           { label: 'vault-spawn' }
         );
+        // Before the account writes: a failed registration leaves the account in the SDK store and its
+        // cold key where the insert-key sink stored it, but no entry in the vault's account list
+        // (harmless: the cold key is HD-derived and a retry rewrites it).
+        if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
         createdAccounts = [
           {
             accountId: created.accountId,
             hdIndex: hdAccIndex,
             authScheme: created.accAuthScheme,
+            keyDerivation: created.keyDerivation,
             guardianKeys: created.guardianKeys,
             guardianEndpoint: created.guardianEndpoint
           }
@@ -1074,6 +1198,7 @@ export class Vault {
           type: walletType,
           hdIndex: c.hdIndex,
           authScheme: c.authScheme,
+          keyDerivation: c.keyDerivation,
           evmAddress: evmKeys.get(c.hdIndex)?.address,
           ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
           ...(c.guardianKeys && {
@@ -1125,8 +1250,8 @@ export class Vault {
    * Spawn a wallet from existing Guardian hot and EVM private keys — the seed-less
    * import flow. No mnemonic exists or is generated: `mnemonicStrgKey` is
    * never written, so `fetchSeedPhraseStatus()` reports 'unavailable' and
-   * every seed-derived capability (HD account creation, seed /
-   * guardian-keys reveals) stays gated off by the existing seed-status checks.
+   * every seed-derived capability (HD account creation, the seed reveal)
+   * stays gated off by the existing seed-status checks.
    * Cold-signed recovery actions stay available: they prompt for the seed
    * phrase per transaction (`provideRecoverySeed`), which derives the cold key
    * against the on-chain cold signer and keeps it in memory only. Unlike seed
@@ -1195,8 +1320,8 @@ export class Vault {
         }
       });
 
-      // Same pre-wipe snapshot + wipe as `spawn` (see the comments there).
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+      // Resolved before the wipe, as in `spawn`.
+      const resolvedGuardianEndpoint = await resolveGuardianEndpoint({ guardianEndpoint });
       await clearStorage();
 
       // Same security-model branch as `spawn`: hardware-only when the user
@@ -1225,8 +1350,6 @@ export class Vault {
         return midenClient;
       };
 
-      const resolvedGuardianEndpoint =
-        guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
       // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
       // per op, and its lookup reasons ("no account for this key", "this is the
       // recovery key") are the only actionable strings the user has left after
@@ -1236,7 +1359,7 @@ export class Vault {
         .catch((err: unknown) => {
           if (isWasmClientPoisonedError(err)) throw err;
           if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
+          throw toPublicError(err);
         });
 
       const initialAccounts: WalletAccount[] = recovered.map(
@@ -1377,6 +1500,8 @@ export class Vault {
       // insert-key sink, and the restore below already inserts the derived secrets (#878).
       spawned = new Vault(vaultKey);
 
+      // Keeps what every setup keeps, the legacy Guardian URL included: the action drops it once the
+      // restore is published, so a restore that fails leaves it for the next attempt.
       await clearStorage(false);
 
       // Determine security model: hardware-only or password-based
@@ -1442,6 +1567,8 @@ export class Vault {
               // Account exists in the restored miden-client DB but has no
               // matching legacy `WalletAccount` entry. Version 2's complete
               // imported-account check below rejects any owned omission.
+              // A hot-key Guardian's row lands here by design: the exporter leaves its
+              // record out (isExcludedFromWalletFile), so refusing it refuses the file.
               continue;
             }
             if (walletAccount.hdIndex < 0) {
@@ -1484,10 +1611,16 @@ export class Vault {
               validatedImportedAccountIds.push(walletAccount.publicKey);
               continue;
             }
-            const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-            // Each WalletAccount carries the auth scheme it was created
-            // under (legacy entries default to Falcon). Re-derive the
-            // matching secret key so the keystore entry signs correctly.
+            // Each WalletAccount carries the auth scheme and the derivation it
+            // was created under (legacy entries default to Falcon and to the
+            // legacy derivation). Re-derive the matching secret key so the
+            // keystore entry signs correctly.
+            const walletSeed = deriveClientSeed(mnemonic, {
+              keyDerivation: getAccountKeyDerivation(walletAccount),
+              walletType: walletAccount.type,
+              authScheme: getAccountAuthScheme(walletAccount),
+              hdIndex: walletAccount.hdIndex
+            });
             const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
             preparedKeys.push({ accountId, imported: false, secretKey });
           }
@@ -1559,12 +1692,16 @@ export class Vault {
       return spawned;
     }).catch(async error => {
       spawned?.retire();
-      // Returns the profile to what the restore started from. clearStorage(false)
+      // Returns the profile to what the restore started from. This clearStorage
       // is the same call the restore opens with, so it takes the protector and any
       // other plain key this attempt wrote and leaves the transactions table alone.
       // Guarded, so a failure before the protector existed cannot wipe a profile
-      // this restore never touched.
-      if (protectorInstalled) await clearStorage(false);
+      // this restore never touched; a failed undo is logged, never thrown over the restore's error.
+      if (protectorInstalled) {
+        await clearStorage(false).catch(undoError =>
+          console.error('[Vault.spawnFromMidenClient] could not undo a failed restore:', undoError)
+        );
+      }
       throw error;
     });
   }
@@ -1611,7 +1748,14 @@ export class Vault {
       hdAccIndex = accounts.length;
       console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
 
-      const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
+      // One PBKDF2 for the fresh-create seed and for every restore probe below.
+      const deriveAccountSeed = makeSeedDeriver(mnemonic);
+      const walletSeed = deriveAccountSeed({
+        keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
+        walletType,
+        authScheme: NEW_ACCOUNT_AUTH_SCHEME,
+        hdIndex: hdAccIndex
+      });
 
       // A second Guardian account must bind to the SAME operator endpoint as the
       // wallet's existing Guardian account(s). Source it from a sibling's
@@ -1621,7 +1765,7 @@ export class Vault {
       // but stays correct for non-default ones now that onboarding threads the
       // endpoint per-account instead of writing the global key (#408 stage 1).
       // undefined when there is no existing Guardian account, in which case
-      // createGuardianAccount binds to the network default — the frozen global
+      // fetchGuardianCreateKey binds to the network default - the frozen global
       // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
       // unreachable: a custom global key is only ever written by pre-stage-1
       // Guardian onboarding, which always creates a sibling Guardian account.)
@@ -1630,26 +1774,36 @@ export class Vault {
       const guardianEndpoint = existingGuardianAccount
         ? await resolveGuardianEndpoint(existingGuardianAccount)
         : undefined;
+      // Fetched with no hold, and registered after it, as in Vault.spawn (#1207). Its 429 waits are
+      // long, so a lock that landed while this creation queued refuses it before the fetch, and one
+      // that lands during a wait refuses it after that wait, as the hold's own check would.
+      let guardianCreateKey: GuardianCreateKey | undefined;
+      if (walletType === WalletType.Guardian) {
+        this.assertRealmSinkIsMine();
+        guardianCreateKey = await fetchGuardianCreateKey(guardianEndpoint, () => this.assertRealmSinkIsMine());
+      }
 
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access.
       // New accounts are created under NEW_ACCOUNT_AUTH_SCHEME (ECDSA
-      // post-migration). The import-from-seed retry path passes the same
-      // scheme — it only fires for own-mnemonic wallets re-deriving an
-      // account this wallet already created, so the scheme has to match what
-      // a fresh create would produce. Pre-migration mnemonic restores go
-      // through `Vault.spawn` (which probes both schemes); this
-      // `createHDAccount` path only creates NEW accounts in an already-restored
-      // wallet.
+      // post-migration) and NEW_ACCOUNT_KEY_DERIVATION. The import-from-seed
+      // path fires for own-mnemonic wallets re-deriving an account this seed
+      // already created at this index — `Vault.spawn` only restores index 0, so
+      // a multi-account wallet reaches its later accounts through here. Those
+      // accounts may predate #918, so every restore probe (each derivation
+      // scheme) is tried at this index before a fresh account is created, and
+      // the probe that finds the account decides the stored derivation.
       const newScheme: AuthScheme = NEW_ACCOUNT_AUTH_SCHEME;
       const created = await withWasmClientLock(
         async (
           hold
         ): Promise<{
           accountId: string;
+          keyDerivation: KeyDerivation;
           guardianKeys?: CreatedGuardianKeys;
           guardianEndpoint?: string;
+          guardianRegistration?: PendingGuardianRegistration;
         }> => {
           this.assertRealmSinkIsMine();
           console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
@@ -1665,53 +1819,96 @@ export class Vault {
           assertWasmHoldCurrent(hold, 'in createHDAccount after the client build');
           console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
 
-          if (walletType === WalletType.Guardian) {
+          if (guardianCreateKey) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
+            // Same re-check as Vault.spawn's: creation parks inside this hold.
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
+              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
+            );
             return {
               accountId: result.accountId,
+              keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
               guardianKeys: result.keys,
-              guardianEndpoint: result.guardianEndpoint
+              guardianEndpoint: result.guardianEndpoint,
+              guardianRegistration: result.registration
             };
           }
 
           if (isOwnMnemonic && walletType === WalletType.OnChain) {
-            try {
-              console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
-              return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme) };
-            } catch (e) {
-              // A lock-recovery eviction is not a "not on chain" answer either:
-              // the outer caller has already been rejected, so falling through
-              // would create a spurious empty account nobody is waiting for, on
-              // a client recovery just replaced — the same fund-loss shape as
-              // the network case below (issue #775).
-              if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
-                throw e;
-              }
-              // A network-unreachable import and a genuine "not on chain" miss are
-              // different answers; swallowing both creates a fresh EMPTY wallet on a
-              // transient node blip, hiding the user's real (correctly-seeded)
-              // account — a fund-loss shape. Mirror the Vault.spawn guard: only a
-              // definitive miss may fall through to create-fresh; connectivity
-              // aborts so the user can retry against a reachable node (resilience gap 13).
-              if (isLikelyNetworkError(e)) {
-                console.error('[Vault.createHDAccount] import could not reach the node', e);
+            for (const probe of RESTORE_PROBES) {
+              // Same per-iteration guard as the `Vault.spawn` probes: an eviction
+              // during probe N must not let probe N+1 re-borrow a client a
+              // successor is inside, nor let the loop fall through to a fresh create.
+              assertWasmHoldCurrent(hold, 'in createHDAccount before an import probe');
+              const probeSeed = deriveAccountSeed({
+                keyDerivation: probe.keyDerivation,
+                walletType,
+                authScheme: probe.authScheme,
+                hdIndex: hdAccIndex
+              });
+              try {
+                console.log(
+                  `[Vault.createHDAccount] Step 8a: probing ${probe.keyDerivation} ${probe.authScheme} import`
+                );
+                const accountId = await midenClient.importPublicMidenWalletFromSeed(probeSeed, probe.authScheme);
+                return { accountId, keyDerivation: probe.keyDerivation };
+              } catch (e) {
+                // A lock-recovery eviction is not a "not on chain" answer either:
+                // the outer caller has already been rejected, so falling through
+                // would create a spurious empty account nobody is waiting for, on
+                // a client recovery just replaced — the same fund-loss shape as
+                // the network case below (issue #775).
+                if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
+                  throw e;
+                }
+                // The node answered "no such account": a miss. On a 0.16 node that
+                // answer carries "RPC error", which the network check below would
+                // read as an outage (#1127).
+                if (isAccountNotFoundOnChainError(e)) {
+                  console.warn(
+                    `[Vault.createHDAccount] no ${probe.keyDerivation} ${probe.authScheme} account on chain`,
+                    e
+                  );
+                  continue;
+                }
+                // A network-unreachable import and a genuine "not on chain" miss are
+                // different answers; swallowing both creates a fresh EMPTY wallet on a
+                // transient node blip, hiding the user's real (correctly-seeded)
+                // account — a fund-loss shape. Mirror the Vault.spawn guard: only a
+                // definitive miss may move on to the next probe and then to
+                // create-fresh; connectivity aborts so the user can retry against a
+                // reachable node (resilience gap 13).
+                if (isLikelyNetworkError(e)) {
+                  console.error('[Vault.createHDAccount] import could not reach the node', e);
+                  const reason = e instanceof Error ? e.message : String(e);
+                  throw new PublicError(
+                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                      `Please check your connection and try again. Details: ${reason}`
+                  );
+                }
+                // Anything else says nothing about the chain; see the Vault.spawn probe loop.
+                console.error(`[Vault.createHDAccount] ${probe.keyDerivation} probe failed`, e);
                 throw new PublicError(
-                  'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
-                    'please check your connection and try again.'
+                  getMessage('createAccountLookupFailed', { reason: e instanceof Error ? e.message : String(e) })
                 );
               }
-              console.warn('Seed not found on chain; creating a new wallet instead', e);
-              return { accountId: await midenClient.createMidenWallet(walletType, walletSeed, newScheme) };
             }
+            console.warn('Seed not found on chain under any derivation; creating a new wallet instead');
+            assertWasmHoldCurrent(hold, 'in createHDAccount before the fresh create');
+            const accountId = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
+            return { accountId, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
           }
           console.log('[Vault.createHDAccount] Step 8b: createMidenWallet');
           const id = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
           console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
-          return { accountId: id };
+          return { accountId: id, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
         },
         { label: 'vault-create-hd-account' }
       );
+      // Before the account writes, as in Vault.spawn: a failed registration leaves the SDK account and
+      // its cold key, but no entry in the vault's account list (harmless: the cold key is HD-derived
+      // and a retry rewrites it).
+      if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
@@ -1730,6 +1927,7 @@ export class Vault {
         isPublic: walletType === WalletType.OnChain,
         hdIndex: hdAccIndex,
         authScheme: newScheme,
+        keyDerivation: created.keyDerivation,
         evmAddress: evmKey.address,
         ...(created.guardianEndpoint && { guardianEndpoint: created.guardianEndpoint }),
         ...(created.guardianKeys && {
@@ -1882,7 +2080,7 @@ export class Vault {
   }
 
   /**
-   * Persist a freshly-minted hot key blob produced by createReplaceHotKeyProposal.
+   * Persist the hot key blob a replace-hot-key row minted (resolveRotationHotKey in transaction/index.ts).
    * Called BEFORE the rotation tx is submitted so the new ciphertext is durable
    * even if the app dies after submit but before complete — the on-chain account
    * state determines which hotPublicKey is canonical, and `swapHotKey` (called
@@ -2081,7 +2279,13 @@ export class Vault {
       const migrated = new Map<string, string>();
       for (const acc of legacy) {
         try {
-          const coldSeed = deriveClientSeed(WalletType.Guardian, mnemonic, acc.hdIndex);
+          // Legacy records predate `keyDerivation`, so they derived under the legacy scheme.
+          const coldSeed = deriveClientSeed(mnemonic, {
+            keyDerivation: LEGACY_KEY_DERIVATION,
+            walletType: WalletType.Guardian,
+            authScheme: 'ecdsa',
+            hdIndex: acc.hdIndex
+          });
           const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
           const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
           const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
@@ -2184,9 +2388,10 @@ export class Vault {
    * `resolveGuardianDrift` uses at runtime — then stamps the operator's endpoint
    * plus the commitment baseline onto the record. After that,
    * `resolveGuardianEndpoint` reads the per-account field instead of the legacy
-   * global `GUARDIAN_URL_STORAGE_KEY` (which stage 3 froze as a read-only,
-   * never-written last-resort fallback rather than removing — a legacy account
-   * on a custom guardian the backfill can't resolve still needs it).
+   * global `GUARDIAN_URL_STORAGE_KEY`. Stage 3 froze that key: it is never
+   * written, a wallet that is only ever unlocked keeps it (a legacy account on a
+   * custom guardian the backfill can't resolve still needs it), and it is dropped
+   * once a setup succeeds and by a full reset.
    *
    * The built-in-operator commitment→option map is built ONCE up front
    * (`buildOperatorKeyMap`) and each account's on-chain commitment is looked up
@@ -2317,7 +2522,7 @@ export class Vault {
         // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
         // Surface that clearly instead of the opaque keystore-miss this fix removes.
         throw new PublicError(
-          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+          'This Guardian account has no active everyday key to sign with. Activate the everyday key in the wallet, then try again.'
         );
       }
     }
@@ -2496,7 +2701,7 @@ export class Vault {
       vaultKey = await Vault.getHardwareVaultKey();
     }
 
-    return withError('Failed to reveal seed phrase', async () => {
+    return withError('Failed to reveal recovery phrase', async () => {
       if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
         throw new PublicError(getMessage('seedPhraseRemoved'));
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
@@ -2646,21 +2851,21 @@ export class Vault {
    */
   static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal hot key', async () => {
+    return withError('Failed to reveal everyday key', async () => {
       const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
       if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
-        throw new PublicError('Hot key is only available for activated Guardian accounts');
+        throw new PublicError('Everyday key is only available for activated Guardian accounts');
       }
       const ciphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accAuthSecretKeyStrgKey(account.hotPublicKey),
         vaultKey
       );
       if (!ciphertext) {
-        throw new PublicError('Hot key ciphertext not found');
+        throw new PublicError('Everyday key ciphertext not found');
       }
       if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
@@ -2671,44 +2876,6 @@ export class Vault {
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
       return encodePrivateKeyPair(pair);
-    });
-  }
-
-  /**
-   * Reveal the cold private key + both public keys for a 3-key Guardian
-   * account. Cold is the recovery material (HD-derived from the mnemonic and
-   * mirrored under `accColdSecretKey<coldPublicKey>` by `persistGuardianKeys`
-   * / `persistRecoveredGuardianColdKey`). The hot private is NOT included —
-   * use `revealHotKey` for that.
-   */
-  static async revealGuardianKeys(
-    accountPublicKey: string,
-    password?: string
-  ): Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }> {
-    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal guardian keys', async () => {
-      if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
-        throw new PublicError(getMessage('recoverySeedRequired'));
-      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
-      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
-      if (!account) {
-        throw new PublicError('Account not found');
-      }
-      if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
-        throw new PublicError('Not a Guardian account');
-      }
-      const coldPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accColdSecretKeyStrgKey(account.coldPublicKey),
-        vaultKey
-      );
-      if (!coldPrivateKey) {
-        throw new PublicError('Cold key not found');
-      }
-      return {
-        coldPrivateKey,
-        coldPublicKey: account.coldPublicKey,
-        hotPublicKey: account.hotPublicKey
-      };
     });
   }
 
@@ -2759,7 +2926,7 @@ export class Vault {
  */
 
 function generateCheck() {
-  return Bip39.generateMnemonic(128);
+  return generateMnemonic();
 }
 
 function concatAccount(current: WalletAccount[], newOne: WalletAccount) {
@@ -2843,6 +3010,15 @@ function createDynamicStorageKey(id: StorageEntity) {
 
 function combineStorageKey(...parts: (string | number)[]) {
   return parts.join('_');
+}
+
+// Flattening to PublicError drops the class; keep the code so the UI can still tell not-found apart.
+function toPublicError(err: unknown): PublicError {
+  const publicError = new PublicError(err instanceof Error ? err.message : String(err));
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+    Object.assign(publicError, { code: err.code });
+  }
+  return publicError;
 }
 
 async function withError<T>(errMessage: string, factory: (doThrow: () => void) => Promise<T>) {

@@ -4,6 +4,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from 'lib/ui/util';
 
+import { IconCircle } from './FactRow';
+
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
     /** `sm`: `text-label` `muted` (default, the spec's section label). `lg`: `text-title-section`
@@ -13,9 +15,14 @@ const headingVariants = cva('min-w-0 truncate', {
       sm: 'text-label text-muted',
       lg: 'text-title-section text-ink',
       xl: 'text-title-page text-ink'
+    },
+    /** `muted` quiets a `lg`/`xl` title to the label colour: a page's section labels beside `ink` values. */
+    tone: {
+      ink: '',
+      muted: 'text-muted'
     }
   },
-  defaultVariants: { size: 'sm' }
+  defaultVariants: { size: 'sm', tone: 'ink' }
 });
 
 export interface SectionHeaderProps extends VariantProps<typeof headingVariants> {
@@ -30,7 +37,7 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
    * glyph keeps its own colour (an SVG with its own fills) — the circle is decoration only.
    */
   icon?: React.ReactNode;
-  /** Layout only (margins). */
+  /** Layout only (margins, padding). */
   className?: string;
   'data-testid'?: string;
 }
@@ -42,22 +49,18 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
   action,
   icon,
   size,
+  tone,
   className,
   'data-testid': dataTestId
 }) => (
   <div className={cn('flex items-center justify-between gap-3 px-1 pb-2', className)} data-testid={dataTestId}>
     {icon ? (
       <span className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fill [&>svg]:h-4 [&>svg]:w-4"
-        >
-          {icon}
-        </span>
-        <Heading className={headingVariants({ size })}>{children}</Heading>
+        <IconCircle>{icon}</IconCircle>
+        <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
       </span>
     ) : (
-      <Heading className={headingVariants({ size })}>{children}</Heading>
+      <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
     )}
     {action && <div className="shrink-0">{action}</div>}
   </div>

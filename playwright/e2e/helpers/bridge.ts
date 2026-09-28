@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
-import { captureEpochTraffic, waitForFastQuote } from './epoch-quote';
+import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -126,12 +126,23 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   await expect(flow.getByTestId('bridge-route-fast')).toBeVisible({ timeout: step });
   await flow.getByTestId('bridge-route-fast').click();
   const quote = await waitForFastQuote(page, epochTraffic, { timeoutMs: opts.quoteTimeoutMs ?? 60_000 });
-  // The fee the user sees must also render — the quote resolving in state while the
-  // card still shows "—" is a real (and otherwise invisible) UI regression.
-  await expect(
-    flow.getByTestId('bridge-route-fast'),
-    `quote resolved (${quote.amount} ${quote.symbol}) but the Fast card shows no fee`
-  ).toContainText('$', { timeout: 15_000 });
+  // The fee the user sees must also render - the quote resolving in state while the
+  // card still shows "—" is a real (and otherwise invisible) UI regression. An unpriced
+  // token is the exception: its fee is not invented, so the card keeps the placeholder.
+  const feeCase = fastFeeExpectation(quote.fiatPrice);
+  const fastCardText = {
+    fee: {
+      pattern: /\$/,
+      message: `priced token (fiatPrice ${quote.fiatPrice}): quote resolved (${quote.amount} ${quote.symbol}) but the Fast card shows no "$" fee`
+    },
+    placeholder: {
+      pattern: /^[^$]*—[^$]*$/,
+      message: `unpriced token (fiatPrice ${quote.fiatPrice ?? 'null'}): the Fast card must show the "—" placeholder and no "$" fee`
+    }
+  }[feeCase];
+  await expect(flow.getByTestId('bridge-route-fast'), fastCardText.message).toHaveText(fastCardText.pattern, {
+    timeout: 15_000
+  });
   await flow.getByTestId('bridge-route-confirm').click();
 
   // Review -> submit -> generating-transaction.

@@ -7,8 +7,8 @@ import {
   linkedErrorsIntegration,
   makeFetchTransport
 } from '@sentry/browser';
-import wordlist from 'bip39/src/wordlists/english.json';
 
+import { englishWordlist } from '@miden/hd-key';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { resolveTelemetryContext } from './context';
@@ -109,7 +109,7 @@ function buildIntegrations() {
   return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupeIntegration()]);
 }
 
-const WORDLIST: readonly string[] = wordlist;
+const WORDLIST: readonly string[] = englishWordlist;
 
 /**
  * A V8 frame (`    at fn (file:1:2)`) or a SpiderMonkey/JSC one

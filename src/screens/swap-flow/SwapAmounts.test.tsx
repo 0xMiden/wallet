@@ -1,12 +1,20 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
+import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
 
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+
 // --- i18n: echo the key back so we can assert against raw translation keys.
+// The navbar is hidden while the keyboard is up; drive it per test.
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -21,12 +29,23 @@ jest.mock('lib/mobile/haptics', () => ({
 //     jsdom would otherwise warn about as an unknown DOM attribute).
 jest.mock('framer-motion', () => ({
   motion: {
-    button: React.forwardRef(({ children, whileTap, ...props }: any, ref: any) => (
-      <button ref={ref} {...props}>
+    button: React.forwardRef(({ children, whileTap, animate, transition, ...props }: any, ref: any) => (
+      <button ref={ref} data-animate={JSON.stringify(animate)} {...props}>
         {children}
       </button>
+    )),
+    span: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
+      <span ref={ref} {...props}>
+        {children}
+      </span>
+    )),
+    div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
+      <div ref={ref} data-animate={JSON.stringify(animate)} data-initial={JSON.stringify(initial ?? null)} {...props}>
+        {children}
+      </div>
     ))
-  }
+  },
+  useReducedMotion: () => false
 }));
 
 // --- Button: forward the props SwapAmounts sets so we can drive/assert the CTA.
@@ -36,16 +55,29 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     variant,
+    accent,
+    children,
+    'aria-label': ariaLabel,
     'data-testid': dataTestId
   }: {
     title?: string;
     onClick?: () => void;
     disabled?: boolean;
     variant?: string;
+    accent?: string;
+    children?: React.ReactNode;
+    'aria-label'?: string;
     'data-testid'?: string;
   }) => (
-    <button data-testid={dataTestId} data-variant={variant} onClick={onClick} disabled={disabled}>
-      {title}
+    <button
+      data-testid={dataTestId}
+      data-variant={variant}
+      data-accent={accent}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+    >
+      {children ?? title}
     </button>
   ),
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' }
@@ -58,7 +90,8 @@ jest.mock('components/Button', () => ({
 //     onAmountChange / onSelectToken callbacks.
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
-    const key = props.label as string;
+    // The label is a styled node now; its text is still 'youPay' / 'youReceive'.
+    const key = typeof props.label === 'string' ? props.label : props.label?.props?.children;
     return (
       <div
         data-testid={`select-amount-${key}`}
@@ -275,9 +308,51 @@ describe('SwapAmounts', () => {
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
+    it('gives the review button the swap flow colour', () => {
+      renderComponent({ canProceed: true });
+
+      expect(screen.getByTestId('swap-review-submit')).toHaveAttribute('data-accent', 'swap');
+    });
+
     it('disables the review button when canProceed is false', () => {
       renderComponent({ canProceed: false });
       expect(screen.getByTestId('swap-review-submit')).toBeDisabled();
+    });
+  });
+
+  describe('direction toggle', () => {
+    it('turns the arrow another half turn on each press and lifts the two sides past each other', () => {
+      const onSwapDirection = jest.fn();
+      renderComponent({ onSwapDirection });
+
+      // Earlier renders in this file stay mounted, so take the newest of each.
+      const latest = (testId: string) => screen.getAllByTestId(testId).at(-1)!;
+      const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 0 });
+
+      // Nothing lifts before the first press.
+      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-initial')!)).toBe(false);
+      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-initial')!)).toBe(false);
+
+      fireEvent.click(toggle);
+      expect(onSwapDirection).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 180 });
+      // The two sides enter from opposite directions, so they read as trading places.
+      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-initial')!)).toEqual({ y: -24, opacity: 0 });
+      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-initial')!)).toEqual({ y: 24, opacity: 0 });
+
+      fireEvent.click(toggle);
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 360 });
+    });
+  });
+
+  describe('direction toggle colour', () => {
+    it('draws the arrow in the swap on-colour, never a fixed white', () => {
+      renderComponent();
+
+      const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
+      expect(toggle).toHaveClass('bg-accent-swap', 'text-accent-swap-on');
+      expect(toggle).not.toHaveClass('text-pure-white');
     });
   });
 
@@ -291,24 +366,80 @@ describe('SwapAmounts', () => {
       renderComponent({ statusMessage: 'fetching price', statusIsError: false });
       const msg = screen.getByText('fetching price');
       expect(msg).toBeInTheDocument();
-      expect(msg).toHaveClass('text-[#808080]');
-      expect(msg).not.toHaveClass('text-status-negative');
+      expect(msg).toHaveClass('text-muted');
+      expect(msg).not.toHaveClass('text-negative-tint-ink');
     });
 
     it('renders an error-styled status message when statusIsError is true', () => {
       renderComponent({ statusMessage: 'pair unavailable', statusIsError: true });
       const msg = screen.getByText('pair unavailable');
       expect(msg).toBeInTheDocument();
-      expect(msg).toHaveClass('text-status-negative');
-      expect(msg).not.toHaveClass('text-[#808080]');
+      expect(msg).toHaveClass('text-negative-tint-ink');
+      expect(msg).not.toHaveClass('text-muted');
     });
   });
 });
 
-describe('SwapAmounts — navbar cushion (regression)', () => {
-  it('tags the CTA footer so it snugs to the bottom when the navbar hides (keyboard up)', () => {
+describe('SwapAmounts — CTA', () => {
+  // Not just the same padding: the same component, so the CTA gets the send steps' slide-on-reflow
+  // too. Building its own footer is why swap snapped twice on every keyboard close while send only
+  // hopped once.
+  it("pins its CTA with the same footer a send step uses, so both flows' buttons line up", () => {
     renderComponent();
-    const footer = screen.getByTestId('swap-review-submit').parentElement;
-    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    const swapFooter = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
+
+    render(
+      <SendStepLayout tabRoot title="send" footer={<button>send cta</button>}>
+        <p>content</p>
+      </SendStepLayout>
+    );
+    const sendFooter = screen.getByText('send cta').parentElement;
+
+    expect(swapFooter).toHaveAttribute('data-flow-footer');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: swapFooter }));
+    expect(swapFooter?.className).toBe(sendFooter?.className);
+    // The keyboard-aware cushion, not the old fixed pb-24. It keeps the navbar-cushion tag: the
+    // docked bar draws over the page, so the CTA clears it for as long as it is up.
+    expect(swapFooter?.className).toContain('--keyboard-height');
+    expect(swapFooter?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
+
+  // The footer no longer reads the navbar flag itself: FlowFooter keeps the step cushion and tags
+  // the footer, and main.css collapses a tagged cushion to 16px while the navbar is hidden, in the
+  // same reflow as the keyboard inset.
+  it('drops to a 16px cushion while the navbar is hidden (keyboard up), and keeps the step cushion otherwise', () => {
+    renderComponent();
+    const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement!;
+    expect(footer.className).toContain('pb-[max(');
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const collapse = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    })).filter(rule => rule.selector === "body[data-hide-navbar] [data-navbar-cushion='true']");
+    expect(collapse.some(rule => /(^|;)\s*padding-bottom:\s*1rem\s*(;|$)/.test(rule.body))).toBe(true);
+  });
+
+  it('asks for an amount first, waits on the quote, then offers the review', () => {
+    const cta = () => screen.getByTestId('swap-review-submit');
+    const quoteStatus = () => screen.queryByRole('status', { name: 'calculatingQuote' });
+
+    const awaiting = renderComponent({ offerAmount: '', requestLoading: false });
+    expect(cta()).toHaveTextContent('enterAmount');
+    expect(cta()).toHaveAccessibleName('enterAmount');
+    expect(quoteStatus()).toBeNull();
+    awaiting.unmount();
+
+    const loading = renderComponent({ offerAmount: '10', requestLoading: true });
+    expect(quoteStatus()).toBeInTheDocument();
+    // The dots replace the label, not the button's name: it still says what it does.
+    expect(cta()).not.toHaveTextContent('reviewSwap');
+    expect(cta()).toHaveAccessibleName('reviewSwap');
+    loading.unmount();
+
+    renderComponent({ offerAmount: '10', requestLoading: false });
+    expect(cta()).toHaveTextContent('reviewSwap');
+    expect(quoteStatus()).toBeNull();
   });
 });

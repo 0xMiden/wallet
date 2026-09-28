@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
+import type { TokenPrices } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
-import { fetchBalances } from 'lib/store/utils/fetchBalances';
+import { balancePrice } from 'lib/store/utils/balancePrice';
+import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
-import { isWasmClientBusy } from '../sdk/miden-client';
 
 export interface TokenBalanceData {
   tokenId: string;
@@ -28,7 +29,7 @@ const DEDUPING_INTERVAL = 10_000;
  * loading state drive a skeleton. This avoids flashing a row with the wrong
  * tokenId while discovery is in flight on first install.
  */
-function buildDefaultZeroBalance(): TokenBalanceData[] {
+function buildDefaultZeroBalance(tokenPrices: TokenPrices): TokenBalanceData[] {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return [];
   return [
@@ -36,15 +37,11 @@ function buildDefaultZeroBalance(): TokenBalanceData[] {
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
-      change24h: 0,
+      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
       balance: 0
     }
   ];
 }
-
-// Global lock to prevent concurrent fetches to WASM client (per address)
-export const fetchingAddresses = new Set<string>();
 
 /**
  * useAllBalances - Hook to get all token balances for an account
@@ -56,14 +53,14 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   // Get state and actions from Zustand store
   // Use stable selectors to avoid infinite loops
   const balancesMap = useWalletStore(s => s.balances);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const balancesLoadingMap = useWalletStore(s => s.balancesLoading);
   const balancesLastFetchedMap = useWalletStore(s => s.balancesLastFetched);
-  const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
 
   // Derive values with stable defaults
   // Show 0 MIDEN immediately before any async lookup completes — only once
   // the native asset ID has been learned, otherwise show `[]` (skeleton).
-  const balances = balancesMap[address] ?? buildDefaultZeroBalance();
+  const balances = balancesMap[address] ?? buildDefaultZeroBalance(tokenPrices);
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;
@@ -78,22 +75,14 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     tokenMetadatasRef.current = tokenMetadatas;
   }, [tokenMetadatas]);
 
-  // Fetch balances function that respects deduping
-  // Uses global lock to prevent concurrent WASM client calls
+  // Fetch balances function that respects deduping. The read itself is the store's
+  // fetchBalances action, which every reader goes through and which holds the in-flight entry
   // On extension, balances arrive via SyncCompleted broadcast — skip WASM polling
   const fetchBalancesWithDeduping = useCallback(async () => {
     if (isExtension()) return;
 
-    // Check global lock - prevents concurrent calls across all component instances
+    // Another reader already has this address in flight; the action would skip it anyway
     if (fetchingAddresses.has(address)) return;
-
-    // Skip while a `withWasmClientLock` op (a transaction, sync, etc.) holds the
-    // WASM client. This poll deliberately bypasses `withWasmClientLock` for
-    // responsiveness, but during a transaction's `_withInnerWebClient` window
-    // the SDK runs our un-locked `getAccount` INLINE and it double-borrows the
-    // WASM RefCell — panicking the client (hangs guardian consumes on mobile).
-    // Skipping costs one delayed refresh; the next cycle picks it up once idle.
-    if (isWasmClientBusy()) return;
 
     // Read current value from store (not ref) to catch updates from prefetch
     const now = Date.now();
@@ -102,41 +91,16 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
       return;
     }
 
-    // Acquire global lock
-    fetchingAddresses.add(address);
     try {
-      // Fetch balances using the consolidated utility
-      // Metadata is fetched inline, so all tokens appear together
-      const tokenPrices = useWalletStore.getState().tokenPrices;
-      const fetchedBalances = await fetchBalances(address, tokenMetadatasRef.current, {
-        setAssetsMetadata,
-        tokenPrices
-      });
-
-      // `null` means the WASM client was busy (a tx/sync held the lock) and the
-      // read was skipped — keep the prior balances and let the next tick retry.
-      if (fetchedBalances === null) return;
-
-      // Update store if still mounted
-      if (mountedRef.current) {
-        useWalletStore.setState(state => ({
-          balances: { ...state.balances, [address]: fetchedBalances },
-          balancesLoading: { ...state.balancesLoading, [address]: false },
-          balancesLastFetched: { ...state.balancesLastFetched, [address]: Date.now() }
-        }));
-      }
+      // The action stores what lands whether or not this component is still mounted: every
+      // other reader skipped the address in favour of this read (#1123).
+      await useWalletStore.getState().fetchBalances(address, tokenMetadatasRef.current);
     } catch (error) {
+      // Loading is left as it was: with nothing read yet, clearing it would show the zero
+      // placeholder as a real "$0.00". The next tick retries.
       console.error('Failed to fetch balances:', error);
-      if (mountedRef.current) {
-        useWalletStore.setState(state => ({
-          balancesLoading: { ...state.balancesLoading, [address]: false }
-        }));
-      }
-    } finally {
-      // Release global lock
-      fetchingAddresses.delete(address);
     }
-  }, [address, setAssetsMetadata]);
+  }, [address]);
 
   // Manual mutate function for compatibility
   const mutate = useCallback(() => {
@@ -155,8 +119,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     fetchBalancesWithDeduping();
 
     // Set up polling interval. `isTestSyncPaused()` lets an E2E hook quiesce
-    // this poll (which bypasses the WASM lock) while it does its own
-    // single-threaded-WASM read — otherwise the read is livelocked on mobile.
+    // this poll (which contends for the WASM lock every tick) while it does its own
+    // single-threaded-WASM read - otherwise the read is livelocked on mobile.
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
       if (mountedRef.current && !isTestSyncPaused()) {

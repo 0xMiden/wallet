@@ -1,14 +1,12 @@
+import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
-import {
-  getOrCreateMultisigService,
-  isGuardianAccount,
-  type GuardianAccountProvider
-} from 'lib/miden/front/guardian-manager';
+import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
-import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
@@ -38,6 +36,7 @@ import { withWasmClientLock } from '../sdk/miden-client';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -156,6 +155,66 @@ export const initiateConsumeNotesTransaction = async (
   accountId: string,
   notes: ConsumableNote[],
   delegateTransaction?: boolean,
+  manualRetry?: boolean,
+  isolateNotesWithFailedBatch?: boolean,
+  verificationBaseFee?: number | null
+): Promise<string> =>
+  queueConsumeRows(
+    accountId,
+    notes,
+    delegateTransaction,
+    manualRetry,
+    isolateNotesWithFailedBatch,
+    verificationBaseFee
+  );
+
+/** Options for {@link initiateRotationFundingClaim}; each has the meaning of its `initiateConsumeNotesTransaction` twin. */
+export interface RotationFundingClaimOptions {
+  delegate?: boolean;
+  manualRetry?: boolean;
+  verificationBaseFee?: number | null;
+}
+
+/**
+ * Queue the everyday-key rotation gate's claim (#805): native notes only, on rows stamped
+ * `rotationFunding`, which generation signs with the recovery key. Refuses before any
+ * write when given no notes, the native asset is unknown, or a note's `faucetId` is
+ * anything else - the empty-list and native-asset refusals name this entry, not
+ * `queueConsumeRows`' shared one, and the native-asset refusal is an early refusal only:
+ * a `ConsumableNote` names just its note's first fungible asset, so the actual guarantee
+ * that every asset in the row is native is `assertRotationFundingNotesNative`, checked
+ * again at generation time.
+ *
+ * Otherwise the shared queue, with isolation on: per-note dedup against every live
+ * consume row of the account, flagged or not. Only the #215 backoff differs, counting
+ * nothing but earlier flagged failures (see `queueConsumeRows`).
+ *
+ * Callers must hold the `hotKeyRotationLockName` Web Lock for the account before calling
+ * this; only `rotation-funding.ts`'s `enqueueRotationFundingClaim` does.
+ */
+export const initiateRotationFundingClaim = async (
+  accountId: string,
+  notes: ConsumableNote[],
+  opts: RotationFundingClaimOptions = {}
+): Promise<string> => {
+  if (notes.length === 0) {
+    throw new Error('initiateRotationFundingClaim requires at least one note');
+  }
+  const nativeFaucetId = await getFaucetIdSetting();
+  if (!nativeFaucetId) {
+    throw new Error('Rotation funding claim refused: the native asset is not known yet');
+  }
+  const foreign = notes.find(note => note.faucetId !== nativeFaucetId);
+  if (foreign) {
+    throw new Error(`Rotation funding claim refused: note ${foreign.id} is not the native asset`);
+  }
+  return queueConsumeRows(accountId, notes, opts.delegate, opts.manualRetry, true, opts.verificationBaseFee, true);
+};
+
+const queueConsumeRows = async (
+  accountId: string,
+  notes: ConsumableNote[],
+  delegateTransaction?: boolean,
   // True when this is an explicit user-initiated claim/retry (the Claim,
   // Retry, Claim All / Claim Group buttons) rather than auto-consume's
   // background polling. The bounded-retry failure gate below exists only to
@@ -198,7 +257,12 @@ export const initiateConsumeNotesTransaction = async (
   //
   // `null`/omitted isolates every candidate, which is right for a manual retry: the user
   // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
-  verificationBaseFee?: number | null
+  verificationBaseFee?: number | null,
+  // The rotation gate's claim (#805): stamped on every row this creates, and the only
+  // earlier failures its backoff counts. An ordinary row's failure (a hot-bound claim, a
+  // dApp request) says nothing about whether a recovery-key claim can succeed, and must
+  // not park the only way out of the gate.
+  rotationFunding?: boolean
 ): Promise<string> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -246,6 +310,8 @@ export const initiateConsumeNotesTransaction = async (
             // fresh unauthorized-retry budget, or the row stays terminal on its
             // next unauthorized failure however long the user waits.
             dbTx.unauthorizedRetryUntil = undefined;
+            // And the guardian backoff, so the tapped row's next requeue waits its arm's base cooldown (#1223).
+            dbTx.requeueStreak = undefined;
           });
         }
         continue;
@@ -258,7 +324,7 @@ export const initiateConsumeNotesTransaction = async (
       if (!manualRetry) {
         const nowSec = Math.floor(Date.now() / 1000);
         const failures = sameAccount
-          .filter(tx => tx.status === ITransactionStatus.Failed)
+          .filter(tx => tx.status === ITransactionStatus.Failed && (!rotationFunding || tx.rotationFunding === true))
           .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
         if (failures.length > 0) {
           const mostRecentFailed = failures[0]!;
@@ -280,7 +346,10 @@ export const initiateConsumeNotesTransaction = async (
       // A shared row that failed is not evidence about THIS note — it names every note
       // it carried. Give the note its own row so its next outcome is its own.
       const failedBatchRow = sameAccount.find(
-        tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
+        tx =>
+          tx.status === ITransactionStatus.Failed &&
+          (tx.noteIds?.length ?? 0) > 1 &&
+          (!rotationFunding || tx.rotationFunding === true)
       );
       // A row of its own means a FEE of its own, so only a note that can pay for a
       // transaction by itself may be isolated. Auto-consume admits a batch on what its
@@ -328,16 +397,21 @@ export const initiateConsumeNotesTransaction = async (
     }
 
     const createdIds: string[] = [];
+    const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
+      const row = new ConsumeTransaction(accountId, rowNotes, delegateTransaction);
+      if (rotationFunding) row.rotationFunding = true;
+      return row;
+    };
     // One row EACH for the isolated notes, then one shared row for the remainder. A
     // single-note row is exactly what `initiateConsumeTransaction` produces, so an
     // isolated note rejoins the ordinary per-note lifecycle.
     for (const note of isolate) {
-      const isolatedRow = new ConsumeTransaction(accountId, [note], delegateTransaction);
+      const isolatedRow = newRow([note]);
       await Repo.transactions.add(isolatedRow);
       createdIds.push(isolatedRow.id);
     }
     if (queueable.length > 0) {
-      const dbTransaction = new ConsumeTransaction(accountId, queueable, delegateTransaction);
+      const dbTransaction = newRow(queueable);
       await Repo.transactions.add(dbTransaction);
       createdIds.push(dbTransaction.id);
     }
@@ -520,6 +594,9 @@ export const initiateBridgedSendTransaction = async (
  * `requestBytes` is the pre-built P2IDE collateral request carrying the
  * mandate-binding attachment (smallocator PR #38, built by
  * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
+ * Nothing downstream can rebuild that binding, so a call without the bytes
+ * throws `EARN_DEPOSIT_MISSING_REQUEST_ERROR` before the row is queued or its
+ * spend is booked.
  */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
@@ -528,10 +605,11 @@ export const initiateEarnDepositTransaction = async (
   marketUid: string,
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
-  delegateTransaction?: boolean,
-  requestBytes?: Uint8Array,
+  delegateTransaction: boolean,
+  requestBytes: Uint8Array,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
+  if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
     accountId,
     amount,
@@ -605,12 +683,23 @@ export const initiateBridgedReceiveTransaction = async (args: {
 };
 
 /**
- * Do two rotation requests name the same operator? Trailing-slash tolerant via
- * the same `sanitizeGuardianUrl` the wallet already uses for guardian-URL
- * identity, so `https://g.example.com` and `https://g.example.com/` are one
- * target rather than two.
+ * The stored Guardian account a structural change targets, or `refusal` thrown. The row is queued under
+ * its `publicKey`, not the caller's spelling: completion otherwise learns the stored id only from a
+ * post-commit account read, and when that read fails it acts on the queued spelling, which the vault
+ * matches exactly and so misses.
  */
-const sameGuardianEndpointTarget = (a: string, b: string): boolean => sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b);
+const resolveGuardianWalletAccount = async (
+  accountId: string,
+  guardianProvider: GuardianAccountProvider,
+  refusal: string
+): Promise<WalletAccount> => {
+  const accounts = await guardianProvider.getAccounts();
+  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
+  if (!account || account.type !== WalletType.Guardian) {
+    throw new Error(refusal);
+  }
+  return account;
+};
 
 /**
  * Queue a switch-guardian transaction for a Guardian account. The per-account
@@ -638,11 +727,12 @@ export const initiateSwitchGuardianTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  const accounts = await guardianProvider.getAccounts();
-  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
-  if (!account || account.type !== WalletType.Guardian) {
-    throw new Error('Switch guardian is only supported for Guardian accounts');
-  }
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'Switch guardian is only supported for Guardian accounts'
+  );
+  const storedAccountId = account.publicKey;
   const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
 
   // Check-and-add inside one rw transaction, like the consume dedup above, so
@@ -662,7 +752,7 @@ export const initiateSwitchGuardianTransaction = async (
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction)
       )
       .toArray();
-    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, accountId));
+    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, storedAccountId));
     if (inFlight) {
       // Returning the live id is right only for a genuine duplicate — the same
       // rotation, asked for twice. When the in-flight row targets a DIFFERENT
@@ -677,14 +767,14 @@ export const initiateSwitchGuardianTransaction = async (
       // and "I cannot tell what that rotation targets" is not grounds for
       // claiming it is this one.
       const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
-      if (!inFlightEndpoint || !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
+      if (!inFlightEndpoint || !sameGuardianEndpoint(inFlightEndpoint, newGuardianEndpoint)) {
         throw new GuardianRotationInProgressError(inFlightEndpoint);
       }
       return inFlight.id;
     }
 
     const dbTransaction = new SwitchGuardianTransaction(
-      accountId,
+      storedAccountId,
       newGuardianEndpoint,
       delegateTransaction,
       previousGuardianEndpoint
@@ -706,10 +796,22 @@ export const initiateReplaceHotKeyTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
-    throw new Error('Replace hot key is only supported for Guardian accounts');
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'Replace hot key is only supported for Guardian accounts'
+  );
+  const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  // Record the guardian now: the account's endpoint moves with any later switch, and the history row
+  // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
+  // resolves (the account's own, else the legacy key, else the network default), as the switch
+  // records its previous one.
+  try {
+    const guardianEndpoint = await resolveGuardianEndpoint(account);
+    if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  } catch {
+    // Display only: a failed endpoint read leaves the row unstamped rather than refusing the rotation.
   }
-  const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
   return queueRecoveryChange(dbTransaction);
 };
 
@@ -788,10 +890,17 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
-    throw new Error('update-procedure-threshold is only supported for Guardian accounts');
-  }
-  const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'update-procedure-threshold is only supported for Guardian accounts'
+  );
+  const dbTransaction = new UpdateProcedureThresholdTransaction(
+    account.publicKey,
+    procedure,
+    threshold,
+    delegateTransaction
+  );
   return queueRecoveryChange(dbTransaction);
 };
 

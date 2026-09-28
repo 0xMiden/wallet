@@ -24,6 +24,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({ onBack, onConfirm, ...opti
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
+          accent="send"
           onClick={onConfirm}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"

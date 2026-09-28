@@ -264,6 +264,26 @@ describe('PromptCarousel', () => {
     }
   });
 
+  it('draws the active dot in the accent and the rest on the hairline, visible on the page', () => {
+    render(
+      <PromptCarousel>
+        {['first', 'second', 'third'].map(key => (
+          <button key={key} type="button">
+            {key}
+          </button>
+        ))}
+      </PromptCarousel>
+    );
+
+    expect(screen.getByRole('button', { name: 'Show prompt 1 of 3' })).toHaveClass('bg-accent-primary');
+    for (const n of [2, 3]) {
+      const dot = screen.getByRole('button', { name: `Show prompt ${n} of 3` });
+      // `hairline`, not `fill`: fill on the page behind the outlined cards all but vanishes in the light theme.
+      expect(dot).toHaveClass('bg-hairline');
+      expect(dot).not.toHaveClass('bg-fill');
+    }
+  });
+
   it('keeps a focused dot on its own slide when a slide before it goes', () => {
     const slides = (keys: string[]) =>
       keys.map(key => (

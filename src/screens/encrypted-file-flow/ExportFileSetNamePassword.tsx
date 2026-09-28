@@ -79,16 +79,18 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
     [passwordValidation, passwordValue, verifyPassword]
   );
 
+  const canContinue = !!passwordValue && !!verifyPassword && !!fileName && isValidPassword;
+
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (isValidPassword) {
+        if (canContinue) {
           onGoNext();
         }
       }
     },
-    [isValidPassword, onGoNext]
+    [canContinue, onGoNext]
   );
 
   const DEFAULT_FILE_NAME = 'Encrypted Wallet File';
@@ -105,22 +107,26 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   return (
     <SubPageLayout
       data-testid="export-file-password"
+      // The filename field autofocuses; the title taking focus after it would take it away.
+      focusTitleOnMount={false}
       footer={
         <Button
           variant={ButtonVariant.Primary}
           onClick={onGoNext}
           title={t('continue')}
           className="flex-1 max-w-none"
-          disabled={!passwordValue || !verifyPassword || !fileName || !isValidPassword}
+          data-testid="export-file-submit"
+          disabled={!canContinue}
         />
       }
     >
       <TextField
+        data-testid="export-file-name-input"
         placeholder={DEFAULT_FILE_NAME}
         value={fileName}
         label={t('name')}
         onChange={onFileNameChange}
-        trailing={<span className="font-sans text-base text-muted">{EXTENSION}</span>}
+        trailing={<span className="text-body text-muted">{EXTENSION}</span>}
         onKeyDown={handleNameInputTab}
         tabIndex={0}
         autoFocus
@@ -129,6 +135,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
       <SubPageSection description={t('enterPasswordToEncrypt')} className="gap-4">
         <TextField
           ref={passwordRef}
+          data-testid="export-file-password-input"
           type={isPasswordVisible ? 'text' : 'password'}
           label={t('password')}
           value={passwordValue}
@@ -144,6 +151,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
       <div className="flex flex-col gap-2">
         <TextField
           ref={verifyPasswordRef}
+          data-testid="export-file-password-verify-input"
           type={isVerifyPasswordVisible ? 'text' : 'password'}
           label={t('verifyPassword')}
           value={verifyPassword}
@@ -155,7 +163,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         />
         <p
           className={classNames(
-            'h-4 px-1 font-sans text-[13px] text-positive-ink',
+            'h-4 px-1 text-caption text-positive-ink',
             isValidPassword && passwordValue === verifyPassword ? 'block' : 'hidden'
           )}
         >
@@ -163,7 +171,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         </p>
         <p
           className={classNames(
-            'h-4 px-1 font-sans text-[13px] text-negative-ink',
+            'h-4 px-1 text-caption text-negative-ink',
             verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword ? 'block' : 'hidden'
           )}
         >

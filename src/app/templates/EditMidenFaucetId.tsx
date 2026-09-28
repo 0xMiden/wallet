@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button } from 'components/Button';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { setFaucetIdSetting } from 'lib/miden/assets';
 
@@ -61,6 +61,9 @@ const EditMidenFaucetId: FC = () => {
   return (
     <SubPageLayout
       data-testid="edit-miden-faucet-id"
+      formId={FORM_ID}
+      formRef={formRef}
+      onSubmit={handleSubmit(onSubmit)}
       footer={
         // Outside the form (it is pinned under the body), so it names the form it submits.
         <Button type="submit" form={FORM_ID} className="flex-1 max-w-none" isLoading={isSubmitting}>
@@ -68,7 +71,7 @@ const EditMidenFaucetId: FC = () => {
         </Button>
       }
     >
-      <form id={FORM_ID} ref={formRef} onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">
+      <SubPageSection className="gap-3">
         <TextField
           {...register('faucetId', { required: t('required') })}
           label={t('faucetId')}
@@ -87,11 +90,11 @@ const EditMidenFaucetId: FC = () => {
         />
 
         {submitSuccess && (
-          <p role="status" className="px-1 font-sans text-sm text-positive-ink">
+          <p role="status" className="px-1 text-caption text-positive-ink">
             {t('faucetIdUpdated')}
           </p>
         )}
-      </form>
+      </SubPageSection>
     </SubPageLayout>
   );
 };

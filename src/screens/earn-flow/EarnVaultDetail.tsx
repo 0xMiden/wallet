@@ -4,17 +4,17 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
-import { Pill } from 'components/ui/Pill';
-import { ChartContainer } from 'lib/ui/charts';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
+import { SectionHeader } from 'components/ui/SectionHeader';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { MetricCard } from './components';
-import { placeholderVault } from './earn-mapping';
-import { EarnVault } from './types';
-import { useEarnPositions } from './useEarnPositions';
-
-const CHART_GREEN = '#90BA89';
+import { EarnAssetMark, EarnHero, MetricCard } from './components';
+import { formatApy, placeholderVault } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
+import { ChartDotProps, EarnVault } from './types';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnVaultDetailProps {
   vaultId: string;
@@ -22,53 +22,60 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
-  const { vaults } = useEarnPositions();
-  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
+  const vault = useMemo(() => found ?? placeholderVault(), [found]);
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
-      <PageHeader
-        className="shrink-0 px-4"
-        title={`${vault.protocol} • ${vault.asset}`}
-        onBack={goBack}
-        actions={
-          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
-        }
-      />
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex min-h-full flex-col px-4 pb-8 pt-8">
-          <section aria-labelledby="earn-vault-apy-title">
-            <div
-              id="earn-vault-apy-title"
-              className="font-heading text-[56px] font-bold leading-none text-status-positive"
-            >
-              {vault.apy}
-            </div>
-            <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
-              {t('earnCurrentApy')}
-            </div>
-            <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">{vault.apyChange24h}</div>
-          </section>
+    // The shared pushed-page frame: the header, a body whose sections sit 20px apart, and the CTA
+    // pinned under it instead of scrolling away at the end of the page.
+    <SubPageLayout
+      data-testid="earn-vault-detail-page"
+      // Back and the protocol in the title; the asset and its network ride the header as one
+      // compact mark, since a pill wide enough to spell them out took the width a two-word
+      // protocol needed and wrapped the title onto a second line. Until the vault is found the
+      // header names the route, never a placeholder vault.
+      title={found ? found.protocol : t('earnDeposit')}
+      onBack={goBack}
+      headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+      footer={
+        (loadFailed && !found) || pending ? undefined : (
+          <Button
+            data-testid="earn-vault-deposit-btn"
+            title={t('earnDeposit')}
+            variant={ButtonVariant.Primary}
+            accent="earn"
+            disabled={!vault.id}
+            onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
+            className="max-w-none"
+          />
+        )
+      }
+    >
+      {/* A failed load never draws the placeholder vault as if it were real; with the vault in
+          hand from an earlier load, it is still shown, under a notice that it may be stale. */}
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+      ) : pending ? null : (
+        <>
+          {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+          <EarnHero
+            labelId="earn-vault-apy-title"
+            // The APY counts to each new rate; `vault.apy` is what shows before a rate has been read.
+            value={<AnimatedNumber value={vault.aprPercent} format={formatApy} placeholder={vault.apy} />}
+            valueClassName="text-positive-tint-ink"
+            label={t('earnCurrentApy')}
+            meta={vault.apyChange24h}
+          />
 
           <VaultAreaChart vault={vault} />
 
           <VaultStats vault={vault} />
           <VaultAbout vault={vault} />
-
-          <div className="mt-auto pt-16">
-            <Button
-              data-testid="earn-vault-deposit-btn"
-              title={t('earnDeposit')}
-              variant={ButtonVariant.Primary}
-              disabled={!vault.id}
-              onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
-              className="max-w-none"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 
@@ -80,13 +87,13 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
   const lastIndex = vault.chartData.length - 1;
 
   return (
-    <div className="mt-10 h-[140px]">
-      <ChartContainer config={{ apy: { color: CHART_GREEN } }} className="h-full w-full aspect-auto">
+    <div className="h-[140px]">
+      <ChartContainer config={{ apy: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
         <AreaChart data={vault.chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
           <defs>
             <linearGradient id="earn-vault-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={CHART_GREEN} stopOpacity={0.28} />
-              <stop offset="95%" stopColor={CHART_GREEN} stopOpacity={0} />
+              <stop offset="5%" stopColor={CHART_POSITIVE} stopOpacity={0.28} />
+              <stop offset="95%" stopColor={CHART_POSITIVE} stopOpacity={0} />
             </linearGradient>
           </defs>
           <YAxis domain={[min - padding, max + padding]} hide />
@@ -95,12 +102,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return (
-                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
-                  <div className="font-heading font-semibold">{Number(point.value).toFixed(2)}%</div>
-                  <div className="opacity-75">{point.label}</div>
-                </div>
-              );
+              return <ChartValueTooltip value={`${Number(point.value).toFixed(2)}%`} label={point.label} />;
             }}
           />
           <Area
@@ -109,10 +111,17 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
             stroke="var(--color-apy)"
             strokeWidth={2.5}
             fill="url(#earn-vault-area)"
-            activeDot={{ r: 4, stroke: CHART_GREEN, fill: CHART_GREEN, strokeWidth: 1 }}
-            dot={(props: any) =>
+            activeDot={{ r: 4, stroke: CHART_POSITIVE, fill: CHART_POSITIVE, strokeWidth: 1 }}
+            dot={(props: ChartDotProps) =>
               props.index === lastIndex ? (
-                <circle cx={props.cx} cy={props.cy} r={4} fill={CHART_GREEN} stroke="#FFFFFF" strokeWidth={2} />
+                <circle
+                  cx={props.cx}
+                  cy={props.cy}
+                  r={4}
+                  fill={CHART_POSITIVE}
+                  stroke={CHART_DOT_RING}
+                  strokeWidth={2}
+                />
               ) : null
             }
           />
@@ -126,13 +135,12 @@ const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <div className="mt-6 grid grid-cols-3 gap-2">
-      <MetricCard label={t('earnTvlLabel')} value={vault.tvl} className="px-3" />
-      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-[#009B3A]" className="px-3" />
+    <div className="grid grid-cols-3 gap-2">
+      <MetricCard label={t('earnTvlLabel')} value={vault.tvl} />
+      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-positive-tint-ink" />
       <MetricCard
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}
-        className="px-3"
         valueClassName={vault.audited ? 'text-ink' : undefined}
       />
     </div>
@@ -143,9 +151,10 @@ const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <section className="mt-4">
-      <h2 className="font-heading text-base font-bold leading-none text-ink">{t('about')}</h2>
-      <p className="mt-3 text-sm leading-snug text-ink">{vault.about}</p>
+    <section>
+      <SectionHeader size="lg">{t('about')}</SectionHeader>
+      {/* The 4px inset the section label takes, so the copy lines up under it. */}
+      <p className="px-1 text-body text-muted">{vault.about}</p>
     </section>
   );
 };

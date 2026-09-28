@@ -1,9 +1,11 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
+import { claimFromPendingList } from '../../helpers/claim-drain';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -239,104 +241,13 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    // Claimable notes live on their own /pending-notes page (mounts the claim UI
+    // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
+    // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/pending-notes');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     await sleep(3_000);
 
-    await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
-        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
-        `btn.click(); return true;`,
-      60_000
-    );
-
-    let lastProveTimingIdx = 0;
-    const pumpProveTimings = async () => {
-      try {
-        const fresh = await this.cdp.eval<string[]>(
-          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
-        );
-        if (Array.isArray(fresh) && fresh.length > 0) {
-          lastProveTimingIdx += fresh.length;
-          for (const line of fresh) {
-            // eslint-disable-next-line no-console
-            console.log(`[prove-timing] ${line}`);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      await this.triggerSync();
-      await sleep(5_000);
-      await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(
-        `var s = window.__TEST_STORE__; ` +
-          `if (!s) return 0; ` +
-          `var st = s.getState(); ` +
-          `var balances = st.balances || {}; ` +
-          `for (var k in balances) { ` +
-          `  var list = balances[k]; ` +
-          `  if (!Array.isArray(list)) continue; ` +
-          `  for (var i = 0; i < list.length; i++) { ` +
-          `    var t = list[i]; ` +
-          `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    if (amt > 0) return amt; ` +
-          `  } ` +
-          `} ` +
-          `return 0;`
-      );
-      if (balance > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-    }
-    await pumpProveTimings();
-
-    // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
-    // the transaction-progress route), where no mounted screen refreshes
-    // `st.balances` — that projection is written only by the `useAllBalances`
-    // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
-    // consume that has already landed on chain. Confirm with `getBalance()`,
-    // which navigates home and therefore reads a projection something updates.
-    // (Ported from the iOS fix, wallet #651 — the same read was structurally
-    // unable to pass there.)
-    const confirmMs = 120_000;
-    const confirmStart = Date.now();
-    while (Date.now() - confirmStart < confirmMs) {
-      const confirmed = await this.getBalance().catch(() => 0);
-      if (confirmed > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-      await sleep(5_000);
-      await this.triggerSync();
-    }
-
-    // The claim did NOT land. This used to return normally, so the run continued
-    // as if the notes were claimed and blew up later on a balance assertion,
-    // attributing a failed consume to delivery. Chrome and iOS both throw here;
-    // this brings Android in line. (Ported from wallet #638.)
-    const surface = await this.cdp
-      .eval<string>(
-        `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
-      )
-      .catch(() => 'unreadable');
-    await this.navigateHome();
-    throw new Error(
-      `AndroidWalletPage.claimAllNotes: no consumed balance after ${timeoutMs}ms, and none after a further ` +
-        `${confirmMs}ms confirming via getBalance() from the home screen — "Claim All" was clicked but the ` +
-        `consume never landed. Surface at timeout: ${surface}`
-    );
+    await claimFromPendingList(this, { label: 'AndroidWalletPage.claimAllNotes', firstClickMs: 60_000, timeoutMs });
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────

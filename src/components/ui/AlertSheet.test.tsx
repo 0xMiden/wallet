@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { IconName } from 'app/icons/v2';
 import { ButtonVariant } from 'components/ui/Button';
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -9,6 +10,7 @@ import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 
 import { AlertSheet } from './AlertSheet';
+import { PromptCard } from './PromptCard';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -65,7 +67,7 @@ describe('AlertSheet', () => {
 
     const sheet = screen.getByRole('alertdialog', { name: 'Delete contact' });
     expect(sheet).toHaveAccessibleDescription('Are you sure you want to delete this contact?');
-    expect(screen.getByRole('heading', { name: 'Delete contact' })).toHaveClass('text-title-page', 'text-left');
+    expect(screen.getByRole('heading', { name: 'Delete contact' })).toHaveClass('text-title-section', 'text-left');
     expect(screen.getByText('Are you sure you want to delete this contact?')).toHaveClass('text-body', 'text-muted');
   });
 
@@ -203,6 +205,42 @@ describe('AlertSheet', () => {
       await closeAutoFocus();
       expect(trigger.isConnected).toBe(false);
       expect(document.activeElement).toBe(document.body);
+    });
+
+    it('gives focus to the card the opener sat in when the answer replaced the opener with a hero', async () => {
+      // A Fund card asked again: the yes swaps the Funding hero in over the button that opened the sheet.
+      const funding = { icon: IconName.Loader, label: 'Funding', tone: 'accent' } as const;
+      function AskAgain({ open, hero }: { open: boolean; hero: boolean }) {
+        return (
+          <>
+            <PromptCard
+              data-testid="card"
+              title="Fund your wallet"
+              hero={hero ? funding : undefined}
+              onClick={hero ? undefined : jest.fn()}
+            />
+            <AlertSheet
+              open={open}
+              title="Request again?"
+              actionLabel="Request again"
+              onAction={jest.fn()}
+              onCancel={jest.fn()}
+            >
+              Your earlier request may still arrive.
+            </AlertSheet>
+          </>
+        );
+      }
+      const { rerender } = render(<AskAgain open={false} hero={false} />);
+      screen.getByRole('button', { name: /Fund your wallet/ }).focus();
+      rerender(<AskAgain open hero={false} />);
+
+      const sheet = screen.getByRole('alertdialog');
+      rerender(<AskAgain open={false} hero />);
+      finishSlideOut(sheet);
+      await closeAutoFocus();
+
+      expect(screen.getByTestId('card')).toHaveFocus();
     });
   });
 

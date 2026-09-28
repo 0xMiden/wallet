@@ -12,8 +12,8 @@ import { cva } from 'class-variance-authority';
 import { tintForAddress } from 'components/contacts/ContactAvatar';
 import { cn } from 'lib/ui/util';
 
-/** `row`: 48px, in a list row. `tile`: 56px, in a row of tiles. `hero`: 72px, on a featured card. */
-export type AppIconSize = 'row' | 'tile' | 'hero';
+/** `row`: 40px, the design system's list avatar. `hero`: 72px, on a featured card. */
+export type AppIconSize = 'row' | 'hero';
 
 /** The surface the icon sits on. An image tile takes the other one, so it keeps its shape. */
 export type AppIconSurface = 'page' | 'fill';
@@ -21,34 +21,31 @@ export type AppIconSurface = 'page' | 'fill';
 const tileVariants = cva('flex shrink-0 items-center justify-center overflow-hidden rounded-xl', {
   variants: {
     size: {
-      row: 'h-12 w-12',
-      tile: 'h-14 w-14',
+      row: 'h-10 w-10',
       hero: 'h-18 w-18'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 const imageVariants = cva('object-contain', {
   variants: {
     size: {
-      row: 'h-8 w-8',
-      tile: 'h-9 w-9',
+      row: 'h-7 w-7',
       hero: 'h-12 w-12'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 const letterVariants = cva('font-heading font-extrabold text-pure-white', {
   variants: {
     size: {
-      row: 'text-xl',
-      tile: 'text-2xl',
+      row: 'text-lg',
       hero: 'text-3xl'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 /**
@@ -80,7 +77,7 @@ export interface AppIconProps {
   className?: string;
 }
 
-export const AppIcon: FC<AppIconProps> = ({ url, name, icon, size = 'tile', surface = 'page', className }) => {
+export const AppIcon: FC<AppIconProps> = ({ url, name, icon, size = 'row', surface = 'page', className }) => {
   const [broken, setBroken] = useState(false);
   const showLetter = !icon || broken;
 

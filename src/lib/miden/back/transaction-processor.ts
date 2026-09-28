@@ -8,6 +8,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
@@ -48,7 +49,15 @@ const ALARM_NAME = 'miden-tx-processor';
 // and never observes the orphan via that startup hook.
 const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
 const STUCK_TX_HEAL_PERIOD_MIN = 5;
+// One-shot wake for a run that ends with rows still Queued (#1223). A run stops after a fixed number of passes, a row
+// its guardian backed off can come due after that, and with the popup closed nothing else restarts processing.
+// Chrome fires a one-shot alarm no sooner than about 30 s out, which only delays such a row.
+const QUEUED_ROW_WAKE_ALARM = 'miden-tx-queued-wake';
 let isProcessing = false;
+// Set when a kick arrives while a run is already in flight. A kick that lands
+// after the loop's last pass but before this run clears `isProcessing` would
+// otherwise be silently dropped, leaving a newly-queued tx stuck (#907).
+let processingRequested = false;
 
 /**
  * Sign callback that runs in the service worker.
@@ -139,36 +148,42 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 
 /**
  * Start processing queued transactions in the service worker.
- * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
+ * One run at a time: a call made while a run is in flight starts no loop of
+ * its own but is recorded and honoured with one more run when this one ends
+ * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
  */
 export async function startTransactionProcessing(): Promise<void> {
-  if (isProcessing) return;
-  isProcessing = true;
-
-  // In the Vite SW build, the activity module's re-export of lib/miden/transaction
-  // doesn't await the async transaction module init (Rolldown treats
-  // `export * from '../transaction'` as synchronous). Wait up to 60s for the
-  // function to become available. The init chain is:
-  // init_transactions → init_store (Zustand) → init_front → various frontend inits
-  // This may take time as module factories resolve asynchronously.
-  if (typeof safeGenerateTransactionsLoop !== 'function') {
-    console.log('[TransactionProcessor] Waiting for transactions module init...');
-    for (let i = 0; i < 120; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      if (typeof safeGenerateTransactionsLoop === 'function') break;
-    }
-    if (typeof safeGenerateTransactionsLoop !== 'function') {
-      console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
-      isProcessing = false;
-      return;
-    }
-    console.log('[TransactionProcessor] transactions module ready');
+  if (isProcessing) {
+    processingRequested = true;
+    return;
   }
+  isProcessing = true;
 
   let browser: BrowserPolyfill | null = null;
   try {
+    // In the Vite SW build, the activity module's re-export of lib/miden/transaction
+    // doesn't await the async transaction module init (Rolldown treats
+    // `export * from '../transaction'` as synchronous). Wait up to 60s for the
+    // function to become available. The init chain is:
+    // init_transactions → init_store (Zustand) → init_front → various frontend inits
+    // This may take time as module factories resolve asynchronously.
+    if (typeof safeGenerateTransactionsLoop !== 'function') {
+      console.log('[TransactionProcessor] Waiting for transactions module init...');
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        if (typeof safeGenerateTransactionsLoop === 'function') break;
+      }
+      if (typeof safeGenerateTransactionsLoop !== 'function') {
+        console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
+        return;
+      }
+      console.log('[TransactionProcessor] transactions module ready');
+    }
+
     try {
       browser = await getBrowser();
+      // This run is the drive a pending wake was waiting for.
+      browser.alarms.clear(QUEUED_ROW_WAKE_ALARM);
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
     } catch {
       // Non-extension context (mobile / desktop) — no alarms API.
@@ -206,12 +221,44 @@ export async function startTransactionProcessing(): Promise<void> {
   } catch (e) {
     console.error('[TransactionProcessor] Error:', e);
   } finally {
-    isProcessing = false;
     try {
       browser?.alarms.clear(ALARM_NAME);
     } catch {
       // Best effort.
     }
+    // Armed before `isProcessing` drops, so a kick landing during the read is honoured by the restart below, which
+    // clears the wake, rather than starting a run this create would land behind.
+    if (browser && !processingRequested) await armQueuedRowWake(browser);
+    isProcessing = false;
+    if (processingRequested) {
+      processingRequested = false;
+      void startTransactionProcessing();
+    }
+  }
+}
+
+/**
+ * True while the vault is unlocked. Gates both arming and firing the queued-row wake (#1223): a locked vault fails
+ * every row at its first step and unlocking restarts processing itself (#924), and a wake would only reap claims
+ * while locked, doubling each expired auto-claim's retry backoff (#215).
+ */
+function isVaultUnlocked(): boolean {
+  try {
+    withUnlocked(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
+async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+  if (!isVaultUnlocked()) return;
+  try {
+    const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
+    if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
+  } catch (e) {
+    console.warn('[TransactionProcessor] Could not arm the queued-row wake:', e);
   }
 }
 
@@ -329,6 +376,9 @@ export function setupTransactionProcessor(): void {
           // independent of `startTransactionProcessing` so we don't depend
           // on the SW being mid-loop when an orphan ages out.
           void healStuckTransactions();
+        } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
+          // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
+          if (isVaultUnlocked()) void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
