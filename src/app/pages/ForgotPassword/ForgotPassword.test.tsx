@@ -613,6 +613,25 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalled();
   });
 
+  it('shows the error, registers nothing and allows Retry when the recovery wipe rejects (#1177)', async () => {
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+  });
+
   it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
     mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
     mockClassifyError.mockImplementationOnce(() => {
