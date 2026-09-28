@@ -104,7 +104,8 @@ test.describe('Guardian recovery - unfunded account', () => {
           'one rotation fell short, the one after the claim landed'
         ).toEqual([3, 2]);
         const [shortRotation, rotation] = [rotations[0]!, rotations[1]!];
-        // Never at the same time: the claim ran after the short rotation ended, the rotation after the claim.
+        // Not before, to the second: the claim did not start before the short rotation ended, nor the rotation
+        // before the claim.
         expect(claim.processingStartedAt!).toBeGreaterThanOrEqual(shortRotation.completedAt!);
         expect(rotation.processingStartedAt!).toBeGreaterThanOrEqual(claim.completedAt!);
 
