@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Notice } from 'components/ui/Notice';
@@ -365,19 +366,7 @@ const RevealSeedPhrase: FC = () => {
           </SubPageSection>
 
           {probeError ? (
-            <div>
-              <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
-                {t(probeError)}
-              </Notice>
-              <Button
-                className="mt-3"
-                variant={ButtonVariant.Secondary}
-                title={t('retry')}
-                onClick={runProbe}
-                disabled={probing}
-                isLoading={probing}
-              />
-            </div>
+            <ProtectorProbeErrorNotice onRetry={runProbe} retrying={probing} />
           ) : (
             probeSlow && (
               <Notice tone="neutral" role="status" data-testid="reveal-seed-probe-slow">

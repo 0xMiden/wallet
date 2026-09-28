@@ -258,6 +258,11 @@ describe('RevealSeedPhrase', () => {
   const buttonWithText = (container: HTMLElement, text: string) =>
     Array.from(container.querySelectorAll('button')).find(b => b.textContent === text);
 
+  // The shared notice's own Retry, distinct from the auth-error view's (found by text, above):
+  // both render a button titled `retry`, but only this one carries the notice's test id.
+  const probeRetryButton = (container: HTMLElement) =>
+    container.querySelector<HTMLButtonElement>('[data-testid="protector-probe-retry"]');
+
   // The page opens on the privacy warning; View moves on to the auth gate.
   const clickView = async (container: HTMLElement) => {
     await act(async () => {
@@ -402,7 +407,7 @@ describe('RevealSeedPhrase', () => {
 
     const container = await render();
 
-    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')!.textContent).toContain(
+    expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
       'couldNotCheckUnlockMethod'
     );
     // The banner must be TRANSLATED, not rendered as the bare key it stores.
@@ -412,11 +417,11 @@ describe('RevealSeedPhrase', () => {
 
     mockHasHardwareProtector.mockResolvedValue(true);
     await act(async () => {
-      buttonWithText(container, 'retry')!.click();
+      probeRetryButton(container)!.click();
     });
     await flush();
 
-    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+    expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
     expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
@@ -430,11 +435,11 @@ describe('RevealSeedPhrase', () => {
 
     mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
     await act(async () => {
-      buttonWithText(container, 'retry')!.click();
+      probeRetryButton(container)!.click();
     });
 
-    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
-    const retry = buttonWithText(container, 'retry');
+    expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
+    const retry = probeRetryButton(container);
     expect(retry).toBeTruthy();
     expect(retry!.disabled).toBe(true);
   });
@@ -448,12 +453,12 @@ describe('RevealSeedPhrase', () => {
     const container = await render();
 
     await act(async () => {
-      buttonWithText(container, 'retry')!.click();
+      probeRetryButton(container)!.click();
     });
     await flush();
 
-    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
-    expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+    expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
+    expect(probeRetryButton(container)!.disabled).toBe(false);
   });
 
   // Leaving the page mid-probe must not leave the deadline armed: on the hanging read the bound exists
@@ -524,8 +529,8 @@ describe('RevealSeedPhrase', () => {
       expect(slow!.textContent).toContain('checkingUnlockMethodSlow');
       expect(mockT).toHaveBeenCalledWith('checkingUnlockMethodSlow');
       expect(slow!.getAttribute('role')).toBe('status');
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
-      expect(buttonWithText(container, 'retry')).toBeUndefined();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
+      expect(probeRetryButton(container)).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
       // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
       expect(jest.getTimerCount()).toBe(0);
@@ -570,8 +575,8 @@ describe('RevealSeedPhrase', () => {
       expect(warn).toHaveBeenCalledTimes(2);
       expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('protector probe failed:'));
       expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
-      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
+      expect(probeRetryButton(container)!.disabled).toBe(false);
     } finally {
       warn.mockRestore();
       jest.useRealTimers();
@@ -626,7 +631,7 @@ describe('RevealSeedPhrase', () => {
       });
 
       expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
       expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('answered after the wait'));
     } finally {
@@ -680,16 +685,16 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
     const container = await render();
-    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
 
     jest.useFakeTimers();
     try {
       mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
       await act(async () => {
-        buttonWithText(container, 'retry')!.click();
+        probeRetryButton(container)!.click();
       });
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
-      expect(buttonWithText(container, 'retry')!.disabled).toBe(true);
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
+      expect(probeRetryButton(container)!.disabled).toBe(true);
 
       await act(async () => {
         jest.advanceTimersByTime(6000);
@@ -698,9 +703,9 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
-      expect(buttonWithText(container, 'retry')).toBeUndefined();
+      expect(probeRetryButton(container)).toBeNull();
     } finally {
       jest.useRealTimers();
     }
@@ -731,7 +736,7 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
       expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
 
       await act(async () => {
         jest.advanceTimersByTime(1);
@@ -741,7 +746,7 @@ describe('RevealSeedPhrase', () => {
       });
 
       expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
-      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
       expect(jest.getTimerCount()).toBe(0);
       // A probe that never waited has nothing to report.
