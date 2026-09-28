@@ -4,6 +4,6 @@ import testnet from './snapshot/testnet.json';
 // fetch, and whenever a fetch has never succeeded. Networks without a published list have none.
 const SNAPSHOTS: Record<string, unknown> = { testnet };
 
-export function bundledTokenList(network: string): unknown | null {
+export function bundledTokenList(network: string): unknown {
   return SNAPSHOTS[network] ?? null;
 }
