@@ -59,3 +59,10 @@ describe('OnboardingStepLayout', () => {
     expect(screen.getByRole('button', { name: 'Go' }).parentElement).not.toHaveClass('flex-col');
   });
 });
+
+it('sets the description in Nunito semibold at the explainer size, muted', () => {
+  render(<OnboardingStepLayout title="Set up your account" description="Check each point once." />);
+
+  const description = screen.getByText('Check each point once.');
+  expect(description).toHaveClass('text-explainer', 'font-semibold', 'text-muted', '[--font-sans:var(--font-heading)]');
+});
