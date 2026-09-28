@@ -175,8 +175,8 @@ export async function putToStorage<T = any>(key: string, value: T) {
   return await storage.set({ [key]: value });
 }
 
-// Each turn name's chain in this realm, used only without Web Locks (iOS before 15.4), where this realm is the only
-// writer, so ordering its own turns is enough.
+// Each turn name's chain in this realm, used only without Web Locks (iOS before 15.4, older macOS web views), where
+// this realm is the only writer, so ordering its own turns is enough.
 const storageTurnTails = new Map<string, Promise<void>>();
 
 /**

@@ -447,6 +447,23 @@ describe('useConnectivityState', () => {
 
       expect(hook.result.current.state.network.active).toBe(false);
       expect(hook.result.current.state.node.active).toBe(false);
+      const puts = putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY).length;
+
+      // Both problems clear: the record is left as it is, and nothing is written.
+      storageSnapshot = makeSnapshot();
+      mockStoredValues[CONNECTIVITY_STATE_KEY] = makeSnapshot();
+      hook.rerender();
+      await settle();
+      expect(stored()).toEqual({ network: 999, node: 123 });
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(puts);
+
+      // A window opened after the recovery leaves it as it is too.
+      hook.unmount();
+      storedDismissedActivations = Object.assign({}, stored());
+      renderHook(() => useConnectivityState());
+      await settle();
+      expect(stored()).toEqual({ network: 999, node: 123 });
+      expect(putCallsFor(CONNECTIVITY_DISMISSED_ACTIVATIONS_KEY)).toHaveLength(puts);
     });
 
     it('shows a newer activation this window jumps to without rendering the recovery between', async () => {
