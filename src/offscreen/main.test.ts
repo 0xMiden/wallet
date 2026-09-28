@@ -624,9 +624,15 @@ describe('offscreen/main — startup / init()', () => {
     const { getLocalProveTransport } = await import('lib/miden/sdk/local-prove-transport');
     const transport = getLocalProveTransport();
     expect(transport).not.toBeNull();
-    expect(transport?.prove).toEqual(expect.any(Function));
     expect(mockProveTransport.prewarm).not.toHaveBeenCalled();
     expect(mockProveTransport.prove).not.toHaveBeenCalled();
+
+    // Not just "an object with a function named prove" - any stub would pass that.
+    // Calling it must reach the mocked ProveWorkerClient instance main.ts actually
+    // constructed and installed, not a look-alike.
+    const request = { txResult: new Uint8Array([7]), proverDescriptor: 'local' };
+    await transport?.prove(request);
+    expect(mockProveTransport.prove).toHaveBeenCalledWith(request, undefined);
   });
 
   // The endpoint-override cache lives in module scope, so it is PER REALM: the SW's
