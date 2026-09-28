@@ -271,9 +271,9 @@ exists yet: nothing in the repo calls `navigator.credentials`.
   ([NIST SP 800-38D][nist-gcm], 2007-11). The repo's other AES-GCM uses take
   16-byte IVs (`src/lib/miden/passworder.ts:27`,
   `src/lib/miden/passworder.ts:244`); the new record does not copy that.
-- The additional authenticated data is one version byte followed by the raw
-  credential-id bytes, so a record cannot be replayed under another version or
-  credential.
+- The version in `info` and the credential id as salt bind the record: a
+  record replayed under another version or credential derives a different key
+  and fails the AES-GCM tag, so the tag needs no other binding.
 - The vault key and every item encrypted under it stay as they are.
 
 ### The stored record
@@ -284,21 +284,17 @@ A third plain-storage key, `vault_key_platform`, next to the other two
 
 | Field | Content |
 |---|---|
-| `version` | Record format, starting at 1; carried in the HKDF `info` and as the first byte of the additional data |
-| `credentialId` | The credential's raw id, stored as base64url; passed in `allowCredentials` at unlock, and its raw bytes are the HKDF salt and follow the version byte in the additional data |
+| `version` | Record format, starting at 1; carried in the HKDF `info` |
+| `credentialId` | The credential's raw id, stored as base64url; passed in `allowCredentials` at unlock, and its raw bytes are the HKDF salt |
 | `prfSalt` | 32 random bytes, the PRF input, one per credential |
-| `rpId` | `chrome-extension://<id>` at enrollment, so a changed extension id is caught before a ceremony |
 | `wrappedKey` | 12-byte IV, then AES-GCM ciphertext and tag of the 32 vault-key bytes |
 
 The salt is not secret: it is stored next to the wrapped key.
 
-Rotating the salt, which WebAuthn Level 3 suggests by evaluating a fresh input
-as `eval.second` and re-wrapping under its output
-([section 10.1.4][webauthn-l3]), is left out of the first scope. It would stop
-a PRF output captured earlier from opening the current record, but it protects
-little here: the new salt would sit next to the record like the old one, and
-since the vault key does not rotate, an old profile copy plus the old output
-still opens the old record. It would also add a storage write on every unlock.
+Rotating the salt with `eval.second` on each unlock, as WebAuthn Level 3
+suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope:
+the vault key does not rotate, so an old profile copy plus an old output still
+opens the old record.
 
 ### Where the ceremony runs
 
@@ -911,8 +907,8 @@ against it.
 3. **Unlock with PRF, and the password on every failure.** On the Unlock page
    (`src/app/pages/Unlock.tsx:330`) and in the confirm window
    (`src/app/ConfirmPage.tsx:67-68`). A cancel, a `NotAllowedError`, a missing
-   credential or PRF result, a clear UV flag, an RP ID that differs from the
-   record's, or a failed AES-GCM tag each leaves the password form in place.
+   credential or PRF result, a clear UV flag or a failed AES-GCM tag each
+   leaves the password form in place.
    Two more parts:
    - A periodic password check: the Unlock page asks for the password instead
      of the passkey when the password has not been entered for 7 days, so the
