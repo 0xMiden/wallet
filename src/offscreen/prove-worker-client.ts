@@ -17,12 +17,7 @@ import {
   recordProveTiming
 } from 'lib/miden/sdk/local-prove-transport';
 
-import {
-  isProveWorkerMessage,
-  LOCAL_PROVER_DESCRIPTOR,
-  type ProveWorkerMessage,
-  transferable
-} from './prove-worker-protocol';
+import { isProveWorkerMessage, type ProveWorkerMessage, transferable } from './prove-worker-protocol';
 import { spawnProveWorker } from './spawn-prove-worker';
 
 /** Same bound the service worker gives this document's own `OFFSCREEN_READY`. */
@@ -64,9 +59,6 @@ export class ProveWorkerClient implements LocalProveTransport {
   }
 
   prove(request: LocalProveRequest, options: LocalProveOptions = {}): Promise<LocalProveResult> {
-    if (request.proverDescriptor !== LOCAL_PROVER_DESCRIPTOR) {
-      return Promise.reject(new ProveWorkerError('unsupported-prover', request.proverDescriptor));
-    }
     return new Promise<LocalProveResult>((resolve, reject) => {
       const call: PendingProve = { id: this.nextId++, request, resolve, reject, posted: false };
       this.queue.push(call);
@@ -95,10 +87,7 @@ export class ProveWorkerClient implements LocalProveTransport {
     // Transferring detaches the caller's buffer; every caller serializes a fresh one.
     const { bytes, transfer } = transferable(head.request.txResult);
     try {
-      live.worker.postMessage(
-        { type: 'prove', id: head.id, txResult: bytes, proverDescriptor: head.request.proverDescriptor },
-        transfer
-      );
+      live.worker.postMessage({ type: 'prove', id: head.id, txResult: bytes }, transfer);
     } catch (error) {
       this.fail('crashed', messageOf(error));
       return;

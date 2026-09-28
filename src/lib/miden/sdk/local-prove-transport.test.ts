@@ -89,10 +89,7 @@ describe('proveInWorker', () => {
     const transport = fakeTransport(async () => ({ proven: new Uint8Array([1, 2]), durationMs: 5 }));
     const proof = await withWasmClientLock(async hold => {
       const proven = await proveInWorker(fakeResult, hold);
-      expect(transport.prove).toHaveBeenCalledWith(
-        { txResult: new Uint8Array([7, 8, 9]), proverDescriptor: 'local' },
-        { cancel: hold.aborted }
-      );
+      expect(transport.prove).toHaveBeenCalledWith({ txResult: new Uint8Array([7, 8, 9]) }, { cancel: hold.aborted });
       return proven;
     });
     expect(mockDeserializeProof).toHaveBeenCalledWith(new Uint8Array([1, 2]));

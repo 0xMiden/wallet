@@ -69,12 +69,7 @@ function send(data: unknown): void {
   onMessage(new MessageEvent('message', { data }));
 }
 
-const proveRequest = (id: number, proverDescriptor = 'local') => ({
-  type: 'prove',
-  id,
-  txResult: new Uint8Array([1, 2, 3]),
-  proverDescriptor
-});
+const proveRequest = (id: number) => ({ type: 'prove', id, txResult: new Uint8Array([1, 2, 3]) });
 
 beforeEach(() => {
   jest.resetModules();
@@ -183,18 +178,6 @@ describe('prove worker proving', () => {
     expect(posted[0]?.transfer[0]).toBe(provenBytes.buffer);
     expect(mockResult.free).toHaveBeenCalledTimes(1);
     expect(mockProven.free).toHaveBeenCalledTimes(1);
-  });
-
-  it('refuses a non-local prover descriptor without proving', async () => {
-    await loadWorker();
-    posted = [];
-    send(proveRequest(8, 'remote|https://prover.example'));
-    await flush();
-
-    expect(posted.map(p => p.message)).toEqual([
-      { type: 'result', id: 8, ok: false, message: 'unsupported prover descriptor' }
-    ]);
-    expect(mockSdk.proveTransaction).not.toHaveBeenCalled();
   });
 
   it('answers ok:false when proveTransaction rejects, and still frees the result', async () => {

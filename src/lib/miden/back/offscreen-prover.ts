@@ -200,8 +200,8 @@ export type ProveViaOffscreenResult = {
  *
  * `proverDescriptor` is `null` or `"local"`: either way the offscreen document
  * proves in its own prove worker (#945). The one caller always passes `null`.
- * Any other descriptor answers `ok: false` with `unsupported-prover`, since the
- * worker accepts local proves only.
+ * Any other string answers `ok: false` with `unsupported prover descriptor`,
+ * refused by the offscreen document before the worker, which proves locally only.
  */
 export async function proveViaOffscreen(
   txResultBytes: Uint8Array,

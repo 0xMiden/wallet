@@ -55,7 +55,7 @@ const mockSpawn = jest.fn(spawnFakeWorker);
 
 jest.mock('./spawn-prove-worker', () => ({ spawnProveWorker: () => mockSpawn() }));
 
-const request = (bytes = [1, 2, 3]) => ({ txResult: new Uint8Array(bytes), proverDescriptor: 'local' });
+const request = (bytes = [1, 2, 3]) => ({ txResult: new Uint8Array(bytes) });
 
 function worker(index: number): FakeWorker {
   const found = mockWorkers[index];
@@ -104,15 +104,6 @@ describe('ProveWorkerClient spawn', () => {
     client.prewarm();
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     expect(worker(0).posted).toEqual([]);
-  });
-
-  it('rejects a non-local descriptor as unsupported-prover without spawning or posting', async () => {
-    const client = new ProveWorkerClient();
-    const result = await outcome(client.prove({ txResult: new Uint8Array([1]), proverDescriptor: 'remote|x' }));
-    expect(result.ok).toBe(false);
-    expect(result.value).toBeInstanceOf(ProveWorkerError);
-    expect(result.value).toMatchObject({ kind: 'unsupported-prover' });
-    expect(mockSpawn).not.toHaveBeenCalled();
   });
 
   it('retires a prewarmed worker whose boot fails, and the next prove spawns a fresh one', async () => {
@@ -169,13 +160,13 @@ describe('ProveWorkerClient proving', () => {
   it('waits for ready, then posts the bytes with their buffer in the transfer list', async () => {
     const client = new ProveWorkerClient();
     const bytes = new Uint8Array([4, 5, 6]);
-    void client.prove({ txResult: bytes, proverDescriptor: 'local' });
+    void client.prove({ txResult: bytes });
     await flush();
     expect(worker(0).posted).toEqual([]);
 
     worker(0).ready();
     expect(worker(0).posted).toEqual([
-      { message: { type: 'prove', id: 1, txResult: bytes, proverDescriptor: 'local' }, transfer: [bytes.buffer] }
+      { message: { type: 'prove', id: 1, txResult: bytes }, transfer: [bytes.buffer] }
     ]);
   });
 
@@ -211,7 +202,7 @@ describe('ProveWorkerClient proving', () => {
   it('copies a view into a larger buffer instead of transferring memory the caller owns', async () => {
     const client = new ProveWorkerClient();
     const backing = new Uint8Array([0, 1, 2, 3, 0]);
-    void client.prove({ txResult: backing.subarray(1, 4), proverDescriptor: 'local' });
+    void client.prove({ txResult: backing.subarray(1, 4) });
     await flush();
     worker(0).ready();
     const [posted] = worker(0).posted;

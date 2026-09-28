@@ -92,7 +92,7 @@ import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
-import { LOCAL_PROVER_DESCRIPTOR, proveThreadCount } from './prove-worker-protocol';
+import { proveThreadCount } from './prove-worker-protocol';
 
 const TAG = '[offscreen-prover]';
 
@@ -1544,14 +1544,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {
       try {
-        await ensureInit();
-        // Bytes straight to the prove worker (#945): no WASM call in this realm at
-        // all. Only a local descriptor is accepted; the one sender passes null.
+        // The field predates the prove worker, which proves locally only (#945). A
+        // string naming any other prover is refused here; null or absent has always
+        // meant local, and the one sender passes null.
         const proverDescriptor: unknown = msg.proverDescriptor;
-        const { proven, durationMs } = await proveWorker.prove({
-          txResult: b64ToBytes(String(msg.txResultB64)),
-          proverDescriptor: typeof proverDescriptor === 'string' ? proverDescriptor : LOCAL_PROVER_DESCRIPTOR
-        });
+        if (typeof proverDescriptor === 'string' && proverDescriptor !== 'local') {
+          sendResponse({ ok: false, error: 'unsupported prover descriptor' });
+          return;
+        }
+        await ensureInit();
+        // Bytes straight to the prove worker: no WASM call in this realm at all.
+        const { proven, durationMs } = await proveWorker.prove({ txResult: b64ToBytes(String(msg.txResultB64)) });
         console.log(`${TAG} prove duration_ms=${durationMs.toFixed(1)}`);
         sendResponse({ ok: true, provenB64: bytesToB64(proven), durationMs });
       } catch (err) {

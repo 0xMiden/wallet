@@ -13,13 +13,7 @@ import { ProvenTransaction, type TransactionResult } from '@miden-sdk/miden-sdk/
 import { assertWasmHoldCurrent, type WasmLockHold, withWasmLockWatchdogPaused } from './miden-client';
 import { recordProveMarker, recordSdkProveStep } from './prove-telemetry';
 
-export type ProveWorkerErrorKind =
-  | 'spawn-failed'
-  | 'init-failed'
-  | 'init-timeout'
-  | 'crashed'
-  | 'prove-failed'
-  | 'unsupported-prover';
+export type ProveWorkerErrorKind = 'spawn-failed' | 'init-failed' | 'init-timeout' | 'crashed' | 'prove-failed';
 
 /**
  * A worker prove that failed before anything was submitted.
@@ -52,8 +46,6 @@ export function proveWorkerErrorDetail(error: unknown): string | undefined {
 export interface LocalProveRequest {
   /** `TransactionResult.serialize()`. The transport may transfer its buffer. */
   txResult: Uint8Array;
-  /** Only `'local'` is accepted; anything else rejects with `unsupported-prover`. */
-  proverDescriptor: string;
 }
 
 export interface LocalProveResult {
@@ -123,10 +115,7 @@ export async function proveInWorker(
   const startedAt = performance.now();
   let outcome: LocalProveResult;
   try {
-    outcome = await withWasmLockWatchdogPaused(
-      () => transport.prove({ txResult, proverDescriptor: 'local' }, { cancel: hold.aborted }),
-      hold
-    );
+    outcome = await withWasmLockWatchdogPaused(() => transport.prove({ txResult }, { cancel: hold.aborted }), hold);
   } catch (error) {
     // The SDK observer times `proveTransaction` on this realm's client, which no
     // longer proves, so the #466 step timing is fed from here.

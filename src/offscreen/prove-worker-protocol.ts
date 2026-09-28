@@ -5,15 +5,11 @@
 // none of the extension's plugins (no wasm, node-polyfill or SVG transforms), so
 // every module the worker reaches has to survive that pass untouched.
 
-/** The one prover descriptor the worker accepts (`TransactionProver.serialize()` of a local prover). */
-export const LOCAL_PROVER_DESCRIPTOR = 'local';
-
 /** Parent to worker. `txResult.buffer` travels in the transfer list. */
 export interface ProveRequestMessage {
   type: 'prove';
   id: number;
   txResult: Uint8Array;
-  proverDescriptor: string;
 }
 
 export type ProveWorkerInitFailure = 'not-cross-origin-isolated' | 'wasm-load' | 'thread-pool';
@@ -85,9 +81,7 @@ export function isProveRequestMessage(data: unknown): data is ProveRequestMessag
     'id' in data &&
     typeof data.id === 'number' &&
     'txResult' in data &&
-    data.txResult instanceof Uint8Array &&
-    'proverDescriptor' in data &&
-    typeof data.proverDescriptor === 'string'
+    data.txResult instanceof Uint8Array
   );
 }
 

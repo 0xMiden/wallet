@@ -22,7 +22,6 @@ import {
 
 import {
   isProveRequestMessage,
-  LOCAL_PROVER_DESCRIPTOR,
   type ProveRequestMessage,
   type ProveWorkerMessage,
   proveThreadCount,
@@ -80,10 +79,6 @@ const booted = boot();
 
 async function prove(request: ProveRequestMessage): Promise<void> {
   const { id } = request;
-  if (request.proverDescriptor !== LOCAL_PROVER_DESCRIPTOR) {
-    post({ type: 'result', id, ok: false, message: 'unsupported prover descriptor' });
-    return;
-  }
   const client = await booted;
   if (!client) {
     post({ type: 'result', id, ok: false, message: 'the prove worker did not start' });

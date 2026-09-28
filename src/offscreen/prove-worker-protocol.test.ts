@@ -40,7 +40,7 @@ describe('transferable', () => {
 });
 
 describe('isProveRequestMessage', () => {
-  const valid = { type: 'prove', id: 1, txResult: new Uint8Array([1]), proverDescriptor: 'local' };
+  const valid = { type: 'prove', id: 1, txResult: new Uint8Array([1]) };
 
   it('accepts a well-formed request', () => {
     expect(isProveRequestMessage(valid)).toBe(true);
@@ -51,8 +51,7 @@ describe('isProveRequestMessage', () => {
     ['a string', 'prove'],
     ['another type', { ...valid, type: 'ready' }],
     ['a string id', { ...valid, id: '1' }],
-    ['a plain-array payload', { ...valid, txResult: [1] }],
-    ['a missing descriptor', { type: 'prove', id: 1, txResult: new Uint8Array([1]) }]
+    ['a plain-array payload', { ...valid, txResult: [1] }]
   ])('rejects %s', (_label, data) => {
     expect(isProveRequestMessage(data)).toBe(false);
   });

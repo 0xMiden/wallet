@@ -272,7 +272,7 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
 // #945: every local prove in this document goes to the prove worker client, which
 // is replaced here by a fake transport. The default proof bytes are [1, 2, 3].
 const mockProveTransport = {
-  prove: jest.fn(async (_request: { txResult: Uint8Array; proverDescriptor: string }, _options?: object) => ({
+  prove: jest.fn(async (_request: { txResult: Uint8Array }, _options?: object) => ({
     proven: new Uint8Array([1, 2, 3]),
     durationMs: 42
   })),
@@ -288,7 +288,7 @@ jest.mock('./prove-worker-client', () => ({
     constructor() {
       mockProveTransport.ctorCount++;
     }
-    prove(request: { txResult: Uint8Array; proverDescriptor: string }, options?: object) {
+    prove(request: { txResult: Uint8Array }, options?: object) {
       return mockProveTransport.prove(request, options);
     }
     prewarm() {
@@ -630,7 +630,7 @@ describe('offscreen/main — startup / init()', () => {
     // Not just "an object with a function named prove" - any stub would pass that.
     // Calling it must reach the mocked ProveWorkerClient instance main.ts actually
     // constructed and installed, not a look-alike.
-    const request = { txResult: new Uint8Array([7]), proverDescriptor: 'local' };
+    const request = { txResult: new Uint8Array([7]) };
     await transport?.prove(request);
     expect(mockProveTransport.prove).toHaveBeenCalledWith(request, undefined);
   });
@@ -804,45 +804,44 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
     ...extra
   });
 
-  it('forwards the decoded bytes to the prove worker as a local prove when no descriptor is supplied (#945)', async () => {
+  it.each([
+    ['a null', null],
+    ["a 'local'", 'local'],
+    ['a non-string', 42]
+  ])(
+    'forwards the decoded bytes to the prove worker as a local prove for %s descriptor (#945)',
+    async (_label, proverDescriptor) => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      const ret = capturedListener!(provReq({ proverDescriptor }), {}, sendResponse);
+      expect(ret).toBe(true);
+      await flush();
+
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([9, 8, 7]) });
+      // No WASM call in this realm at all: nothing deserialized, no prover, no client.
+      expect(G.__off.deserializeTxResult).not.toHaveBeenCalled();
+      expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+      expect(G.__off.webClientCtorCount).toBe(0);
+
+      expect(sendResponse).toHaveBeenCalledTimes(1);
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(resp.durationMs).toBe(42);
+      expect(Array.from(Buffer.from(resp.provenB64, 'base64'))).toEqual([1, 2, 3]);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('prove duration_ms='));
+    }
+  );
+
+  it('answers ok:false for a string descriptor other than local without reaching the prove worker (#945)', async () => {
     await loadModule();
-    const sendResponse = jest.fn();
-    const ret = capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
-    expect(ret).toBe(true);
-    await flush();
-
-    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
-    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
-      txResult: new Uint8Array([9, 8, 7]),
-      proverDescriptor: 'local'
-    });
-    // No WASM call in this realm at all: nothing deserialized, no prover, no client.
-    expect(G.__off.deserializeTxResult).not.toHaveBeenCalled();
-    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
-    expect(G.__off.webClientCtorCount).toBe(0);
-
-    expect(sendResponse).toHaveBeenCalledTimes(1);
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(resp.durationMs).toBe(42);
-    expect(Array.from(Buffer.from(resp.provenB64, 'base64'))).toEqual([1, 2, 3]);
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('prove duration_ms='));
-  });
-
-  it('answers ok:false for a non-local descriptor, which the worker refuses to prove (#945)', async () => {
-    await loadModule();
-    const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
-    mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('unsupported-prover', 'remote|http://x|5000'));
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: 'remote|http://x|5000' }), {}, sendResponse);
     await flush();
 
-    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toMatchObject({ proverDescriptor: 'remote|http://x|5000' });
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
     expect(G.__off.deserializeProver).not.toHaveBeenCalled();
-    expect(sendResponse).toHaveBeenCalledWith({
-      ok: false,
-      error: 'Local prove failed in the prove worker (unsupported-prover)'
-    });
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'unsupported prover descriptor' });
   });
 
   it('proves successive requests through the one worker client, constructing no WebClient here', async () => {
@@ -3135,10 +3134,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // serialized result, and never proved on this document's thread (#945).
     expect(mockProveTransport.prewarm).toHaveBeenCalledTimes(1);
     expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
-    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
-      txResult: new Uint8Array([55, 66, 77]),
-      proverDescriptor: 'local'
-    });
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([55, 66, 77]) });
     expect(G.__off.guardianProveCalls).toEqual([]);
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
     const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
@@ -3529,10 +3525,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.guardianProveCalls).toEqual([{ prover: { __remote: true } }]);
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
     expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
-    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({
-      txResult: new Uint8Array([55, 66, 77]),
-      proverDescriptor: 'local'
-    });
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([55, 66, 77]) });
     const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
     expect(G.__off.guardianSubmitProven).toHaveBeenCalledWith({ __proofFromBytes: [1, 2, 3] }, executed.result);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
@@ -4101,6 +4094,10 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     // The worker's WASM instance is separate, so a trap here does not abort it and
     // this realm builds no prover of its own.
     expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    expect(mockProveTransport.prove.mock.calls.map(call => call[0])).toEqual([
+      { txResult: new Uint8Array([9]) },
+      { txResult: new Uint8Array([9]) }
+    ]);
     expect(G.__off.webClientCtorCount).toBe(0);
   });
 

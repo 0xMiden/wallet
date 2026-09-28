@@ -165,10 +165,7 @@ afterEach(() => {
 
 function expectWorkerProved(harness: Harness) {
   expect(harness.transport.prove).toHaveBeenCalledTimes(1);
-  expect(harness.transport.prove.mock.calls[0]?.[0]).toEqual({
-    txResult: new Uint8Array([7, 7]),
-    proverDescriptor: 'local'
-  });
+  expect(harness.transport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([7, 7]) });
   expect(harness.submitProven).toHaveBeenCalledWith({ proofBytes: [5, 5] }, harness.result);
 }
 
