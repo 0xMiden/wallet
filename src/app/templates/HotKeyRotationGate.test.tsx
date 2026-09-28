@@ -341,18 +341,20 @@ describe('HotKeyRotationGate', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
-  it('shows the failure reason and retries with a fresh transaction', async () => {
+  it('puts an unclassified failure behind a short message and retries with a fresh transaction', async () => {
     mockUseTransactionRow.mockReturnValue({
-      row: { id: 'tx-new', status: ITransactionStatus.Failed, error: 'guardian unreachable' },
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' },
       loaded: true
     });
-
     mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
 
     render(<HotKeyRotationGate />);
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
 
     expect(screen.getByText('hotKeyRotationFailedTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationFailedGeneric');
+    expect(screen.queryByText('guardian unreachable')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
     expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
 
     // Failed rows are terminal: Retry enqueues a new transaction instead of adopting it.
@@ -360,15 +362,74 @@ describe('HotKeyRotationGate', () => {
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(2));
   });
 
-  it('falls back to a generic failure message when the row has no error text', async () => {
+  it('falls back to a generic failure message, with no details, when the row has no error text', async () => {
     mockUseTransactionRow.mockReturnValue({
-      row: { id: 'tx-new', status: ITransactionStatus.Failed },
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
       loaded: true
     });
 
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(screen.getByText('hotKeyRotationFailedGeneric')).toBeInTheDocument());
+    expect(screen.queryByText('showFullError')).not.toBeInTheDocument();
+  });
+
+  it('says a rotation that may have reached the network is not confirmed', async () => {
+    const raw = 'Error: Error during Guardian transaction submission or execution: request timeout';
+    mockUseTransactionRow.mockReturnValue({
+      row: {
+        id: 'tx-new',
+        status: ITransactionStatus.Failed,
+        type: 'replace-hot-key',
+        error: raw,
+        mayHaveSubmitted: true
+      },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByText('hotKeyRotationUnconfirmedTitle')).toBeInTheDocument();
+    expect(screen.queryByText('hotKeyRotationFailedTitle')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationUnconfirmedBody');
+    expect(screen.queryByText(raw)).not.toBeInTheDocument();
+  });
+
+  it('shows classified copy as the message and keeps its raw error for details', async () => {
+    mockUseTransactionRow.mockReturnValue({
+      row: {
+        id: 'tx-new',
+        status: ITransactionStatus.Failed,
+        type: 'replace-hot-key',
+        error: 'Local proving failed. Please try again.',
+        rawError: 'RuntimeError: unreachable'
+      },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
+      'Local proving failed. Please try again.'
+    );
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('RuntimeError: unreachable')).toBeInTheDocument();
+  });
+
+  it('keeps the message and its column inside the screen width', async () => {
+    mockUseTransactionRow.mockReturnValue({
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    // A fit-content column sizes to its widest unbreakable token; `w-full` pins it to the overlay.
+    expect(screen.getByTestId('hot-key-rotation-failed')).toHaveClass('w-full');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveClass('w-full', 'wrap-anywhere');
   });
 
   it('disappears once the rotation flag clears', async () => {
