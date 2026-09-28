@@ -152,7 +152,7 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way:
  * a `radiogroup` of `radio`s, a `value` naming a disabled option reported as no selection, only the
  * chosen (or first choosable) option in the tab order, arrow keys and Home/End moving focus and the
- * choice together (the first arrow landing on the first option when nothing is chosen), one
+ * choice together (the first arrow landing on the first option with nothing chosen and nothing focused), one
  * selection haptic per real change and none for a tap on the chosen card, a press that dips on the
  * tab-bar spring and a check that pops as it lands. Under reduced motion nothing scales or pops.
  * One split, by design: with every option disabled the twin, disabled as a whole, still shows its
