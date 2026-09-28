@@ -1,5 +1,5 @@
 import { formatBigInt } from 'lib/i18n/numbers';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -47,9 +47,6 @@ export type RotationGateViewResult =
   | { view: 'recovery-seed' | 'failed' | 'rotating' }
   | { view: 'funding'; status: RotationFundingStatus; reason: RotationFundingReason; failedClaim?: GateRow };
 
-const isLive = (row: GateRow): boolean =>
-  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
-
 const queuedLater = (a: GateRow, b: GateRow): boolean =>
   a.initiatedAt > b.initiatedAt || (a.initiatedAt === b.initiatedAt && (a.queuedSeq ?? 0) > (b.queuedSeq ?? 0));
 
@@ -87,7 +84,7 @@ const fundingStatus = (
   claimLive: boolean
 ): { status: RotationFundingStatus; failedClaim?: GateRow } => {
   if (claimLive) return { status: 'claiming' };
-  if (input.rotationRows.some(isLive)) return { status: 'activating' };
+  if (input.rotationRows.some(isLiveTransaction)) return { status: 'activating' };
   const claim = newestRow(input.fundingRows);
   const rotation = newestRow(input.rotationRows);
   if (
@@ -113,7 +110,7 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
     return { view: 'recovery-seed' };
   }
   const shortfall = trackedRow !== undefined && isVaultShortfallRow(trackedRow);
-  const claimLive = input.fundingRows.some(isLive);
+  const claimLive = input.fundingRows.some(isLiveTransaction);
   if (input.baseFee !== 0 && (shortfall || input.belowBaseFee || claimLive)) {
     const reason: RotationFundingReason = shortfall
       ? 'rotation-shortfall'

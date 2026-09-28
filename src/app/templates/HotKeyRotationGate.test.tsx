@@ -26,6 +26,7 @@ const mockLiveQueries: Array<() => void> = [];
 let mockBaseFee: number | null = 10000;
 let mockBalances: TokenBalanceData[] = [];
 let mockBalancesLoading = false;
+let mockFaucetId: string | null = 'native-faucet';
 let mockClaimable: { data?: ConsumableNote[]; isFallback: boolean } = { data: [], isFallback: false };
 const mockEnqueue = jest.fn(async (..._args: unknown[]): Promise<string | null> => 'claim-tx');
 
@@ -33,6 +34,8 @@ let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
 // Web Lock (i.e. a generation is genuinely in flight somewhere).
 let loopLockHeld = false;
+// Every Web Lock name the gate asked for, in order.
+const lockRequests: string[] = [];
 
 type LockCallback = (lock: { name: string } | null) => unknown;
 
@@ -41,6 +44,7 @@ beforeAll(() => {
     configurable: true,
     value: {
       request: (name: string, optsOrCb: { ifAvailable?: boolean } | LockCallback, maybeCb?: LockCallback) => {
+        lockRequests.push(name);
         const callback = (maybeCb ?? optsOrCb) as LockCallback;
         const opts = maybeCb ? (optsOrCb as { ifAvailable?: boolean }) : undefined;
         if (opts?.ifAvailable && loopLockHeld) return Promise.resolve(callback(null));
@@ -56,7 +60,7 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'native-faucet' }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 
 jest.mock('lib/dexie-live-query', () => ({
@@ -183,11 +187,12 @@ const fundingRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
   noteIds: ['note-1'],
   ...extra
 });
-const shortfallRow = rotationRow('tx-shortfall', {
-  status: ITransactionStatus.Failed,
-  completedAt: 150,
-  error: 'assertion failed with error code: 644413868907058392'
-});
+const shortfallRow = (): TableRow =>
+  rotationRow('tx-shortfall', {
+    status: ITransactionStatus.Failed,
+    completedAt: 150,
+    error: 'assertion failed with error code: 644413868907058392'
+  });
 
 const nativeNote = (id: string, extra: Partial<ConsumableNote> = {}): ConsumableNote => ({
   id,
@@ -217,7 +222,7 @@ const publishTable = async () => {
 
 /** Track the adopted shortfall: the row a funding test starts from. */
 const trackShortfall = () => {
-  mockTable = [shortfallRow];
+  mockTable = [shortfallRow()];
   mockUseTransactionRow.mockImplementation((txId: string) => ({
     row: mockTable.find(r => r.id === txId),
     loaded: true
@@ -234,6 +239,8 @@ describe('HotKeyRotationGate', () => {
     mockBaseFee = 10000;
     mockBalances = [];
     mockBalancesLoading = false;
+    mockFaucetId = 'native-faucet';
+    lockRequests.length = 0;
     mockClaimable = { data: [], isFallback: false };
     mockEnqueue.mockResolvedValue('claim-tx');
     mockPlatform.isExtension = false;
@@ -350,7 +357,7 @@ describe('HotKeyRotationGate', () => {
 
   describe('serialized with the funding claim (#805)', () => {
     it('defers the rotation on mount while the gate funding claim is live', async () => {
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
 
       render(<HotKeyRotationGate />);
 
@@ -383,7 +390,7 @@ describe('HotKeyRotationGate', () => {
     it('adopts the prior shortfall on mount when no claim completed after it', async () => {
       mockTable = [
         fundingRow('claim-old', { status: ITransactionStatus.Completed, initiatedAt: 20, completedAt: 50 }),
-        shortfallRow
+        shortfallRow()
       ];
 
       render(<HotKeyRotationGate />);
@@ -393,11 +400,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     it('queues a fresh rotation on Retry instead of adopting the shortfall again', async () => {
-      mockTable = [shortfallRow];
-      mockUseTransactionRow.mockImplementation((txId: string) => ({
-        row: txId === 'tx-shortfall' ? shortfallRow : undefined,
-        loaded: true
-      }));
+      trackShortfall();
       render(<HotKeyRotationGate />);
       await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-shortfall'));
 
@@ -407,7 +410,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     it('queues a fresh rotation on mount once a claim completed after the shortfall', async () => {
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
 
       render(<HotKeyRotationGate />);
 
@@ -417,7 +420,7 @@ describe('HotKeyRotationGate', () => {
 
     it('does not adopt a rotation that failed for another reason, or only the older of two', async () => {
       mockTable = [
-        shortfallRow,
+        shortfallRow(),
         rotationRow('tx-later', { status: ITransactionStatus.Failed, initiatedAt: 160, error: 'guardian unreachable' })
       ];
 
@@ -542,10 +545,10 @@ describe('HotKeyRotationGate', () => {
       await screen.findByTestId('hot-key-rotation-funding');
       expect(mockInitiate).not.toHaveBeenCalled();
 
-      mockTable = [shortfallRow, fundingRow('claim-1')];
+      mockTable = [shortfallRow(), fundingRow('claim-1')];
       await publishTable();
       expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claiming');
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
       await publishTable();
       await publishTable();
 
@@ -564,7 +567,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     it('claims nothing more while its own claim is live', async () => {
-      mockTable = [shortfallRow, fundingRow('claim-1', { noteIds: ['n1'] })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { noteIds: ['n1'] })];
       mockClaimable = { data: [nativeNote('n1')], isFallback: false };
 
       render(<HotKeyRotationGate />);
@@ -580,10 +583,10 @@ describe('HotKeyRotationGate', () => {
       mockClaimable = { data: [nativeNote('n1')], isFallback: false };
       const { rerender } = render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
-      mockTable = [shortfallRow, fundingRow('claim-1', { noteIds: ['n1'] })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { noteIds: ['n1'] })];
       await publishTable();
       mockTable = [
-        shortfallRow,
+        shortfallRow(),
         fundingRow('claim-1', { noteIds: ['n1'], status: ITransactionStatus.Completed, completedAt: 300 })
       ];
       await publishTable();
@@ -607,7 +610,7 @@ describe('HotKeyRotationGate', () => {
     });
 
     it('does not retry for a claim that had already completed when the gate mounted', async () => {
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
 
       render(<HotKeyRotationGate />);
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
@@ -636,7 +639,7 @@ describe('HotKeyRotationGate', () => {
     it('retries when a note whose claim failed leaves the list: another device claimed it', async () => {
       trackShortfall();
       mockEnqueue.mockResolvedValue(null);
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'] })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'] })];
       mockClaimable = { data: [nativeNote('n1')], isFallback: false };
       const { rerender } = render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
@@ -661,12 +664,45 @@ describe('HotKeyRotationGate', () => {
       expect(mockInitiate).not.toHaveBeenCalled();
     });
 
+    it('keeps watching its notes through a moment the native faucet id is unknown', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockFaucetId = null;
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      // The id is back and the note is gone: it left the list while the id was unknown.
+      mockFaucetId = 'native-faucet';
+      mockClaimable = { data: [], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not read a change of native faucet id as its notes leaving the list', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockFaucetId = 'other-faucet';
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
     it('keeps the tracked shortfall when a retry defers behind a live claim', async () => {
       trackShortfall();
       mockClaimable = { data: [nativeNote('n1'), nativeNote('n2')], isFallback: false };
       const { rerender } = render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
-      mockTable = [shortfallRow, fundingRow('claim-2', { noteIds: ['n2'] })];
+      mockTable = [shortfallRow(), fundingRow('claim-2', { noteIds: ['n2'] })];
       await publishTable();
 
       mockClaimable = { data: [nativeNote('n2', { isBeingClaimed: true })], isFallback: false };
@@ -683,7 +719,7 @@ describe('HotKeyRotationGate', () => {
     it('shows a failed claim with its reason, and Try again bypasses the backoff', async () => {
       trackShortfall();
       mockTable = [
-        shortfallRow,
+        shortfallRow(),
         fundingRow('claim-1', { status: ITransactionStatus.Failed, error: 'guardian unreachable', noteIds: ['n1'] })
       ];
       mockClaimable = { data: [nativeNote('n1')], isFallback: false };
@@ -726,13 +762,13 @@ describe('HotKeyRotationGate', () => {
 
     it('runs the rotation it deferred once the claim fails with the fee covered', async () => {
       mockBalances = [nativeBalance(1)];
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
       render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
       expect(mockInitiate).not.toHaveBeenCalled();
 
       // The cold-start sweep fails the orphaned claim the gate deferred behind.
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Failed })];
       await publishTable();
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
@@ -741,7 +777,7 @@ describe('HotKeyRotationGate', () => {
       mockTable = [...mockTable, rotationRow('tx-new', { initiatedAt: 400 })];
       await publishTable();
       mockTable = [
-        shortfallRow,
+        shortfallRow(),
         fundingRow('claim-1', { status: ITransactionStatus.Failed }),
         rotationRow('tx-new', { status: ITransactionStatus.Completed, initiatedAt: 400 })
       ];
@@ -751,22 +787,83 @@ describe('HotKeyRotationGate', () => {
 
     it('waits on a rotation another surface queued while it deferred', async () => {
       mockBalances = [nativeBalance(1)];
-      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
       render(<HotKeyRotationGate />);
       await screen.findByTestId('hot-key-rotation-funding');
 
       const claimed = () => fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 });
-      mockTable = [shortfallRow, claimed(), rotationRow('tx-other', { initiatedAt: 400 })];
+      mockTable = [shortfallRow(), claimed(), rotationRow('tx-other', { initiatedAt: 400 })];
       await publishTable();
       expect(mockInitiate).not.toHaveBeenCalled();
 
       mockTable = [
-        shortfallRow,
+        shortfallRow(),
         claimed(),
         rotationRow('tx-other', { status: ITransactionStatus.Failed, initiatedAt: 400, error: 'guardian unreachable' })
       ];
       await publishTable();
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('waits for its claim on a chain that charges nothing, then runs the rotation', async () => {
+      mockBaseFee = 0;
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await publishTable();
+      await publishTable();
+      // One try, the mount's: while the claim is live the lock would only defer another.
+      expect(lockRequests.filter(name => name === 'hot-key-rotation:account-1')).toHaveLength(1);
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      await publishTable();
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('tries again on the next rows read after a deferral that read newer rows', async () => {
+      mockBalances = [nativeBalance(0)];
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      mockTable = [fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      await publishTable();
+
+      // Another surface queues a claim this gate has not read yet, and the fee is now covered.
+      mockTable = [...mockTable, fundingRow('claim-2', { initiatedAt: 300 })];
+      mockBalances = [nativeBalance(1)];
+      rerender(<HotKeyRotationGate />);
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(lockRequests.filter(name => name === 'hot-key-rotation:account-1')).toHaveLength(2);
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      mockTable = [
+        fundingRow('claim-1', { status: ITransactionStatus.Failed }),
+        fundingRow('claim-2', { status: ITransactionStatus.Failed, initiatedAt: 300 })
+      ];
+      await publishTable();
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('adopts the prior shortfall, not a fresh rotation, when its claim ends before balances load', async () => {
+      mockBalancesLoading = true;
+      trackShortfall();
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      await publishTable();
+
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenLastCalledWith('tx-shortfall'));
+      expect(screen.getByTestId('hot-key-rotation-funding')).toHaveAttribute(
+        'data-funding-reason',
+        'rotation-shortfall'
+      );
+      expect(mockInitiate).not.toHaveBeenCalled();
     });
 
     it('shows the classified shortfall, not the raw kernel line, on a chain that charges nothing', async () => {

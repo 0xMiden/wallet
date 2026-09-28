@@ -12,7 +12,7 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -233,9 +233,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     listedNoteIds: new Set(selection.native.map(note => note.id)),
     tooSmall: selection.tooSmall
   });
-  const rotationLive = rotationRows.some(
-    r => r.status === ITransactionStatus.Queued || r.status === ITransactionStatus.GeneratingTransaction
-  );
+  const rotationLive = rotationRows.some(isLiveTransaction);
 
   const onRetry = useCallback(() => {
     setTxId(null);
@@ -251,8 +249,9 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const { retryClaim } = useRotationFundingClaim({
     accountPublicKey,
     active: rowsLoaded && gate.view === 'funding' && !rotationLive,
-    listLive: !isFallback && claimableNotes !== undefined,
+    listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
     selection,
+    feeFaucetId,
     baseFee,
     fundingRows,
     rowsLoaded,
@@ -260,12 +259,15 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   });
 
   // A rotation deferred behind a claim has nothing to track, so it runs once nothing is live
-  // and the balance asks for no funding, whether the claim completed or failed. On mount the
-  // first call is still in flight and swallows this one.
-  const deferredRotationDue = gate.view === 'rotating' && txId === null && !rotationLive;
+  // and the balance asks for no funding, whether the claim completed or failed. Every rows read
+  // re-arms it: a deferral on rows newer than the gate's read changes no state to re-run on.
+  // Before balances land it adopts a prior shortfall rather than queue a rotation that falls
+  // short again. On mount the first call is still in flight and swallows this one.
+  const deferredRotationDue =
+    gate.view === 'rotating' && txId === null && !rotationLive && !fundingRows.some(isLiveTransaction);
   useEffect(() => {
-    if (deferredRotationDue) void beginRotation(false);
-  }, [beginRotation, deferredRotationDue]);
+    if (deferredRotationDue) void beginRotation(balancesLoading);
+  }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
 
   if (gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
@@ -279,43 +281,46 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     // overlay unmounting IS the "rotation complete" signal.
     <div
       data-testid="hot-key-rotation-gate"
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 px-8 text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
+      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
     >
-      {gate.view === 'funding' ? (
-        <RotationFundingPanel
-          address={accountPublicKey}
-          reason={gate.reason}
-          status={gate.status}
-          minimum={rotationFundingMinimum(
-            baseFee,
-            balances.find(balance => balance.tokenId === feeFaucetId)
-          )}
-          claimError={gate.failedClaim?.error}
-          onRetryClaim={() => {
-            if (gate.failedClaim) retryClaim(gate.failedClaim);
-          }}
-          onCheckAgain={onRetry}
-        />
-      ) : gate.view === 'failed' ? (
-        <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
-          <p className="text-sm text-ink break-words select-text">
-            {/* An old-format shortfall row still carries the raw kernel line as its error. */}
-            {initError ??
-              (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
-              t('hotKeyRotationFailedGeneric')}
-          </p>
-          <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
-            {t('hotKeyRotationRetry')}
-          </Button>
-        </div>
-      ) : (
-        <>
-          <Spinner />
-          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
-          <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
-        </>
-      )}
+      {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
+      <div className="my-auto flex w-full flex-col items-center gap-4">
+        {gate.view === 'funding' ? (
+          <RotationFundingPanel
+            address={accountPublicKey}
+            reason={gate.reason}
+            status={gate.status}
+            minimum={rotationFundingMinimum(
+              baseFee,
+              balances.find(balance => balance.tokenId === feeFaucetId)
+            )}
+            claimError={gate.failedClaim?.error}
+            onRetryClaim={() => {
+              if (gate.failedClaim) retryClaim(gate.failedClaim);
+            }}
+            onCheckAgain={onRetry}
+          />
+        ) : gate.view === 'failed' ? (
+          <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
+            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
+            <p className="text-sm text-ink break-words select-text">
+              {/* An old-format shortfall row still carries the raw kernel line as its error. */}
+              {initError ??
+                (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
+                t('hotKeyRotationFailedGeneric')}
+            </p>
+            <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
+              {t('hotKeyRotationRetry')}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <Spinner />
+            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
+            <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
+          </>
+        )}
+      </div>
     </div>
   );
 };

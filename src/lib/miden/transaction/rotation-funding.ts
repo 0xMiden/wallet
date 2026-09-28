@@ -2,7 +2,7 @@ import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable'
 import * as Repo from 'lib/miden/repo';
 
 import { initiateRotationFundingClaim, type RotationFundingClaimOptions } from './initiate';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { isLiveTransaction, ITransaction } from '../db/types';
 import { ConsumableNote } from '../types';
 
 /**
@@ -10,9 +10,6 @@ import { ConsumableNote } from '../types';
  * neither is queued while a row of the other kind is live, from any wallet surface.
  */
 export const hotKeyRotationLockName = (accountPublicKey: string): string => `hot-key-rotation:${accountPublicKey}`;
-
-const isLive = (row: Pick<ITransaction, 'status'>): boolean =>
-  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
 
 type GateRowShape = Pick<ITransaction, 'type' | 'accountId' | 'status' | 'rotationFunding'>;
 
@@ -23,10 +20,10 @@ export const isRotationFundingRow = (row: GateRowShape, accountPublicKey: string
   row.type === 'consume' && row.rotationFunding === true && row.accountId === accountPublicKey;
 
 export const isLiveRotationRow = (row: GateRowShape, accountPublicKey: string): boolean =>
-  isRotationRow(row, accountPublicKey) && isLive(row);
+  isRotationRow(row, accountPublicKey) && isLiveTransaction(row);
 
 export const isLiveRotationFundingRow = (row: GateRowShape, accountPublicKey: string): boolean =>
-  isRotationFundingRow(row, accountPublicKey) && isLive(row);
+  isRotationFundingRow(row, accountPublicKey) && isLiveTransaction(row);
 
 /** The part of a claimable-notes read the selection needs: the list, and whether it is only the cache. */
 export interface ClaimableNotesSnapshot<T> {

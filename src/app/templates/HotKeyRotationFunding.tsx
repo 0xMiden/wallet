@@ -6,7 +6,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import {
   enqueueRotationFundingClaim,
@@ -55,16 +55,15 @@ export function useRotationGateRows(accountPublicKey: string): RotationGateRows 
   return rows;
 }
 
-const isLive = (row: GateRow): boolean =>
-  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
-
 interface FundingClaimOptions {
   accountPublicKey: string;
   /** Funding is needed and no rotation row is live. */
   active: boolean;
-  /** The latest read was a live list, not the cache. */
+  /** The latest read was a live list, not the cache, and the native faucet is known. */
   listLive: boolean;
   selection: RotationFundingSelection<ConsumableNote>;
+  /** The native faucet `selection` was made against. */
+  feeFaucetId: string | null;
   baseFee: number | null;
   fundingRows: readonly GateRow[];
   /** `fundingRows` is a read, not the initial empty list. */
@@ -90,6 +89,7 @@ export function useRotationFundingClaim({
   active,
   listLive,
   selection,
+  feeFaucetId,
   baseFee,
   fundingRows,
   rowsLoaded,
@@ -103,7 +103,7 @@ export function useRotationFundingClaim({
     let running = false;
     const tick = async () => {
       const { selection: current, baseFee: fee, fundingRows: rows } = latest.current;
-      if (running || !latest.current.active || current.batch.length === 0 || rows.some(isLive)) return;
+      if (running || !latest.current.active || current.batch.length === 0 || rows.some(isLiveTransaction)) return;
       running = true;
       try {
         await enqueueRotationFundingClaim(accountPublicKey, [...current.batch], {
@@ -136,8 +136,14 @@ export function useRotationFundingClaim({
   }, [fundingRows, rowsLoaded]);
 
   const seenNotes = useRef(new Set<string>());
+  const seenFaucetId = useRef<string | null>(null);
   useEffect(() => {
     if (!active || !listLive) return;
+    // Notes seen under another native faucet are not missing from this one's list.
+    if (seenFaucetId.current !== feeFaucetId) {
+      seenNotes.current.clear();
+      seenFaucetId.current = feeFaucetId;
+    }
     const listed = new Set(selection.native.map(note => note.id));
     const carried = new Set(
       latest.current.fundingRows.filter(r => r.status !== ITransactionStatus.Failed).flatMap(claimNoteIds)
@@ -146,7 +152,7 @@ export function useRotationFundingClaim({
     vanished.forEach(id => seenNotes.current.delete(id));
     listed.forEach(id => seenNotes.current.add(id));
     if (vanished.length > 0) latest.current.onFunded();
-  }, [active, listLive, selection]);
+  }, [active, listLive, selection, feeFaucetId]);
 
   const retryClaim = (failedClaim: GateRow) => {
     const ids = new Set(claimNoteIds(failedClaim));

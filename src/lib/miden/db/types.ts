@@ -15,6 +15,10 @@ export enum ITransactionStatus {
   Failed
 }
 
+/** The row can still produce a transaction: it is queued or generating. */
+export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
