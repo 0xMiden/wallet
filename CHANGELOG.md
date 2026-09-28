@@ -81,6 +81,7 @@
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
 - [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, a closed banner is now saved, Home's prompts load and can be dismissed, and Fund's request goes out (#1186).
 - [FIX][all] A setting or token metadata written outside the storage hooks, or a wallet reset, no longer leaves the previous value in the storage hooks' cache: every storage write updates it, and every key-value wipe re-reads it (#1177).
 
