@@ -343,6 +343,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricError={biometricError}
             recoveryError={recoveryError}
             creating={confirmCreating}
+            onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -369,7 +370,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
     confirmCreating,
-    importViaKey
+    importViaKey,
+    onboardingType
   ]);
 
   const onBack = () => {

@@ -536,6 +536,8 @@
   "openWallet": "Open wallet",
   "getStarted": "Get started",
   "creatingYourWallet": "Creating your wallet…",
+  "restoringYourWallet": "Restoring your wallet…",
+  "walletRecoveredFromPhrase": "Your wallet is recovered from your recovery phrase.",
   "enterPassword": "Enter password",
   "verifyPassword": "Verify password",
   "enterPasswordAgain": "Enter password again",
