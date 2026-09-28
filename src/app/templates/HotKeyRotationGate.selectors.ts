@@ -3,7 +3,11 @@ import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/d
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  isVaultShortfallRow,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 
 export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
@@ -153,10 +157,16 @@ export const describeRotationFailure = (
       details: raw === TRANSACTION_VAULT_SHORTFALL_ERROR ? undefined : nonEmpty(raw)
     };
   }
+  // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
+  // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
+  // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
+  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself.
+  if (row.mayHaveSubmitted === true || row.error === TRANSACTION_ENGINE_RECOVERED_ERROR) {
+    return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
+  }
   // `cancelTransaction` keeps `rawError` only when a classifier rewrote the error for the user.
   if (row.rawError !== undefined) {
     return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
   }
-  // Stamped at the submit crossing, before the submit: an unclassified failure after it may have landed.
-  return { unconfirmed: row.mayHaveSubmitted === true, message: null, details: nonEmpty(row.error) };
+  return { unconfirmed: false, message: null, details: nonEmpty(row.error) };
 };

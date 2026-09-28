@@ -1,7 +1,12 @@
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
-import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  GUARDIAN_UNREACHABLE_ERROR,
+  REMOTE_PROVER_TIMEOUT_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 
 import {
   claimNoteIds,
@@ -256,11 +261,38 @@ describe('describeRotationFailure', () => {
     });
   });
 
-  it('shows classified copy with its raw error behind it, even when the row may have submitted', () => {
-    const copy = 'The guardian or the Miden network could not be reached, so this transaction was not sent.';
+  it('names a shortfall even on a row that may have submitted', () => {
     expect(
-      describeRotationFailure(failed({ error: copy, rawError: 'Error: 503', mayHaveSubmitted: true }), null)
-    ).toEqual({ unconfirmed: false, message: copy, details: 'Error: 503' });
+      describeRotationFailure(failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true }), null)
+    ).toMatchObject({ unconfirmed: false, message: TRANSACTION_VAULT_SHORTFALL_ERROR });
+  });
+
+  it('shows classified copy with its raw error behind it', () => {
+    expect(
+      describeRotationFailure(failed({ error: GUARDIAN_UNREACHABLE_ERROR, rawError: 'Error: 503' }), null)
+    ).toEqual({ unconfirmed: false, message: GUARDIAN_UNREACHABLE_ERROR, details: 'Error: 503' });
+  });
+
+  it('reads a row that may have submitted as unconfirmed, even when its error was classified', () => {
+    // The extension's shape: a submit timeout under the 'sending' stage is classified as a prover timeout.
+    expect(
+      describeRotationFailure(
+        failed({ error: REMOTE_PROVER_TIMEOUT_ERROR, rawError: rawTimeout, mayHaveSubmitted: true }),
+        null
+      )
+    ).toEqual({ unconfirmed: true, message: null, details: rawTimeout });
+    expect(describeRotationFailure(failed({ error: '', mayHaveSubmitted: true }), null)).toEqual({
+      unconfirmed: true,
+      message: null,
+      details: undefined
+    });
+  });
+
+  it('reads the engine-recovered unknown-state copy as unconfirmed without the stamp', () => {
+    const raw = 'WasmClientPoisonedError: the WASM client was poisoned';
+    expect(describeRotationFailure(failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR, rawError: raw }), null)).toEqual(
+      { unconfirmed: true, message: null, details: raw }
+    );
   });
 
   it('reads an unclassified failure past the submit crossing as unconfirmed', () => {
