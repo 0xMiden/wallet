@@ -2,24 +2,36 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
 
 /**
- * The rendering of `useHardwareProtector`'s failure state (#1056) on every screen that shows it
- * on its own: RevealSecret, ExportAccountFile, EncryptedWalletFileWalletPassword and
- * VerifySeedPhraseFlow. The hook probes once per mount and none of these screens offer Retry, so
- * reopening the page is the only remedy, and this notice says exactly that.
- *
- * RotateGuardianReview shows the same `couldNotCheckUnlockMethodReopen` text too, but not
- * through this component: its footer error line folds the probe failure in beside its other
- * errors, so it renders its own `Notice` instead.
+ * The rendering of `useHardwareProtector`'s failure state (#1056, #1241) on every screen that uses the
+ * hook: RevealSecret, ExportAccountFile, EncryptedWalletFileWalletPassword, VerifySeedPhraseFlow and
+ * RotateGuardianReview's footer. The probe failed or missed its deadline; Retry probes again and stays
+ * loading until that attempt settles. RevealSeedPhrase shows the same copy beside its own Retry.
  */
-export const ProtectorProbeErrorNotice: React.FC<{ className?: string }> = ({ className }) => {
+export const ProtectorProbeErrorNotice: React.FC<{ className?: string; onRetry: () => void; retrying: boolean }> = ({
+  className,
+  onRetry,
+  retrying
+}) => {
   const { t } = useTranslation();
 
   return (
-    <Notice tone="negative" role="alert" title={t('error')} className={className} data-testid="protector-probe-error">
-      {t('couldNotCheckUnlockMethodReopen')}
-    </Notice>
+    <div className={className}>
+      <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
+        {t('couldNotCheckUnlockMethod')}
+      </Notice>
+      <Button
+        className="mt-3"
+        variant={ButtonVariant.Secondary}
+        title={t('retry')}
+        onClick={onRetry}
+        disabled={retrying}
+        isLoading={retrying}
+        data-testid="protector-probe-retry"
+      />
+    </div>
   );
 };
