@@ -503,6 +503,10 @@
     "message": "例: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
@@ -1816,6 +1820,22 @@
     "message": "資金の準備ができました",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "以前のリクエストがまだ届く可能性があります。",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "もう一度リクエストしますか？",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "以前のリクエストはまだ届く可能性があります。再度リクエストすると、ウォレットに2回資金が入金される可能性があります。",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "再度リクエストしてください",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "アカウントの回復が検出されました",
     "englishSource": "Account recovery detected"
@@ -2842,6 +2862,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "私は、Breadを含め、誰に対しても自分の暗号化されたウォレットファイルを共有することはありません。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "このファイルからは復元されませんでした：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 秘密鍵でインポートされたアカウントは、ウォレットファイルから復元することはできません。また、このファイルから復元されたウォレットには、それらを追加することもできません。これらは独立したウォレットとして復元され、「秘密鍵のインポート」機能を使用して、Midenの日常用秘密鍵およびEVM秘密鍵が設定されます。これらの鍵は安全に保管してください。表示するには、そのアカウントを選択した状態で、「設定」→「鍵」→「秘密鍵を表示」を選択してください。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "ウォレットファイルを暗号化するには、パスワードを入力してください。",

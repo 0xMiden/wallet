@@ -503,6 +503,10 @@
     "message": "por ex., APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Sua chave privada não pôde ser removida da área de transferência. Limpe-a manualmente antes de continuar.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Configurações",
     "englishSource": "Settings"
@@ -1816,6 +1820,22 @@
     "message": "Seus fundos estão prontos",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Uma solicitação anterior ainda pode chegar.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Quer repetir o pedido?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Sua solicitação anterior ainda pode chegar. Solicitar novamente poderia creditar sua carteira duas vezes.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Solicite novamente",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Detectada recuperação de conta",
     "englishSource": "Account recovery detected"
@@ -2842,6 +2862,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Não vou compartilhar meu arquivo de carteira criptografada com ninguém, nem mesmo com a Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Não foi restaurado a partir deste arquivo: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Contas importadas com chaves privadas não podem ser restauradas a partir de um arquivo de carteira, e uma carteira restaurada a partir desse arquivo não pode adicioná-las. Elas são restauradas como uma carteira separada, configurada com a importação das chaves privadas e suas chaves privadas Miden para uso diário e EVM. Mantenha essas chaves em segurança: revele-as em Configurações → Chaves → Revelar Chave Privada com essa conta selecionada.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Digite uma senha para criptografar o arquivo da sua carteira.",

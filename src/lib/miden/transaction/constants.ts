@@ -1,3 +1,5 @@
+import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStage } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -84,6 +86,11 @@ export const TRANSACTION_INTERRUPTED_ERROR = 'Transaction was interrupted';
 export const TRANSACTION_INTERRUPTED_ON_STARTUP = 'Transaction was interrupted when the browser closed';
 
 export const INVALID_NOTE_ERROR = 'Note is invalid';
+
+// Thrown before anything is minted: only the bytes built at initiate carry the mandate binding, and a note built
+// without it is one the allocator refuses to bind.
+export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
+  'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
@@ -252,6 +259,23 @@ export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'The transaction could not be completed because an asset it moves was not available in full — either the ' +
   'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
 
+// Hedged: the proposal stages call the node as well as the guardian.
+export const GUARDIAN_UNREACHABLE_ERROR =
+  'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
+  'try again in a moment.';
+
+/**
+ * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
+ * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
+ * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ */
+export function isGuardianOutage(error: unknown): boolean {
+  if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
+  const raw = formatRawTransactionError(error);
+  return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
+}
+
 function classifyTransactionError(
   error: unknown,
   raw: string,
@@ -309,6 +333,11 @@ function classifyTransactionError(
   // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
     return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  }
+  // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
+  // pipeline requeues it, #779); this names the failure for the operations that still end on it.
+  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianOutage(error)) {
+    return GUARDIAN_UNREACHABLE_ERROR;
   }
   return raw;
 }

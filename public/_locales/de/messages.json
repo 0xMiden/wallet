@@ -503,6 +503,10 @@
     "message": "z. B. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ihr privater Schlüssel konnte nicht aus der Zwischenablage gelöscht werden. Löschen Sie ihn selbst, bevor Sie fortfahren.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Einstellungen",
     "englishSource": "Settings"
@@ -1816,6 +1820,22 @@
     "message": "Ihr Geld ist bereit",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Möglicherweise geht noch eine frühere Anfrage ein.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Noch einmal anfragen?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Ihre frühere Anfrage könnte noch eintreffen. Eine erneute Anfrage könnte dazu führen, dass Ihr Wallet doppelt aufgefüllt wird.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Erneut anfordern",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Kontowiederherstellung erkannt",
     "englishSource": "Account recovery detected"
@@ -2842,6 +2862,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Ich werde meine verschlüsselte Wallet-Datei an niemanden weitergeben, auch nicht an Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Nicht aus dieser Datei wiederhergestellt: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Konten, die mit privaten Schlüsseln importiert wurden, können nicht aus einer Wallet-Datei wiederhergestellt werden, und eine aus dieser Datei wiederhergestellte Wallet kann sie nicht hinzufügen. Sie werden als separate Wallet wiederhergestellt, die mit den importierten privaten Schlüsseln sowie deren täglichen Miden- und EVM-Schlüsseln eingerichtet wird. Bewahren Sie diese Schlüssel sicher auf: Zeigen Sie sie unter „Einstellungen“ → „Schlüssel“ → „Privaten Schlüssel anzeigen“ an, nachdem Sie das entsprechende Konto ausgewählt haben.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Geben Sie ein Passwort ein, um Ihre Wallet-Datei zu verschlüsseln.",

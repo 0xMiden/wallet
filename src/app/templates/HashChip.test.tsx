@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react';
 import HashChip from './HashChip';
 
 // HashChip is a thin composition over the canonical CopyChip: it wires a HashShortView as its
-// `children` and forwards `text`/`className`/`data-testid`, merging in its own neutral default
+// `children` and forwards `text`/`className`/`compactHitArea`/`data-testid`, merging in its own neutral default
 // className. CopyChip is stubbed to a prop-recording marker so every forwarded value is asserted
 // precisely, without dragging in the clipboard hook stack (already covered by CopyChip.test.tsx —
 // including the accessible-name-falls-back-to-content behavior the "no aria-label" test below
@@ -46,6 +46,8 @@ describe('HashChip', () => {
 
     const chipProps = mockCopyChipProps.mock.calls[0][0];
     expect(chipProps.text).toBe(hash);
+    // A lone chip keeps the 44px tap target: only a list of chips opts out (#1046).
+    expect(chipProps.compactHitArea).not.toBe(true);
     expect(screen.getByTestId('copy-chip')).toBeInTheDocument();
     expect(screen.getByTestId('hash-short-view')).toBeInTheDocument();
 
@@ -109,5 +111,11 @@ describe('HashChip', () => {
     render(<HashChip hash="hashy" />);
 
     expect(mockCopyChipProps.mock.calls[0][0]['aria-label']).toBeUndefined();
+  });
+
+  it('forwards compactHitArea to its CopyChip', () => {
+    render(<HashChip hash="0xabcdef0123456789" compactHitArea />);
+
+    expect(mockCopyChipProps.mock.calls[0][0].compactHitArea).toBe(true);
   });
 });
