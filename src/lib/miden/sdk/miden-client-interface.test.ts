@@ -2309,8 +2309,8 @@ describe('MidenClientInterface', () => {
       const inputNoteRecord = { toNote: jest.fn(() => note) };
       const inner = {
         getInputNote: jest.fn(async () => inputNoteRecord),
-        newConsumeTransactionRequest: jest.fn(async () => ({ kind: 'request' })),
-        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        newConsumeTransactionRequest: jest.fn(async (_notes: unknown[], _account: unknown) => ({ kind: 'request' })),
+        executeTransaction: jest.fn(async (_accountId: unknown, _request: unknown) => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined)
       };
@@ -2334,8 +2334,13 @@ describe('MidenClientInterface', () => {
 
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
+      const [notes, account] = inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
       // Plain JS array, NOT wasm.NoteArray.
-      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note]);
+      expect(notes).toEqual([note]);
+      expect(String(account)).toBe('sdk-mtst1acc');
+      // A fresh handle, not the one execute runs on: wasm-bindgen can consume a
+      // by-value handle, so sharing one here would leave execute's moved-from.
+      expect(account).not.toBe(inner.executeTransaction.mock.calls[0]![0]);
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);

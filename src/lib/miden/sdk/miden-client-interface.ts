@@ -1560,7 +1560,12 @@ export class MidenClientInterface {
               notes.push(inputNoteRecord.toNote());
             }
             recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-            const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes);
+            // A fresh handle, not `acctId` below: wasm-bindgen can consume an
+            // `AccountId` by value, and `acctId` still has to reach `executeTransaction`.
+            const request: TransactionRequest = await inner.newConsumeTransactionRequest(
+              notes,
+              walletAccountIdToSdk(accountId)
+            );
             recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
             const acctId = resolveAccountId(wasm, accountId);
             recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
@@ -1856,7 +1861,7 @@ export class MidenClientInterface {
    * once per prove and surfaces a "can't reach node" toast.
    */
   private async proveLocallyViaOffscreen(
-    buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>,
+    buildExecuteArgs: (wasm: any, inner: WasmWebClient) => Promise<{ accountId: any; request: TransactionRequest }>,
     attempt: ProveAttempt,
     onStage?: (stage: ITransactionStage) => Promise<void> | void
   ): Promise<TransactionResult> {
