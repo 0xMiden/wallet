@@ -819,6 +819,24 @@ describe('createGuardianAccount', () => {
       expect(webClient.keystore.insert).not.toHaveBeenCalled();
     });
 
+    // A lock that lands during a 429 wait refuses the creation after that wait, as locked.
+    it('ends the key fetch after a 429 wait with the caller refusal, unwrapped', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
+      const refusal = Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+      const assertLive = () => {
+        throw refusal;
+      };
+
+      const outcome = fetchGuardianCreateKey(undefined, assertLive).then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(1000);
+
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+      expect(await outcome).toBe(refusal);
+    });
+
     it('keeps the extension service worker alive through a pubkey wait too', async () => {
       mockIsExtension.mockReturnValue(true);
       multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited(60));

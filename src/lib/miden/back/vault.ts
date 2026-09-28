@@ -69,7 +69,7 @@ import {
   getRecoveryAction,
   isRecoveryTransaction
 } from './recovery-authorization';
-import type { CreatedGuardianKeys, PendingGuardianRegistration } from '../guardian/account';
+import type { CreatedGuardianKeys, GuardianCreateKey, PendingGuardianRegistration } from '../guardian/account';
 import {
   fetchGuardianCreateKey,
   getGuardianCommitmentFromAccount,
@@ -1772,9 +1772,14 @@ export class Vault {
       const guardianEndpoint = existingGuardianAccount
         ? await resolveGuardianEndpoint(existingGuardianAccount)
         : undefined;
-      // Fetched with no hold, and registered after it, as in Vault.spawn (#1207).
-      const guardianCreateKey =
-        walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint) : undefined;
+      // Fetched with no hold, and registered after it, as in Vault.spawn (#1207). Its 429 waits are
+      // long, so a lock that landed while this creation queued refuses it before the fetch, and one
+      // that lands during a wait refuses it after that wait, as the hold's own check would.
+      let guardianCreateKey: GuardianCreateKey | undefined;
+      if (walletType === WalletType.Guardian) {
+        this.assertRealmSinkIsMine();
+        guardianCreateKey = await fetchGuardianCreateKey(guardianEndpoint, () => this.assertRealmSinkIsMine());
+      }
 
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 

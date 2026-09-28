@@ -351,13 +351,22 @@ async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
  * the rate-limit budget after this fetch's own waits, not a deadline fixed at this call's
  * start, so the wait for the WASM lock and the account build that follow this
  * function are not themselves charged against the registration's budget.
+ *
+ * @param assertLive - Run after each 429 wait, so a caller whose wallet a lock can retire
+ *   refuses there; its refusal leaves here unwrapped, as the poison error leaves
+ *   `createGuardianAccount`, so the caller still sees why.
  */
-export async function fetchGuardianCreateKey(guardianEndpointOverride?: string): Promise<GuardianCreateKey> {
+export async function fetchGuardianCreateKey(
+  guardianEndpointOverride?: string,
+  assertLive: () => void = () => {}
+): Promise<GuardianCreateKey> {
   // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
   // inherits the frozen global key (#408 stage 3).
   const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
   registerGuardianOrigin(guardianEndpoint);
   const startMs = monotonicNowMs();
+  // Set while `assertLive` runs, so its refusal is told apart from a guardian failure.
+  let checkingLive = false;
   try {
     const { commitment, pubkey } = await withGuardianRateLimitRetry(
       () =>
@@ -366,11 +375,20 @@ export async function fetchGuardianCreateKey(guardianEndpointOverride?: string):
           GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
           'Guardian key fetch'
         ),
-      { deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, sleepFn: sleepKeepingWorkerAlive }
+      {
+        deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
+        sleepFn: sleepKeepingWorkerAlive,
+        afterWait: () => {
+          checkingLive = true;
+          assertLive();
+          checkingLive = false;
+        }
+      }
     );
     const rateLimitBudgetLeftMs = GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS - (monotonicNowMs() - startMs);
     return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitBudgetLeftMs };
   } catch (e) {
+    if (checkingLive) throw e;
     console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });
   }

@@ -3245,7 +3245,10 @@ describe('Vault hardware branches', () => {
     // …and threaded into the second account's creation. Previously this 2nd arg
     // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
     // global key — the regression stage 1 would otherwise introduce.
-    expect(mockFetchGuardianCreateKey).toHaveBeenLastCalledWith('https://resolved-from-sibling.example');
+    expect(mockFetchGuardianCreateKey).toHaveBeenLastCalledWith(
+      'https://resolved-from-sibling.example',
+      expect.any(Function)
+    );
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ guardianEndpoint: 'https://resolved-from-sibling.example' }),
@@ -4058,6 +4061,8 @@ describe('insert-performing holds after a lock (#878)', () => {
     const vault = await seedVault('pw');
     lockLandedWhileQueued(vault);
     await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
+    // Refused before the key fetch, whose 429 waits run with no hold.
+    expect(mockFetchGuardianCreateKey).not.toHaveBeenCalled();
     expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
