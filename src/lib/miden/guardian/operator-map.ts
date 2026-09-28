@@ -42,12 +42,13 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * One operator's key commitment, or `undefined` if it did not answer in time.
  *
  * `probeGuardianOrigin` first: on mobile, guardian traffic reaches the network
- * only through the `CapacitorHttp` CORS bypass, and that interceptor routes
- * registered origins only. The built-ins are pre-seeded, so this matters for the
- * custom / self-hosted endpoint the drift reconciler and the manual-URL apply
- * below hand to this function: without it those two paths report every custom
- * operator unreachable on mobile. The probe keeps the origin routed only when the
- * endpoint answers with a key, so a URL that is not a Guardian is not left routed.
+ * only through the `CapacitorHttp` CORS bypass, and that interceptor routes only
+ * origins registered for the session or held by an in-flight probe. The built-ins
+ * are pre-seeded, so this matters for the custom / self-hosted endpoint the drift
+ * reconciler and the manual-URL apply below hand to this function: without it
+ * those two paths report every custom operator unreachable on mobile. The probe
+ * keeps the origin routed only when the endpoint answers with a key, so a URL
+ * that is not a Guardian is not left routed.
  *
  * A non-string commitment is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
