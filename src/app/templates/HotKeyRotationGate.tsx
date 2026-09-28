@@ -17,7 +17,7 @@ import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/m
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
-import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
+import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 import {
   hotKeyRotationLockName,
   isLiveRotationFundingRow,
@@ -259,6 +259,14 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     onFunded
   });
 
+  // A rotation deferred behind a claim has nothing to track, so it runs once nothing is live
+  // and the balance asks for no funding, whether the claim completed or failed. On mount the
+  // first call is still in flight and swallows this one.
+  const deferredRotationDue = gate.view === 'rotating' && txId === null && !rotationLive;
+  useEffect(() => {
+    if (deferredRotationDue) void beginRotation(false);
+  }, [beginRotation, deferredRotationDue]);
+
   if (gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
   }
@@ -292,7 +300,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
         <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
           <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
           <p className="text-sm text-ink break-words select-text">
-            {initError ?? row?.error ?? t('hotKeyRotationFailedGeneric')}
+            {/* An old-format shortfall row still carries the raw kernel line as its error. */}
+            {initError ??
+              (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
+              t('hotKeyRotationFailedGeneric')}
           </p>
           <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
             {t('hotKeyRotationRetry')}

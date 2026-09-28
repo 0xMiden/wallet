@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 import type { ConsumableNote } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
@@ -721,6 +722,62 @@ describe('HotKeyRotationGate', () => {
 
       await screen.findByTestId('hot-key-rotation-failed');
       expect(screen.queryByTestId('hot-key-rotation-funding')).not.toBeInTheDocument();
+    });
+
+    it('runs the rotation it deferred once the claim fails with the fee covered', async () => {
+      mockBalances = [nativeBalance(1)];
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      // The cold-start sweep fails the orphaned claim the gate deferred behind.
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Failed })];
+      await publishTable();
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      expect(mockUseTransactionRow).toHaveBeenLastCalledWith('tx-new');
+      // It runs and lands before the flag clears: still the one rotation.
+      mockTable = [...mockTable, rotationRow('tx-new', { initiatedAt: 400 })];
+      await publishTable();
+      mockTable = [
+        shortfallRow,
+        fundingRow('claim-1', { status: ITransactionStatus.Failed }),
+        rotationRow('tx-new', { status: ITransactionStatus.Completed, initiatedAt: 400 })
+      ];
+      await publishTable();
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits on a rotation another surface queued while it deferred', async () => {
+      mockBalances = [nativeBalance(1)];
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      const claimed = () => fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 });
+      mockTable = [shortfallRow, claimed(), rotationRow('tx-other', { initiatedAt: 400 })];
+      await publishTable();
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      mockTable = [
+        shortfallRow,
+        claimed(),
+        rotationRow('tx-other', { status: ITransactionStatus.Failed, initiatedAt: 400, error: 'guardian unreachable' })
+      ];
+      await publishTable();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('shows the classified shortfall, not the raw kernel line, on a chain that charges nothing', async () => {
+      mockBaseFee = 0;
+      trackShortfall();
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-failed');
+      expect(screen.getByText(TRANSACTION_VAULT_SHORTFALL_ERROR)).toBeInTheDocument();
+      expect(screen.queryByText(/assertion failed/)).not.toBeInTheDocument();
     });
   });
 });
