@@ -184,6 +184,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockAccounts = [];
     mockLocale = 'en';
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockUnlock.mockResolvedValue(undefined);
     jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -268,6 +269,18 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // The case above renders with mockIsMobile = false, where the passcode entry never appears
+  // regardless of probeFailed; only mobile exercises the branch that has to lose to the error.
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
   });
 
   it('renders the software-unlock UI (password field + continue) with no hardware protector', async () => {

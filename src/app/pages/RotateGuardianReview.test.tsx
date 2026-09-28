@@ -213,6 +213,7 @@ beforeEach(() => {
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
+  mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
@@ -794,7 +795,7 @@ it('fails closed when both protector reads fail', async () => {
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
-  // Back is the way out the error tells the user to take.
+  // Back still calls goBack from this error state, whatever the copy tells the user to do.
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });

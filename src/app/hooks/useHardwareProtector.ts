@@ -21,7 +21,9 @@ export function useHardwareProtector(): HardwareProtectorProbe {
 
   useEffect(() => {
     probeHardwareProtector().then(setHasHardwareProtector, (error: unknown) => {
-      console.warn(`[useHardwareProtector] protector probe failed: ${String(error)}`);
+      console.warn(
+        `[useHardwareProtector] protector probe failed: ${error instanceof Error ? error.message : String(error)}`
+      );
       setProbeFailed(true);
     });
   }, []);

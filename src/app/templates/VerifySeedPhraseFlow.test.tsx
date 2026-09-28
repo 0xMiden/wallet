@@ -199,6 +199,7 @@ describe('VerifySeedPhraseFlow', () => {
     jest.clearAllMocks();
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
     mockClipboardWrite.mockResolvedValue(undefined);

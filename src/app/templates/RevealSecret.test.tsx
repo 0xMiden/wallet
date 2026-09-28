@@ -149,6 +149,7 @@ describe('RevealSecret', () => {
     mockIsMobile = false;
     mockGuardReady = true;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockGetAccount.mockResolvedValue({});
     mockResolveCommitments.mockReturnValue([{ toHex: () => '0xdeadbeef' }]);
     mockRevealPrivateKey.mockResolvedValue('PRIVATE_KEY_HEX');
