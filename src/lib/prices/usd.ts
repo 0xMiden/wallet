@@ -105,8 +105,12 @@ const refresh = async (now: number): Promise<UsdPriceCache> => {
  * The price of one whole unit of `symbol` in micro-dollars, or `undefined` when the symbol is
  * covered by the feed but no fresh price can be produced.
  *
- * Callers must ask `isCoveredSymbol` first: this function cannot tell "nobody prices this asset"
- * from "the price is missing right now", and those two cases have opposite consequences.
+ * Callers must decide coverage first, however they do it - the price cache's own write path uses
+ * `isCoveredSymbol`; the spending cap decides by faucet id instead, through the allowlist
+ * (`priceSymbolForOrThrow`), since a faucet's self-reported symbol cannot be trusted (#1131).
+ * Either way, `undefined` for a symbol the caller has already decided is covered means refuse,
+ * not count it as zero: this function cannot tell "nobody prices this asset" from "the price is
+ * missing right now", and those two cases have opposite consequences.
  */
 export const getPriceMicro = async (
   symbol: string,
