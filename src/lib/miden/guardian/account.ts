@@ -313,14 +313,14 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
 /**
  * How long a Guardian account creation may spend waiting out guardian 429s,
  * across both of its guardian calls (the key fetch and the registration).
- * Both waits run outside the WASM client lock (#1207), so this no longer
- * bounds anything against `WASM_LOCK_WATCHDOG_MS`; it still bounds the
+ * Both waits run outside the WASM client lock (#1207); this bounds the
  * onboarding spinner and covers one full per-minute cooldown.
  */
-export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
+const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 
-// Bounds a silent guardian per request now that no WASM watchdog does; unlock waits behind creation (#1207).
-export const GUARDIAN_CREATE_REQUEST_TIMEOUT_MS = 30_000;
+// Bounds each guardian request of a creation: no WASM watchdog covers a request outside the hold,
+// and unlock waits behind creation on the accounts queue (#1207).
+const GUARDIAN_CREATE_REQUEST_TIMEOUT_MS = 30_000;
 
 // Registration attempts before a timeout fails creation: a timed-out request may land, and a retry tells if it did.
 const GUARDIAN_CREATE_REGISTER_ATTEMPTS = 3;
@@ -524,11 +524,16 @@ export async function createGuardianAccount(
 /**
  * Registers a created account on its guardian, with no WASM client hold: `registerOnGuardian`
  * gets the serialized state, so it makes no client call, and signs with the standalone cold key,
- * as the rotation path's registration already does outside the lock. Its 429 waits get their
+ * as the rotation path's registration does outside the lock. Its 429 waits get their
  * own deadline, anchored to when this call starts, from what phase 1 left of the creation's
  * budget. A timeout cannot cancel the request, so a timed-out attempt may have landed: it is
  * retried with the same state, and the guardian's `account_already_exists` counts as success,
  * as on the switch paths (`registerOnGuardianWithRetry`).
+ *
+ * A failure leaves what `createGuardianAccount` wrote, the account in the SDK store and the cold
+ * key the vault's insert-key sink stored, but no entry in the vault's account list, since the
+ * caller registers before its own writes. That is harmless: the cold key is HD-derived and a
+ * retry rewrites it.
  */
 export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
   try {

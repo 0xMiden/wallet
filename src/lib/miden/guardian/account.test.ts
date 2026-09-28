@@ -1,8 +1,9 @@
 /**
  * guardian/account — getSignerDetailsFromAccount reads the first signer
- * commitment out of the multisig storage slot; createGuardianAccount drives
- * MultisigClient.create + guardian registration + keystore insertion for
- * the 3-key (hot + cold + guardian) layout.
+ * commitment out of the multisig storage slot; fetchGuardianCreateKey fetches
+ * the guardian's key, createGuardianAccount drives MultisigClient.create +
+ * keystore insertion for the 3-key (hot + cold + guardian) layout, and
+ * registerGuardianAccount registers the account on its guardian.
  *
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
@@ -503,9 +504,9 @@ describe('createGuardianAccount', () => {
 
   it('falls back to the default (NOT the frozen global key) when no override is supplied', async () => {
     // #408 stage 3: a NEW account must never inherit the frozen global key.
-    // createGuardianAccount no longer reads GUARDIAN_URL_STORAGE_KEY at all — the
-    // assertion below proves storage is never consulted. With no override, the
-    // endpoint is the effective network default.
+    // The key fetch (fetchGuardianCreateKey) resolves the endpoint without reading
+    // GUARDIAN_URL_STORAGE_KEY: the assertion below proves storage is never
+    // consulted. With no override, the endpoint is the effective network default.
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
@@ -573,8 +574,8 @@ describe('createGuardianAccount', () => {
   });
 
   // A guardian that answers /pubkey with no `pubkey` field is a shape client.create
-  // already accepts today (MultisigConfig.guardianPublicKey is optional), so creation
-  // must not start refusing it just because the key now flows through a named type.
+  // accepts (MultisigConfig.guardianPublicKey is optional), so GuardianCreateKey
+  // carries the pubkey as optional and creation does not refuse its absence.
   it('resolves with no guardian pubkey when the guardian omits it, and passes that through to account creation', async () => {
     multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'g-commit' });
 
@@ -776,8 +777,8 @@ describe('createGuardianAccount', () => {
 
     // Each re-check guards the step after it: an eviction seen there must stop the
     // flow before that step runs, so every checkpoint is pinned on its own. No
-    // guardian wait runs inside the hold any more, so registration (phase 3) is
-    // never reached from here.
+    // guardian call runs inside the hold: registration is registerGuardianAccount's,
+    // after it.
     it.each([
       ['before the account build', 'build'],
       ['before the account serialize', 'serialize'],

@@ -3256,8 +3256,8 @@ describe('Vault hardware branches', () => {
     );
   });
 
-  // Guardian creation still parks inside the hold (the hot key, the account
-  // build, the sync), and an evicted flow is abandoned, not cancelled: the hold
+  // Guardian creation parks inside the hold (the hot key, the account build,
+  // the sync), and an evicted flow is abandoned, not cancelled: the hold
   // hands the creation a re-check bound to itself, live while it owns the mutex
   // and poisoned once it does not.
   describe('Guardian creation re-checks its own hold (#906)', () => {
@@ -3299,8 +3299,8 @@ describe('Vault hardware branches', () => {
   });
 
   // The guardian's 429 waits (up to 90 s) must not block the realm's other
-  // client work, and a failed registration must leave the vault as a failed
-  // creation does (#1207).
+  // client work, and a failed registration must leave no entry in the vault's
+  // account list (#1207).
   describe('Guardian creation keeps its guardian calls outside the WASM hold (#1207)', () => {
     const getCurrentWasmLockHoldForTests = () => currentWasmHold;
     // Storage keys are hashed, so the account's write is read back through the store.

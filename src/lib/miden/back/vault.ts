@@ -1061,8 +1061,8 @@ export class Vault {
               // The sync parks on the network; an abandoned flow must not go on
               // to mint a guardian account nobody is waiting for.
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
-              // Creation still parks inside this hold (the hot key, the account
-              // build, its sync), so it re-checks ownership after each of those awaits.
+              // Creation parks inside this hold (the hot key, the account build,
+              // its sync), so it re-checks ownership after each of those awaits.
               const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
                 assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
               );
@@ -1166,7 +1166,9 @@ export class Vault {
           },
           { label: 'vault-spawn' }
         );
-        // Before the account writes, so a failed registration leaves the vault as a failed creation does.
+        // Before the account writes: a failed registration leaves the account in the SDK store and its
+        // cold key where the insert-key sink stored it, but no entry in the vault's account list
+        // (harmless: the cold key is HD-derived and a retry rewrites it).
         if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
         createdAccounts = [
           {
@@ -1819,7 +1821,7 @@ export class Vault {
 
           if (guardianCreateKey) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
-            // Same re-check as Vault.spawn's: creation still parks inside this hold.
+            // Same re-check as Vault.spawn's: creation parks inside this hold.
             const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
               assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
             );
@@ -1903,7 +1905,9 @@ export class Vault {
         },
         { label: 'vault-create-hd-account' }
       );
-      // Before the account writes, so a failed registration leaves the vault as a failed creation does.
+      // Before the account writes, as in Vault.spawn: a failed registration leaves the SDK account and
+      // its cold key, but no entry in the vault's account list (harmless: the cold key is HD-derived
+      // and a retry rewrites it).
       if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
