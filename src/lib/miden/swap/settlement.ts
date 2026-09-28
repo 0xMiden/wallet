@@ -8,11 +8,10 @@ import {
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { store } from '../back/store';
+import { isRotationPendingAccount } from '../back/rotation-pending';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
-import { sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
@@ -61,27 +60,6 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
       ...(settle.extraInputs?.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
     };
   });
-}
-
-/**
- * A seed-recovered account, or one `Vault.migrateLegacyGuardianAccounts` has just
- * flagged, whose everyday-key rotation has not landed (#805). Its rotation gate claims
- * its notes itself, with the recovery key, so settlement leaves its open swap orders
- * alone until the flag clears. Duplicated from `back/sync-manager.ts`'s
- * `isRotationPendingAccount` rather than imported: that module already imports
- * `reconcileSwapOrderNotes` from this one, so importing the other way would cycle. Both
- * read the same worker store the same way.
- *
- * Narrower than `consumeServiceFor`'s check (flag AND no `hotPublicKey`) -- deliberate:
- * the only cost of skipping a step early is one settlement tick delayed, never a wrong
- * consume.
- */
-function isRotationPendingAccount(accountId: string): boolean {
-  return store
-    .getState()
-    .accounts.some(
-      account => account.requiresHotKeyRotation === true && sameWalletAccountId(account.publicKey, accountId)
-    );
 }
 
 /**

@@ -28,10 +28,10 @@ import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
-import { store } from './store';
+import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
-import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
@@ -147,23 +147,6 @@ export function resetSyncBackoffForEndpointChange(): void {
   syncBackoffUntilMs = null;
   syncFusedUntilMs = null;
   breakerTripCount = 0;
-}
-
-/**
- * A seed-recovered account whose everyday-key rotation has not landed (#805). Its rotation
- * gate claims the native notes itself, with the recovery key, so the native pass leaves
- * them alone. Read from the worker store: a locked worker lists no accounts and proceeds,
- * and generation then refuses the row it queues without signing anything.
- *
- * Narrower than `consumeServiceFor`'s check (flag AND no `hotPublicKey`) -- deliberate: the
- * only cost of skipping a step early is one auto-claim delayed a sync lap, never a wrong consume.
- */
-function isRotationPendingAccount(accountPubKey: string): boolean {
-  return store
-    .getState()
-    .accounts.some(
-      account => account.requiresHotKeyRotation === true && sameWalletAccountId(account.publicKey, accountPubKey)
-    );
 }
 
 // Lazy Vault initialization to prevent service worker cold-start race.
