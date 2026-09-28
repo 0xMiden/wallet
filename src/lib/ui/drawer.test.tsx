@@ -88,15 +88,16 @@ describe('Drawer', () => {
     const rule = header.lastElementChild!;
     expect(rule).toHaveClass('h-1', 'rounded-full', 'bg-fill');
     expect(rule).toHaveAttribute('aria-hidden', 'true');
+    // The rule is the header's only separator: no divider border on the header itself.
+    expect(header.className).not.toMatch(/\bborder-b\b/);
   });
 
-  it('renders DrawerTitle at 18px/24 Nunito 800, left-aligned, on the ink token', () => {
+  it('renders a DrawerTitle outside the header at the section title, left-aligned, on the ink token', () => {
+    // An AlertSheet's question: a title with no DrawerHeader around it keeps its own size.
     render(
       <Drawer open>
         <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>Settings</DrawerTitle>
-          </DrawerHeader>
+          <DrawerTitle>Settings</DrawerTitle>
         </DrawerContent>
       </Drawer>
     );
@@ -123,22 +124,6 @@ describe('Drawer', () => {
     expect(description).toHaveAttribute('data-slot', 'drawer-description');
     expect(description).toHaveClass('px-4', 'pb-2', 'text-caption-heading', 'text-muted');
     expect(description).not.toHaveClass('text-body-sm');
-  });
-
-  it('draws no rule under the header: a sheet separates with fill groups, not a divider', () => {
-    render(
-      <Drawer open>
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>Settings</DrawerTitle>
-          </DrawerHeader>
-        </DrawerContent>
-      </Drawer>
-    );
-
-    const header = document.querySelector('[data-slot="drawer-header"]')!;
-    expect(header.className).not.toMatch(/\bborder-b\b/);
-    expect(header.className).toContain('px-4');
   });
 
   it('dims the page behind with one plain scrim token and no blur', () => {

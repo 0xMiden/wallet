@@ -86,7 +86,7 @@ describe('AccountsDrawer', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('keeps the documented sheet header: no rule under the title', () => {
+  it('adds no rule of its own after the shared header', () => {
     renderDrawer();
     expect(screen.getByTestId('drawer-header').nextElementSibling).not.toHaveClass('h-1', 'rounded-full');
   });
