@@ -237,12 +237,24 @@ describe('storage utilities', () => {
 
     it('returns cleanup function', async () => {
       const callback = jest.fn();
+      let registeredHandler!: (
+        changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
+        areaName: string
+      ) => void;
+      mockStorage.onChanged.addListener.mockImplementation(handler => {
+        registeredHandler = handler;
+      });
 
       const cleanup = onStorageChanged('my-key', callback);
 
       // The cleanup function is returned synchronously
       // (though the actual listener removal is async)
       expect(typeof cleanup).toBe('function');
+
+      await flushPromises();
+      cleanup();
+
+      expect(mockStorage.onChanged.removeListener).toHaveBeenCalledWith(registeredHandler);
     });
 
     it('calls callback when key changes in local storage', async () => {
@@ -420,6 +432,16 @@ describe('storage utilities', () => {
       }
     });
 
+    it('resolves with nothing to reread and touches neither the read nor the listener', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { rereadStorageCache: rereadFresh } = await import('./storage');
+        await expect(rereadFresh()).resolves.toBeUndefined();
+      });
+
+      expect(mockStorage.local.get).not.toHaveBeenCalled();
+      expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
     it('logs a failed attach, lets the read through, and attaches on the next read', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockStorage.local.get.mockResolvedValue({ k: 'v' });
@@ -444,6 +466,8 @@ describe('storage utilities', () => {
         expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(1);
       } finally {
         warn.mockRestore();
+        jest.dontMock('webextension-polyfill');
+        jest.resetModules();
       }
     });
   });

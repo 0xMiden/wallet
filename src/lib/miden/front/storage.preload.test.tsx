@@ -992,6 +992,7 @@ describe('storage writes and wipes (#1177)', () => {
     mockStored['ext-kept-key'] = 'EUR';
     await preloadStorage(['ext-kept-key']);
 
+    // emitChange always sends 'local' and one key, so this calls the live listeners directly.
     act(() => {
       for (const listener of [...mockListeners]) {
         listener({ 'ext-kept-key': {} }, 'sync');
@@ -1012,6 +1013,7 @@ describe('storage writes and wipes (#1177)', () => {
     delete mockStored['ext-wiped-a-key'];
     delete mockStored['ext-wiped-b-key'];
 
+    // emitChange always sends 'local' and one key, so this calls the live listeners directly.
     act(() => {
       for (const listener of [...mockListeners]) {
         listener(
