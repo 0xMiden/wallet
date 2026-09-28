@@ -3229,6 +3229,25 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockFlowProps.current.recoveryError).toBe('boom');
   });
 
+  it.each([
+    ['a create', () => dispatch({ id: 'setup-passcode-submit', payload: '123456' })],
+    ['a recovery-phrase import', () => stageSeedRecovery({ walletType: WalletType.OnChain })]
+  ])('shows the spinner from the first Confirmation render of %s', async (_flow, reach) => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await reach();
+    // A ready-state render would paint Open wallet, whose tap could land before the auto-register starts.
+    const creatingOnConfirmation: boolean[] = [];
+    mockOnFlowRender.current = props => {
+      if (props.step === OnboardingStep.Confirmation) creatingOnConfirmation.push(props.confirmCreating);
+    };
+    await setHash('#confirmation');
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(creatingOnConfirmation[0]).toBe(true);
+    expect(creatingOnConfirmation).not.toContain(false);
+  });
+
   it('leaves a Confirmation tapped before the auto-create starts to that tap', async () => {
     mockCanHandoff = true;
     let finishRegistration: () => void = () => undefined;

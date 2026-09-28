@@ -548,16 +548,22 @@ const Welcome: FC = () => {
   //     own, so the seedPhrase guard alone would let it through.
   // A Guardian recovery whose lookup fails is sent back to its recovery method,
   // whose resubmit resets confirmPhase, so it registers here again.
+  // Decided during render rather than in the effect, so the screen shows its spinner from its first render: a render
+  // of the ready state would paint Open wallet, whose tap could land before the effect runs.
+  const autoRegisterDue =
+    sidePanelHandoff &&
+    step === OnboardingStep.Confirmation &&
+    !!password &&
+    password !== '__HARDWARE_ONLY__' &&
+    !!seedPhrase &&
+    !walletFilePayload &&
+    !attemptInFlightRef.current;
   // The `confirmPhase !== 'idle'` guard makes this fire at most once per visit even though
   // `register` is (correctly) in the dependency array.
   useEffect(() => {
-    if (!sidePanelHandoff) return;
-    if (step !== OnboardingStep.Confirmation) return;
-    if (confirmPhase !== 'idle') return;
-    if (walletFilePayload) return;
-    if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
-    // A tap can start an attempt between this screen's commit and this effect: leave the visit to that attempt,
-    // which is the classic tap flow, rather than start a second one.
+    if (!autoRegisterDue || confirmPhase !== 'idle') return;
+    // An attempt started after the render that decided this, and before this effect, keeps the visit: leave it to
+    // that attempt, which is the classic tap flow, rather than start a second one.
     if (attemptInFlightRef.current) {
       setConfirmPhase('failed');
       return;
@@ -592,17 +598,7 @@ const Welcome: FC = () => {
         setIsLoading(false);
       }
     })();
-  }, [
-    sidePanelHandoff,
-    step,
-    confirmPhase,
-    walletFilePayload,
-    password,
-    seedPhrase,
-    register,
-    settleOnboardingFlow,
-    routeRegistrationFailure
-  ]);
+  }, [autoRegisterDue, confirmPhase, register, settleOnboardingFlow, routeRegistrationFailure]);
 
   const onAction = async (action: OnboardingAction) => {
     // A running confirmation attempt holds onboarding where it is (see attemptInFlightRef).
@@ -1156,7 +1152,7 @@ const Welcome: FC = () => {
           guardianLookupFailure={guardianLookupFailure}
           recoveryError={registrationError}
           guardianProbe={guardianProbeState}
-          confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+          confirmCreating={confirmPhase === 'creating' || (autoRegisterDue && confirmPhase === 'idle')}
           importViaKey={Boolean(keyPairPayload)}
           canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
