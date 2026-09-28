@@ -145,14 +145,22 @@ const runBlockAfter = (file: string, anchor: string): string => {
   return body.join('\n');
 };
 
-/** Runs a gate's shell with its `${{ ... }}` expressions filled in; every expression must be given. */
+/**
+ * Runs a gate's shell with `values` supplied as env vars, the way a step's own `env:`
+ * block would. Any `${{ ... }}` GitHub Actions expression still left in the script text
+ * (a gate that has not moved its data through `env:`) is filled from `values` too, so
+ * every such expression must have a matching value or this throws.
+ */
 const gateExit = (script: string, values: Record<string, string>): number | null => {
   const filled = script.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const value = values[expr];
     if (value === undefined) throw new Error(`no value for ${expr}`);
     return value;
   });
-  return spawnSync('bash', ['-eo', 'pipefail', '-c', filled], { stdio: 'pipe' }).status;
+  return spawnSync('bash', ['-eo', 'pipefail', '-c', filled], {
+    stdio: 'pipe',
+    env: { ...process.env, ...values }
+  }).status;
 };
 
 describe('PR workflows run the heavy E2E jobs only on a main-based pull request', () => {
@@ -179,14 +187,14 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     ['push', '', 'success', 0],
     ['workflow_dispatch', '', 'success', 0]
   ])(
-    'bridge-guardian-e2e-gate passes a skipped suite only on a pull request based off main (event=%s base=%s result=%s)',
+    'bridge-guardian-e2e-gate passes a skipped suite only on a pull request stacked on another branch (event=%s base=%s result=%s)',
     (eventName, baseRef, result, expected) => {
       const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'name: bridge-guardian-e2e-gate');
       expect(
         gateExit(script, {
-          'github.event_name': eventName,
-          'github.event.pull_request.base.ref': baseRef,
-          'needs.bridge-guardian-e2e.result': result
+          EVENT_NAME: eventName,
+          BASE_REF: baseRef,
+          RESULT: result
         })
       ).toBe(expected);
     }

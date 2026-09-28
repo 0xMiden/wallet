@@ -219,14 +219,17 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
-      - run: |
-          R="${{ needs.bridge-guardian-e2e.result }}"
-          EVENT="${{ github.event_name }}"
-          BASE="${{ github.event.pull_request.base.ref }}"
-          if [ "$EVENT" = pull_request ] && [ "$BASE" != main ]; then
-            [ "$R" = skipped ] || { echo "bridge-guardian-e2e $R on a pull request based on $BASE, expected skipped"; exit 1; }
-            echo "bridge-guardian-e2e skipped on a pull request based on $BASE"
+      # Data comes in through env:, not inline ${{ }} in the shell below, so the
+      # gate's own logic is plain, unambiguous bash with nothing to interpolate.
+      - env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          RESULT: ${{ needs.bridge-guardian-e2e.result }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ] && [ "$BASE_REF" != main ]; then
+            [ "$RESULT" = skipped ] || { echo "bridge-guardian-e2e $RESULT on a pull request based on $BASE_REF, expected skipped"; exit 1; }
+            echo "bridge-guardian-e2e skipped on a pull request based on $BASE_REF"
           else
-            [ "$R" = success ] || { echo "bridge-guardian-e2e $R"; exit 1; }
-            echo "bridge-guardian-e2e $R"
+            [ "$RESULT" = success ] || { echo "bridge-guardian-e2e $RESULT"; exit 1; }
+            echo "bridge-guardian-e2e $RESULT"
           fi
