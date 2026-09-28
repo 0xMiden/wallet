@@ -317,13 +317,13 @@ describe('offscreen-prover', () => {
         provenB64: '',
         durationMs: 0
       });
-      const promise = mod.proveViaOffscreen(new Uint8Array([1]), 'remote|http://x|5000');
+      const promise = mod.proveViaOffscreen(new Uint8Array([1]), 'local');
       await flush();
       fireReady();
       await promise;
 
       expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ proverDescriptor: 'remote|http://x|5000' })
+        expect.objectContaining({ proverDescriptor: 'local' })
       );
     });
 
