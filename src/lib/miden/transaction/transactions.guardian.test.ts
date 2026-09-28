@@ -3760,8 +3760,9 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
-  it('Guardian consume: each consecutive unreachable requeue of one row doubles its wait, up to 240 s (#1223)', async () => {
-    // At a flat 60 s, rows on a guardian that fails every attempt slowly keep one of them eligible at every lap.
+  it("Guardian consume: an unreachable requeue doubles the wait from the row's stored streak (#1223)", async () => {
+    // The doubling itself is pinned once by guardianRequeueBackoffSec's own unit test; this only pins that the
+    // unreachable arm reads its streak from the stored row, as the 409 and 429 arms' tests already pin for theirs.
     jest.useFakeTimers();
     try {
       const txId = 'consume-unreachable-backoff';
@@ -3770,7 +3771,8 @@ describe('generateTransaction — Guardian routing', () => {
         type: 'consume',
         accountId: 'guardian-acc',
         status: ITransactionStatus.Queued,
-        noteId: 'note-backoff'
+        noteId: 'note-backoff',
+        requeueStreak: { arm: 'guardian-unreachable', count: 1 }
       });
       mockGetOrCreateMultisigService.mockResolvedValue({
         createConsumeNotesProposal: jest.fn(async () => {
@@ -3785,28 +3787,24 @@ describe('generateTransaction — Guardian routing', () => {
         client: makeClientApi(makeResult())
       });
 
-      const waits: number[] = [];
-      for (let attempt = 0; attempt < 4; attempt++) {
-        const requeuedFrom = Math.floor(Date.now() / 1000);
-        await generateTransaction(
-          {
-            id: txId,
-            type: 'consume',
-            accountId: 'guardian-acc',
-            noteId: 'note-backoff',
-            delegateTransaction: false
-          } as never,
-          jest.fn(async () => new Uint8Array([1])),
-          false,
-          makeGuardianProvider(true)
-        );
-        const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
-        expect(row.status).toBe(ITransactionStatus.Queued);
-        waits.push(Number(row.nextEligibleAt) - requeuedFrom);
-      }
+      const requeuedFrom = Math.floor(Date.now() / 1000);
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-backoff',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
 
-      expect(waits).toEqual([60, 120, 240, 240]);
-      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 4 });
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - requeuedFrom).toBe(120);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 2 });
     } finally {
       jest.useRealTimers();
     }
@@ -3890,6 +3888,11 @@ describe('generateTransaction — Guardian routing', () => {
       expect(Number(sendProposedAt) - startedAt).toBe(210_000);
       expect(deadService.createConsumeNotesProposal).toHaveBeenCalledTimes(6);
       expect(txStore.find(r => r.id === 'healthy-send')?.status).toBe(ITransactionStatus.Completed);
+      // Each dead claim has failed twice by the point the send finally runs, so its stored streak reads count: 2.
+      expect(txStore.find(r => r.id === 'dead-claim-1')?.requeueStreak).toEqual({
+        arm: 'guardian-unreachable',
+        count: 2
+      });
     } finally {
       warnSpy.mockRestore();
       mockGetOrCreateMultisigService.mockReset();
