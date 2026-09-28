@@ -55,7 +55,8 @@
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletType } from 'screens/onboarding/types';
 
-import { generateTransaction } from './index';
+import { TRANSACTION_EXPIRED_ERROR } from './constants';
+import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 
@@ -881,6 +882,73 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
       await jest.advanceTimersByTimeAsync(500);
       expect(loopRuns()).toBeGreaterThan(runsAfterLap);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a backed-off requeue wakes its row at the reap boundary when that comes first (#1223)', async () => {
+    // A doubled cooldown can outlast the row's queue life, and off the extension the wake is what drives the reaper, so
+    // a first wake aimed a beat past nextEligibleAt left an expired row Queued for up to the whole cooldown.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-reap-first';
+      const row = {
+        type: 'send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '1',
+        // 20 s of queue life left, and a streak whose next unreachable requeue waits the 240 s cap.
+        initiatedAt: Math.floor(Date.now() / 1000) - (MAX_QUEUED_AGE - 20),
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      expect(Number(stored().nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(240);
+
+      // The reap boundary is 20 s out, and the wake comes one 3 s re-arm beat past it.
+      await jest.advanceTimersByTimeAsync(24_000);
+      expect(stored().status).toBe(ITransactionStatus.Failed);
+      expect(stored().error).toBe(TRANSACTION_EXPIRED_ERROR);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, an unreachable requeue of a row with no usable initiatedAt wakes a beat past nextEligibleAt (#1223)', async () => {
+    // With no reap boundary to aim at, the new chain's ceiling stands in, so the first wake keeps its old timing.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-unusable-stamp';
+      // A string stamp, which `Number.isFinite` rejects without coercing it.
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', initiatedAt: '1700000000' };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(txStore.find(r => r.id === id)?.status).toBe(ITransactionStatus.Queued);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
     } finally {
       restoreLocks();
       jest.clearAllTimers();

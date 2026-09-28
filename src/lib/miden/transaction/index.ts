@@ -486,6 +486,23 @@ const REQUEUE_WAKE_REARM_MS = 3000;
 const MAX_REQUEUE_WAKE_LIFETIME_MS = (MAX_QUEUED_AGE + 60) * 1000;
 
 /**
+ * How long a wake waits for a Queued row: until a beat past its `nextEligibleAt`, or until its reap boundary if that
+ * comes first, for the reasons the re-arm in `scheduleRequeueWake` gives. A backed-off cooldown can outlast the
+ * boundary (#1223). `fallbackReapsAt` stands in for a row whose `initiatedAt` is unusable.
+ */
+const requeueWakeDelayMs = (
+  row: { readonly initiatedAt?: number; readonly nextEligibleAt?: number },
+  fallbackReapsAt: number
+): number => {
+  const { initiatedAt, nextEligibleAt } = row;
+  const reapsAt =
+    initiatedAt !== undefined && Number.isFinite(initiatedAt)
+      ? (initiatedAt + MAX_QUEUED_AGE) * 1000 + REQUEUE_WAKE_REARM_MS
+      : fallbackReapsAt;
+  return Math.max(Math.min((nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(), REQUEUE_WAKE_REARM_MS);
+};
+
+/**
  * Keep a requeued row moving, OFF-extension only.
  *
  * The extension's service worker drives the queue itself: each kick runs the loop
@@ -704,20 +721,13 @@ function scheduleRequeueWake(
       // pipeline reaps nothing. Stopping on age would then abandon the row on
       // exactly the lap that failed to do the work, leaving it Queued forever
       // with nothing to reap it. So age only paces the wait; it never ends it.
-      const reapsAt = Number.isFinite(row.initiatedAt)
-        ? (row.initiatedAt + MAX_QUEUED_AGE) * 1000 + REQUEUE_WAKE_REARM_MS
-        : hardExpiresAt;
       // Come back when the row is next eligible — or at the reap boundary if
       // that comes first, since past it the row needs a drive to be reaped and
       // waiting out a long cooldown first would only delay that.
       // A beat past `nextEligibleAt`, as `requeueWithWake` arms it: this re-arm
       // replaces the wake a requeue inside the lap just set, and a timer aimed at
       // the boundary itself can fire on a clock still short of it, wasting the lap.
-      const waitMs = Math.max(
-        Math.min((row.nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(),
-        REQUEUE_WAKE_REARM_MS
-      );
-      scheduleRequeueWake(txId, waitMs, signCallback, guardianProvider, chainStartedAt);
+      scheduleRequeueWake(txId, requeueWakeDelayMs(row, hardExpiresAt), signCallback, guardianProvider, chainStartedAt);
     })();
   }, delayMs);
   requeueWakes.set(txId, timer);
@@ -736,7 +746,8 @@ function scheduleRequeueWake(
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
  * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
- * other requeue clears the streak (#1223).
+ * other requeue clears the streak (#1223). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which
+ * a wake is timed from.
  */
 async function requeueTransactionForRetry(
   txId: string,
@@ -744,7 +755,7 @@ async function requeueTransactionForRetry(
   stage: ITransactionStage,
   cooldownSec: number,
   extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
-): Promise<void> {
+): Promise<{ initiatedAt: number | undefined; nextEligibleAt: number }> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
   // recallBlocks) and its asset when its bytes are first built, so a wrong callback
   // flag there fails the kernel's remove-asset assertion on every cycle for as long
@@ -805,6 +816,7 @@ async function requeueTransactionForRetry(
     row?.unauthorizedRetryUntil !== undefined
       ? { unauthorizedRetryUntil: row.unauthorizedRetryUntil + cooldownSec }
       : {};
+  const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     stage,
@@ -813,20 +825,21 @@ async function requeueTransactionForRetry(
     // the whole cooldown plus every failed attempt in the generating-transaction
     // step timings.
     stageTimestamps: undefined,
-    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
+    nextEligibleAt,
     // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
     ...(clearRequestBytes ? { requestBytes: undefined } : {}),
     ...carriedDeadline,
     ...extraValues
   });
+  return { initiatedAt: row?.initiatedAt, nextEligibleAt };
 }
 
 /**
  * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
  * arm its wake. The wake fires a beat past eligibility, so the loop does not
  * re-read the row while `nextEligibleAt` still excludes it and go straight back
- * to sleep.
+ * to sleep, or at the row's reap boundary when a backed-off cooldown outlasts it.
  */
 async function requeueWithWake(
   txId: string,
@@ -836,8 +849,14 @@ async function requeueWithWake(
   guardianProvider: GuardianAccountProvider,
   extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
 ): Promise<void> {
-  await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
-  scheduleRequeueWake(txId, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
+  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
+  scheduleRequeueWake(
+    txId,
+    requeueWakeDelayMs(requeued, Date.now() + MAX_REQUEUE_WAKE_LIFETIME_MS),
+    signCallback,
+    guardianProvider
+  );
 }
 
 /**
