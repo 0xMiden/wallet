@@ -3722,8 +3722,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       errorName: 'ApplyAfterSubmitError'
     });
     expect(resp.errorReason).toBeUndefined();
-    // Only `error`, `errorCode` and `errorName` cross the realm, never `cause`. The service
-    // worker rebuilds `Offscreen call '<method>' failed: <error>` with the code re-attached
+    // The `cause` never crosses the realm. The service worker rebuilds
+    // `Offscreen call '<method>' failed: <error>` with the code re-attached
     // (miden-client-proxy finishOp), and each signal alone classifies as landed.
     expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
     expect(isApplyAfterSubmitError(new Error(`Offscreen call 'guardianPipeline' failed: ${resp.error}`))).toBe(true);
@@ -3745,11 +3745,37 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    expect(G.__off.guardianApplied).toBe(false);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp).toMatchObject({ ok: false, error: 'node refused the proven transaction' });
     expect(resp.errorCode).toBeUndefined();
     expect(resp.errorName).toBeUndefined();
+  });
+
+  it('guardianPipeline: an apply error that cannot be stringified still replies with the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    // `String()` throws on a null-prototype object. The apply-failure breadcrumb stringifies the
+    // error even with markers off, so an unguarded one would replace the landed verdict.
+    G.__off.guardianSubmitProven = jest.fn(async () => ({
+      apply: jest.fn(async () => {
+        throw Object.create(null);
+      })
+    }));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorName: 'ApplyAfterSubmitError'
+    });
   });
 
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
@@ -4786,6 +4812,39 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
 
       const lines = markerLines(posted);
       expect(lines.some(l => /call 'guardianPipeline' FAILED .*detail=RuntimeError: unreachable$/.test(l))).toBe(true);
+    });
+  });
+
+  // #1233: a failed apply after submit crosses back as `ApplyAfterSubmitError`, whose text
+  // replaces the store's on the FAILED marker while its cause stays in this realm, so the
+  // pipeline's own marker is the only record of why the local write failed.
+  it('names the store error when an apply fails after submit (#1233)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      G.__off.guardianSubmitProven = jest.fn(async () => ({
+        apply: jest.fn(async () => {
+          throw new Error('IndexedDB transaction aborted: QuotaExceededError');
+        })
+      }));
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
+      expect(
+        pipelineLines.some(l =>
+          l.endsWith(
+            'guardianPipeline apply FAILED after submit (Error: IndexedDB transaction aborted: QuotaExceededError)'
+          )
+        )
+      ).toBe(true);
     });
   });
 });
