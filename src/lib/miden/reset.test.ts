@@ -55,6 +55,11 @@ jest.mock('webextension-polyfill', () => ({
   }
 }));
 
+const mockReread = jest.fn<Promise<void>, []>(async () => {});
+jest.mock('lib/miden/front/storage', () => ({
+  rereadStorageCache: () => mockReread()
+}));
+
 jest.mock(
   '@capacitor/preferences',
   () => ({
@@ -257,6 +262,74 @@ describe('resetStorageDestructive', () => {
   });
 });
 
+describe('the storage cache after a key-value wipe (#1177)', () => {
+  type Platform = 'mobile' | 'desktop' | 'extension';
+  type Reset = () => Promise<void>;
+  const resets: Array<[string, Reset]> = [
+    ['clearStorage', () => clearStorage()],
+    ['resetStorageDestructive', () => resetStorageDestructive()]
+  ];
+  const platforms: Platform[] = ['mobile', 'desktop', 'extension'];
+  const cases = resets.flatMap(([name, reset]) =>
+    platforms.map((platform): [string, Platform, Reset] => [name, platform, reset])
+  );
+
+  let removeItem: jest.SpyInstance<void, [key: string]>;
+  beforeEach(() => {
+    removeItem = jest.spyOn(Storage.prototype, 'removeItem');
+  });
+  afterEach(() => removeItem.mockRestore());
+
+  // Puts one wallet key in the platform's store and returns the mock that removes it.
+  const onPlatform = (
+    platform: Platform,
+    { failRemoval = false } = {}
+  ): { mock: { invocationCallOrder: number[] } } => {
+    jest.mocked(isMobile).mockReturnValue(platform === 'mobile');
+    jest.mocked(isDesktop).mockReturnValue(platform === 'desktop');
+    jest.mocked(isExtension).mockReturnValue(platform === 'extension');
+    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['vault_key'] });
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const failure = new Error('removal failed');
+    if (platform === 'mobile') {
+      if (failRemoval) _g.__resetTest.prefStub.remove.mockRejectedValueOnce(failure);
+      return _g.__resetTest.prefStub.remove;
+    }
+    if (platform === 'desktop') {
+      if (failRemoval) {
+        removeItem.mockImplementation(() => {
+          throw failure;
+        });
+      }
+      return removeItem;
+    }
+    if (failRemoval) mockBrowserStorageRemove.mockRejectedValueOnce(failure);
+    return mockBrowserStorageRemove;
+  };
+
+  it.each(cases)('%s on %s re-reads the storage cache once, after the removal', async (_name, platform, reset) => {
+    const removal = onPlatform(platform);
+
+    await reset();
+
+    expect(removal.mock.invocationCallOrder).toHaveLength(1);
+    expect(mockReread).toHaveBeenCalledTimes(1);
+    expect(mockReread.mock.invocationCallOrder[0]!).toBeGreaterThan(removal.mock.invocationCallOrder[0]!);
+  });
+
+  it.each(cases)(
+    '%s on %s still re-reads the storage cache when the removal fails, and rejects with that failure',
+    async (_name, platform, reset) => {
+      onPlatform(platform, { failRemoval: true });
+
+      await expect(reset()).rejects.toThrow('removal failed');
+
+      expect(mockReread).toHaveBeenCalledTimes(1);
+    }
+  );
+});
+
 describe('dropLegacyGuardianUrl', () => {
   it('removes the legacy guardian URL and nothing else', async () => {
     localStorage.setItem('miden_wallet_guardian_url_setting', 'https://my-guardian.example');
@@ -280,19 +353,51 @@ describe('dropLegacyGuardianUrl', () => {
 });
 
 describe('clearClientStorage', () => {
-  it('keeps the setup-kept keys in their desktop form, removes every other localStorage key, and clears sessionStorage', () => {
+  it('keeps the setup-kept keys in their desktop form, removes every other localStorage key, and clears sessionStorage', async () => {
     localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
     localStorage.setItem('miden_wallet_guardian_url_setting', 'https://my-guardian.example');
     localStorage.setItem('miden_wallet_vault_key', 'v');
     localStorage.setItem('ui_cache', 'u');
     sessionStorage.setItem('draft', 'd');
 
-    clearClientStorage();
+    await clearClientStorage();
 
     expect(Object.keys(localStorage).sort()).toEqual([
       'miden_wallet_endpoint_overrides',
       'miden_wallet_guardian_url_setting'
     ]);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it('re-reads the storage cache after the localStorage removals and the sessionStorage clear (#1177)', async () => {
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    const removeItem = jest.spyOn(Storage.prototype, 'removeItem');
+    const clear = jest.spyOn(Storage.prototype, 'clear');
+    try {
+      await clearClientStorage();
+
+      expect(removeItem).toHaveBeenCalledTimes(1);
+      expect(clear).toHaveBeenCalledTimes(1);
+      expect(mockReread).toHaveBeenCalledTimes(1);
+      const wipedAt = Math.max(...removeItem.mock.invocationCallOrder, ...clear.mock.invocationCallOrder);
+      expect(mockReread.mock.invocationCallOrder[0]!).toBeGreaterThan(wipedAt);
+    } finally {
+      removeItem.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
+  it('still re-reads the storage cache when a localStorage removal throws, then rejects (#1177)', async () => {
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    const removeItem = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('storage down');
+    });
+    try {
+      await expect(clearClientStorage()).rejects.toThrow('storage down');
+
+      expect(mockReread).toHaveBeenCalledTimes(1);
+    } finally {
+      removeItem.mockRestore();
+    }
   });
 });
