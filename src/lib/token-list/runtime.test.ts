@@ -29,10 +29,14 @@ const memoryStorage = (initial: Record<string, unknown> = {}) => {
   };
 };
 
-const response = (body: unknown, init: { ok?: boolean; length?: number } = {}) => ({
-  ok: init.ok ?? true,
+const response = (
+  body: unknown,
+  { ok = true, status = ok ? 200 : 404, length }: { ok?: boolean; status?: number; length?: number } = {}
+) => ({
+  ok,
+  status,
   headers: {
-    get: (name: string) => (name === 'content-length' && init.length !== undefined ? String(init.length) : null)
+    get: (name: string) => (name === 'content-length' && length !== undefined ? String(length) : null)
   },
   text: async () => (typeof body === 'string' ? body : JSON.stringify(body))
 });
@@ -57,6 +61,16 @@ const withoutAbortSignalTimeout = async (body: () => Promise<void>) => {
 let storage: ReturnType<typeof memoryStorage>;
 let fetchMock: jest.Mock;
 let clock: number;
+let warn: jest.SpyInstance;
+
+// A failed refresh warns; the tests that care assert on the spy, and the rest stay quiet.
+beforeEach(() => {
+  warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  warn.mockRestore();
+});
 
 const setup = (initial: Record<string, unknown> = {}) => {
   storage = memoryStorage(initial);
@@ -302,6 +316,64 @@ describe('the retry backoff', () => {
     await loadVerifiedFaucetIds('testnet');
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a failed refresh', () => {
+  it('holds off the next refresh for the hour when storage refuses the attempt stamp', async () => {
+    setup();
+    fetchMock.mockResolvedValue(response(doc(['x']), { ok: false }));
+    storage.set.mockRejectedValue(new Error('quota exceeded'));
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+    await flush();
+    expect(storage.set).toHaveBeenCalledWith({ [ATTEMPT]: NOW });
+
+    clock = NOW + TOKEN_LIST_RETRY_BACKOFF_MS - 1;
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a valid list storage refuses to cache as a failure: no notice, snapshot stands, no refetch', async () => {
+    setup();
+    fetchMock.mockResolvedValue(response(doc(['a'])));
+    storage.set.mockRejectedValue(new Error('quota exceeded'));
+    const listener = jest.fn();
+    onTokenListUpdated(listener);
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(listener).not.toHaveBeenCalled();
+
+    clock = NOW + TOKEN_LIST_RETRY_BACKOFF_MS - 1;
+    const ids = await loadVerifiedFaucetIds('testnet');
+    expect(ids).toContain('mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec');
+    expect(ids).not.toContain('a');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a 404', response(doc(['x']), { ok: false, status: 404 }), '404'],
+    ['a document the parser rejects', response({ name: 'x' }), 'does not parse']
+  ])('warns once after %s, naming the network and the reason', async (_label, bad, reason) => {
+    setup();
+    fetchMock.mockResolvedValue(bad);
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('testnet'),
+      expect.objectContaining({ message: expect.stringContaining(reason) })
+    );
+  });
+
+  it('does not warn after a refresh that lands', async () => {
+    setup();
+    fetchMock.mockResolvedValue(response(doc(['a'])));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(['a']) });
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

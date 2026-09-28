@@ -3,6 +3,7 @@ import { isRecord } from 'lib/update/guards';
 /** The part of a fetch response a bounded read uses. All but ok and json() are optional, as in a stub or polyfill. */
 export interface JsonResponse {
   ok: boolean;
+  status?: number;
   headers?: { get(name: string): string | null };
   body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> } } | null;
   text?(): Promise<string>;
@@ -71,7 +72,10 @@ export function fetchBoundedJson(
 ): Promise<unknown> {
   return withRequestTimeout(timeoutMs, async signal => {
     const response = await fetchFn(url, { cache: 'no-store', headers: { Accept: 'application/json' }, signal });
-    if (!response.ok) throw new Error('Remote JSON request failed');
+    if (!response.ok) {
+      const status = response.status === undefined ? '' : ` with HTTP ${response.status}`;
+      throw new Error(`Remote JSON request failed${status}`);
+    }
     // The declared length is the cheap rejection; the body is measured too, because a chunked or
     // re-encoded response declares nothing useful.
     if (Number(response.headers?.get('content-length') ?? '0') > maxBytes) throw tooLarge();

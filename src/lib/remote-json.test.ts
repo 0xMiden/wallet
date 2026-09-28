@@ -163,6 +163,13 @@ describe('fetchBoundedJson', () => {
     expect(response.json).not.toHaveBeenCalled();
   });
 
+  it('names the HTTP status of a failed response', async () => {
+    const response = { ...textResponse('{"a":1}'), ok: false, status: 404 };
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).rejects.toThrow(
+      'Remote JSON request failed with HTTP 404'
+    );
+  });
+
   it('rejects a declared length past the cap without reading the body', async () => {
     const response = { ...textResponse('{}', { 'content-length': '65' }), text: jest.fn() };
     await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).rejects.toThrow(

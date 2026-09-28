@@ -86,29 +86,32 @@ async function readList(network: string): Promise<LoadedList> {
   return { ids: parseTokenList(bundledTokenList(network), network), fetchedAt: null };
 }
 
-/** Fetches the list and stores it once it validates; false, or a rejection, when it does not arrive whole and valid. */
-async function fetchAndStore(network: string): Promise<boolean> {
+/** Fetches the list and stores it once it validates; rejects when it is not whole, not valid or not stored. */
+async function fetchAndStore(network: string): Promise<void> {
   const body = await fetchBoundedJson(deps.fetch, tokenListUrl(network), {
     maxBytes: MAX_BYTES,
     timeoutMs: REQUEST_TIMEOUT_MS
   });
   // Validated before storing: every realm trusts this entry for a day.
-  if (parseTokenList(body, network) === null) return false;
+  if (parseTokenList(body, network) === null) throw new Error('the token list does not parse');
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
-  return true;
 }
 
 async function refresh(network: string): Promise<void> {
-  if (await fetchAndStore(network).catch(() => false)) {
-    // Forgotten before the notice, so the loads it sets off read what was just stored.
-    loaded.delete(network);
-    listeners.forEach(listener => listener(network));
+  try {
+    await fetchAndStore(network);
+  } catch (error) {
+    // Set before the awaited write, so a stamp storage refuses still holds this realm off for the hour.
+    const failedAt = deps.now();
+    lastFailure.set(network, failedAt);
+    console.warn(`[token-list] refresh failed for ${network}:`, error);
+    // The cache stays as it was. Stored as well, so the next popup or app start waits out the hour too.
+    await deps.storage().set({ [attemptKey(network)]: failedAt });
     return;
   }
-  // The cache stays as it was. Stored as well, so the next popup or app start waits out the hour too.
-  const failedAt = deps.now();
-  lastFailure.set(network, failedAt);
-  await deps.storage().set({ [attemptKey(network)]: failedAt });
+  // Forgotten before the notice, so the loads it sets off read what was just stored.
+  loaded.delete(network);
+  listeners.forEach(listener => listener(network));
 }
 
 function startRefresh(network: string): void {
