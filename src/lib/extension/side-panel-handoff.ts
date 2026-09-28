@@ -58,6 +58,13 @@ export function postOnboardingRoute(): '/finish-side-panel' | '/' {
 }
 
 /**
+ * The screens that end onboarding in its tab, with the wallet already Ready: the one-time
+ * telemetry consent prompt and the `/finish-side-panel` handoff screen. Read by the running
+ * wallet's surfaces that must not cover them (the rotation gate, the update card).
+ */
+export const ONBOARDING_HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/help-improve-wallet']);
+
+/**
  * Open the side panel onto the (already-Ready) wallet and make it the primary
  * action surface. MUST be called synchronously within the user gesture of the
  * final "Open wallet" click. Returns true if the panel opened, false on failure

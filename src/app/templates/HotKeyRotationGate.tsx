@@ -8,7 +8,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
-import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
+import { canHandoffToSidePanel, ONBOARDING_HANDOFF_ROUTES } from 'lib/extension/side-panel-handoff';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,
@@ -44,8 +44,6 @@ import {
   rotationFundingMinimum
 } from './HotKeyRotationGate.selectors';
 
-const HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/help-improve-wallet']);
-
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
@@ -77,10 +75,7 @@ export const HotKeyRotationGate: FC = () => {
   const { pathname } = Woozie.useLocation();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
-  // The onboarding tab only hands off to the side panel, whose own gate starts the rotation, or adopts it if one is
-  // in flight: covering the handoff screens here would hold the one tap that opens the panel until the rotation
-  // lands (#1097).
-  if (fullPage && HANDOFF_ROUTES.has(pathname) && canHandoffToSidePanel()) return null;
+  if (fullPage && ONBOARDING_HANDOFF_ROUTES.has(pathname) && canHandoffToSidePanel()) return null;
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.

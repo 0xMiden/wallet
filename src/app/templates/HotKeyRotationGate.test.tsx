@@ -97,7 +97,9 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => mockLocation
 }));
 
+// Partial mock: only `canHandoffToSidePanel` is driven, so the gate exempts the real handoff routes.
 jest.mock('lib/extension/side-panel-handoff', () => ({
+  ...jest.requireActual('lib/extension/side-panel-handoff'),
   canHandoffToSidePanel: () => mockHandoffAvailable
 }));
 
@@ -987,19 +989,18 @@ describe('HotKeyRotationGate', () => {
       mockHandoffAvailable = true;
     });
 
-    it('renders nothing on the finish-side-panel handoff screen', () => {
-      mockLocation = { pathname: '/finish-side-panel' };
-      const { container } = render(<HotKeyRotationGate />);
-      expect(container).toBeEmptyDOMElement();
-      expect(screen.queryByTestId('hot-key-rotation-gate')).not.toBeInTheDocument();
-    });
-
-    it('renders nothing on the help-improve-wallet handoff screen', () => {
-      mockLocation = { pathname: '/help-improve-wallet' };
-      const { container } = render(<HotKeyRotationGate />);
-      expect(container).toBeEmptyDOMElement();
-      expect(screen.queryByTestId('hot-key-rotation-gate')).not.toBeInTheDocument();
-    });
+    it.each(['/finish-side-panel', '/help-improve-wallet'])(
+      'renders nothing and starts no rotation on %s',
+      async route => {
+        mockLocation = { pathname: route };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+      }
+    );
 
     it('renders the gate on a non-handoff full-page route', async () => {
       mockLocation = { pathname: '/' };
@@ -1008,8 +1009,8 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
     });
 
-    it('renders the gate on the handoff screen when the side panel is unavailable', async () => {
-      mockLocation = { pathname: '/finish-side-panel' };
+    it('renders the gate on the consent screen when the side panel is unavailable', async () => {
+      mockLocation = { pathname: '/help-improve-wallet' };
       mockHandoffAvailable = false;
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
