@@ -3,17 +3,18 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { PrivateKeyPair } from 'components/PrivateKeyPair';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
@@ -79,7 +80,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
   const isGuardReady = useScreenshotGuard(secret !== null);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
   // The private-key reveal requires the user to tick an "I understand"
@@ -93,13 +94,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // during onboarding, so prompt with the numpad; extension/desktop vault
   // secrets are typed passwords.
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
-
-  useEffect(() => {
-    // A rejected probe falls back to the password step-up, as ExportAccountFile does.
-    Vault.hasHardwareProtector()
-      .then(setHasHardwareProtector)
-      .catch(() => setHasHardwareProtector(false));
-  }, []);
 
   useEffect(() => {
     if (account.publicKey) {
@@ -318,6 +312,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const showButton = !secret;
 
   if (revealUnavailable) return null;
+
+  if (probeFailed) {
+    return (
+      <SubPageLayout data-testid="reveal-secret">
+        <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />
+      </SubPageLayout>
+    );
+  }
 
   // The frame renders while the protector check runs, so the header (and the title
   // focus that announces the page) is there from the first frame; the body waits.

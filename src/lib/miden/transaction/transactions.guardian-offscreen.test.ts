@@ -55,7 +55,8 @@
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletType } from 'screens/onboarding/types';
 
-import { generateTransaction } from './index';
+import { TRANSACTION_EXPIRED_ERROR } from './constants';
+import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 
@@ -93,6 +94,10 @@ var mockClaimRowOnRead: { id: string } | null = null;
 // assertion can tell the two apart: the clone equals the row, so the stored
 // fields look identical either way.
 var mockDeclinedWrites = 0;
+
+// Lets the loop's table scans see the stored rows, so a wake can drive a row other than the one it was armed for.
+// Off (scans empty) by default, which keeps every other test's loop laps from picking up its own row.
+var mockScansSeeStore = false;
 
 // Dexie's `innerDeepClone`: recurse into plain objects, hand everything else
 // back by reference.
@@ -154,7 +159,9 @@ jest.mock('lib/miden/repo', () => ({
         return found;
       })
     })),
-    filter: jest.fn(() => ({ toArray: jest.fn(async () => []) }))
+    filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
+      toArray: jest.fn(async () => (mockScansSeeStore ? txStore.filter(predicate) : []))
+    }))
   }
 }));
 
@@ -498,6 +505,7 @@ beforeEach(() => {
   mockFailRowReads = null;
   mockClaimRowOnRead = null;
   mockDeclinedWrites = 0;
+  mockScansSeeStore = false;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
@@ -805,6 +813,227 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
+  it('off-extension, an unreachable guardian requeue arms a wake (#779)', async () => {
+    // Same stranding risk as the unauthorized arm above: off-extension nothing else drives a requeued send.
+    // The wake is timed one second past the fixed 60 s cooldown, so it must not drive the queue before then.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('off-send-unreachable-wake', row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(
+        buildTx('off-send-unreachable-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Failed at the proposal creator, so the requeue came from the creating-proposal gate.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === 'off-send-unreachable-wake')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a wake lap that requeues its row again comes back a beat past the new nextEligibleAt (#779)', async () => {
+    // The lap's re-arm replaces the wake its own requeue armed. Aimed at nextEligibleAt itself, it can fire on a clock
+    // still short of it, find the row excluded, and cost a wasted lap plus the re-arm minimum.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-relap';
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      const firstEligibleAt = Number(stored().nextEligibleAt);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+      // The first lap drove the row, and its refused connection requeued it again inside the lap.
+      expect(service.createSendProposal).toHaveBeenCalledTimes(2);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      const secondEligibleAt = Number(stored().nextEligibleAt);
+      expect(secondEligibleAt).toBeGreaterThan(firstEligibleAt);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsAfterLap = loopRuns();
+      await jest.advanceTimersByTimeAsync(secondEligibleAt * 1000 + 500 - Date.now());
+      expect(loopRuns()).toBe(runsAfterLap);
+
+      await jest.advanceTimersByTimeAsync(500);
+      expect(loopRuns()).toBeGreaterThan(runsAfterLap);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a backed-off requeue wakes its row at the reap boundary when that comes first (#1223)', async () => {
+    // A doubled cooldown can outlast the row's queue life, and off the extension the wake is what drives the reaper, so
+    // a first wake aimed a beat past nextEligibleAt left an expired row Queued for up to the whole cooldown.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-reap-first';
+      const row = {
+        type: 'send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '1',
+        // 20 s of queue life left, and a streak whose next unreachable requeue waits the 240 s cap.
+        initiatedAt: Math.floor(Date.now() / 1000) - (MAX_QUEUED_AGE - 20),
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+      const stored = () => txStore.find(r => r.id === id) as Record<string, unknown>;
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(stored().status).toBe(ITransactionStatus.Queued);
+      expect(Number(stored().nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(240);
+
+      // The reap boundary is 20 s out, and the wake comes one 3 s re-arm beat past it.
+      await jest.advanceTimersByTimeAsync(24_000);
+      expect(stored().status).toBe(ITransactionStatus.Failed);
+      expect(stored().error).toBe(TRANSACTION_EXPIRED_ERROR);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, an unreachable requeue of a row with no usable initiatedAt wakes a beat past nextEligibleAt (#1223)', async () => {
+    // With no reap boundary to aim at, the new chain's ceiling stands in, so the first wake keeps its old timing.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const id = 'off-send-unreachable-unusable-stamp';
+      // NaN, the unusable value the Number.isFinite guard in requeueWakeDelayMs rejects.
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', initiatedAt: NaN };
+      const { service } = arrange(id, row);
+      service.createSendProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+      expect(txStore.find(r => r.id === id)?.status).toBe(ITransactionStatus.Queued);
+
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it("off-extension, an older row driven by another row's wake signs under its own id (#779)", async () => {
+    // The wake drives the whole queue with the provider its row was generated with, and generateTransaction wraps
+    // that provider again for whichever row the loop picks. The vault looks a recovery authorization up by the id
+    // signWord carries, so an older row signing under the requeued row's id would be refused as needing the seed.
+    mockPlatformIsExtension = false;
+    mockScansSeeStore = true;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('wake-requeued-a', row);
+      txStore.push({ ...buildTx('wake-older-b', row), initiatedAt: Math.floor(Date.now() / 1000) - 10 });
+      let serviceProvider: GuardianAccountProvider | undefined;
+      mockGetOrCreateMultisigService.mockImplementation(async (_accountId: string, p: GuardianAccountProvider) => {
+        serviceProvider = p;
+        return service;
+      });
+      // The real service signs through a WalletSigner, which passes only the public key and the word.
+      service.createSendProposal
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockImplementation(async () => {
+          await serviceProvider?.signWord('pk', '0xword');
+          return { id: 'prop', nonce: 7 };
+        });
+      const signWord = jest.fn(async (..._a: unknown[]) => 'sig');
+
+      await generateTransaction(buildTx('wake-requeued-a', row) as never, signCallback, false, {
+        ...provider,
+        signWord
+      } as never);
+      expect(txStore.find(r => r.id === 'wake-requeued-a')?.status).toBe(ITransactionStatus.Queued);
+
+      await jest.advanceTimersByTimeAsync(61_000);
+
+      expect(signWord).toHaveBeenCalledTimes(1);
+      expect(signWord).toHaveBeenCalledWith('pk', '0xword', 'wake-older-b');
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('an unreachable-looking failure from the offscreen leaf fails the row, never requeues it (#779)', async () => {
+    // The shipping path: flag ON, the leaf runs offscreen and its stamps never author `stage`, so a row that died
+    // there still reads 'sending'. A transport error at submit reads exactly like a silent guardian, and the send
+    // may already be on chain, so the stage gate is what keeps it Failed. Off the extension, so a requeue would also
+    // arm its wake.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(new Error('Failed to fetch'));
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unreachable-at-sending', row);
+
+      await generateTransaction(
+        buildTx('on-send-unreachable-at-sending', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unreachable-at-sending') as Record<string, unknown>;
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(stored.stage).toBe('sending');
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored.nextEligibleAt).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
   it('comes back after a row read that fails, instead of abandoning the row', async () => {
     // The wake decides whether to re-arm by reading its own row. That read is
     // the only thing standing between the row and being stranded, so a Dexie
@@ -934,7 +1163,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // `GeneratingTransaction` is not an ending. The attempt that claimed the row
     // can finish by requeueing rather than completing — through the 409, 429,
     // prover-outage or locked-wallet arms, none of which schedules a wake, since
-    // only the unauthorized arm does. A chain that stopped on any non-Queued
+    // only the unauthorized and unreachable arms do. A chain that stopped on any non-Queued
     // status would hand the row back to a queue with no driver off-extension,
     // which is the strand it exists to prevent, and the row would look healthy
     // on the way there.
@@ -1608,14 +1837,10 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
-  it('an unauthorized earn-deposit stays Failed — its caller is waiting on the result', async () => {
-    // `earn-deposit` is result-awaiting (`isResultAwaitingRow`): the Epoch flow
-    // reads `resultBytes` / `outputNoteIds` back off the finished row. Requeueing
-    // one leaves that caller waiting on a row that will not finish this cycle,
-    // which is the same hang the neighbouring post-submit branch fails the row to
-    // avoid. Its collateral note is also bound to an allocator mandate, so it is
-    // not a transfer that can simply be rebuilt. It must fail rather than retry,
-    // even though the error is the same recoverable race for every other type.
+  it('an unauthorized earn-deposit stays Failed - the unauthorized arm leaves Earn out', async () => {
+    // A scope choice (see UNAUTHORIZED_EXECUTION_REQUEUEABLE): this arm's short retry cap does not extend to
+    // Earn, so a deposit that races a signature fails at once, even though the error is the same recoverable
+    // race that requeues every other value-moving type.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
       new Error(

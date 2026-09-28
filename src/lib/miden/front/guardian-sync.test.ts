@@ -91,6 +91,11 @@ jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension()
 }));
 
+const mockRequestSWTransactionProcessing = jest.fn();
+jest.mock('lib/miden/activity', () => ({
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+}));
+
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
 const mockReRegister = jest.fn();
@@ -1744,6 +1749,41 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       await runSyncs(1);
       expect(getGuardianLastSyncAt(pk)).toBeUndefined();
     });
+  });
+
+  it('kicks transaction processing once when an armed outage stands down (#779)', async () => {
+    const pk = 'outage-kick';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+
+    sync.mockResolvedValue(undefined);
+    await runSyncs(2);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('kicks processing when a 401 stands an armed outage down (#779)', async () => {
+    const pk = 'outage-kick-401';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    sync.mockRejectedValue(Object.assign(new Error('nope'), { __authRejection: true }));
+    await runSyncs(1);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not kick processing for a success with no armed outage (#779)', async () => {
+    const pk = 'no-outage-no-kick';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockResolvedValue(undefined) });
+
+    await runSyncs(2);
+    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
   });
 });
 

@@ -1,11 +1,11 @@
 import React, { Suspense, useEffect, useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { mutate } from 'swr';
+import { mutate, SWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 
-import { preloadStorage, usePassiveStorage, useStorage } from './storage';
+import { preloadStorage, putToStorage, rereadStorageCache, usePassiveStorage, useStorage } from './storage';
 
 // Real SWR and real suspense: the regression is a storage hook suspending the whole app on unlock.
 
@@ -81,7 +81,10 @@ const holdNextSet = () => {
   return () => release();
 };
 
-// Lets pending writes, a mounted hook's own SWR revalidation and, on the extension, its listener's import finish.
+// Lets pending writes and a mounted hook's own SWR revalidation finish. Off the extension, or once the page's
+// change listener is attached, a read is numbered when it is called; every read issued while an attach is
+// pending waits for it and is numbered when its storage call is issued, so a failed attach lets that read
+// through unheard while the next read's attach retries.
 const drain = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
 
 const Reader = ({ storageKey }: { storageKey: string }) => {
@@ -160,6 +163,21 @@ const deferredRead = (key: string, value: string) => {
         release = () => resolve({ [key]: value });
       })
   );
+  return () => release();
+};
+
+// Holds the next read of one key while every other key reads storage: a wipe re-read reads every key the file has
+// cached, so a one-off mock would go to whichever key it reads first.
+const holdReadOf = (target: string, value: string) => {
+  let release!: () => void;
+  let held = false;
+  mockGet.mockImplementation(keys => {
+    if (keys[0] !== target || held) return readStored(keys);
+    held = true;
+    return new Promise(resolve => {
+      release = () => resolve({ [target]: value });
+    });
+  });
   return () => release();
 };
 
@@ -852,5 +870,270 @@ describe('storage operation order (#1168)', () => {
     first.unmount();
     renderReader('passive-failing-key');
     expect(screen.getByTestId('value').textContent).toBe('old');
+  });
+});
+
+describe('storage writes and wipes (#1177)', () => {
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])('a putToStorage write reaches a %s reader mounted afterwards, with no change event', async (hook, Component) => {
+    const key = `put-${hook}-key`;
+    mockStored[key] = 'old';
+    await preloadStorage([key]);
+    const first = renderReader(key, Component);
+    await drain();
+    first.unmount();
+
+    await putToStorage(key, 'new');
+    renderReader(key, Component);
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a putToStorage write outranks a preload still in flight', async () => {
+    mockStored['put-race-key'] = 'old';
+    await preloadStorage(['put-race-key']);
+
+    const release = deferredRead('put-race-key', 'old');
+    const pending = preloadStorage(['put-race-key']);
+    await putToStorage('put-race-key', 'new');
+    release();
+    await pending;
+    renderReader('put-race-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it("ext: another page's change that arrives while a putToStorage write is in flight wins", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-put-key'] = 'old';
+    await preloadStorage(['ext-put-key']);
+    renderReader('ext-put-key');
+    await drain();
+    const reads = mockGet.mock.calls.length;
+
+    const release = holdNextSet();
+    const write = putToStorage('ext-put-key', 'new');
+    act(() => deliverEchoes());
+    act(() => emitChange('ext-put-key', 'other'));
+    await act(async () => {
+      release();
+      await write;
+    });
+    await drain();
+
+    expect(screen.getByTestId('value').textContent).toBe('other');
+    expect(mockStored['ext-put-key']).toBe('other');
+    expect(mockGet).toHaveBeenCalledTimes(reads);
+  });
+
+  it('a write to a key no reader asked for leaves the cache alone', async () => {
+    await putToStorage('written-only-key', 'written');
+
+    expect(SWRConfig.defaultValue.cache.get('written-only-key')).toBeUndefined();
+  });
+
+  it("a write that lands while the key's first read is in flight still reaches the cache", async () => {
+    const release = deferredRead('first-read-key', 'old');
+    const preload = preloadStorage(['first-read-key']);
+    await putToStorage('first-read-key', 'new');
+    release();
+    await preload;
+    renderReader('first-read-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a putToStorage of undefined reads as a missing key and never suspends its reader', async () => {
+    mockStored['put-undefined-key'] = 'old';
+    await preloadStorage(['put-undefined-key']);
+    renderReader('put-undefined-key');
+    await drain();
+    // Models a backend that drops the key; the real adapters do not, and no caller writes undefined.
+    mockSet.mockImplementationOnce(async () => {
+      delete mockStored['put-undefined-key'];
+    });
+
+    await act(async () => {
+      await putToStorage('put-undefined-key', undefined);
+    });
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])(
+    "ext: a key no %s reader has mounted takes another page's write, and reads a removal as null without suspending",
+    async (hook, Component) => {
+      jest.mocked(isExtension).mockReturnValue(true);
+      const key = `ext-unmounted-${hook}-key`;
+      mockStored[key] = 'old';
+      await preloadStorage([key]);
+
+      act(() => emitChange(key, 'new'));
+      const first = renderReader(key, Component);
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('new');
+      await drain();
+      first.unmount();
+
+      act(() => emitChange(key));
+      renderReader(key, Component);
+
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+    }
+  );
+
+  it('ext: a change in another storage area, or to a key no reader asked for, leaves the cache alone', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-kept-key'] = 'EUR';
+    await preloadStorage(['ext-kept-key']);
+
+    // emitChange always sends 'local' and one key, so this calls the live listeners directly.
+    act(() => {
+      for (const listener of [...mockListeners]) {
+        listener({ 'ext-kept-key': {} }, 'sync');
+        listener({ 'ext-uncached-key': { newValue: 'written' } }, 'local');
+      }
+    });
+    renderReader('ext-kept-key', PassiveReader);
+
+    expect(screen.getByTestId('value').textContent).toBe('EUR');
+    expect(SWRConfig.defaultValue.cache.get('ext-uncached-key')).toBeUndefined();
+  });
+
+  it('ext: a wipe in one change naming many keys settles each cached key as null and skips the rest', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-wiped-a-key'] = 'a';
+    mockStored['ext-wiped-b-key'] = 'b';
+    await preloadStorage(['ext-wiped-a-key', 'ext-wiped-b-key']);
+    delete mockStored['ext-wiped-a-key'];
+    delete mockStored['ext-wiped-b-key'];
+
+    // emitChange always sends 'local' and one key, so this calls the live listeners directly.
+    act(() => {
+      for (const listener of [...mockListeners]) {
+        listener(
+          {
+            'ext-wiped-a-key': { oldValue: 'a' },
+            'ext-wiped-uncached-key': { oldValue: 'x' },
+            'ext-wiped-b-key': { oldValue: 'b' }
+          },
+          'local'
+        );
+      }
+    });
+    renderReader('ext-wiped-a-key', PassiveReader);
+    renderReader('ext-wiped-b-key', PassiveReader);
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getAllByTestId('value').map(element => element.textContent)).toEqual([
+      'fallback-value',
+      'fallback-value'
+    ]);
+    expect(SWRConfig.defaultValue.cache.get('ext-wiped-uncached-key')).toBeUndefined();
+  });
+
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])(
+    "a %s reader mounted after a wipe renders what storage holds now, not the previous wallet's value",
+    async (hook, Component) => {
+      const key = `wiped-${hook}-key`;
+      mockStored[key] = 'EUR';
+      await preloadStorage([key]);
+      delete mockStored[key];
+
+      await rereadStorageCache();
+      renderReader(key, Component);
+
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+    }
+  );
+
+  it('a useStorage reader mounted across a wipe renders what storage holds now without suspending', async () => {
+    mockStored['mounted-wipe-key'] = 'EUR';
+    await preloadStorage(['mounted-wipe-key']);
+    renderReader('mounted-wipe-key');
+    await drain();
+    delete mockStored['mounted-wipe-key'];
+
+    await act(() => rereadStorageCache());
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it('a wipe re-read outranks a preload still in flight', async () => {
+    mockStored['wipe-race-key'] = 'old';
+    const release = holdReadOf('wipe-race-key', 'old');
+    const preload = preloadStorage(['wipe-race-key']);
+    delete mockStored['wipe-race-key'];
+
+    await rereadStorageCache();
+    release();
+    await preload;
+    renderReader('wipe-race-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it('a write issued after a wipe re-read outranks it', async () => {
+    mockStored['reread-then-write-key'] = 'old';
+    await preloadStorage(['reread-then-write-key']);
+    const release = holdReadOf('reread-then-write-key', 'stale');
+
+    const reread = rereadStorageCache();
+    await putToStorage('reread-then-write-key', 'new');
+    release();
+    await reread;
+    renderReader('reread-then-write-key');
+
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('a second wipe re-read outranks the first when the first lands last', async () => {
+    mockStored['double-wipe-key'] = 'old';
+    await preloadStorage(['double-wipe-key']);
+    const release = holdReadOf('double-wipe-key', 'old');
+    const first = rereadStorageCache();
+    delete mockStored['double-wipe-key'];
+
+    await rereadStorageCache();
+    release();
+    await first;
+    renderReader('double-wipe-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it('a wipe re-read that fails keeps the cached value, resolves, and logs once naming the key', async () => {
+    mockStored['reread-failure-key'] = 'old';
+    await preloadStorage(['reread-failure-key']);
+    mockStored['reread-failure-key'] = 'new';
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockGet.mockImplementation(keys =>
+        keys[0] === 'reread-failure-key' ? Promise.reject(new Error('read failed')) : readStored(keys)
+      );
+
+      await expect(rereadStorageCache()).resolves.toBeUndefined();
+      renderReader('reread-failure-key', PassiveReader);
+
+      expect(screen.getByTestId('value').textContent).toBe('old');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[1])).toContain('reread-failure-key (Error: read failed)');
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -189,12 +189,50 @@ function defineSchema(target: Dexie): void {
   target.version(1.9).stores({
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
+
+  // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
+  // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
+  // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
+  target.use({
+    stack: 'dbcore',
+    name: 'TransactionInitiatedAtCheck',
+    create: down => ({
+      ...down,
+      table: name => {
+        const table = down.table(name);
+        if (name !== Table.Transactions) return table;
+        return {
+          ...table,
+          mutate: req => {
+            if (req.type === 'add') {
+              const rows: readonly ITransaction[] = req.values;
+              const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
+              if (unplaceable !== undefined) {
+                throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
+              }
+            }
+            return table.mutate(req);
+          }
+        };
+      }
+    })
+  });
 }
 
 export const db = new Dexie('TridentMain');
 defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+/**
+ * Non-negative safe integer: the spending-limit policy's rule for a transaction time it can judge (a
+ * matching row with any other refuses the assessment), stricter than the `initiatedAt` index, which
+ * places any number at or above 0 (#1007).
+ */
+function isPlaceableInitiatedAt(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
 
 /**
@@ -447,13 +485,21 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
         ? initiatedAt
         : Math.floor(Date.now() / 1000);
 
+  // An imported row takes an `initiatedAt` the insert check accepts (its own, else its completedAt, else
+  // now), or the check would refuse the whole restore (#1007).
+  const placedAt = isPlaceableInitiatedAt(initiatedAt)
+    ? initiatedAt
+    : isPlaceableInitiatedAt(completedAt)
+      ? completedAt
+      : Math.floor(Date.now() / 1000);
+
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
   // all; every consumer compares with `===`, so such a row is invisible in every
   // history view while still occupying its id — and a deny-list would wave it
   // through unstamped. Anything not recognisably terminal is treated as unfinished.
   if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
-    return { ...restored, completedAt: timestamp };
+    return { ...restored, completedAt: timestamp, initiatedAt: placedAt };
   }
   return {
     ...restored,
@@ -461,7 +507,8 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
     error: IMPORTED_UNFINISHED_REASON,
     // `displayIcon`/`displayMessage` are re-derived for failed rows when history
     // renders, so only the fields history reads straight off the row are set here.
-    completedAt: timestamp
+    completedAt: timestamp,
+    initiatedAt: placedAt
   };
 };
 

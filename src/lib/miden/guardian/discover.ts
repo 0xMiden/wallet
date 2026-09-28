@@ -132,8 +132,10 @@ export class GuardianProbeTimeoutError extends Error {
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
  * `timeoutMs`. The underlying request keeps running (no abort in the guardian
- * client) — its result is just dropped, which is harmless for these small
- * read-only JSON calls.
+ * client) and its late result is dropped: harmless for a read, and a caller that
+ * wraps a write makes a late landing safe itself, by retrying it idempotently
+ * (the registration loops count `account_already_exists` as success) or by
+ * recording it for reconciliation (the transaction's endpoint persist).
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -161,10 +163,10 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
  * guardian error check (see `isGuardianUnreachableError`), so it survives the
  * duplicate-package error-class instances this repo can end up with.
  *
- * Lives here rather than beside either registration path because BOTH need it:
- * the direct switch's `/configure` loop and the coordinated switch's
- * `registerOnGuardian` loop each retry a write that may have landed before its
- * response was lost, and treating the operator's "I already have it" as a failure
+ * Lives here rather than beside any one registration path because all three need
+ * it: the direct switch's `/configure` loop, the coordinated switch's
+ * `registerOnGuardian` loop and Guardian creation's `registerGuardianAccount` each
+ * retry a write that may have landed before its response was lost, and treating the operator's "I already have it" as a failure
  * would turn the idempotent case into a false `registerFailed`.
  */
 export const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>

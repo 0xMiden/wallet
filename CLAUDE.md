@@ -114,6 +114,9 @@ Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib
 ### Haptics on tappable components
 Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
 
+### Storage hooks' cache
+Write a key a storage hook reads (`useStorage`, `usePassiveStorage` in `lib/miden/front/storage.ts`) only through `putToStorage` or the hook's setter, which settle the value into the hooks' SWR cache. A direct `getStorageProvider()` write or removal of such a key leaves the cache stale on mobile and desktop, where no change event exists. A new wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does.
+
 ## Frontend UI, CSS, and Motion
 
 Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.

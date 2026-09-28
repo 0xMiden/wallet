@@ -1,7 +1,9 @@
-import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
@@ -10,10 +12,20 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { useMidenContext } from 'lib/miden/front';
+import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
+import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
+import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  hotKeyRotationLockName,
+  isLiveRotationFundingRow,
+  isLiveRotationRow,
+  isRotationFundingRow,
+  isRotationRow,
+  selectRotationFundingNotes
+} from 'lib/miden/transaction/rotation-funding';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -22,16 +34,30 @@ import { navigate } from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
+import { RotationFundingPanel, useRotationFundingClaim, useRotationGateRows } from './HotKeyRotationFunding';
+import {
+  isBelowBaseFee,
+  newestRow,
+  resolveRotationGateView,
+  rotationFundingMinimum
+} from './HotKeyRotationGate.selectors';
+
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
  * Guardian accounts recovered via seed phrase (and legacy accounts migrated on
- * unlock) carry `requiresHotKeyRotation` — they have no usable local hot key
+ * unlock) carry `requiresHotKeyRotation`: they have no usable local hot key
  * and cannot sign, sync, or transact until a `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate auto-initiates the
  * rotation and paints a full-screen overlay that blocks all wallet
- * interaction; the flag clearing (via `Vault.swapHotKey` → accountsUpdated →
+ * interaction; the flag clearing (via `Vault.swapHotKey`, accountsUpdated,
  * store sync) is the authoritative "done" signal that dismisses it.
+ *
+ * The rotation is a transaction and pays its fee from the account's vault, so an
+ * account that holds no MIDEN cannot leave (#805). The gate then shows its funding
+ * state: the address to send MIDEN to, and a claim of the arriving native notes with
+ * the recovery key (`HotKeyRotationFunding.tsx`), never alongside the rotation, which
+ * it retries once a claim lands. Nothing else is unlocked while it waits.
  *
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
@@ -50,49 +76,82 @@ interface OverlayProps {
   accountPublicKey: string;
 }
 
-const isPendingRotationRow = (r: ITransaction, accountPublicKey: string): boolean =>
-  r.type === 'replace-hot-key' &&
-  r.accountId === accountPublicKey &&
-  (r.status === ITransactionStatus.Queued || r.status === ITransactionStatus.GeneratingTransaction);
+/**
+ * The newest rotation of the account when it failed for want of its fee and no funding
+ * claim completed after it (#805). Adopting it on mount shows the funding panel again
+ * instead of queueing a rotation that must fail, minting a hot key it never uses.
+ */
+const adoptableShortfallRow = async (accountPublicKey: string) => {
+  const rows = await Repo.transactions
+    .filter(r => isRotationRow(r, accountPublicKey) || isRotationFundingRow(r, accountPublicKey))
+    .toArray();
+  const rotation = newestRow(rows.filter(r => r.type === 'replace-hot-key'));
+  if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
+  const failedAt = rotation.completedAt ?? rotation.initiatedAt;
+  const claimedSince = rows.some(
+    r => r.type === 'consume' && r.status === ITransactionStatus.Completed && (r.completedAt ?? 0) > failedAt
+  );
+  return claimedSince ? undefined : rotation;
+};
 
 /**
  * Find (or create) the rotation transaction to track, serialized across every
  * wallet surface via a per-account Web Lock — two concurrently-mounted gate
  * instances (e.g. extension popup + side panel) would otherwise both pass the
- * pending-row lookup before either enqueues, double-rotating the key.
+ * pending-row lookup before either enqueues, double-rotating the key. Every call
+ * adopts a live rotation, so Check again, a funding trigger or a second surface
+ * never queues one beside it.
  *
- * Before adopting, orphaned `GeneratingTransaction` rows are requeued: every
- * driver processes under the `generate-transactions-loop` Web Lock
- * (`safeGenerateTransactionsLoop`, SW included), so if that lock is free the
- * row's generation promise died with its process. The loop refuses to run
- * while an in-progress row exists, so adopting it as-is would leave the
- * overlay spinning until `cancelStuckTransactions` expires it (up to 30
- * minutes off-mobile). The `ifAvailable` request makes the check race-free:
- * we only requeue while provably no loop is running.
+ * On mount (`adoptExisting`), orphaned `GeneratingTransaction` rows, the rotation's and
+ * the funding claim's, are requeued first: every driver processes under the
+ * `generate-transactions-loop` Web Lock (`safeGenerateTransactionsLoop`, SW included),
+ * so if that lock is free the row's generation promise died with its process. The loop
+ * refuses to run while an in-progress row exists, so leaving it would hold the gate
+ * until `cancelStuckTransactions` expires it (up to 30 minutes off-mobile). The
+ * `ifAvailable` request makes the check race-free: we only requeue while provably no
+ * loop is running.
+ *
+ * Resolves `null` when it DEFERRED (#805): the gate's funding claim is live, and a
+ * rotation now would run before the vault that claim funds, fail, and mint a hot key it
+ * never uses. The claim path takes the same lock and refuses while a rotation is live.
  */
-const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean): Promise<string> => {
+const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean): Promise<string | null> => {
   let txId: string | null = null;
-  await navigator.locks.request(`hot-key-rotation:${accountPublicKey}`, async () => {
+  let deferred = false;
+  await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
     if (adoptExisting) {
       await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
         if (!lock) return;
         await Repo.transactions
           .filter(
-            r => isPendingRotationRow(r, accountPublicKey) && r.status === ITransactionStatus.GeneratingTransaction
+            r =>
+              (isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey)) &&
+              r.status === ITransactionStatus.GeneratingTransaction
           )
           .modify(r => {
             r.status = ITransactionStatus.Queued;
             r.processingStartedAt = undefined;
+            r.requeueStreak = undefined;
           });
       });
-      const existing = await Repo.transactions.filter(r => isPendingRotationRow(r, accountPublicKey)).first();
-      if (existing) {
-        txId = existing.id;
-        return;
-      }
+    }
+    const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
+    if (existing) {
+      txId = existing.id;
+      return;
+    }
+    if (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()) {
+      deferred = true;
+      return;
+    }
+    const failed = adoptExisting ? await adoptableShortfallRow(accountPublicKey) : undefined;
+    if (failed) {
+      txId = failed.id;
+      return;
     }
     txId = await initiateReplaceHotKeyTransaction(accountPublicKey, isDelegateProofEnabled(), zustandProvider);
   });
+  if (deferred) return null;
   if (txId === null) {
     throw new Error('Hot-key rotation lock callback did not produce a transaction id');
   }
@@ -104,8 +163,18 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const { signTransaction } = useMidenContext();
   const [txId, setTxId] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
-  const inFlightRef = useRef<Promise<string> | null>(null);
+  const inFlightRef = useRef<Promise<string | null> | null>(null);
   const { row } = useTransactionRow(txId ?? '');
+  const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
+  const feeFaucetId = useMidenFaucetId();
+  const baseFee = useVerificationBaseFee();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);
+  const { data: claimableNotes, isFallback } = useClaimableNotes(accountPublicKey);
+  const selection = useMemo(
+    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, baseFee),
+    [claimableNotes, isFallback, feeFaucetId, baseFee]
+  );
 
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
   // this component (which only mounts while blocking), so it is active exactly
@@ -122,7 +191,8 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting);
       try {
         const id = await inFlightRef.current;
-        setTxId(id);
+        if (id !== null) setTxId(id);
+        // A deferral too: the claim it waits on, maybe just requeued, runs in the worker's loop.
         if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {
         setInitError(e instanceof Error ? e.message : String(e));
@@ -159,8 +229,17 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     return () => clearInterval(intervalId);
   }, [driveLoop]);
 
-  const rowFailed = row?.status === ITransactionStatus.Failed;
-  const failureMessage = initError ?? (rowFailed ? (row?.error ?? t('hotKeyRotationFailedGeneric')) : null);
+  const gate = resolveRotationGateView({
+    trackedRow: row,
+    initError,
+    baseFee,
+    belowBaseFee: isBelowBaseFee(balancesLoading, balances, feeFaucetId, baseFee),
+    rotationRows,
+    fundingRows,
+    listedNoteIds: new Set(selection.native.map(note => note.id)),
+    tooSmall: selection.tooSmall
+  });
+  const rotationLive = rotationRows.some(isLiveTransaction);
 
   const onRetry = useCallback(() => {
     setTxId(null);
@@ -168,7 +247,35 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     void beginRotation(false);
   }, [beginRotation]);
 
-  if (row?.awaitingRecoverySeed && row.status === ITransactionStatus.Queued) {
+  // A funding trigger never queues a second rotation beside a live one.
+  const onFunded = useCallback(() => {
+    if (!rotationLive) void beginRotation(false);
+  }, [beginRotation, rotationLive]);
+
+  const { retryClaim } = useRotationFundingClaim({
+    accountPublicKey,
+    active: rowsLoaded && gate.view === 'funding' && !rotationLive,
+    listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
+    selection,
+    feeFaucetId,
+    baseFee,
+    fundingRows,
+    rowsLoaded,
+    onFunded
+  });
+
+  // A rotation deferred behind a claim has nothing to track, so it runs once nothing is live
+  // and the balance asks for no funding, whether the claim completed or failed. Every rows read
+  // re-arms it: a deferral on rows newer than the gate's read changes no state to re-run on.
+  // Before balances land it adopts a prior shortfall rather than queue a rotation that falls
+  // short again. On mount the first call is still in flight and swallows this one.
+  const deferredRotationDue =
+    gate.view === 'rotating' && txId === null && !rotationLive && !fundingRows.some(isLiveTransaction);
+  useEffect(() => {
+    if (deferredRotationDue) void beginRotation(balancesLoading);
+  }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
+
+  if (gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
   }
 
@@ -180,23 +287,46 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     // overlay unmounting IS the "rotation complete" signal.
     <div
       data-testid="hot-key-rotation-gate"
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 px-8 text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
+      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
     >
-      {failureMessage === null ? (
-        <>
-          <Spinner />
-          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
-          <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
-        </>
-      ) : (
-        <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
-          <p className="text-sm text-ink break-words select-text">{failureMessage}</p>
-          <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
-            {t('hotKeyRotationRetry')}
-          </Button>
-        </div>
-      )}
+      {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
+      <div className="my-auto flex w-full flex-col items-center gap-4">
+        {gate.view === 'funding' ? (
+          <RotationFundingPanel
+            address={accountPublicKey}
+            reason={gate.reason}
+            status={gate.status}
+            minimum={rotationFundingMinimum(
+              baseFee,
+              balances.find(balance => balance.tokenId === feeFaucetId)
+            )}
+            claimError={gate.failedClaim?.error}
+            onRetryClaim={() => {
+              if (gate.failedClaim) retryClaim(gate.failedClaim);
+            }}
+            onCheckAgain={onRetry}
+          />
+        ) : gate.view === 'failed' ? (
+          <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
+            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
+            <p className="text-sm text-ink break-words select-text">
+              {/* An old-format shortfall row still carries the raw kernel line as its error. */}
+              {initError ??
+                (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
+                t('hotKeyRotationFailedGeneric')}
+            </p>
+            <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
+              {t('hotKeyRotationRetry')}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <Spinner />
+            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
+            <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
+          </>
+        )}
+      </div>
     </div>
   );
 };

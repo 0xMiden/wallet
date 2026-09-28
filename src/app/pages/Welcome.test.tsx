@@ -2689,25 +2689,7 @@ describe('Welcome — back navigation', () => {
   it('withdraws back on Confirmation once a registration has landed, even when it reports failure', async () => {
     jest.useFakeTimers();
     try {
-      // Registration resolves; readiness never arrives. The screen shows a failure and the import is
-      // committed anyway - the one outcome the old `!isLoading` gate could not tell from a rejection.
-      mockFetchState.mockResolvedValue({ status: IDLE });
-      await renderWelcome();
-      await stageFileRestore();
-      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-      await setHash('#confirmation');
-      expect(mockFlowProps.current.canGoBack).toBe(true);
-
-      let pending: Promise<void> | undefined;
-      await act(async () => {
-        pending = mockFlowProps.current.onAction({ id: 'confirmation' });
-      });
-      await act(async () => {
-        await jest.advanceTimersByTimeAsync(5_500);
-      });
-      await act(async () => {
-        await pending;
-      });
+      await landFileRestoreThatNeverTurnsReady();
 
       expect(mockFlowProps.current.recoveryError).toBe('walletSetupDidNotComplete');
       expect(mockFlowProps.current.canGoBack).toBe(false);
@@ -2716,6 +2698,111 @@ describe('Welcome — back navigation', () => {
       mockNavigate.mockClear();
       expect(mockBackHandlerRef.current?.()).toBe(true);
       expect(mockNavigate).not.toHaveBeenCalledWith('/#import-from-file');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // A file restore whose registration lands and whose wallet never reports Ready: the screen stays
+  // on Confirmation with a failure, the import committed anyway.
+  async function landFileRestoreThatNeverTurnsReady() {
+    mockFetchState.mockResolvedValue({ status: IDLE });
+    await renderWelcome();
+    await stageFileRestore();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    let pending: Promise<void> | undefined;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_500);
+    });
+    await act(async () => {
+      await pending;
+    });
+  }
+
+  // #1086: the gate belongs to the attempt, not the visit. Browser Back and Forward on the fullpage
+  // host leave Confirmation and come back to it without anything new having happened.
+  it('keeps back withdrawn across a history round trip once a registration has landed', async () => {
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+
+      await setHash('#import-from-file');
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+      mockNavigate.mockClear();
+      expect(mockBackHandlerRef.current?.()).toBe(true);
+      expect(mockNavigate).not.toHaveBeenCalledWith('/#import-from-file');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // A new attempt starts with nothing landed, so its own Confirmation offers the way back again.
+  it('offers back again to a file restore started after an earlier one landed', async () => {
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      await setHash('');
+      await stageFileRestore();
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // #1086: the gate is keyed to which FILE registered, not to "has anything ever landed
+  // for this attempt". A history round trip that lands back on #import-from-file and stages a
+  // DIFFERENT file gets its own way back, because nothing has registered for that file yet.
+  it('offers back on Confirmation for a different file staged through a history round trip after an earlier restore landed', async () => {
+    const differentPayload: DecryptedWalletFile = {
+      seedPhrase: 'zulu yankee xray whiskey',
+      midenClientDbContent: 'other-miden-db',
+      walletDbContent: 'other-wallet-db',
+      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, publicKey: 'different-account-id' }]
+    };
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+
+      await setHash('#import-from-file');
+      await dispatch({ id: 'import-wallet-file-submit', payload: differentPayload });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The re-keying compares registration IDENTITY, not object reference: re-staging the SAME file
+  // (a fresh parse of the same bytes, a new object) must still read as the attempt that landed.
+  it('keeps back withdrawn when the same landed file is staged again through a fresh parse', async () => {
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+
+      await setHash('#import-from-file');
+      await dispatch({ id: 'import-wallet-file-submit', payload: JSON.parse(JSON.stringify(VERSION_TWO_PAYLOAD)) });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(false);
     } finally {
       jest.useRealTimers();
     }
