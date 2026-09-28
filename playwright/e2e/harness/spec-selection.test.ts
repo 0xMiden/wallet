@@ -125,10 +125,13 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
   });
 });
 
-/** The `run: |` body of the step that follows `anchor` (a job or step name line), dedented. */
+/** The `run: |` body of the step that follows `anchor` (a job or step name line), with its original indentation kept. */
 const runBlockAfter = (file: string, anchor: string): string => {
   const lines = configSource(file).split('\n');
   const start = lines.findIndex(line => line.trim() === anchor);
+  // A missing anchor (start === -1) would otherwise make `i > start` true for every
+  // line, silently matching the file's first run: | block instead of failing loudly.
+  if (start === -1) throw new Error(`no anchor ${JSON.stringify(anchor)} found in ${file}`);
   const runAt = lines.findIndex((line, i) => i > start && /^\s*(- )?run: \|$/.test(line));
   const runLine = lines[runAt];
   // noUncheckedIndexedAccess: findIndex's -1-not-found case reads as undefined here too.
@@ -247,5 +250,11 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     ]) {
       expect(configSource(file)).not.toMatch(/labeled/);
     }
+  });
+
+  it('runBlockAfter throws when the anchor is not found, instead of matching the first run block in the file', () => {
+    expect(() => runBlockAfter('.github/workflows/pr-e2e-local.yml', 'this anchor does not exist anywhere')).toThrow(
+      'no anchor "this anchor does not exist anywhere" found in .github/workflows/pr-e2e-local.yml'
+    );
   });
 });
