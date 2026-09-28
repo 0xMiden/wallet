@@ -1,6 +1,4 @@
-import { getWasmOrThrow } from '@miden-sdk/miden-sdk/lazy';
-
-import { priceSymbolForOrThrow } from 'lib/miden/swap/tokens';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getPriceMicro } from 'lib/prices/usd';
 
 import { IConsumedAssetTotal } from '../db/types';
@@ -43,10 +41,6 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   let total = 0n;
-  // Loaded once, up front: the strict allowlist match below calls the SDK's id parser directly,
-  // with no fallback on failure, so a realm that has not yet loaded the WASM module would misread
-  // "not ready" as "cannot be parsed" and refuse a spend it could in fact value (#1131).
-  await getWasmOrThrow();
   for (const spend of spends) {
     let symbol: string;
     let decimals: number;
@@ -55,7 +49,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     // several spellings of this faucet into one canonical hex id (the dApp custom path's
     // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
     // spelling and fail identification for a faucet the wallet has already met. The same
-    // canonical id is what `priceSymbolForOrThrow` matches the registry against below.
+    // canonical id is what `priceSymbolFor` matches the registry against below.
     const faucetId = canonicalFaucetBech32Id(spend.faucetId);
     try {
       const { base } = await fetchTokenMetadata(faucetId);
@@ -66,16 +60,9 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       throw new SpendingLimitPriceUnavailableError(spend.faucetId);
     }
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
-    // The allowlist alone decides coverage, matched strictly: a faucet id or allowlist entry the
-    // SDK cannot parse refuses below, rather than falling back to a raw-text compare that almost
-    // never matches and would otherwise count the spend as uncovered ($0) (#1131). An allowlisted
-    // symbol the feed does not quote refuses for the same reason, once matched.
-    let priceSymbol: string | undefined;
-    try {
-      priceSymbol = priceSymbolForOrThrow(faucetId, symbol);
-    } catch {
-      throw new SpendingLimitPriceUnavailableError(symbol);
-    }
+    // The allowlist alone decides coverage: an allowlisted symbol the feed does not quote refuses
+    // below rather than counting $0 (#1131).
+    const priceSymbol = priceSymbolFor(faucetId, symbol);
     if (priceSymbol === undefined) continue;
     const priceMicro = await getPriceMicro(priceSymbol, now);
     if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);

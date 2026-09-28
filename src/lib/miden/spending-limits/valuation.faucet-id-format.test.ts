@@ -1,7 +1,5 @@
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/tokens';
 
-import { SpendingLimitPriceUnavailableError } from './types';
 import { resolveSpendsUsd } from './valuation';
 
 /**
@@ -27,10 +25,6 @@ const BECH32_FAUCET = 'mtst1qtstfaucet00000000000000000000000000000qqqqqqq';
 const HEX_FAUCET = '0xaabbccddeeff00112233445566778899';
 // The Earn collateral USDC, which the price allowlist names by its hex id (#1131).
 const USDC_BECH32 = 'mtst1qusdcfaucet000000000000000000000000000qqqqqqq';
-// Loose stand-in for the SDK's bech32 shape (mirrors `__mocks__/wasmMock.js`), so the price
-// allowlist's own bech32 entries (the swap registry's IETH/IBTC ids) parse instead of throwing
-// when the strict allowlist match (#1131) canonicalizes every entry it compares the spend against.
-const WELL_FORMED_BECH32 = /^(mm|mtst|mdev|mlcl)1[02-9ac-hj-np-z]+$/;
 
 const TST_METADATA = {
   decimals: 6,
@@ -62,10 +56,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     fromAccountId: (...args: unknown[]) => mockFromAccountId(...args)
   },
   RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails })),
-  BasicFungibleFaucetComponent: { fromAccountStorage: jest.fn() },
-  // `resolveSpendsUsd` awaits this once before its loop (#1131); the mock has no module to load,
-  // so it resolves empty, same as the shared `wasmMock.js` this file's own mock shadows.
-  getWasmOrThrow: jest.fn(async () => ({}))
+  BasicFungibleFaucetComponent: { fromAccountStorage: jest.fn() }
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -93,10 +84,6 @@ jest.mock('../metadata', () => jest.requireActual('../metadata/fetch'));
 describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // The strict allowlist match caches a successful canonicalization per faucet id (tokens.ts),
-    // shared module state that would otherwise let a later test's mock change go unobserved
-    // because an earlier test already cached the same faucet id's result.
-    _resetNormalizedFaucetIdsForTest();
     process.env.MIDEN_E2E_TEST = 'true';
 
     // The metadata cache holds TST under the BECH32 key - the form every wallet-populated cache
@@ -111,20 +98,14 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     mockFromHex.mockImplementation((hex: string) =>
       hex === HEX_FAUCET ? sentinelAccountId : hex === MIDEN_USDC_FAUCET ? usdcAccountId : { __brand: 'other' }
     );
-    mockFromAccountId.mockImplementation((accountId: unknown, iface: string) => {
-      if (iface !== 'BasicWallet') return { toBech32: () => 'unexpected' };
-      const known = BECH32_BY_ACCOUNT_ID.get(accountId);
-      // A generic allowlist entry (see `mockFromBech32` below) round-trips to its own address,
-      // same as the real SDK; only the two named fixtures above need a lookup.
-      const branded = accountId as { __brand?: string };
-      return { toBech32: () => known ?? branded?.__brand ?? 'unexpected' };
-    });
+    mockFromAccountId.mockImplementation((accountId: unknown, iface: string) => ({
+      toBech32: () => (iface === 'BasicWallet' ? BECH32_BY_ACCOUNT_ID.get(accountId) : undefined) ?? 'unexpected'
+    }));
     // The real SDK's `Address.fromBech32` rejects a non-bech32 string (a hex id included) rather
     // than silently accepting it - the RPC-path parse failure this bug goes through.
     mockFromBech32.mockImplementation((address: string) => {
       if (address === BECH32_FAUCET) return { accountId: () => sentinelAccountId };
       if (address === USDC_BECH32) return { accountId: () => usdcAccountId };
-      if (WELL_FORMED_BECH32.test(address)) return { accountId: () => ({ __brand: address }) };
       throw new Error(`invalid bech32 address: ${address}`);
     });
   });
@@ -150,21 +131,5 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     );
 
     await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
-  });
-
-  it('refuses a spend whose allowlist match cannot be canonicalized, instead of pricing it at zero (#1131)', async () => {
-    mockFetchFromStorage.mockImplementation(async (key: string) =>
-      key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [USDC_BECH32]: USDC_METADATA }
-    );
-    // The allowlist's USDC entry (the Earn collateral hex id) fails to canonicalize - the strict
-    // match must refuse rather than silently miss it and price this spend at zero, as it does today.
-    mockFromHex.mockImplementation((hex: string) => {
-      if (hex === MIDEN_USDC_FAUCET) throw new Error('wasm not ready');
-      return hex === HEX_FAUCET ? sentinelAccountId : { __brand: 'other' };
-    });
-
-    await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).rejects.toBeInstanceOf(
-      SpendingLimitPriceUnavailableError
-    );
   });
 });

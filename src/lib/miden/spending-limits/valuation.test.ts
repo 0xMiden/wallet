@@ -1,12 +1,6 @@
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import {
-  TOKEN_IBTC,
-  TOKEN_IETH,
-  TOKEN_IMIDEN,
-  TOKEN_IUSDT,
-  _resetNormalizedFaucetIdsForTest
-} from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
 import { getPriceMicro, isCoveredSymbol } from 'lib/prices/usd';
 
 import { fetchTokenMetadata } from '../metadata';
@@ -22,12 +16,6 @@ jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
 // The dApp custom path emits a faucet's hex spelling; map one to IETH's bech32 id so the test
 // can tell whether the canonical id or the raw one reaches the price-symbol lookup.
 const IETH_HEX = '0x1eth00000000000000000000000000';
-// The strict allowlist match (`priceSymbolForOrThrow`, #1131) canonicalizes a faucet id through
-// these two calls; stand in with an identity function so every fixture id here maps to a stable
-// canonical id (itself) instead of the real SDK parse, which wasmMock's un-stubbed `AccountId`/
-// `Address` statics would throw on. One case below reprograms this to throw, to prove a parse
-// failure refuses the spend rather than silently missing the allowlist match.
-const mockAccountRefToSdk = jest.fn((id: string) => id);
 jest.mock('../sdk/helpers', () => {
   const actual = jest.requireActual('../sdk/helpers');
   return {
@@ -41,9 +29,7 @@ jest.mock('../sdk/helpers', () => {
               jest.requireActual('lib/agglayer/b2agg/constant').MIDEN_AGGLAYER_FAUCET_ID
             ].includes(id)
           ? id
-          : actual.canonicalFaucetBech32Id(id),
-    accountRefToSdk: (id: string) => mockAccountRefToSdk(id),
-    getBech32AddressFromAccountId: (id: string) => id
+          : actual.canonicalFaucetBech32Id(id)
   };
 });
 
@@ -55,13 +41,7 @@ const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
   detailed: { symbol, decimals, name: symbol }
 });
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  // The strict allowlist match caches a successful canonicalization per faucet id (tokens.ts),
-  // shared module state that would otherwise hide a later test's mock change behind an earlier
-  // test's cached result for the same faucet id.
-  _resetNormalizedFaucetIdsForTest();
-});
+beforeEach(() => jest.clearAllMocks());
 
 describe('usdMicroFromAmount', () => {
   it('converts whole units at the quoted price', () => {
@@ -115,22 +95,6 @@ describe('resolveSpendsUsd', () => {
     mockedPrice.mockResolvedValue(undefined);
 
     await expect(resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10)).rejects.toBeInstanceOf(
-      SpendingLimitPriceUnavailableError
-    );
-  });
-
-  // #1131: the strict allowlist match refuses instead of silently missing the comparison when the
-  // SDK cannot canonicalize a faucet id.
-  it('refuses a spend whose faucet id the SDK cannot canonicalize for the allowlist match', async () => {
-    mockedMetadata.mockResolvedValue(base('USDC', 6));
-    // A price IS available - the only way this can still refuse is the parse failure itself, not
-    // a missing quote (already covered by the case above).
-    mockedPrice.mockResolvedValue(1_000_000n);
-    mockAccountRefToSdk.mockImplementationOnce(() => {
-      throw new Error('wasm not ready');
-    });
-
-    await expect(resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 1n }], 10)).rejects.toBeInstanceOf(
       SpendingLimitPriceUnavailableError
     );
   });
