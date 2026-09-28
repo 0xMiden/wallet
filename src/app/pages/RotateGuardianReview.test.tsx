@@ -791,11 +791,12 @@ it('fails closed when both protector reads fail', async () => {
   mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
   render(<RotateGuardianReview />);
 
-  expect(await screen.findByText('guardianAuthenticationUnavailable')).toBeInTheDocument();
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.queryByText('guardianAuthenticationUnavailable')).not.toBeInTheDocument();
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
-  // Back still calls goBack from this error state, whatever the copy tells the user to do.
+  // Back reopens the flow, which is exactly what the error text asks the user to do.
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });

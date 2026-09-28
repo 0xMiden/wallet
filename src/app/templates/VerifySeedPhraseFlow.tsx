@@ -6,6 +6,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -258,17 +259,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
           <SeedPhrasePlaceholder />
-          {probeFailed && (
-            <Notice
-              tone="negative"
-              role="alert"
-              title={t('error')}
-              className="mt-3"
-              data-testid="protector-probe-error"
-            >
-              {t('couldNotCheckUnlockMethodReopen')}
-            </Notice>
-          )}
+          {probeFailed && <ProtectorProbeErrorNotice className="mt-3" />}
           {authError && (
             <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
               {authError}

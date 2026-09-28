@@ -8,6 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { PrivateKeyPair } from 'components/PrivateKeyPair';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -315,9 +316,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   if (probeFailed) {
     return (
       <SubPageLayout data-testid="reveal-secret">
-        <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
-          {t('couldNotCheckUnlockMethodReopen')}
-        </Notice>
+        <ProtectorProbeErrorNotice />
       </SubPageLayout>
     );
   }

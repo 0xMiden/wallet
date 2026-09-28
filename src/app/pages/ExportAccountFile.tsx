@@ -9,6 +9,7 @@ import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -220,9 +221,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
     return (
       <SubPageLayout data-testid="export-account-file">
         {accountRow}
-        <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
-          {t('couldNotCheckUnlockMethodReopen')}
-        </Notice>
+        <ProtectorProbeErrorNotice />
       </SubPageLayout>
     );
   }

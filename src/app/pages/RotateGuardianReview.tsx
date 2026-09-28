@@ -319,7 +319,7 @@ const RotateGuardianReview: FC = () => {
 
   // Both protector reads failed: no credential step can be chosen, and Continue stays disabled
   // because `hasHardwareProtector` is still null.
-  const reviewError = error ?? (probeFailed ? t('guardianAuthenticationUnavailable') : null);
+  const reviewError = error ?? (probeFailed ? t('couldNotCheckUnlockMethodReopen') : null);
 
   if (authStep) {
     return (

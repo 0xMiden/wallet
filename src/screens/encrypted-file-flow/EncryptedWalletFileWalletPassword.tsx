@@ -7,6 +7,7 @@ import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
@@ -146,9 +147,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   if (probeFailed) {
     return (
       <SubPageLayout data-testid="encrypted-file-wallet-password">
-        <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
-          {t('couldNotCheckUnlockMethodReopen')}
-        </Notice>
+        <ProtectorProbeErrorNotice />
       </SubPageLayout>
     );
   }
