@@ -516,13 +516,7 @@ export class MultisigService {
         // Validated before use: the SDK interpolates this wire value into
         // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
         // nor length. Same boundary the direct-switch path applies.
-        // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
-        const answer = await withTimeout(
-          newGuardian.getPubkey('ecdsa'),
-          POST_COMMIT_GUARDIAN_TIMEOUT_MS,
-          `New guardian ${newGuardianEndpoint} pubkey fetch`
-        );
-        return assertGuardianKeyCommitment(answer.commitment, newGuardianEndpoint);
+        return assertGuardianKeyCommitment((await newGuardian.getPubkey('ecdsa')).commitment, newGuardianEndpoint);
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
