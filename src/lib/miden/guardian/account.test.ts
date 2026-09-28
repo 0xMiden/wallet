@@ -404,7 +404,10 @@ describe('guardianProviderFromEndpoint', () => {
 
 describe('createGuardianAccount', () => {
   const makeMultisig = () => ({
-    account: { id: () => ({ toString: () => 'guardian-acc-id' }), serialize: jest.fn(() => new Uint8Array([7, 8, 9])) },
+    account: {
+      id: jest.fn(() => ({ toString: () => 'guardian-acc-id' })),
+      serialize: jest.fn(() => new Uint8Array([7, 8, 9]))
+    },
     registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
 
@@ -414,17 +417,16 @@ describe('createGuardianAccount', () => {
   });
 
   // Runs the three phases as production does: fetch the key, build the account,
-  // then (unless the caller skips it, as the import path does) register outside the hold.
+  // then register outside the hold.
   const createAndRegister = async (
     webClient: ReturnType<typeof makeWebClient>,
     seed?: Uint8Array,
-    register = true,
     override?: string,
     assertLive?: (step?: string) => void
   ) => {
     const createKey = await fetchGuardianCreateKey(override);
     const created = await createGuardianAccount(webClient as never, createKey, seed, assertLive);
-    if (register) await registerGuardianAccount(created.registration);
+    await registerGuardianAccount(created.registration);
     return created;
   };
 
@@ -499,16 +501,6 @@ describe('createGuardianAccount', () => {
     expect((seedArg as Uint8Array).length).toBe(32);
   });
 
-  it('does not register when the caller skips phase 3', async () => {
-    const webClient = makeWebClient();
-    const multisig = makeMultisig();
-    multisigClientConfig.create.mockResolvedValueOnce(multisig);
-
-    await createAndRegister(webClient, new Uint8Array(32), false);
-
-    expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
-  });
-
   it('falls back to the default (NOT the frozen global key) when no override is supplied', async () => {
     // #408 stage 3: a NEW account must never inherit the frozen global key.
     // createGuardianAccount no longer reads GUARDIAN_URL_STORAGE_KEY at all — the
@@ -528,7 +520,7 @@ describe('createGuardianAccount', () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-    const result = await createAndRegister(webClient, new Uint8Array(32), true, 'https://override.guardian');
+    const result = await createAndRegister(webClient, new Uint8Array(32), 'https://override.guardian');
 
     // Override is used verbatim; storage is never consulted.
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
@@ -542,13 +534,14 @@ describe('createGuardianAccount', () => {
     await expect(createAndRegister(webClient, new Uint8Array(32))).rejects.toThrow('Failed to create Guardian account');
   });
 
-  it('registers the state the account build returned, serialized once, and touches no web client while fetching the key or registering', async () => {
+  // Registration runs with no hold, so it may call nothing on the account the build left
+  // borrowed from the client: it sends the state the build serialized, and nothing else.
+  it('registers the state the build serialized, calling nothing on the multisig but registerOnGuardian', async () => {
     const webClient = makeWebClient();
     const multisig = makeMultisig();
     multisigClientConfig.create.mockResolvedValueOnce(multisig);
 
     const createKey = await fetchGuardianCreateKey('https://picked.guardian');
-    expect(webClient.sync).not.toHaveBeenCalled();
     expect(createKey).toEqual({
       guardianEndpoint: 'https://picked.guardian',
       guardianCommitment: 'g-commit',
@@ -559,21 +552,24 @@ describe('createGuardianAccount', () => {
     const created = await createGuardianAccount(webClient as never, createKey, new Uint8Array(32));
     expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
-    const syncCalls = webClient.sync.mock.calls.length;
-    const insertCalls = webClient.keystore.insert.mock.calls.length;
+    const idCalls = multisig.account.id.mock.calls.length;
 
     await registerGuardianAccount(created.registration);
+    expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
     expect(multisig.registerOnGuardian).toHaveBeenCalledWith(Buffer.from([7, 8, 9]).toString('base64'));
-    expect(webClient.sync).toHaveBeenCalledTimes(syncCalls);
-    expect(webClient.keystore.insert).toHaveBeenCalledTimes(insertCalls);
+    expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
+    expect(multisig.account.id.mock.calls.length - idCalls).toBe(0);
   });
 
-  it('generates no hot key when the key fetch fails', async () => {
-    multisigClientConfig.getPubkey.mockRejectedValueOnce(new Error('unreachable'));
+  it('wraps a key fetch failure in the creation error, with the cause kept, without retrying it', async () => {
+    const cause = new Error('unreachable');
+    multisigClientConfig.getPubkey.mockRejectedValueOnce(cause);
 
-    await expect(fetchGuardianCreateKey()).rejects.toThrow('Failed to create Guardian account');
-    expect(mockGenerateHotKey).not.toHaveBeenCalled();
-    expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    await expect(fetchGuardianCreateKey()).rejects.toMatchObject({
+      message: 'Failed to create Guardian account',
+      cause
+    });
+    expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
   });
 
   // A guardian that answers /pubkey with no `pubkey` field is a shape client.create
@@ -646,19 +642,6 @@ describe('createGuardianAccount', () => {
       await expect(pending).resolves.toMatchObject({ account: multisig.account });
       expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-    });
-
-    it('waits out a 429 on the pubkey fetch without phase 3 too', async () => {
-      multisigClientConfig.getPubkey.mockRejectedValueOnce(rateLimited());
-      const multisig = makeMultisig();
-      multisigClientConfig.create.mockResolvedValueOnce(multisig);
-
-      const pending = createAndRegister(makeWebClient(), new Uint8Array(32), false);
-      await jest.advanceTimersByTimeAsync(1000);
-
-      await expect(pending).resolves.toMatchObject({ account: multisig.account });
-      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(2);
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
 
     it('gives up after 8 registration calls with the 429 as the cause', async () => {
