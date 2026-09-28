@@ -128,6 +128,17 @@ it('reloads for a new effective network on the next render', async () => {
   expect(result.current).toBe('unverified');
 });
 
+it('does not add its own visibilitychange listener (the runtime installs one per realm)', () => {
+  const addEventListenerSpy = jest.spyOn(document, 'addEventListener');
+  mockLoad.mockReturnValue(new Promise(() => undefined));
+  renderVerification('a');
+  renderVerification('b');
+  renderVerification('c');
+  const visibilityCalls = addEventListenerSpy.mock.calls.filter(([type]) => type === 'visibilitychange');
+  expect(visibilityCalls).toHaveLength(0);
+  addEventListenerSpy.mockRestore();
+});
+
 it('does not let a loaded network speak for another network still loading', async () => {
   mockLoad.mockImplementation((network: string) =>
     network === 'testnet' ? Promise.resolve(new Set(['t'])) : new Promise<Set<string> | null>(() => undefined)

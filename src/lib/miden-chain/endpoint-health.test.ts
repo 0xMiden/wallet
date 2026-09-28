@@ -76,6 +76,46 @@ describe('probeEndpointHealth', () => {
       }
     }
   );
+
+  it('reachability, without AbortSignal.timeout: pins the first call site (default-mode fetch, called once)', async () => {
+    // The it.each above only proves *a* fetch resolves to 'reachable'; it doesn't
+    // pin which of the two call sites answered. If the first call site were
+    // reverted to a bare `AbortSignal.timeout(...)` (unavailable here), it would
+    // throw before ever invoking fetch, and the second (no-cors) call site would
+    // silently answer instead. Assert the single recorded call is the first one.
+    const fetchMock = jest.fn().mockResolvedValue({});
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: fetchMock });
+    const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+    Reflect.deleteProperty(AbortSignal, 'timeout');
+    try {
+      expect(await probeEndpointHealth('https://x', 'reachability')).toBe('reachable');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init).not.toHaveProperty('mode', 'no-cors');
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      if (descriptor) Object.defineProperty(AbortSignal, 'timeout', descriptor);
+    }
+  });
+
+  it('reachability, without AbortSignal.timeout: pins the second call site (no-cors fallback) when the first fetch rejects', async () => {
+    // Symmetric pin for the fallback: if the second call site were reverted to a
+    // bare `AbortSignal.timeout(...)`, it would throw before invoking fetch and
+    // the whole probe would report 'error' instead of falling back cleanly.
+    const fetchMock = jest.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({});
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: fetchMock });
+    const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+    Reflect.deleteProperty(AbortSignal, 'timeout');
+    try {
+      expect(await probeEndpointHealth('https://x', 'reachability')).toBe('reachable');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [, secondInit] = fetchMock.mock.calls[1];
+      expect(secondInit).toHaveProperty('mode', 'no-cors');
+      expect(secondInit.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      if (descriptor) Object.defineProperty(AbortSignal, 'timeout', descriptor);
+    }
+  });
 });
 
 describe('useEndpointHealth', () => {
