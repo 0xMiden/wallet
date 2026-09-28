@@ -40,11 +40,7 @@ export const ErrorDetails: React.FC<ErrorDetailsProps> = ({ details, className, 
         {open ? t('hideFullError') : t('showFullError')}
       </TextAction>
       {open && (
-        <p
-          id={detailsId}
-          data-testid="error-details-text"
-          className="w-full text-caption text-muted wrap-anywhere select-text"
-        >
+        <p id={detailsId} className="w-full text-caption text-muted wrap-anywhere select-text">
           {details}
         </p>
       )}

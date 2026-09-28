@@ -9,6 +9,14 @@ jest.mock('react-i18next', () => ({
 }));
 
 describe('ErrorDetails', () => {
+  it('puts a caller-supplied test id on its wrapper', () => {
+    render(<ErrorDetails details="Error: request timeout" data-testid="failure-details" />);
+
+    expect(screen.getByTestId('failure-details')).toContainElement(
+      screen.getByRole('button', { name: 'showFullError' })
+    );
+  });
+
   it('hides the details until the toggle is pressed, and hides them again', () => {
     render(<ErrorDetails details="Error: request timeout" />);
 
