@@ -131,18 +131,27 @@ const normalizedFaucetIds = new Map<string, string>();
 export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
 
 /**
+ * Canonicalize a faucet id to the balance store's bech32 key, caching only a successful parse (a
+ * failure is retried once the SDK can parse the id). Shared by the lenient `normalizedFaucetId`
+ * and the strict `priceSymbolForOrThrow`, which differ only in what they do with a parse failure.
+ */
+function normalizedFaucetIdOrThrow(faucetId: string): string {
+  const key = `${getEffectiveNetworkName()}:${faucetId}`;
+  const cached = normalizedFaucetIds.get(key);
+  if (cached !== undefined) return cached;
+  const normalized = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
+  normalizedFaucetIds.set(key, normalized);
+  return normalized;
+}
+
+/**
  * The balance store's key for a faucet id in any encoding (hex, bech32 or the composite
  * `<address>_<suffix>`), so every spelling of one faucet reduces to one bech32 id; the raw id if the
  * SDK cannot parse it yet.
  */
 export function normalizedFaucetId(faucetId: string): string {
-  const key = `${getEffectiveNetworkName()}:${faucetId}`;
-  const cached = normalizedFaucetIds.get(key);
-  if (cached !== undefined) return cached;
   try {
-    const normalized = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
-    normalizedFaucetIds.set(key, normalized);
-    return normalized;
+    return normalizedFaucetIdOrThrow(faucetId);
   } catch {
     return faucetId;
   }
@@ -173,6 +182,20 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
 export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
   const canonical = normalizedFaucetId(faucetId);
   const priced = pricedFaucets().find(entry => normalizedFaucetId(entry.faucetId) === canonical);
+  if (priced) return priced.priceSymbol;
+  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
+}
+
+/**
+ * Strict variant of `priceSymbolFor` for the spending cap: a faucet id or allowlist entry the SDK
+ * cannot parse throws instead of falling back to comparing raw text, which almost never matches
+ * and would otherwise read as "not covered" - silently pricing the spend at zero rather than
+ * refusing it (#1131). Display surfaces keep using the lenient `priceSymbolFor`; only spend
+ * valuation needs this, and it shares the same allowlist and E2E fixture-symbol exception.
+ */
+export function priceSymbolForOrThrow(faucetId: string, symbol: string): string | undefined {
+  const canonical = normalizedFaucetIdOrThrow(faucetId);
+  const priced = pricedFaucets().find(entry => normalizedFaucetIdOrThrow(entry.faucetId) === canonical);
   if (priced) return priced.priceSymbol;
   return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
