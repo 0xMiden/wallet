@@ -1162,5 +1162,32 @@ describe('account switch (#174)', () => {
       jest.advanceTimersByTime(10000);
       expect(polls(win)).toHaveLength(1);
     });
+
+    // A disconnect the bridge drops never reaches the wallet's queue, so a later connect is answered first.
+    it('a disconnect that times out after a later connect was answered ends that connection and its watch', async () => {
+      const win = await connectedOnTestnet();
+      const onDisconnect = jest.fn();
+      const onAccountChange = jest.fn();
+      win.midenWallet.on('disconnect', onDisconnect);
+      win.midenWallet.on('accountChange', onAccountChange);
+      const disconnecting = win.midenWallet.disconnect();
+      await expect(
+        callAndResolve(win, () => win.midenWallet.connect('ALL', 'testnet', ['balance']), CONNECT)
+      ).resolves.toMatchObject({ address: '0xabc' });
+      jest.advanceTimersByTime(300000);
+      await expect(disconnecting).rejects.toThrow('Request timeout');
+      expect(win.midenWallet.address).toBeUndefined();
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+      expect(polls(win)).toHaveLength(1);
+      respond(win, polls(win)[0]!.reqId, {
+        type: 'MIDEN_PAGE_RESPONSE',
+        payload: { type: 'GET_CURRENT_PERMISSION_RESPONSE', permission: { ...PERM, address: '0xdef' } }
+      });
+      await flush();
+      expect(win.midenWallet.address).toBeUndefined();
+      expect(onAccountChange).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(60000);
+      expect(polls(win)).toHaveLength(1);
+    });
   });
 });

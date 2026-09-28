@@ -399,4 +399,28 @@ describe('a disconnect ends the connection (#1227)', () => {
     jest.advanceTimersByTime(10000);
     expect(h.polls()).toHaveLength(1);
   });
+
+  // A disconnect the bridge drops never reaches the wallet's queue, so a later connect is answered first.
+  it('a disconnect that times out after a later connect was answered ends that connection and its watch', async () => {
+    const h = await connected();
+    const spy = jest.fn();
+    h.win.midenWallet.on('accountChange', spy);
+    const disconnecting = h.win.midenWallet.disconnect();
+    const connecting = h.win.midenWallet.connect('ALL', 'testnet', ['balance']);
+    h.answer(h.last().reqId, CONNECT);
+    await expect(connecting).resolves.toBeUndefined();
+    jest.advanceTimersByTime(300000);
+    await expect(disconnecting).rejects.toThrow('Request timeout');
+    expect(h.win.midenWallet.address).toBeUndefined();
+    expect(h.polls()).toHaveLength(1);
+    h.answer(h.polls()[0]!.reqId, {
+      type: 'GET_CURRENT_PERMISSION_RESPONSE',
+      permission: { ...PERM, address: '0xdef' }
+    });
+    await flush();
+    expect(h.win.midenWallet.address).toBeUndefined();
+    expect(spy.mock.calls).toEqual([[expect.objectContaining({ address: '0xabc' })], [null]]);
+    jest.advanceTimersByTime(60000);
+    expect(h.polls()).toHaveLength(1);
+  });
 });

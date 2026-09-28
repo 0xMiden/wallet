@@ -354,6 +354,8 @@
             network: this.network,
           });
         } finally {
+          // A connect answered while this request waited set the fields cleared here, so its watch stops with them.
+          stopPermissionWatch();
           const connected = !!this.address;
           this.address = undefined;
           this.publicKey = undefined;
