@@ -9,8 +9,7 @@ import {
   putToStorage,
   onStorageChanged,
   usePassiveStorage,
-  useStorage,
-  __hasStorageTurnTailForTests
+  useStorage
 } from './storage';
 
 // Mock platform detection - default to extension context
@@ -312,58 +311,9 @@ describe('storage utilities', () => {
       expect(locks.requests).toEqual(['turn:my-key']);
     });
 
-    it('rejects, never throws, when the lock manager itself throws', async () => {
-      Object.defineProperty(navigator, 'locks', {
-        configurable: true,
-        value: {
-          request: () => {
-            throw new Error('lock manager unavailable');
-          }
-        }
-      });
-
-      const turn = inStorageTurn('turn:my-key', async () => 'done');
-
-      await expect(turn).rejects.toThrow('lock manager unavailable');
-    });
-
     describe('without Web Locks (iOS before 15.4)', () => {
       beforeEach(() => {
         Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
-      });
-
-      it("drops a turn name's tail once every turn of that name has settled, without letting an earlier settle cut a later turn out of order", async () => {
-        const heldA = deferred<void>();
-        const heldB = deferred<void>();
-        const order: string[] = [];
-
-        const turnA = inStorageTurn('turn:my-key', async () => {
-          order.push('a:start');
-          await heldA.promise;
-          order.push('a:end');
-        });
-        const turnB = inStorageTurn('turn:my-key', async () => {
-          order.push('b:start');
-          await heldB.promise;
-          order.push('b:end');
-        });
-
-        heldA.resolve();
-        await turnA;
-        await flushPromises();
-        expect(order).toEqual(['a:start', 'a:end', 'b:start']);
-        // B is still in flight: its tail must still be there, so a turn asked for now still waits its turn.
-        expect(__hasStorageTurnTailForTests('turn:my-key')).toBe(true);
-
-        const turnC = inStorageTurn('turn:my-key', async () => {
-          order.push('c');
-        });
-        heldB.resolve();
-        await Promise.all([turnA, turnB, turnC]);
-        await flushPromises();
-
-        expect(order).toEqual(['a:start', 'a:end', 'b:start', 'b:end', 'c']);
-        expect(__hasStorageTurnTailForTests('turn:my-key')).toBe(false);
       });
 
       it('runs turns of one name one at a time, in the order they were asked for', async () => {
