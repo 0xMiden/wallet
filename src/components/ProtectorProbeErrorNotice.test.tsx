@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { ProtectorProbeErrorNotice } from './ProtectorProbeErrorNotice';
+import en from '../../public/_locales/en/en.json';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -42,4 +43,11 @@ it('spans the full notice width, uncapped, everywhere it renders', () => {
   render(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying={false} />);
 
   expect(screen.getByTestId('protector-probe-retry')).toHaveClass('max-w-none');
+});
+
+// #1241: the probe is two local storage reads, so the copy cannot name a network cause it never has.
+it('names no network cause in its English copy', () => {
+  const copy = en.couldNotCheckUnlockMethod;
+
+  expect(copy).not.toMatch(/connection|network|internet/i);
 });
