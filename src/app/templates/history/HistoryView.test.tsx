@@ -9,7 +9,7 @@ import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { getTransactionIconBackgroundColor } from './TransactionIcon';
-import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
+import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
@@ -264,6 +264,7 @@ beforeEach(() => {
     (entry: MockFaucetEntry) =>
       Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
   );
+  jest.mocked(isBridgeInEntry).mockReturnValue(false);
 });
 
 const noop = jest.fn();
@@ -434,6 +435,43 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
     expect(row).toHaveAttribute('data-status', 'failed');
+  });
+
+  // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
+  // from rounding 0.015123 ETH to 0.015 again.
+  it('marks a bridge-in and a bridge-out amount preformatted', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '10.65',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'ETH',
+      outAmount: '0.015123',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const rowWithAmount = (value: string) =>
+      screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
+    expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
+    expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.

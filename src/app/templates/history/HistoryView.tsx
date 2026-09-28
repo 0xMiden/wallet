@@ -114,7 +114,9 @@ function buildRowProps(
       amount: d.outAmount
         ? {
             value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
-            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
+            // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
+            preformatted: true
           }
         : undefined,
       status: d.status
