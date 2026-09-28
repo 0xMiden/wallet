@@ -200,6 +200,16 @@ export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, sy
 }
 
 /**
+ * A received amount as the wallet credited it: the row's own base-unit `amount` scaled by the
+ * delivered faucet, then rounded down at that asset's precision. Withheld when there is no amount or
+ * the faucet's scale is a guess, since scaling by a guess misreports what arrived.
+ */
+export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetadata | undefined): string | undefined =>
+  amount !== undefined && hasKnownScale(metadata)
+    ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
+    : undefined;
+
+/**
  * Round a bridge's (USDC) destination output to the standard 2 decimals for
  * display, expanding for small non-zero values. Passes non-numeric input
  * through unchanged.

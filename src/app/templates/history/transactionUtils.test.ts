@@ -13,6 +13,7 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   claimAccentColor,
+  creditedAmount,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
@@ -563,6 +564,29 @@ describe('formatMoneyAmount', () => {
 
   it.each(kinds)('passes undefined through (%s)', kind => {
     expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
+  });
+});
+
+// What a received row credited: its base-unit amount scaled by the delivered faucet, rounded down.
+describe('creditedAmount', () => {
+  it('scales the amount by the faucet and rounds it down at the asset precision', () => {
+    mockFormatAmount.mockReturnValueOnce('150.126456');
+
+    expect(creditedAmount(150_126_456n, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBe('150.12');
+    expect(mockFormatAmount).toHaveBeenCalledWith(150_126_456n, 6);
+  });
+
+  it('keeps six decimals for a credited ETH amount', () => {
+    mockFormatAmount.mockReturnValueOnce('0.015123456789');
+
+    expect(creditedAmount(15_123_456_789_000_000n, { symbol: 'ETH', name: 'Ether', decimals: 18 })).toBe('0.015123');
+  });
+
+  it('withholds the amount when the faucet scale is a guess or the row has no amount', () => {
+    expect(creditedAmount(100n, UNKNOWN_METADATA)).toBeUndefined();
+    expect(creditedAmount(100n, undefined)).toBeUndefined();
+    expect(creditedAmount(undefined, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBeUndefined();
+    expect(mockFormatAmount).not.toHaveBeenCalled();
   });
 });
 
