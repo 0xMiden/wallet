@@ -50,9 +50,16 @@ export const INJECTION_SCRIPT = `
       if (!this._events[event]) return;
       this._events[event] = this._events[event].filter(l => l !== listener);
     }
+    // A listener that throws stops neither the listeners after it nor the code that emitted, as on desktop.
     emit(event, ...args) {
       if (!this._events[event]) return;
-      this._events[event].forEach(listener => listener(...args));
+      this._events[event].slice().forEach(listener => {
+        try {
+          listener(...args);
+        } catch (e) {
+          console.error('[MidenWallet] Error in ' + event + ' listener:', e);
+        }
+      });
     }
   }
 
@@ -139,6 +146,39 @@ export const INJECTION_SCRIPT = `
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // Follows the wallet's current account after connect (#174), the way the extension's window
+  // object does: a 10 s poll of this origin's grant. The next poll starts only once the last one
+  // settles, so a slow answer never stacks polls; only disconnect() stops it.
+  const PERMISSION_POLL_MS = 10000;
+  let stopPermissionWatch = function() {};
+
+  // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
+  // sees is a key that cannot be decoded, before any field changes.
+  function watchPermission(wallet) {
+    stopPermissionWatch();
+    let stopped = false;
+    let timer;
+    const tick = async function() {
+      try {
+        const res = await request({ type: 'GET_CURRENT_PERMISSION_REQUEST' });
+        const hasPermission = res && typeof res === 'object' && 'permission' in res;
+        if (!stopped && hasPermission) {
+          // An account switch changes the address; rpc is not compared, as connect names the network by id, the poll by URL.
+          const account = res.permission === null ? undefined : res.permission.address;
+          if (account !== wallet.address) wallet._applyPermission(res.permission);
+        }
+      } catch (e) {
+        // A refused or timed-out poll, or a key that cannot be decoded, leaves the account as it was; the next one asks again.
+      }
+      if (!stopped) timer = setTimeout(tick, PERMISSION_POLL_MS);
+    };
+    timer = setTimeout(tick, PERMISSION_POLL_MS);
+    stopPermissionWatch = function() {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }
+
   // MidenWallet class
   class MidenWallet extends EventEmitter {
     constructor() {
@@ -184,24 +224,47 @@ export const INJECTION_SCRIPT = `
         rpc: res.network,
         address: res.accountId,
         privateDataPermission: res.privateDataPermission,
-        allowedPrivateData: res.allowedPrivateData
+        allowedPrivateData: res.allowedPrivateData,
+        publicKey: decodedPublicKey
       };
       this.address = res.accountId;
       this.network = network;
       this.publicKey = decodedPublicKey;
 
+      // The watch starts first, so a listener that disconnects from this emission stops it.
+      watchPermission(this);
+
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
-
       return this.permission;
     }
 
     async disconnect() {
+      stopPermissionWatch();
       await request({ type: 'DISCONNECT_REQUEST' });
       this.address = undefined;
       this.permission = undefined;
       this.publicKey = undefined;
       this.emit('disconnect');
+    }
+
+    // Fields follow the new account before listeners hear of it; null clears them. The permission
+    // carries the decoded key, the shape connect gives. A key that cannot be decoded throws before
+    // anything changes.
+    _applyPermission(perm) {
+      if (perm === null) {
+        this.address = undefined;
+        this.publicKey = undefined;
+        this.permission = undefined;
+        this.emit('accountChange', null);
+        return;
+      }
+      const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
+      const permission = { ...perm, publicKey };
+      this.permission = permission;
+      this.address = perm.address;
+      this.publicKey = publicKey;
+      this.emit('accountChange', permission);
     }
 
     async requestSend(transaction) {

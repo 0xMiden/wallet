@@ -29,7 +29,7 @@ import {
   signBytes,
   waitForTransaction
 } from 'lib/adapter/client';
-import { MidenDAppPermission } from 'lib/adapter/types';
+import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
 import { TransactionOutput } from 'lib/miden/db/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
@@ -37,7 +37,7 @@ import { GuardianInfo } from 'lib/shared/types';
 export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implements MidenWallet {
   address?: string | undefined;
   publicKey?: Uint8Array | undefined;
-  permission?: MidenDAppPermission | undefined;
+  permission?: (NonNullable<MidenDAppPermission> & { publicKey?: Uint8Array }) | undefined;
   appName?: string | undefined;
   network?: WalletAdapterNetwork | undefined;
   private clearAccountChangeInterval?: () => void | undefined;
@@ -121,17 +121,61 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.address = perm.address;
     this.network = network;
     this.publicKey = perm.publicKey;
-    this.clearAccountChangeInterval = onPermissionChange((perm: MidenDAppPermission) => {
-      this.emit('accountChange', perm);
-    });
+    // The adapter can call connect() again without a disconnect(), which stops only the latest poll.
+    this.clearAccountChangeInterval?.();
+    this.clearAccountChangeInterval = onPermissionChange(perm => this.applyPermission(perm));
   }
 
+  // The poll stops before the request: after accountChange(null) that account holds no session for
+  // this origin and the request is refused, and a poll still running would repopulate the fields.
   async disconnect(): Promise<void> {
-    await requestDisconnect();
-    this.address = undefined;
-    this.permission = undefined;
-    this.clearAccountChangeInterval && this.clearAccountChangeInterval();
+    this.clearAccountChangeInterval?.();
+    try {
+      await requestDisconnect();
+    } finally {
+      this.address = undefined;
+      this.publicKey = undefined;
+      this.permission = undefined;
+    }
   }
+
+  // An account switch arrives here (#174). A permission for the account already held changes
+  // nothing, so the check right after connect does not echo it. The fields follow a new account
+  // before listeners hear of it, and null (no grant from that account) clears them. The permission
+  // carries the decoded key, the shape connect gives. A malformed key throws before anything
+  // changes; onPermissionChange has recorded it and does not retry it, as the same key would fail again.
+  private applyPermission(perm: MidenDAppCurrentPermission) {
+    if (perm?.address === this.address) return;
+    if (perm === null) {
+      this.address = undefined;
+      this.publicKey = undefined;
+      this.permission = undefined;
+      this.emitAccountChange(null);
+      return;
+    }
+    const publicKey = perm.publicKey ? b64ToU8(perm.publicKey) : undefined;
+    const permission = { ...perm, publicKey };
+    this.permission = permission;
+    this.address = perm.address;
+    this.publicKey = publicKey;
+    this.emitAccountChange(permission);
+  }
+
+  // eventemitter3's emit stops at a listener that throws and rethrows into the poll, so each listener
+  // runs on its own, as in the injected providers. A once-listener is removed before its call, as
+  // eventemitter3 does, so one that throws is removed too. listeners() drops a registered context, so
+  // each runs with this object as `this`, eventemitter3's default.
+  private emitAccountChange(permission: NonNullable<MidenWindowObject['permission']> | null) {
+    for (const listener of this.listeners('accountChange')) {
+      this.removeListener('accountChange', listener, undefined, true);
+      try {
+        listener.call(this, permission);
+      } catch (e) {
+        console.error('[MidenWallet] Error in accountChange listener:', e);
+      }
+    }
+  }
+
   /**
    * Not supported by this wallet.
    *
