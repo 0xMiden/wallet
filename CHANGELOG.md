@@ -72,7 +72,7 @@
 - [FIX][all] A setting changed twice in quick succession, or changed in another extension window while this one was saving or reading it, keeps the newest value instead of whichever save or read finished last, and a failed save no longer raises an unhandled error: the changelog notice stays as it was (#1168).
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
-- [FIX][all] A closed connectivity banner stays closed until that problem clears, even after another window's change, a failed save or the device clock being set back. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, the dismissal is now saved, and Home's prompts, Fund and the everyday-key rotation prompt no longer fail (#1186).
+- [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, the dismissal is now saved, and Home's prompts, Fund and the everyday-key rotation prompt no longer fail (#1186).
 
 ## 1.16.2 (2026-09-24)
 
