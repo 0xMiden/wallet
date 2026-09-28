@@ -1,53 +1,72 @@
 import type { Address, Hex } from 'viem';
+import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
 
-/**
- * Circle xReserve on Ethereum Sepolia. The same address is used on Arc Testnet.
- * Source: Circle's "xReserve supported blockchains and domains" page.
- */
-export const XRESERVE_SEPOLIA_ADDRESS: Address = '0x008888878f94C0d87defdf0B07f46B93C1934442';
+import { ARC_TESTNET } from 'lib/walletconnect/config';
 
-/**
- * Circle's official USDC on Ethereum Sepolia. This is NOT the token the Epoch
- * route uses (`BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS`, 18 decimals). xReserve
- * only accepts this token.
- */
-export const CIRCLE_USDC_SEPOLIA_ADDRESS: Address = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+/** USDCx uses Arc Testnet; ERC-20 USDC has 6 decimals, unlike native gas USDC (18). */
+export const USDCX_CHAIN = ARC_TESTNET;
+/** Circle's direct-deposit contracts, keyed by EVM chain id (not Circle domain). */
+export const XRESERVE_ADDRESS = new Map<number, Address>([
+  [ARC_TESTNET.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],
+  [sepolia.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],
+  [mainnet.id, '0x8888888199b2Df864bf678259607d6D5EBb4e3Ce'],
+  [arc.id, '0x8888888199b2Df864bf678259607d6D5EBb4e3Ce']
+]);
+
+/** Native Circle USDC via its 6-decimal ERC-20 interface, including on Arc. */
+export const CIRCLE_USDC_ADDRESS = new Map<number, Address>([
+  [ARC_TESTNET.id, '0x3600000000000000000000000000000000000000'],
+  [sepolia.id, '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'],
+  [mainnet.id, '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],
+  [arc.id, '0x3600000000000000000000000000000000000000'],
+  [arbitrum.id, '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'],
+  [arbitrumSepolia.id, '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'],
+  [base.id, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'],
+  [baseSepolia.id, '0x036CbD53842c5426634e7929541eC2318f3dCF7e']
+]);
+
+/** Public CCTP fee-collecting entry points. Arc mainnet deployment is not confirmed. */
+export const TOKEN_MESSENGER_WITH_FEES_ADDRESS = new Map<number, Address>([
+  [mainnet.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
+  [arbitrum.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
+  [base.id, '0x71f54F818671cD0D7ea140Da213e5C8b5C92a408'],
+  [sepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
+  [arbitrumSepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
+  [baseSepolia.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'],
+  [ARC_TESTNET.id, '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A']
+]);
+
+/** EVM chain id → Circle domain; these are separate namespaces. */
+export const CIRCLE_DOMAIN = new Map<number, number>([
+  [mainnet.id, 0],
+  [sepolia.id, 0],
+  [arbitrum.id, 3],
+  [arbitrumSepolia.id, 3],
+  [base.id, 6],
+  [baseSepolia.id, 6],
+  [arc.id, 26],
+  [ARC_TESTNET.id, 26]
+]);
+
+/** Direct deposits only: Arbitrum/Base use CCTP and have no local xReserve. */
+export function getUsdcxContracts(chainId: number): { xReserve: Address; usdc: Address } {
+  const xReserve = XRESERVE_ADDRESS.get(chainId);
+  const usdc = CIRCLE_USDC_ADDRESS.get(chainId);
+  if (!xReserve || !usdc) throw new Error(`USDCx contracts are not configured for chain ${chainId}`);
+  return { xReserve, usdc };
+}
 export const CIRCLE_USDC_DECIMALS = 6;
 export const CIRCLE_USDC_SYMBOL = 'USDC';
 
 /**
  * Circle's remote-domain id for Miden. Circle assigned 10007 for testnet and
- * mainnet, but did not register it on the Sepolia xReserve contract yet. A
- * deposit to an unregistered domain reverts with `RemoteDomainNotRegistered`.
+ * mainnet. A deposit to an unregistered domain reverts with `RemoteDomainNotRegistered`.
  */
 export const USDCX_MIDEN_REMOTE_DOMAIN = 10007;
 
-/**
- * The remote domain the wallet sends deposits to.
- *
- * Stand-in: 10005 is Movement Bardock testnet. It is registered on Sepolia
- * with a USDC remote token, it takes the same call shape as Miden (a raw
- * 32-byte recipient and empty hook data), and its explorer shows the minted
- * USDCx per account, so a test deposit can be checked end to end:
- * https://explorer.movementnetwork.xyz/account/<recipient>?network=bardock+testnet
- *
- * When `isRemoteDomainRegistered(USDCX_MIDEN_REMOTE_DOMAIN)` on the Sepolia
- * xReserve returns true, set this to `USDCX_MIDEN_REMOTE_DOMAIN` and set
- * `USDCX_STANDIN_RECIPIENT` to `undefined`.
- */
-export const USDCX_REMOTE_DOMAIN = 10005;
-
-/**
- * Test-only recipient for the stand-in domain. A Miden account id means
- * nothing on Movement, so while `USDCX_REMOTE_DOMAIN` is the stand-in, the
- * deposit goes to this 32-byte Movement Bardock account instead of the
- * encoded Miden id. Movement is a Move VM chain, so any 32 bytes is a valid
- * account address; this one is random and nobody holds its key. The minted
- * USDCx is visible on the explorer and is lost. `undefined` uses the encoded
- * Miden account id, which is the production behaviour.
- */
-export const USDCX_STANDIN_RECIPIENT: Hex | undefined =
-  '0x937866b6f6983c030bbb31603017276fbe3c46c33b0763380e706c505da447c9';
+/** Arc deposits target Miden and the connected Miden account. */
+export const USDCX_REMOTE_DOMAIN = USDCX_MIDEN_REMOTE_DOMAIN;
+export const USDCX_STANDIN_RECIPIENT: Hex | undefined = undefined;
 
 /** The single USDCx faucet. Currently the self-controlled testnet deployment. */
 export const USDCX_FAUCET_ID_BECH32 = 'mtst1ap50kfl4v7nmlufupa2akrh345e0hfke';
@@ -59,7 +78,7 @@ export const USDCX_BURN_SCRIPT_ROOT = '0x1106bde3e27e3ba82096917427fe798c54ce0bb
 export const USDCX_BURN_TAG = 0x4255524e;
 export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
 /** Circle domains are not EVM chain ids or Miden remote-domain ids. */
-export const USDCX_WITHDRAWAL_DESTINATION = { chainId: 11155111, domain: 0 };
+export const USDCX_WITHDRAWAL_DESTINATION = { chainId: USDCX_CHAIN.id, domain: 26 };
 
 /** The fee ceiling passed to `depositToRemote`. Circle's fee for Miden is not confirmed yet. */
 export const USDCX_DEPOSIT_MAX_FEE = 0n;
@@ -68,7 +87,7 @@ export const USDCX_DEPOSIT_HOOK_DATA: Hex = '0x';
 
 export const XRESERVE_ATTESTATION_API_TESTNET = 'https://xreserve-api-testnet.circle.com';
 export const XRESERVE_ATTESTATION_API_MAINNET = 'https://xreserve-api.circle.com';
-/** The attestation API the wallet polls. The wallet bridges on Sepolia only today. */
+/** Circle's testnet attestation service also serves deposits on Arc Testnet. */
 export const XRESERVE_ATTESTATION_API = XRESERVE_ATTESTATION_API_TESTNET;
 
 /**

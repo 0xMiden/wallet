@@ -57,6 +57,8 @@ export interface IConsumedAssetTotal {
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
+  /** EVM source chain; absent on legacy Sepolia rows. */
+  sourceChainId?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */

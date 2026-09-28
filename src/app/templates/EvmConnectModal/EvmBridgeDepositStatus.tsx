@@ -15,6 +15,7 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
 import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
 import { ATTESTATION_POLL_MS } from 'lib/usdcx/use-attestation';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -27,7 +28,7 @@ interface EvmBridgeDepositStatusProps {
 
 /**
  * The deposit hash to poll Circle's attestation API for. Only a USDCx row that
- * is past its Sepolia receipt has one; the other routes have no attestation.
+ * is past its source-chain receipt has one; the other routes have no attestation.
  */
 function attestationHashOf(inputs: IBridgedReceiveExtraInputs | undefined): Hash | undefined {
   if (inputs === undefined || inputs.provider !== 'usdcx' || inputs.phase !== 'delivering') return undefined;
@@ -85,15 +86,17 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = routeLabelOf(inputs.provider, t);
+  const sourceChain = getChain(inputs.sourceChainId ?? DEFAULT_CHAIN_ID);
 
   if (submitted) {
-    const viewExplorer = inputs.evmTxHash
-      ? () =>
-          openExternalUrl({
-            url: `https://sepolia.etherscan.io/tx/${inputs.evmTxHash}`,
-            title: 'Etherscan'
-          })
-      : undefined;
+    const viewExplorer =
+      inputs.evmTxHash && sourceChain
+        ? () =>
+            openExternalUrl({
+              url: `${sourceChain.explorer}/tx/${inputs.evmTxHash}`,
+              title: sourceChain.name
+            })
+        : undefined;
     const statusValue = (() => {
       switch (inputs.phase) {
         case 'received':
@@ -116,7 +119,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={
           viewExplorer
-            ? { label: t('viewOnEtherscan'), onClick: viewExplorer, variant: ButtonVariant.Secondary }
+            ? { label: t('viewOnBlockExplorer'), onClick: viewExplorer, variant: ButtonVariant.Secondary }
             : undefined
         }
         onClose={onDone}
@@ -133,7 +136,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
         <ReceiptRows
           className="mt-4"
           rows={[
-            { label: t('route'), value: `${routeLabel} · Sepolia → Miden` },
+            { label: t('route'), value: `${routeLabel} · ${sourceChain?.name ?? ''} → Miden` },
             { label: t('status'), value: statusValue }
           ]}
         />

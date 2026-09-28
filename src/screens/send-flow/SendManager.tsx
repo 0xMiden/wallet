@@ -32,7 +32,7 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId, USDCX_BRIDGE_NETWORK } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -735,12 +735,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
-  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  // Each token currently has one destination: USDCx uses Arc, other routes use Sepolia.
   useEffect(() => {
-    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
+    const only = usdcxAvailable ? USDCX_BRIDGE_NETWORK : BRIDGE_NETWORKS.find(n => n.id === 'sepolia');
     if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
+  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -814,6 +813,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
+              networks={usdcxAvailable ? [USDCX_BRIDGE_NETWORK] : BRIDGE_NETWORKS.filter(n => n.id === 'sepolia')}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}

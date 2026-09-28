@@ -47,6 +47,7 @@ import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { useUsdcxAttestation } from 'lib/usdcx/use-attestation';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -437,6 +438,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
+          bridgeInSourceChainId: bridgeReceive?.sourceChainId,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
@@ -742,7 +744,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
+                        href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/address/${entry.bridgeInSourceAddress}`}
                       />
                     </DetailRow>
                   )}
@@ -1056,7 +1058,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
+                          href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/tx/${entry.bridgeInEvmTxHash}`}
                         />
                       </DetailRow>
                     )}

@@ -22,6 +22,7 @@ jest.mock('@reown/appkit/react', () => ({
 }));
 
 jest.mock('wagmi', () => ({
+  useSwitchChain: () => ({ switchChainAsync: jest.fn().mockResolvedValue(undefined) }),
   useWriteContract: () => ({ mutateAsync: jest.fn() })
 }));
 
@@ -86,6 +87,7 @@ jest.mock('lib/walletconnect/receipt', () => ({
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
 }));
@@ -141,6 +143,14 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
   EvmSwitchWalletDrawer: () => null
+}));
+
+jest.mock('./EvmBridgeUsdcxRoute', () => ({
+  EvmBridgeUsdcxRoute: ({ onConfirm }: { onConfirm: () => void }) => (
+    <button data-testid="usdcx-confirm-route" onClick={onConfirm}>
+      route
+    </button>
+  )
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
@@ -256,7 +266,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the Fast-route deposit on the Review rounded down, not half-up', async () => {
+  it('shows the USDCx deposit on the Review in its entered 6-decimal scale, ignoring an Epoch quote', async () => {
     Object.assign(epochState, {
       quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
       status: 'quoted',
@@ -272,10 +282,10 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await settle();
     fireEvent.click(screen.getByTestId('continue'));
     await settle();
-    fireEvent.click(await screen.findByTestId('confirm-route'));
+    fireEvent.click(await screen.findByTestId('usdcx-confirm-route'));
     await settle();
 
-    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.65$/);
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^1\.5$/);
     expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
   });
 

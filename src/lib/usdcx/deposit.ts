@@ -4,11 +4,11 @@ import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import {
   CIRCLE_USDC_DECIMALS,
-  CIRCLE_USDC_SEPOLIA_ADDRESS,
+  getUsdcxContracts,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
   USDCX_REMOTE_DOMAIN,
-  XRESERVE_SEPOLIA_ADDRESS
+  USDCX_CHAIN
 } from './constant';
 
 /** The argument tuple of xReserve `depositToRemote`. */
@@ -21,7 +21,7 @@ export type DepositToRemoteArgs = readonly [
   hookData: Hex
 ];
 
-/** Signs and broadcasts the two Sepolia transactions. The screen supplies the native or wagmi flavour. */
+/** Signs and broadcasts the two Arc transactions. The screen supplies the native or wagmi flavour. */
 export interface UsdcxSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
   depositToRemote(args: DepositToRemoteArgs): Promise<Hash>;
@@ -55,7 +55,7 @@ export function buildDepositToRemoteArgs(amount: string, remoteRecipient: Hex): 
     parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
     USDCX_REMOTE_DOMAIN,
     remoteRecipient,
-    CIRCLE_USDC_SEPOLIA_ADDRESS,
+    getUsdcxContracts(USDCX_CHAIN.id).usdc,
     USDCX_DEPOSIT_MAX_FEE,
     USDCX_DEPOSIT_HOOK_DATA
   ];
@@ -86,7 +86,7 @@ export async function runUsdcxDeposit(
     throw new UsdcxDomainNotRegisteredError(remoteDomain);
   }
 
-  const approvalHash = await signer.approve(XRESERVE_SEPOLIA_ADDRESS, value);
+  const approvalHash = await signer.approve(getUsdcxContracts(USDCX_CHAIN.id).xReserve, value);
   await waitForReceipt(approvalHash);
 
   const depositHash = await signer.depositToRemote(args);

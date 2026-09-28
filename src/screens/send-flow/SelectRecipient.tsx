@@ -14,7 +14,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { BridgeNetwork, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { NetworkField } from './NetworkField';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
@@ -25,6 +25,7 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
 export interface SelectRecipientProps {
+  networks?: readonly BridgeNetwork[];
   address: string;
   isValidAddress: boolean;
   error?: string;
@@ -65,6 +66,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   error,
   chain,
   network,
+  networks,
   recipientName,
   recents,
   canAddContact = false,
@@ -201,6 +203,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           <motion.div key="networks" className="overflow-hidden" {...reveal}>
             <div className="pt-4">
               <NetworkField
+                networks={networks}
                 chain={isEthereum ? 'ethereum' : 'miden'}
                 network={network === 'miden' ? undefined : network}
                 onSelect={onSelectNetwork}

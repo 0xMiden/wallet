@@ -31,7 +31,7 @@ export interface EvmBridgeTokenDrawerProps {
 /**
  * Bottom-sheet picker for the deposit source token (ETH / USDC). The chosen
  * token drives the amount screen's balance and selects the bridge routes: ETH
- * picks Fast (Epoch) or Slow (Agglayer); USDC is Circle's Sepolia USDC and
+ * picks Fast (Epoch) or Slow (Agglayer); USDC is Circle's Arc Testnet USDC and
  * bridges only through Circle xReserve to USDCx on Miden.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({

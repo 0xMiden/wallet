@@ -3,8 +3,9 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
-import { USDCX_FAUCET_ID_BECH32, USDCX_STANDIN_RECIPIENT } from 'lib/usdcx/constant';
+import { USDCX_FAUCET_ID_BECH32 } from 'lib/usdcx/constant';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
+import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -21,8 +22,14 @@ jest.mock('@reown/appkit/react', () => ({
   useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
 }));
 
+const mockWriteContract = jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`);
+const mockSwitchChain = jest.fn().mockResolvedValue(undefined);
+let mockNativeAvailable = false;
+const mockNativeSend = jest.fn().mockResolvedValue({ hash: `0x${'2'.repeat(64)}` });
+
 jest.mock('wagmi', () => ({
-  useWriteContract: () => ({ mutateAsync: jest.fn() })
+  useSwitchChain: () => ({ switchChainAsync: mockSwitchChain }),
+  useWriteContract: () => ({ mutateAsync: mockWriteContract })
 }));
 
 jest.mock('use-debounce', () => ({
@@ -72,18 +79,20 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 }));
 
 jest.mock('lib/walletconnect/native', () => ({
-  isNativeReownAvailable: () => false,
-  NativeReown: { sendTransaction: jest.fn() },
+  isNativeReownAvailable: () => mockNativeAvailable,
+  NativeReown: { sendTransaction: (options: unknown) => mockNativeSend(options) },
   unwrapNativeResult: (value: unknown) => value
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
+  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
   waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
-  getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
+  getChain: (id: number) => ({ rpcUrl: `https://rpc.test/${id}`, name: id === 5042002 ? 'Arc Testnet' : 'Sepolia' })
 }));
 
 jest.mock('./EvmBridgeDepositForm', () => ({
@@ -195,6 +204,7 @@ const reachUsdcxRoute = async () => {
 describe('EvmBridgeDepositScreen USDCx route', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockNativeAvailable = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     // balanceOf and isRemoteDomainRegistered reads; a zero word is fine for both.
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: `0x${'0'.repeat(64)}` }) }) as never;
@@ -245,6 +255,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'usdcx',
+        sourceChainId: 5042002,
         faucetId: USDCX_FAUCET_ID_BECH32,
         amount: 1_500_000n,
         sourceAmount: '1.5',
@@ -254,12 +265,10 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       })
     );
     expect(runUsdcxDeposit).toHaveBeenCalledTimes(1);
-    // While a stand-in domain is configured the deposit goes to its test
-    // recipient; otherwise it goes to the encoded Miden account id.
     expect(runUsdcxDeposit).toHaveBeenCalledWith(
       'bridge-tx',
       '1.5',
-      USDCX_STANDIN_RECIPIENT ?? '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400',
+      '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400',
       expect.objectContaining({
         signer: expect.objectContaining({ approve: expect.any(Function), depositToRemote: expect.any(Function) }),
         isRemoteDomainRegistered: expect.any(Function),
@@ -267,5 +276,49 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         updatePhase: expect.any(Function)
       })
     );
+  });
+
+  it.each([false, true])('pins both signer calls and receipt reads to Arc (native=%s)', async native => {
+    mockNativeAvailable = native;
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+      await deps.isRemoteDomainRegistered(10007);
+      await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
+      const hash = await deps.signer.depositToRemote([
+        1_500_000n,
+        10007,
+        recipient,
+        '0x3600000000000000000000000000000000000000',
+        0n,
+        '0x'
+      ]);
+      await deps.waitForReceipt(hash);
+      return hash;
+    });
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    const signer = native ? mockNativeSend : mockWriteContract;
+    expect(signer).toHaveBeenCalledTimes(2);
+    expect(signer).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chainId: 5042002,
+        [native ? 'to' : 'address']: '0x3600000000000000000000000000000000000000'
+      })
+    );
+    expect(signer).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        chainId: 5042002,
+        [native ? 'to' : 'address']: '0x008888878f94C0d87defdf0B07f46B93C1934442'
+      })
+    );
+    expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 5042002 }));
+    expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/5042002', expect.any(Object));
+    expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 5042002 }]]);
   });
 });

@@ -1,10 +1,4 @@
-import {
-  CIRCLE_USDC_SEPOLIA_ADDRESS,
-  USDCX_DEPOSIT_HOOK_DATA,
-  USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
-  XRESERVE_SEPOLIA_ADDRESS
-} from './constant';
+import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from './constant';
 import {
   buildDepositToRemoteArgs,
   isUsdcxDomainNotRegisteredError,
@@ -54,9 +48,9 @@ describe('buildDepositToRemoteArgs', () => {
   it('scales the amount to USDC base units and fixes the other parameters', () => {
     expect(buildDepositToRemoteArgs('1.5', RECIPIENT)).toEqual([
       1_500_000n,
-      USDCX_REMOTE_DOMAIN,
+      10007,
       RECIPIENT,
-      CIRCLE_USDC_SEPOLIA_ADDRESS,
+      '0x3600000000000000000000000000000000000000',
       USDCX_DEPOSIT_MAX_FEE,
       USDCX_DEPOSIT_HOOK_DATA
     ]);
@@ -82,7 +76,7 @@ describe('runUsdcxDeposit', () => {
       'receipt:deposit',
       'phase:delivering'
     ]);
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_SEPOLIA_ADDRESS, 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002), 1_500_000n);
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1.5', RECIPIENT));
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
@@ -96,7 +90,7 @@ describe('runUsdcxDeposit', () => {
     expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
   });
 
-  // The Sepolia xReserve reverts a deposit to an unregistered domain; failing
+  // xReserve reverts a deposit to an unregistered domain; failing
   // before the approve means no gas is spent and no wallet prompt is shown.
   it('fails before any wallet prompt when the domain is not registered', async () => {
     const { deps } = makeDeps({ isRemoteDomainRegistered: jest.fn(async () => false) });

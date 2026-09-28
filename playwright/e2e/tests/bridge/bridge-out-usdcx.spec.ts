@@ -71,7 +71,7 @@ test.describe('USDCx burn against the deployed testnet faucet', () => {
       await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
       const flow = page.getByTestId('send-flow');
       await flow.getByTestId('send-recipient-input').fill('0x1111111111111111111111111111111111111111');
-      await page.getByTestId('send-network-sepolia').click();
+      await page.getByTestId('send-network-arc-testnet').click();
       await flow.getByTestId('send-recipient-confirm').click();
       await flow.getByTestId('send-token-selector').click();
       await page.getByTestId('send-token-USDCX').click();
@@ -105,12 +105,10 @@ test.describe('USDCx burn against the deployed testnet faucet', () => {
       expect(rows[0]?.extraInputs?.usdcxBurn?.destinationDomain).toBe(0);
       const after = await chainEvidence(envConfig.rpcUrl, rows[0]?.extraInputs?.usdcxBurn?.noteId, address);
       expect(BigInt(before.supply) - BigInt(after.supply)).toBe(1_000_000n);
-      await test
-        .info()
-        .attach('burn-chain-evidence', {
-          body: JSON.stringify({ before, after, transactionId: rows[0]?.transactionId }),
-          contentType: 'application/json'
-        });
+      await test.info().attach('burn-chain-evidence', {
+        body: JSON.stringify({ before, after, transactionId: rows[0]?.transactionId }),
+        contentType: 'application/json'
+      });
       await page.getByRole('button', { name: 'View in Activities' }).click();
       await page.getByRole('button', { name: /^Burn USDCx Via/ }).click();
       await expect(page.getByTestId('history-status-pill')).toHaveText('Burn confirmed');

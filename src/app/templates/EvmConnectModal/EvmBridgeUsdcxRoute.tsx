@@ -16,7 +16,7 @@ export interface EvmBridgeUsdcxRouteProps {
 
 /**
  * Route step for a USDC deposit. Circle xReserve is the only route that bridges
- * Sepolia USDC to USDCx on Miden, so the single card is always selected and the
+ * Arc Testnet USDC to USDCx on Miden, so the single card is always selected and the
  * step only confirms. Mirrors the layout of the Fast/Slow `Route` step.
  */
 export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({

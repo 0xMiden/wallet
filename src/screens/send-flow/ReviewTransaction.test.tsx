@@ -401,7 +401,7 @@ describe('USDCx burn review', () => {
   beforeEach(() => {
     mockDetectedChain = 'ethereum';
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
-    mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=sepolia&route=usdcx`;
+    mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
   it('submits the exact base-unit burn and shows no destination payout estimate', async () => {
@@ -415,13 +415,21 @@ describe('USDCx burn review', () => {
         expect.objectContaining({
           amount: 1_000_001n,
           faucetId: USDCX_FAUCET_ID_BECH32,
-          destinationChainId: 11155111,
+          destinationChainId: 5042002,
           destinationAddress: '0x1111111111111111111111111111111111111111'
         })
       )
     );
     expect(bridgeEpochSend).not.toHaveBeenCalled();
     expect(initiateB2AggBridge).not.toHaveBeenCalled();
+  });
+
+  it('rejects a USDCx deep link targeting Sepolia', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
 
   it('disables submission below the on-chain minimum', async () => {

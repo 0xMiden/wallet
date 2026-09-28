@@ -593,6 +593,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   faucetId: string;
   provider: IBridgeProvider;
   sourceAddress: string;
+  sourceChainId?: number;
   sourceAmount: string;
   sourceSymbol: string;
   outputAmount?: string;
@@ -609,6 +610,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputAmount,
     args.outputSymbol
   );
+  dbTransaction.extraInputs.sourceChainId = args.sourceChainId;
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

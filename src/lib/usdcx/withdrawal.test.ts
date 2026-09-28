@@ -6,9 +6,9 @@ let network = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => network }));
 
 describe('USDCx withdrawal encoding', () => {
-  it('encodes the bytes32 recipient as unsigned little-endian limbs, with domain zero and three padding felts', () => {
-    expect(encodeBurnWithdrawal('0x112233445566778899aabbccddeeff0011223344', 0)).toEqual([
-      0n,
+  it('encodes the bytes32 recipient as unsigned little-endian limbs, with Arc domain 26 and three padding felts', () => {
+    expect(encodeBurnWithdrawal('0x112233445566778899aabbccddeeff0011223344', 26)).toEqual([
+      26n,
       0n,
       0n,
       0n,
@@ -51,13 +51,14 @@ describe('USDCx withdrawal encoding', () => {
     }
   );
 
-  it('requires the configured faucet, testnet, positive amount, and Sepolia chain id', () => {
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal('another-faucet', 11155111, 1n)).toThrow('usdcxUnsupportedFaucet');
+  it('requires the configured faucet, testnet, positive amount, and Arc Testnet chain id', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).toThrow('usdcxInvalidDestination');
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 0, 1n)).toThrow('usdcxInvalidDestination');
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 0n)).toThrow('usdcxInvalidAmount');
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 0n)).toThrow('usdcxInvalidAmount');
     network = 'devnet';
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).toThrow('usdcxUnsupportedFaucet');
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
     network = 'testnet';
   });
 });

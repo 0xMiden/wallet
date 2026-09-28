@@ -85,7 +85,7 @@ export const ReviewTransaction: React.FC = () => {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
-      network: networkParam === 'sepolia' ? networkParam : undefined,
+      network: networkParam === 'sepolia' || networkParam === 'arc-testnet' ? networkParam : undefined,
       route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined
     };
   }, [search]);
@@ -542,7 +542,11 @@ export const ReviewTransaction: React.FC = () => {
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
   const bridgeParamsInvalid =
-    isBridge && (!bridgeNetworkObj || !route || (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
+    isBridge &&
+    (!bridgeNetworkObj ||
+      !route ||
+      (isUsdcxBurn ? network !== 'arc-testnet' : network !== 'sepolia') ||
+      (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;

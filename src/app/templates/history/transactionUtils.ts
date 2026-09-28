@@ -18,6 +18,7 @@ import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -256,7 +257,7 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
       outSymbol: inSymbol,
       outAmount: entry.amount?.toString(),
       providerLabel: 'Circle xReserve',
-      network: 'Sepolia',
+      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
       status: bridgeStatusOf(entry)
     };
   }

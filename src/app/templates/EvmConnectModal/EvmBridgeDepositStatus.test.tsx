@@ -4,6 +4,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -26,6 +27,8 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
+
+jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
 
 jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
@@ -80,15 +83,18 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
   TransactionSuccessLayout: ({
     title,
     footerDescription,
+    secondaryAction,
     children
   }: {
     title: string;
     footerDescription?: string;
+    secondaryAction?: { label: string; onClick: () => void };
     children?: React.ReactNode;
   }) => (
     <div data-testid="success-layout">
       {title}
       <p data-testid="success-footer">{footerDescription}</p>
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
       {children}
     </div>
   ),
@@ -232,6 +238,17 @@ describe('EvmBridgeDepositStatus', () => {
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
       expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Sepolia → Miden');
+    });
+
+    it('uses the recorded Arc source chain for the route and explorer', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: 5042002 })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Arc Testnet → Miden');
+      fireEvent.click(screen.getByText('viewOnBlockExplorer'));
+      expect(openExternalUrl).toHaveBeenCalledWith({
+        url: `https://explorer.testnet.arc.io/tx/${DEPOSIT_HASH}`,
+        title: 'Arc Testnet'
+      });
     });
 
     it('polls Circle for the attestation of the deposit hash while delivering', async () => {

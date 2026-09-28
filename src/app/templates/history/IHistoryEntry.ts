@@ -143,6 +143,7 @@ export interface IHistoryEntry {
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
   bridgeInSourceAddress?: string;
+  bridgeInSourceChainId?: number;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;

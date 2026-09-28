@@ -6,6 +6,17 @@
  * We're the dApp here; the user's EVM funds live in the external wallet.
  */
 
+import { defineChain } from 'viem';
+
+export const ARC_TESTNET = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
+  testnet: true
+});
+
 export const WC_PROJECT_ID = process.env.WALLETCONNECT_PROJECT_ID ?? '';
 
 export type EvmChain = {
@@ -26,6 +37,13 @@ const RPC = (id: number) =>
   E2E_EVM_RPC_URL || `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
 
 export const SUPPORTED_CHAINS: EvmChain[] = [
+  {
+    id: ARC_TESTNET.id,
+    name: ARC_TESTNET.name,
+    rpcUrl: ARC_TESTNET.rpcUrls.default.http[0],
+    explorer: ARC_TESTNET.blockExplorers.default.url,
+    nativeCurrency: ARC_TESTNET.nativeCurrency
+  },
   {
     id: 11155111,
     name: 'Sepolia',

@@ -15,7 +15,7 @@ import {
   parseUnits,
   toHex
 } from 'viem';
-import { useWriteContract } from 'wagmi';
+import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { ReceiveStep } from 'app/pages/Receive/steps';
@@ -42,22 +42,23 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
 import {
   CIRCLE_USDC_DECIMALS,
-  CIRCLE_USDC_SEPOLIA_ADDRESS,
+  getUsdcxContracts,
   CIRCLE_USDC_SYMBOL,
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
   USDCX_DECIMALS,
+  USDCX_CHAIN,
   USDCX_FAUCET_ID_BECH32,
   USDCX_STANDIN_RECIPIENT,
   USDCX_SYMBOL,
-  XRESERVE_ABI,
-  XRESERVE_SEPOLIA_ADDRESS
+  XRESERVE_ABI
 } from 'lib/usdcx/constant';
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
 import { midenAccountHexToXReserveRecipient } from 'lib/usdcx/recipient';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { waitForEvmReceipt, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { DEFAULT_BRIDGE_NETWORK, USDCX_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
@@ -82,6 +83,7 @@ const MIDEN_USDC_FAUCET_DECIMALS = 6;
 // Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
 const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
+const { usdc: circleUsdcAddress, xReserve: xReserveAddress } = getUsdcxContracts(USDCX_CHAIN.id);
 
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 
@@ -109,10 +111,10 @@ interface RpcResponse {
 
 const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: true, error: null };
 
-async function rpcRequest(method: string, params: unknown[]): Promise<unknown> {
-  const chain = getChain(DEFAULT_CHAIN_ID);
+async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
+  const chain = getChain(chainId);
   if (!chain) {
-    throw new Error('Sepolia RPC is not configured');
+    throw new Error(`RPC is not configured for chain ${chainId}`);
   }
 
   const response = await fetch(chain.rpcUrl, {
@@ -133,7 +135,7 @@ function formatBalance(value: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** The connected wallet's balance of Circle's Sepolia USDC, the token xReserve accepts. */
+/** Read Arc USDC through its 6-decimal ERC-20 interface. */
 async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
   if (!isAddress(evmAddress)) {
     throw new Error(`Invalid EVM address: ${evmAddress}`);
@@ -143,21 +145,21 @@ async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
     functionName: 'balanceOf',
     args: [evmAddress]
   });
-  const result = await rpcRequest('eth_call', [{ to: CIRCLE_USDC_SEPOLIA_ADDRESS, data }, 'latest']);
+  const result = await rpcRequest('eth_call', [{ to: circleUsdcAddress, data }, 'latest'], USDCX_CHAIN.id);
   if (!isHex(result)) {
     throw new Error('USDC balanceOf returned no data');
   }
   return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
 }
 
-/** Whether Circle registered `remoteDomain` on the Sepolia xReserve. A deposit to an unregistered domain reverts. */
+/** Whether Circle registered `remoteDomain` on Arc xReserve. A deposit to an unregistered domain reverts. */
 async function readRemoteDomainRegistered(remoteDomain: number): Promise<boolean> {
   const data = encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'isRemoteDomainRegistered',
     args: [remoteDomain]
   });
-  const result = await rpcRequest('eth_call', [{ to: XRESERVE_SEPOLIA_ADDRESS, data }, 'latest']);
+  const result = await rpcRequest('eth_call', [{ to: xReserveAddress, data }, 'latest'], USDCX_CHAIN.id);
   if (!isHex(result)) {
     throw new Error('xReserve isRemoteDomainRegistered returned no data');
   }
@@ -246,6 +248,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
   const writeContract = useWriteContract();
+  const { switchChainAsync } = useSwitchChain();
 
   const epochStatus = useEpochStore(s => s.status);
   const epochFlow = useEpochStore(s => s.flow);
@@ -519,11 +522,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setSlowError(null);
 
       // Native Reown takes calldata and returns a JSON-quoted hash; wagmi takes
-      // the typed call. Both pin DEFAULT_CHAIN_ID so a wallet whose active chain
-      // is not Sepolia is refused before it broadcasts.
+      // the typed call. Both pin Arc Testnet before broadcasting.
       const sendNative = async (to: `0x${string}`, data: `0x${string}`): Promise<Hash> => {
         const result = await NativeReown.sendTransaction({
-          chainId: DEFAULT_CHAIN_ID,
+          chainId: USDCX_CHAIN.id,
           from: evmAddress,
           to,
           value: toHex(0n),
@@ -539,29 +541,29 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         ? {
             approve: (spender, value) =>
               sendNative(
-                CIRCLE_USDC_SEPOLIA_ADDRESS,
+                circleUsdcAddress,
                 encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [spender, value] })
               ),
             depositToRemote: args =>
               sendNative(
-                XRESERVE_SEPOLIA_ADDRESS,
+                xReserveAddress,
                 encodeFunctionData({ abi: XRESERVE_ABI, functionName: 'depositToRemote', args })
               )
           }
         : {
             approve: (spender, value) =>
               writeContract.mutateAsync({
-                chainId: DEFAULT_CHAIN_ID,
+                chainId: USDCX_CHAIN.id,
                 abi: ERC20_APPROVE_ABI,
-                address: CIRCLE_USDC_SEPOLIA_ADDRESS,
+                address: circleUsdcAddress,
                 functionName: 'approve',
                 args: [spender, value]
               }),
             depositToRemote: args =>
               writeContract.mutateAsync({
-                chainId: DEFAULT_CHAIN_ID,
+                chainId: USDCX_CHAIN.id,
                 abi: XRESERVE_ABI,
-                address: XRESERVE_SEPOLIA_ADDRESS,
+                address: xReserveAddress,
                 functionName: 'depositToRemote',
                 args
               })
@@ -574,10 +576,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const recipient =
           USDCX_STANDIN_RECIPIENT ??
           midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        if (!nativeReownAvailable) await switchChainAsync({ chainId: USDCX_CHAIN.id });
         await runUsdcxDeposit(trackingTxId, amount, recipient, {
           signer,
           isRemoteDomainRegistered: readRemoteDomainRegistered,
-          waitForReceipt: waitForSepoliaReceipt,
+          waitForReceipt: hash => waitForEvmReceipt(hash, USDCX_CHAIN),
           updatePhase: updateBridgedReceivePhase
         });
         setSlowStatus('submitted');
@@ -589,7 +592,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
       }
     },
-    [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, t, walletProvider, writeContract]
+    [
+      amount,
+      evmAddress,
+      midenAccount.publicKey,
+      nativeReownAvailable,
+      switchChainAsync,
+      t,
+      walletProvider,
+      writeContract
+    ]
   );
 
   const setupReady = isValidAmount(amount);
@@ -608,7 +620,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       };
     }
     return {
-      id: CIRCLE_USDC_SEPOLIA_ADDRESS,
+      id: circleUsdcAddress,
       name: CIRCLE_USDC_SYMBOL,
       decimals: CIRCLE_USDC_DECIMALS,
       balance: usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, CIRCLE_USDC_DECIMALS)),
@@ -689,7 +701,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, amount, epochQuote?.quoteResult.tokenOut]);
 
-  const networkName = getChain(DEFAULT_CHAIN_ID)?.name ?? '';
+  const sourceChainId = route === 'usdcx' ? USDCX_CHAIN.id : DEFAULT_CHAIN_ID;
+  const networkName = getChain(sourceChainId)?.name ?? '';
 
   // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
   const routeNotice = token === 'ETH' && route === 'epoch' ? t('fastEthWrapNotice') : undefined;
@@ -789,6 +802,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           faucetId,
           provider: route,
           sourceAddress: evmAddress,
+          sourceChainId,
           sourceAmount: depositAmount.trim(),
           sourceSymbol: sourceSymbolFor(token),
           outputAmount,
@@ -823,6 +837,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     reportDeposit,
     requote,
     route,
+    sourceChainId,
     token
   ]);
 
@@ -871,6 +886,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
+              network={route === 'usdcx' ? USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK}
               amount={amount}
               isValidAmount={setupReady}
               error={error ?? selectedBalance.error ?? undefined}

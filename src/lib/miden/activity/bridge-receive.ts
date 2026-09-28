@@ -134,7 +134,7 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
       await reconcileAgglayerRow(row, inputs);
       return;
     case 'usdcx':
-      // The screen moves a USDCx row to `delivering` on the Sepolia receipt and
+      // The screen moves a USDCx row to `delivering` on the source-chain receipt and
       // nothing on Miden matches the mint yet, so there is nothing to poll. The
       // timeout above still closes the row.
       return;
