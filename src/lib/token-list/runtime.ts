@@ -124,7 +124,7 @@ async function refresh(network: string): Promise<void> {
 function startRefresh(network: string): void {
   if (refreshing.has(network)) return;
   const run = refresh(network)
-    // Only an attempt stamp storage refused lands here, and `lastFailure` already holds this realm off.
+    // An attempt stamp storage refused lands here; `lastFailure` already holds this realm off.
     .catch(() => undefined)
     .finally(() => refreshing.delete(network));
   refreshing.set(network, run);
