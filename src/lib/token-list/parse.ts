@@ -1,5 +1,4 @@
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+import { isRecord } from 'lib/update/guards';
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 

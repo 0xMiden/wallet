@@ -203,8 +203,15 @@ describe('createUpdateNotificationRuntime', () => {
   it.each([
     ['a declared length past the cap', { get: () => String(128 * 1024) }, undefined],
     // A chunked or re-encoded response declares nothing useful, so the body is
-    // measured as it is read.
-    ['a body past the cap with no declared length', { get: () => null }, 'x'.repeat(128 * 1024)]
+    // measured as it is read. Padding keeps it valid JSON, so only the cap refuses it.
+    [
+      'a body past the cap with no declared length',
+      { get: () => null },
+      `${' '.repeat(128 * 1024)}${JSON.stringify({
+        schemaVersion: 1,
+        releases: [{ version: '1.1.0', summary: 'Oversize.', urgency: 'normal', platforms: ['chrome'] }]
+      })}`
+    ]
   ])('refuses a catalog response far larger than any valid one: %s', async (_case, headers, text) => {
     const json = jest.fn();
     const fetchManifest = jest.fn().mockResolvedValue({

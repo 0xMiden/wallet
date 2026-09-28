@@ -1,6 +1,6 @@
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
-import { withRequestTimeout } from 'lib/remote-json';
+import { fetchBoundedJson, readTimestampedEntry } from 'lib/remote-json';
 
 import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
@@ -67,12 +67,6 @@ export function onTokenListUpdated(listener: (network: string) => void): () => v
   };
 }
 
-function cacheEntry(entry: unknown): { fetchedAt: number; body: unknown } | null {
-  if (typeof entry !== 'object' || entry === null || !('fetchedAt' in entry) || !('body' in entry)) return null;
-  const { fetchedAt, body } = entry;
-  return typeof fetchedAt === 'number' ? { fetchedAt, body } : null;
-}
-
 async function readList(network: string): Promise<LoadedList> {
   let stored: Record<string, unknown> = {};
   try {
@@ -82,27 +76,19 @@ async function readList(network: string): Promise<LoadedList> {
   }
   const failedAt = stored[attemptKey(network)];
   if (typeof failedAt === 'number') lastFailure.set(network, failedAt);
-  const cached = cacheEntry(stored[cacheKey(network)]);
+  const cached = readTimestampedEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
   // Only a list that parsed has an age; an unreadable entry leaves the snapshot standing in and is due at once.
   if (cached && fromCache) return { ids: fromCache, fetchedAt: cached.fetchedAt };
   return { ids: parseTokenList(bundledTokenList(network), network), fetchedAt: null };
 }
 
-/** Fetches the list and stores it once it validates; false when it does not arrive whole and valid. */
+/** Fetches the list and stores it once it validates; false, or a rejection, when it does not arrive whole and valid. */
 async function fetchAndStore(network: string): Promise<boolean> {
-  const raw = await withRequestTimeout(REQUEST_TIMEOUT_MS, async signal => {
-    const response = await deps.fetch(tokenListUrl(network), {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-      signal
-    });
-    if (!response.ok) return null;
-    if (Number(response.headers.get('content-length') ?? '0') > MAX_BYTES) return null;
-    return response.text();
+  const body = await fetchBoundedJson(deps.fetch, tokenListUrl(network), {
+    maxBytes: MAX_BYTES,
+    timeoutMs: REQUEST_TIMEOUT_MS
   });
-  if (raw === null || raw.length > MAX_BYTES) return false;
-  const body: unknown = JSON.parse(raw);
   // Validated before storing: every realm trusts this entry for a day.
   if (parseTokenList(body, network) === null) return false;
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
