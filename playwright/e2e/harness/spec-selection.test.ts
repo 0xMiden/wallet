@@ -145,6 +145,19 @@ const runBlockAfter = (file: string, anchor: string): string => {
   return body.join('\n');
 };
 
+/** The `on:` block (event triggers), by indentation, as a single string. */
+const onBlock = (file: string): string => {
+  const lines = configSource(file).split('\n');
+  const start = lines.findIndex(line => line === 'on:');
+  if (start === -1) throw new Error(`no on: block found in ${file}`);
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() !== '' && line.search(/\S/) <= 0) break;
+    body.push(line);
+  }
+  return body.join('\n');
+};
+
 /**
  * Runs a gate's shell with `values` supplied as env vars, the way a step's own `env:`
  * block would. Any `${{ ... }}` GitHub Actions expression still left in the script text
@@ -259,14 +272,14 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     }
   });
 
-  it('the E2E workflows keep their event types, so no label re-runs a gate', () => {
-    for (const file of [
-      '.github/workflows/pr-e2e-local.yml',
-      '.github/workflows/pr-e2e-guardian-lifecycle.yml',
-      '.github/workflows/pr-e2e-bridge-guardian.yml'
-    ]) {
-      expect(configSource(file)).not.toMatch(/labeled/);
-    }
+  it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
+    expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
+    expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
+      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
+    );
+    expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe(
+      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
+    );
   });
 
   it('runBlockAfter throws when the anchor is not found, instead of matching the first run block in the file', () => {
