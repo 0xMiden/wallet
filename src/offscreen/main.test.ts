@@ -3738,29 +3738,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(reply.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
   });
 
-  it('guardianPipeline: a canonicalization refusal from apply crosses as its own text, with no code (#945)', async () => {
-    // The SW's guardian catch marks this text Completed, the only Completed verdict an
-    // update-procedure-threshold row has, so it must not be wrapped away.
+  it('guardianPipeline: a canonicalization-shaped apply failure is wrapped, not passed through (#945)', async () => {
     await loadModule();
-    const refusal = 'Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 3';
-    G.__off.guardianSubmitProven = jest.fn(async () => rejectingApply(new Error(refusal)));
-    const sendResponse = jest.fn();
-    guardianCall(false, sendResponse);
-    await flush();
-
-    const reply = sendResponse.mock.calls[0][0];
-    expect(reply.ok).toBe(false);
-    expect(reply.errorCode).toBeUndefined();
-    expect(reply.error).toContain(refusal);
-  });
-
-  it('guardianPipeline: an apply failure whose mempool text is only on its cause classifies as submitted (#945)', async () => {
-    // The reply carries no cause, so a match found only there would cross unclassified.
-    await loadModule();
-    const mempool = new Error(
-      "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed."
+    G.__off.guardianSubmitProven = jest.fn(async () =>
+      rejectingApply(new Error('Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 3'))
     );
-    G.__off.guardianSubmitProven = jest.fn(async () => rejectingApply(new Error('apply failed', { cause: mempool })));
     const sendResponse = jest.fn();
     guardianCall(false, sendResponse);
     await flush();

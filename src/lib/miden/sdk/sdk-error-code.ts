@@ -93,16 +93,6 @@ export function errorMessageParts(err: unknown): string[] {
 }
 
 /**
- * The SDK's apply-after-submit text, and the guardian canonicalization refusal. One
- * copy each for the classifiers below and `applySubmitted`, which must agree on them.
- */
-const APPLY_AFTER_SUBMIT_TEXT = /accepted into the node's mempool[\s\S]*local store update failed/i;
-
-function isCanonicalizationRefusalText(text: string): boolean {
-  return /Refusing to overwrite local state/i.test(text) || /is not greater than local nonce/i.test(text);
-}
-
-/**
  * Detect the eventually-consistent guardian canonicalization refusal:
  *
  *   "Refusing to overwrite local state: incoming nonce 0 is not greater
@@ -133,7 +123,9 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
   // would report an ABANDONED pipeline as landed money. Poison is never a
   // statement about the guardian's view of the account.
   if (isWasmClientPoisonedError(error)) return false;
-  return errorMessageParts(error).some(isCanonicalizationRefusalText);
+  return errorMessageParts(error).some(
+    part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
+  );
 }
 
 /**
@@ -172,7 +164,9 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   // two errors that never described one event — and this classifier's verdict is
   // that the write DID reach the chain, which marks the row Completed. A
   // never-submitted write reported as success is the worse direction of the two.
-  return errorMessageParts(err).some(part => APPLY_AFTER_SUBMIT_TEXT.test(part));
+  return errorMessageParts(err).some(part =>
+    /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
+  );
 }
 
 /**
@@ -195,54 +189,26 @@ export class ApplyAfterSubmitError extends Error {
 }
 
 /**
- * One property of a thrown value, or `undefined` when it has none or reading it
- * throws: a getter's throw says nothing about the submit, and escaping here would
- * lose the one verdict that is known.
- */
-function readThrownProperty(error: unknown, key: 'message' | 'code' | 'errorCode'): unknown {
-  if (typeof error !== 'object' || error === null) return undefined;
-  try {
-    return Reflect.get(error, key);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Applies a submission whose submit already resolved, so the node has the
  * transaction and any rejection from here on classifies as submitted (#945).
  *
- * The verdict is read off what the offscreen reply carries, the text
- * `String(message ?? error)` and the code, never a `cause` link, which does not
- * cross. A rejection those already route at the receiver is rethrown as it is: the
- * apply-after-submit code, or text carrying the SDK's mempool phrase. With
- * `passCanonicalization` so is text carrying the canonicalization refusal. That
- * arm is opt-in because only the service worker's guardian catch routes the text
- * (to Completed, the one landed verdict an update-procedure-threshold row has);
- * the generic loop never does, so there a refusal must be wrapped to read as
- * submitted. Every other rejection is wrapped in `ApplyAfterSubmitError`. The
- * submit itself is never covered: a rejected submit may not have reached the node.
+ * A rejection that already reads as apply-after-submit is rethrown as it is; every
+ * other one, a canonicalization-shaped refusal included, is wrapped in
+ * `ApplyAfterSubmitError`. The submit itself is never covered: a rejected submit
+ * may not have reached the node.
  */
-export async function applySubmitted(
-  submitted: { apply(): Promise<unknown> },
-  options: { passCanonicalization?: boolean } = {}
-): Promise<void> {
+export async function applySubmitted(submitted: { apply(): Promise<unknown> }): Promise<void> {
   try {
     await submitted.apply();
   } catch (error) {
-    const message = readThrownProperty(error, 'message');
-    let text: string | undefined;
+    let classified = false;
     try {
-      text = String(message ?? error);
+      classified = isApplyAfterSubmitError(error);
     } catch {
-      // An Error's own toString reads the same throwing `message` getter.
-      text = undefined;
+      // A throwing `code` or `errorCode` getter says nothing about the submit, and
+      // a check that escaped here would throw away the one verdict that is known.
     }
-    const errorCode = readThrownProperty(error, 'errorCode');
-    const code = typeof errorCode === 'string' ? errorCode : readThrownProperty(error, 'code');
-    if (code === 'ApplyTransactionAfterSubmitFailed') throw error;
-    if (text !== undefined && APPLY_AFTER_SUBMIT_TEXT.test(text)) throw error;
-    if (options.passCanonicalization && text !== undefined && isCanonicalizationRefusalText(text)) throw error;
+    if (classified) throw error;
     throw new ApplyAfterSubmitError(error);
   }
 }

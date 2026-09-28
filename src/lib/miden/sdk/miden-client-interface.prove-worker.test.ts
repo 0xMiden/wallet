@@ -564,18 +564,6 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toBe(mempool);
   });
 
-  // The generic loop never routes a canonicalization refusal, so only the wrap says the write landed.
-  it.each(legs)('a %s whose apply is refused as canonicalization carries the code', async (_leg, write) => {
-    const harness = buildHarness();
-    const refusal = new Error('Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 3');
-    harness.applyFailure.error = refusal;
-    const { client, withWasmClientLock } = await load(harness);
-    const { extractSdkErrorCode } = await import('./sdk-error-code');
-    const error = await withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught);
-    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
-    expect(error).toHaveProperty('cause', refusal);
-  });
-
   it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {
     const harness = buildHarness();
     const refused = new Error('node refused the transaction');

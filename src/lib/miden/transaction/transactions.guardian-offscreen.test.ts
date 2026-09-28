@@ -2761,23 +2761,4 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     const finalRow = txStore.find(r => r.id === 's-apply-upt')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
   });
-
-  it('update-procedure-threshold: a round-tripped canonicalization refusal with no code → Completed (#945)', async () => {
-    // Its one Completed verdict after a landed submit: the offscreen apply lets this
-    // text cross unwrapped for exactly this branch.
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 3 is not " +
-          'greater than local nonce 3'
-      )
-    );
-    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
-    const { provider: sp } = arrangeStructural('s-refused-upt', row);
-
-    await generateTransaction(buildTx('s-refused-upt', row) as never, signCallback, false, sp as never);
-
-    const finalRow = txStore.find(r => r.id === 's-refused-upt')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Completed);
-  });
 });

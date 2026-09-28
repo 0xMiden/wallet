@@ -205,62 +205,6 @@ describe('applySubmitted', () => {
     expect(error).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed' });
     expect(error).toHaveProperty('cause', hostile);
   });
-
-  // #945: the offscreen reply carries only the top-level text and code, so the verdict
-  // is read off those alone.
-  const REFUSAL = 'Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 3';
-
-  it('rethrows by identity an error whose own message is the SDK mempool text', async () => {
-    const mempool = new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]);
-    await expect(applySubmitted(rejecting(mempool))).rejects.toBe(mempool);
-  });
-
-  it('with passCanonicalization, rethrows by identity an error whose own message is the refusal', async () => {
-    const refusal = new Error(REFUSAL);
-    await expect(applySubmitted(rejecting(refusal), { passCanonicalization: true })).rejects.toBe(refusal);
-  });
-
-  it('without passCanonicalization, wraps that same refusal', async () => {
-    const refusal = new Error(REFUSAL);
-    const error = await applySubmitted(rejecting(refusal)).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ApplyAfterSubmitError);
-    expect(error).toHaveProperty('cause', refusal);
-  });
-
-  it('wraps an error whose mempool text is only on its cause, which never crosses', async () => {
-    const wrapped = new Error('apply failed', { cause: new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]) });
-    const error = await applySubmitted(rejecting(wrapped)).catch((caught: unknown) => caught);
-    expect(error).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed' });
-    expect(error).toHaveProperty('cause', wrapped);
-  });
-
-  it('with passCanonicalization, wraps an error whose refusal is only on its cause', async () => {
-    const wrapped = new Error('apply failed', { cause: new Error(REFUSAL) });
-    const error = await applySubmitted(rejecting(wrapped), { passCanonicalization: true }).catch(
-      (caught: unknown) => caught
-    );
-    expect(error).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed' });
-    expect(error).toHaveProperty('cause', wrapped);
-  });
-
-  it('wraps an error whose message getter throws, without throwing what the getter threw', async () => {
-    const hostile = new Error('unused');
-    Object.defineProperty(hostile, 'message', {
-      get() {
-        throw new Error('message getter');
-      }
-    });
-    const error = await applySubmitted(rejecting(hostile), { passCanonicalization: true }).catch(
-      (caught: unknown) => caught
-    );
-    expect(error).toBeInstanceOf(ApplyAfterSubmitError);
-    // Compared by identity: a deep compare would read the throwing getter itself.
-    expect(error instanceof ApplyAfterSubmitError ? error.cause : undefined).toBe(hostile);
-  });
-
-  it('with passCanonicalization, rethrows by identity a thrown string carrying the refusal', async () => {
-    await expect(applySubmitted(rejecting(REFUSAL), { passCanonicalization: true })).rejects.toBe(REFUSAL);
-  });
 });
 
 describe('isTransactionDiscardedError', () => {
