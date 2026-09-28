@@ -116,6 +116,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // corpse must not get) are reachable from a test. Exported off the mock module
   // rather than the `__off` control object, whose contents are replaced per test.
   let evictCurrent: (() => void) | null = null;
+  // The newest hold's own operation, which an eviction abandons rather than settles:
+  // what it rejects with is the abandoned flow's outcome, not the waiter's (#945).
+  let lastRunning: Promise<unknown> | null = null;
   // Issue #775: each hold gets an IDENTITY, mirroring the real module, because the
   // behaviours under test turn on whether a yielding flow still owns the mutex.
   // A single shared token cannot express that — with one, an evicted flow's yield
@@ -133,8 +136,6 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
     lockOptionsSeen.push(options);
     await acquire();
-    const hold = { mock: 'wasm-lock-hold' };
-    currentHold = hold;
     let settled = false;
     const releaseOnce = (): void => {
       if (settled) return;
@@ -155,8 +156,14 @@ jest.mock('lib/miden/sdk/miden-client', () => {
         reject(new PoisonError('realm-error', new Error('evicted by the test harness')));
       };
     });
+    // `aborted` is the real hold's eviction signal, which `proveInWorker` hands the
+    // transport as its cancel (#945).
+    const hold = { mock: 'wasm-lock-hold', aborted: evicted };
+    currentHold = hold;
     try {
-      return await Promise.race([op(hold), evicted]);
+      const running = op(hold);
+      lastRunning = running;
+      return await Promise.race([running, evicted]);
     } finally {
       releaseOnce();
     }
@@ -201,6 +208,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     yieldWasmClientLock,
     isWasmClientBusy,
     __evictHolder,
+    __lastRunning: () => lastRunning,
     getCurrentWasmLockHold: () => currentHold,
     // #788 follow-up: the shared post-await ownership re-check the dispatches run.
     // Re-implements the REAL comparison against this mock's own `currentHold` —
@@ -3227,6 +3235,43 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.guardianSubmitted).toBe(false);
     expect(G.__off.guardianApplied).toBe(false);
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
+  it('guardianPipeline: an eviction cancels the worker prove, and the abandoned dispatch fails as poisoned (#945)', async () => {
+    // The reply is the waiter's, which the eviction settles first, so only the
+    // abandoned dispatch itself can say the cancel reached it as poison.
+    await loadModule();
+    const miden = jest.requireMock<
+      typeof import('lib/miden/sdk/miden-client') & {
+        __evictHolder: () => void;
+        __lastRunning: () => Promise<unknown> | null;
+      }
+    >('lib/miden/sdk/miden-client');
+    // A worker that answers only through the cancel, as the real client does on an eviction.
+    mockProveTransport.prove.mockImplementationOnce(async (_request, options) => {
+      const cancel: unknown = options && Reflect.get(options, 'cancel');
+      if (cancel instanceof Promise) await cancel;
+      throw new Error('no cancel reached the transport');
+    });
+
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-cancelled-prove',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      jest.fn()
+    );
+    await flush();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    const dispatch = miden.__lastRunning();
+
+    miden.__evictHolder();
+    const abandoned = await dispatch?.catch((caught: unknown) => caught);
+
+    expect(abandoned).toHaveProperty('name', 'WasmClientPoisonedError');
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
   });
 
   it('guardianPipeline (delegated): stops before SUBMIT when the hold is evicted during the delegated prove (#777, #945)', async () => {

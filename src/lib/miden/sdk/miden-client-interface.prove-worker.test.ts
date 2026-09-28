@@ -251,6 +251,29 @@ describe('send (site 5)', () => {
     expect(error).toBeInstanceOf(WasmClientPoisonedError);
   });
 
+  it('an eviction cancels the worker prove, and the abandoned send fails as poisoned without submitting', async () => {
+    const harness = buildHarness();
+    // A worker that answers only through the cancel, as the real client does on an eviction.
+    harness.setWorkerProve(
+      (_request, options) => options?.cancel ?? Promise.reject(new Error('no cancel reached the transport'))
+    );
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const { ProveWorkerError } = await import('./local-prove-transport');
+    let inner: Promise<unknown> | undefined;
+    const sending = withWasmClientLock(async () => {
+      inner = client.sendTransaction(sendTx(false));
+      return inner;
+    }).catch(() => undefined);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    await sending;
+    const abandoned = await inner?.catch((caught: unknown) => caught);
+    expect(abandoned).toBeInstanceOf(WasmClientPoisonedError);
+    expect(abandoned).not.toBeInstanceOf(ProveWorkerError);
+    expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+
   it('a worker failure fails the send before submit', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);

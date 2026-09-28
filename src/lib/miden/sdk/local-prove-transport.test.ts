@@ -8,7 +8,7 @@ import {
   proveInWorker,
   proveWorkerErrorDetail
 } from './local-prove-transport';
-import { withWasmClientLock } from './miden-client';
+import { __resetRecoveryCooldownForTests, withWasmClientLock } from './miden-client';
 import { beginProveAttempt } from './prove-telemetry';
 import { WasmClientPoisonedError } from './wasm-client-poison';
 
@@ -142,6 +142,28 @@ describe('proveInWorker', () => {
     await writingSettled;
     finish();
     await expect(inner).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockDeserializeProof).not.toHaveBeenCalled();
+  });
+
+  it('an eviction cancels the worker prove, and the abandoned prove fails as poisoned', async () => {
+    // The case above evicted too; a second trap inside the cooldown would be ignored.
+    __resetRecoveryCooldownForTests();
+    const transport = fakeTransport(
+      (_request, options) => options?.cancel ?? Promise.reject(new Error('no cancel reached the transport'))
+    );
+    let inner: Promise<unknown> | undefined;
+    const writing = withWasmClientLock(async hold => {
+      inner = proveInWorker(fakeResult, hold);
+      return inner;
+    });
+    const writingSettled = writing.catch(() => undefined);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(transport.prove).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+    await writingSettled;
+    const abandoned = await inner?.catch((caught: unknown) => caught);
+    expect(abandoned).toBeInstanceOf(WasmClientPoisonedError);
+    expect(abandoned).not.toBeInstanceOf(ProveWorkerError);
     expect(mockDeserializeProof).not.toHaveBeenCalled();
   });
 
