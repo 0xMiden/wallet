@@ -35,6 +35,7 @@ import { withWasmClientLock } from '../sdk/miden-client';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -517,6 +518,9 @@ export const initiateBridgedSendTransaction = async (
  * `requestBytes` is the pre-built P2IDE collateral request carrying the
  * mandate-binding attachment (smallocator PR #38, built by
  * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
+ * Nothing downstream can rebuild that binding, so a call without the bytes
+ * throws `EARN_DEPOSIT_MISSING_REQUEST_ERROR` before the row is queued or its
+ * spend is booked.
  */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
@@ -525,10 +529,11 @@ export const initiateEarnDepositTransaction = async (
   marketUid: string,
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
-  delegateTransaction?: boolean,
-  requestBytes?: Uint8Array,
+  delegateTransaction: boolean,
+  requestBytes: Uint8Array,
   spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
+  if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
     accountId,
     amount,

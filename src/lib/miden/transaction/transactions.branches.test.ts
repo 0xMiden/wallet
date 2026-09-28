@@ -1258,6 +1258,33 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
+
+  it('keeps a Guardian Earn deposit request when the wallet locks mid-guardian-flow', async () => {
+    // Its bytes carry the mandate-binding attachment and nothing on the row can rebuild it, so the locked-wallet
+    // requeue must not drop them.
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    });
+    const earnBytes = new Uint8Array([5, 5]);
+
+    txStore.push({
+      id: 'tx-guardian-earn-locked',
+      type: 'earn-deposit',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'allocator',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
+      requestBytes: earnBytes
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore[0]!.requestBytes).toBe(earnBytes);
+  });
 });
 
 describe('generateTransactionsLoop — head-of-line fairness', () => {
