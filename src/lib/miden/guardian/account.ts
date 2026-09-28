@@ -13,6 +13,7 @@ import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
+import { withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
@@ -314,6 +315,9 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  */
 export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 
+// Bounds a silent guardian per request now that no WASM watchdog does; unlock waits behind creation (#1207).
+export const GUARDIAN_CREATE_REQUEST_TIMEOUT_MS = 30_000;
+
 const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
 
 /**
@@ -349,7 +353,12 @@ export async function fetchGuardianCreateKey(guardianEndpointOverride?: string):
   const startMs = monotonicNowMs();
   try {
     const { commitment, pubkey } = await withGuardianRateLimitRetry(
-      () => new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
+      () =>
+        withTimeout(
+          new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
+          GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+          'Guardian key fetch'
+        ),
       { deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, sleepFn: sleepKeepingWorkerAlive }
     );
     const rateLimitBudgetLeftMs = GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS - (monotonicNowMs() - startMs);
@@ -499,10 +508,15 @@ export async function registerGuardianAccount(registration: PendingGuardianRegis
     // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
     // account build (Task 3) sit between the two and are not guardian waits (#1207).
     const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
-    await withGuardianRateLimitRetry(() => registration.multisig.registerOnGuardian(registration.stateBase64), {
-      deadlineMs,
-      sleepFn: sleepKeepingWorkerAlive
-    });
+    await withGuardianRateLimitRetry(
+      () =>
+        withTimeout(
+          registration.multisig.registerOnGuardian(registration.stateBase64),
+          GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+          'Guardian registration'
+        ),
+      { deadlineMs, sleepFn: sleepKeepingWorkerAlive }
+    );
   } catch (e) {
     console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });

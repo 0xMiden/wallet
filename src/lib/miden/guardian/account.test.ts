@@ -836,6 +836,57 @@ describe('createGuardianAccount', () => {
       expect(mockAlarmsClear).toHaveBeenCalledWith(mockAlarmsCreate.mock.calls[0]?.[0]);
     });
   });
+
+  // Out of the WASM hold, no watchdog bounds a guardian that accepts the connection and never
+  // answers, and the unlock queue waits behind creation (#1207).
+  describe('a guardian that never answers', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const track = (promise: Promise<unknown>) => {
+      const state: { outcome: unknown } = { outcome: 'pending' };
+      void promise.then(
+        () => {
+          state.outcome = 'resolved';
+        },
+        (error: unknown) => {
+          state.outcome = error;
+        }
+      );
+      return state;
+    };
+    const timedOut = {
+      message: 'Failed to create Guardian account',
+      cause: expect.objectContaining({ message: expect.stringContaining('timed out after 30000ms') })
+    };
+
+    it('fails the key fetch after 30 s, without retrying', async () => {
+      multisigClientConfig.getPubkey.mockReturnValueOnce(new Promise(() => {}));
+
+      const keyFetch = track(fetchGuardianCreateKey());
+      await jest.advanceTimersByTimeAsync(29_999);
+      expect(keyFetch.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(keyFetch.outcome).toMatchObject(timedOut);
+      expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails the registration after 30 s, without retrying', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockReturnValueOnce(new Promise<void>(() => {}));
+      multisigClientConfig.create.mockResolvedValueOnce(multisig);
+      const created = await createAndRegister(makeWebClient(), new Uint8Array(32), false);
+
+      const registration = track(registerGuardianAccount(created.registration));
+      await jest.advanceTimersByTimeAsync(29_999);
+      expect(registration.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(registration.outcome).toMatchObject(timedOut);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe('resolveGuardianEndpoint', () => {
