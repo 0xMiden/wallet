@@ -45,26 +45,43 @@ export type FaucetFetchHooks = {
   onStatus?: (status: number) => void;
 };
 
+/** What faucetFetch resolves to without a `read`: the body ends with its attempt, so only the status is kept. */
+type FaucetStatusLine = Pick<Response, 'ok' | 'status' | 'headers'>;
+
 /**
- * `fetch` bounded by a timeout, honoring a single `429 Retry-After` back-off.
+ * `fetch` bounded by a timeout, honoring a single `429 Retry-After` back-off,
+ * with `read` run on the response inside the same bound.
  *
  * The timeout (via AbortController) guarantees a wedged faucet can't hang the
- * caller. A `429 Too Many Requests` is retried ONCE after the server-requested
- * delay (capped) rather than surfaced as a hard failure — a rate limit is
- * transient and self-clears. Any other non-ok status is returned as-is for the
- * caller to classify.
+ * caller, its body included: each attempt's signal stays armed and linked to the
+ * caller's until `read` settles, then aborts, which ends any body left unread.
+ * A `429 Too Many Requests` is retried ONCE after the server-requested delay
+ * (capped) rather than surfaced as a hard failure - a rate limit is transient
+ * and self-clears - and its body is never read. Any other response, a final 429
+ * included, goes to `read` for the caller to classify.
  */
-export async function faucetFetch(
+export function faucetFetch(url: string, init?: RequestInit): Promise<FaucetStatusLine>;
+export function faucetFetch<T>(
+  url: string,
+  init: RequestInit | undefined,
+  read: (response: Response) => Promise<T>,
+  timeoutMs?: number,
+  hooks?: FaucetFetchHooks
+): Promise<T>;
+export async function faucetFetch<T>(
   url: string,
   init?: RequestInit,
+  read?: (response: Response) => Promise<T>,
   timeoutMs: number = FAUCET_FETCH_TIMEOUT_MS,
   hooks?: FaucetFetchHooks
-): Promise<Response> {
+): Promise<T | FaucetStatusLine> {
+  const readBody: (response: Response) => Promise<T | FaucetStatusLine> =
+    read ?? (async ({ ok, status, headers }) => ({ ok, status, headers }));
   // The timeout needs its own controller, so a caller-provided `init.signal`
   // can't ride through to `fetch` directly — link it to the internal one
   // instead (abort either way, preserving the caller's abort reason).
   const external = init?.signal ?? undefined;
-  const attempt = async (): Promise<Response> => {
+  const attempt = async <R>(settle: (response: Response) => Promise<R>): Promise<R> => {
     const controller = new AbortController();
     const abortFromExternal = () => controller.abort(external?.reason);
     if (external?.aborted) abortFromExternal();
@@ -74,18 +91,24 @@ export async function faucetFetch(
       hooks?.onAttempt?.();
       const response = await fetch(url, { ...init, signal: controller.signal });
       hooks?.onStatus?.(response.status);
-      return response;
+      return await settle(response);
     } finally {
       clearTimeout(timer);
+      controller.abort();
       external?.removeEventListener('abort', abortFromExternal);
     }
   };
 
-  const first = await attempt();
-  if (first.status !== 429) return first;
+  // The first attempt ends in the caller's read, or in the wait before its one retry.
+  type FirstAttempt = { value: T | FaucetStatusLine } | { waitMs: number };
+  const first = await attempt(async (response): Promise<FirstAttempt> => {
+    // A 429 with no honorable delay is not retried: the caller fails it.
+    const waitMs = response.status === 429 ? retryAfterMs(response) : null;
+    return waitMs === null ? { value: await readBody(response) } : { waitMs };
+  });
+  if ('value' in first) return first.value;
 
-  const waitMs = retryAfterMs(first);
-  if (waitMs === null) return first; // 429 with no honorable delay — let the caller fail it
+  const { waitMs } = first;
   // A capped Retry-After can still be 30s; the caller's abort must cut this sleep
   // short instead of waiting it out before the rejection is seen.
   await new Promise<void>((resolve, reject) => {
@@ -103,7 +126,7 @@ export async function faucetFetch(
     }, waitMs);
     external?.addEventListener('abort', onAbort, { once: true });
   });
-  return attempt();
+  return attempt(readBody);
 }
 
 export async function getPowChallenge(
@@ -113,14 +136,14 @@ export async function getPowChallenge(
   signal?: AbortSignal
 ): Promise<PowChallenge> {
   const params = new URLSearchParams({ account_id: accountId, amount: amount.toString() });
-  const response = await faucetFetch(`${baseUrl}/pow?${params}`, { signal });
+  return faucetFetch(`${baseUrl}/pow?${params}`, { signal }, async response => {
+    if (!response.ok) {
+      throw new Error(`Faucet PoW request failed with status ${response.status}: ${await response.text()}`);
+    }
 
-  if (!response.ok) {
-    throw new Error(`Faucet PoW request failed with status ${response.status}: ${await response.text()}`);
-  }
-
-  const json: { challenge: string; target: number } = await response.json();
-  return { challenge: json.challenge, target: BigInt(json.target) };
+    const json: { challenge: string; target: number } = await response.json();
+    return { challenge: json.challenge, target: BigInt(json.target) };
+  });
 }
 
 // A nonce solves the challenge when the first 8 bytes of
@@ -172,6 +195,11 @@ export class FaucetOutcomeUnknownError extends Error {
   }
 }
 
+type TokenResponse =
+  | { kind: 'failed'; status: number; detail: string }
+  | { kind: 'minted'; note: MintedNote }
+  | { kind: 'unreadable'; error: unknown };
+
 export async function requestTokens(
   baseUrl: string,
   accountId: string,
@@ -190,9 +218,23 @@ export async function requestTokens(
     challenge,
     nonce: nonce.toString()
   });
-  let response: Response;
+  // The body is read inside faucetFetch's bound, and its outcome comes back as data, so a
+  // rejection of faucetFetch still means only that no response arrived.
+  const readOutcome = async (response: Response): Promise<TokenResponse> => {
+    if (!response.ok) {
+      // The status decides what happened; an unreadable body only loses the explanation.
+      return { kind: 'failed', status: response.status, detail: await response.text().catch(() => '') };
+    }
+    try {
+      const json: { tx_id: string; note_id: string } = await response.json();
+      return { kind: 'minted', note: { txId: json.tx_id, noteId: json.note_id } };
+    } catch (error) {
+      return { kind: 'unreadable', error };
+    }
+  };
+  let outcome: TokenResponse;
   try {
-    response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal }, undefined, {
+    outcome = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal }, readOutcome, undefined, {
       onAttempt: () => onMayMint?.(true),
       onStatus: status => onMayMint?.(faucetStatusMayHaveMinted(status))
     });
@@ -201,23 +243,16 @@ export async function requestTokens(
     throw new FaucetOutcomeUnknownError('Faucet token request got no response', { cause: error });
   }
 
-  if (!response.ok) {
-    // The status decides what happened; an unreadable body only loses the explanation.
-    const detail = await response.text().catch(() => '');
-    const failure = new Error(`Faucet token request failed with status ${response.status}: ${detail}`);
-    if (faucetStatusMayHaveMinted(response.status)) {
-      throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
-    }
-    throw failure;
-  }
-
-  try {
-    const json: { tx_id: string; note_id: string } = await response.json();
-    return { txId: json.tx_id, noteId: json.note_id };
-  } catch (error) {
+  if (outcome.kind === 'minted') return outcome.note;
+  if (outcome.kind === 'unreadable') {
     // The faucet accepted the request, so it may have minted; only the ids were lost.
-    throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: error });
+    throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: outcome.error });
   }
+  const failure = new Error(`Faucet token request failed with status ${outcome.status}: ${outcome.detail}`);
+  if (faucetStatusMayHaveMinted(outcome.status)) {
+    throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
+  }
+  throw failure;
 }
 
 // 0xMiden/faucet answers 503 when it cannot queue the mint, and 500 once a queued mint's
