@@ -628,7 +628,7 @@
   "hotKeyRotationFailedTitle": "Everyday key rotation failed",
   "hotKeyRotationFailedGeneric": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now.",
   "hotKeyRotationUnconfirmedTitle": "Everyday key rotation not confirmed",
-  "hotKeyRotationUnconfirmedBody": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. You can retry now.",
+  "hotKeyRotationUnconfirmedBody": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry.",
   "hotKeyRotationRetry": "Retry",
   "hotKeyRotationFundingTitle": "Add MIDEN to activate your everyday key",
   "hotKeyRotationFundingBody": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically.",
