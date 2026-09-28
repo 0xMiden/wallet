@@ -2202,10 +2202,6 @@
     "message": "차라리 완전히 비공개 계정을 만드는 편이 낫겠습니다",
     "englishSource": "I'd rather make a fully private account instead"
   },
-  "chooseDifferentGuardian": {
-    "message": "다른 Guardian를 선택하세요",
-    "englishSource": "Choose a different Guardian"
-  },
   "learnMoreAboutGuardian": {
     "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"

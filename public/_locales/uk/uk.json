@@ -483,7 +483,6 @@
   "meetGuardianChecking": "Перевіряємо, який оператор відповідає найшвидше…",
   "meetGuardianNoneReachable": "У цій мережі недоступний жоден оператор Guardian.",
   "meetGuardianFullyPrivateInstead": "Я б краще створив повністю приватний обліковий запис",
-  "chooseDifferentGuardian": "Оберіть інший Guardian",
   "learnMoreAboutGuardian": "Дізнайтеся більше про «Guardian»",
   "noGuardianOptionTitle": "Без опікуна",
   "noGuardianOptionSubtitle": "Для досвідчених користувачів — відновлення лише за допомогою фрази відновлення. Без співпідписувача з «guardian».",

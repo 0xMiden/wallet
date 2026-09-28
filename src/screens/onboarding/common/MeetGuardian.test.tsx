@@ -395,7 +395,7 @@ describe('MeetGuardianScreen: shared pieces', () => {
     expect(screen.getByTestId('meet-guardian-name')).toHaveClass('truncate', 'max-w-full');
   });
 
-  it('offers a change action while checking (in the card) and when no operator answers (the row)', () => {
+  it('says no operator answers inside the same card, beside its change action and above its footer', () => {
     const view = renderScreen();
     const action = () => screen.getByTestId('meet-guardian-choose-different');
     expect(screen.getByTestId('meet-guardian-checking')).toContainElement(action());
@@ -404,9 +404,20 @@ describe('MeetGuardianScreen: shared pieces', () => {
       [OZ.endpoint]: { status: 'offline' },
       [GATEWAY.endpoint]: { status: 'offline' }
     });
-    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
-    expect(action()).toHaveClass('w-full', 'justify-between');
-    expect(screen.getByTestId('meet-guardian-info')).toBeInTheDocument();
+    const section = screen.getByTestId('meet-guardian-section');
+    expect(section.children).toHaveLength(1);
+    const card = section.firstElementChild!;
+    expect(card).toHaveClass('rounded-2xl', 'border', 'border-hairline');
+    expect(card).toHaveAttribute('aria-busy', 'false');
+    // The notice takes the operator's place in the card's row, and no sentence follows it.
+    const notice = screen.getByTestId('meet-guardian-none-reachable');
+    expect(notice).toHaveTextContent('meetGuardianNoneReachable');
+    expect(action().parentElement).toContainElement(notice);
+    expect(action()).toHaveTextContent('meetGuardianChange');
+    expect(screen.queryByTestId('meet-guardian-summary')).toBeNull();
+    expect(card.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(card.lastElementChild).toBe(screen.getByTestId('meet-guardian-footer'));
+    expect(screen.getByTestId('meet-guardian-footer')).toContainElement(screen.getByTestId('meet-guardian-info'));
   });
 
   it('keeps the change action the same element, focus and all, when the round settles', () => {
@@ -424,6 +435,42 @@ describe('MeetGuardianScreen: shared pieces', () => {
     expect(action.isConnected).toBe(true);
     expect(document.activeElement).toBe(action);
   });
+
+  it.each(['meet-guardian-choose-different', 'meet-guardian-info'])(
+    'keeps %s the same element, focus and all, when the round settles with no operator reachable',
+    testId => {
+      const view = renderScreen();
+      const target = screen.getByTestId(testId);
+      act(() => target.focus());
+
+      view.setVerdicts({ [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } });
+
+      expect(document.activeElement).toBe(target);
+      expect(target.isConnected).toBe(true);
+      expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+      expect(screen.getByTestId(testId)).toBe(target);
+    }
+  );
+
+  it.each(['meet-guardian-choose-different', 'meet-guardian-info'])(
+    'keeps %s the same element, focus and all, when an operator answers after none did',
+    testId => {
+      const view = renderScreen();
+      view.setVerdicts({ [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } });
+      const target = screen.getByTestId(testId);
+      act(() => target.focus());
+
+      view.setVerdicts({
+        [OZ.endpoint]: { status: 'online', latencyMs: 30 },
+        [GATEWAY.endpoint]: { status: 'offline' }
+      });
+
+      expect(document.activeElement).toBe(target);
+      expect(target.isConnected).toBe(true);
+      expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
+      expect(screen.getByTestId(testId)).toBe(target);
+    }
+  );
 
   it("holds the card's shape while checking: the logo row, then two placeholder lines for the sentence", () => {
     renderScreen();

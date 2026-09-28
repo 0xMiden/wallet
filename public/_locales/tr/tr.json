@@ -483,7 +483,6 @@
   "meetGuardianChecking": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
   "meetGuardianNoneReachable": "Bu ağda hiçbir Guardian operatörüne ulaşılamaz.",
   "meetGuardianFullyPrivateInstead": "Bunun yerine tamamen özel bir hesap açmayı tercih ederim",
-  "chooseDifferentGuardian": "Farklı bir Guardian seçin",
   "learnMoreAboutGuardian": "Guardian hakkında daha fazla bilgi edinin",
   "noGuardianOptionTitle": "Vasi yok",
   "noGuardianOptionSubtitle": "Gelişmiş — yalnızca kurtarma ifadenizle kurtarma yapın. guardian ortak imzalayıcısı kullanmayın.",

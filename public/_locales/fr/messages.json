@@ -2202,10 +2202,6 @@
     "message": "Je préfère plutôt créer un compte entièrement privé",
     "englishSource": "I'd rather make a fully private account instead"
   },
-  "chooseDifferentGuardian": {
-    "message": "Choisissez une autre «Guardian»",
-    "englishSource": "Choose a different Guardian"
-  },
   "learnMoreAboutGuardian": {
     "message": "En savoir plus sur l’Guardian",
     "englishSource": "Learn more about the Guardian"

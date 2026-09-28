@@ -2202,10 +2202,6 @@
     "message": "我宁愿创建一个完全私密的账户",
     "englishSource": "I'd rather make a fully private account instead"
   },
-  "chooseDifferentGuardian": {
-    "message": "请选择其他Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
   "learnMoreAboutGuardian": {
     "message": "了解更多关于Guardian的信息",
     "englishSource": "Learn more about the Guardian"

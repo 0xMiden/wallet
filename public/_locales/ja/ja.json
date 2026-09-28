@@ -483,7 +483,6 @@
   "meetGuardianChecking": "どのオペレーターが最も早く応答するか確認中……",
   "meetGuardianNoneReachable": "このネットワーク上では、Guardianオペレーターに到達できません。",
   "meetGuardianFullyPrivateInstead": "それなら、完全に非公開のアカウントを作成したほうがいいと思います",
-  "chooseDifferentGuardian": "別のGuardianを選択してください",
   "learnMoreAboutGuardian": "Guardianの詳細はこちら",
   "noGuardianOptionTitle": "保護者なし",
   "noGuardianOptionSubtitle": "上級者向け — リカバリーフレーズのみを使用して復元してください。「guardian」の共同署名者は不要です。",

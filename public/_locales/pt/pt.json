@@ -483,7 +483,6 @@
   "meetGuardianChecking": "Verificando qual operador responde mais rápido…",
   "meetGuardianNoneReachable": "Nenhum operador Guardian está acessível nesta rede.",
   "meetGuardianFullyPrivateInstead": "Prefiro criar uma conta totalmente privada",
-  "chooseDifferentGuardian": "Escolha um Guardian diferente",
   "learnMoreAboutGuardian": "Saiba mais sobre a Guardian",
   "noGuardianOptionTitle": "Sem guardião",
   "noGuardianOptionSubtitle": "Avançado — recupere usando apenas sua frase de recuperação. Sem co-signatário guardian.",

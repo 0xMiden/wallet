@@ -2202,10 +2202,6 @@
     "message": "Bunun yerine tamamen özel bir hesap açmayı tercih ederim",
     "englishSource": "I'd rather make a fully private account instead"
   },
-  "chooseDifferentGuardian": {
-    "message": "Farklı bir Guardian seçin",
-    "englishSource": "Choose a different Guardian"
-  },
   "learnMoreAboutGuardian": {
     "message": "Guardian hakkında daha fazla bilgi edinin",
     "englishSource": "Learn more about the Guardian"

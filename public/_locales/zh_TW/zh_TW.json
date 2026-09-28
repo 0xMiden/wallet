@@ -483,7 +483,6 @@
   "meetGuardianChecking": "正在確認哪位客服人員回應最快……",
   "meetGuardianNoneReachable": "此網路中無法連線至任何 Guardian 操作者。",
   "meetGuardianFullyPrivateInstead": "我寧可建立一個完全私密的帳戶",
-  "chooseDifferentGuardian": "請選擇其他Guardian",
   "learnMoreAboutGuardian": "進一步了解Guardian",
   "noGuardianOptionTitle": "无监护人",
   "noGuardianOptionSubtitle": "進階 — 僅使用您的恢復短語進行恢復。無需 guardian 共同簽署人。",

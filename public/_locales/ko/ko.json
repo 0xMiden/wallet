@@ -483,7 +483,6 @@
   "meetGuardianChecking": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
   "meetGuardianNoneReachable": "이 네트워크에서는 Guardian 운영자에게 연락할 수 없습니다.",
   "meetGuardianFullyPrivateInstead": "차라리 완전히 비공개 계정을 만드는 편이 낫겠습니다",
-  "chooseDifferentGuardian": "다른 Guardian를 선택하세요",
   "learnMoreAboutGuardian": "Guardian에 대해 자세히 알아보기",
   "noGuardianOptionTitle": "보호자 없음",
   "noGuardianOptionSubtitle": "고급 — 복구 문구만으로 복구하십시오. guardian 공동 서명자는 허용되지 않습니다.",

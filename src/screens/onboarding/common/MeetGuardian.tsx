@@ -46,14 +46,14 @@ export interface MeetGuardianScreenProps {
 }
 
 /**
- * The create flow's guardian step. The fastest reachable operator leads the page, under a "Your
- * Guardian" header whose "What is a Guardian?" opens the explainer sheet; the three facts about a
- * private account follow, and Continue opens once all three are ticked. The operator is chosen once, when every
- * operator has answered its first ping, so the card does not change under the user while later
- * rounds refresh the number on it. An operator that later goes offline closes Continue and says
- * so on the card. "Choose a different Guardian" is offered while the first round is out, beside the
- * chosen operator and when none answers; a network with no operator at all says so and offers
- * nothing to pick.
+ * The create flow's guardian step. The fastest reachable operator leads the page on one card: its
+ * name, a Change action that opens the full picker, one sentence for what it does, and a "What is a
+ * Guardian?" footer that opens the explainer sheet. The three facts about a private account follow,
+ * and Continue opens once all three are ticked. The operator is chosen once, when every operator has
+ * answered its first ping, so the card does not change under the user while later rounds refresh
+ * the number on it. An operator that later goes offline closes Continue and says so on the card.
+ * The same card says so when none answers, still offering Change; a network with no operator at all
+ * says so and offers nothing to pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   progress,
@@ -109,14 +109,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const handleNoGuardian = () => onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
-  // One action in every state, rendered once after the state's block: the full-width row that closes the
-  // section. Settling the round swaps the block above it, never the action, so a press or focus survives.
-  const chooseDifferent = noOperators ? null : (
-    <TextAction layout="row" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
-      {t('chooseDifferentGuardian')}
-    </TextAction>
-  );
-
   return (
     <OnboardingStepLayout
       data-testid="onboarding-meet-guardian"
@@ -142,34 +134,34 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
       {/* The Guardian leads the page as one outlined card: who it is and how to change it, then one
           sentence for what it does and does not do. The facts that explain the account follow. */}
       <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
-        {noneReachable && !chosen ? (
-          <>
-            <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-              {t('meetGuardianNoneReachable')}
-            </Notice>
-            {chooseDifferent}
-            <TextAction
-              className="-mx-1 self-start"
-              data-testid="meet-guardian-info"
-              onClick={() => setIsInfoOpen(true)}
-            >
-              {t('whatIsAGuardian')}
-            </TextAction>
-          </>
-        ) : (
-          // One card from the first round to the answer: while the round is out it holds the operator's
-          // shape (the logo row, the sentence's two lines), so the checklist below barely moves when the
-          // operator lands. Its change action sits in the same place in both, so a press or focus on it
-          // survives the round settling.
-          <Card
-            surface="outline"
-            padding="none"
-            data-testid={chosen ? 'meet-guardian-card' : 'meet-guardian-checking'}
-            aria-busy={chosenVerdict === undefined}
-            className="flex flex-col overflow-hidden"
-          >
-            <div className="flex items-center gap-3 px-4 py-3.5">
-              {chosen ? <GuardianLogoTile guardianId={chosen.id} /> : <Skeleton className="size-12 rounded-xl" />}
+        {/* One card in every state: while the round is out it holds the operator's shape (the logo row,
+            the sentence's two lines), so the checklist below barely moves when the operator lands, and
+            when none answers its row carries the notice instead. Only the row's content and the sentence
+            change between states; the Change action and the footer link keep their place in the tree,
+            so a press or focus on either survives the round settling whichever way it goes. */}
+        <Card
+          surface="outline"
+          padding="none"
+          data-testid={chosen ? 'meet-guardian-card' : noneReachable ? undefined : 'meet-guardian-checking'}
+          aria-busy={!noneReachable && chosenVerdict === undefined}
+          className="flex flex-col overflow-hidden"
+        >
+          <div className="flex items-center gap-3 px-4 py-3.5">
+            {chosen ? (
+              <GuardianLogoTile guardianId={chosen.id} />
+            ) : noneReachable ? null : (
+              <Skeleton className="size-12 rounded-xl" />
+            )}
+            {noneReachable ? (
+              <Notice
+                tone="negative"
+                role="status"
+                className="min-w-0 flex-1"
+                data-testid="meet-guardian-none-reachable"
+              >
+                {t('meetGuardianNoneReachable')}
+              </Notice>
+            ) : (
               <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
                 {chosen ? (
                   // max-w-full: in an items-start column a truncating span is otherwise as wide as its text.
@@ -193,14 +185,16 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                   </span>
                 )}
               </div>
-              {!noOperators && (
-                <TextAction className="-mr-1" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
-                  {t('meetGuardianChange')}
-                </TextAction>
-              )}
-            </div>
+            )}
+            {!noOperators && (
+              <TextAction className="-mr-1" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+                {t('meetGuardianChange')}
+              </TextAction>
+            )}
+          </div>
+          {/* The sentence once the operator lands; its two lines' placeholder until then. */}
+          {!noneReachable && (
             <div className="border-t border-hairline px-4 py-3">
-              {/* The sentence once the operator lands; its two lines' placeholder until then. */}
               {chosen ? (
                 <p className="text-caption-heading text-muted" data-testid="meet-guardian-summary">
                   {t('meetGuardianSummary', { name: chosen.name })}
@@ -212,15 +206,15 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 </div>
               )}
             </div>
-            {/* The card's footer: the explainer link on the card's `fill` well under a hairline, there from
-                the start like the header link it replaces, so it reads the same while checking. */}
-            <div className="border-t border-hairline bg-fill px-3" data-testid="meet-guardian-footer">
-              <TextAction data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
-                {t('whatIsAGuardian')}
-              </TextAction>
-            </div>
-          </Card>
-        )}
+          )}
+          {/* The card's footer: the explainer link on the card's `fill` well under a hairline, there from
+              the start like the header link it replaces, so it reads the same while checking. */}
+          <div className="border-t border-hairline bg-fill px-3" data-testid="meet-guardian-footer">
+            <TextAction data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
+              {t('whatIsAGuardian')}
+            </TextAction>
+          </div>
+        </Card>
       </section>
 
       {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}

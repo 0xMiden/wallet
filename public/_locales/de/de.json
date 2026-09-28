@@ -483,7 +483,6 @@
   "meetGuardianChecking": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
   "meetGuardianNoneReachable": "In diesem Netzwerk ist kein „Guardian“-Operator erreichbar.",
   "meetGuardianFullyPrivateInstead": "Ich würde lieber ein vollständig privates Konto einrichten",
-  "chooseDifferentGuardian": "Wählen Sie eine andere „Guardian“",
   "learnMoreAboutGuardian": "Erfahren Sie mehr über das „Guardian“",
   "noGuardianOptionTitle": "Kein Vormund",
   "noGuardianOptionSubtitle": "Fortgeschritten – Wiederherstellung ausschließlich mit Ihrer Wiederherstellungsphrase. Kein Mitunterzeichner unter guardian.",

@@ -483,7 +483,6 @@
   "meetGuardianChecking": "Checking which operator answers fastest…",
   "meetGuardianNoneReachable": "No Guardian operator is reachable on this network.",
   "meetGuardianFullyPrivateInstead": "I'd rather make a fully private account instead",
-  "chooseDifferentGuardian": "Choose a different Guardian",
   "learnMoreAboutGuardian": "Learn more about the Guardian",
   "noGuardianOptionTitle": "No guardian",
   "noGuardianOptionSubtitle": "Advanced — recover with your recovery phrase only. No guardian co-signer.",
