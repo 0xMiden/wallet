@@ -1210,7 +1210,6 @@
   "guardianCardMeta": "İşleten: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "checkingUnlockMethodSlow": "Bu cüzdanın kilit açma yöntemini kontrol etmek normalden daha uzun sürüyor. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
-  "couldNotCheckUnlockMethodReopen": "Bu cüzdanın kilit açma yöntemini kontrol edemedim. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
   "receiveQrColorAction": "QR kodu rengini değiştir",
   "receiveAt": "Şu adrese al",
   "earnTitle": "Kazançlarınız",
