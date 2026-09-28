@@ -34,6 +34,7 @@ import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
@@ -93,6 +94,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+  const verification = useTokenVerification()(tokenId);
 
   const handleBack = () => goBack();
 
@@ -133,6 +135,16 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               ) : undefined
             }
           />
+
+          {verification === 'unverified' && (
+            // A token's name and logo are whatever its creator chose; only the list vouches for it.
+            <div className="flex flex-col items-center gap-2 text-center" data-testid="token-detail-unverified">
+              <Pill size="sm" tone="warning">
+                {t('unverifiedToken')}
+              </Pill>
+              <p className="text-caption text-muted">{t('unverifiedTokenDescription')}</p>
+            </div>
+          )}
 
           <div className="flex gap-2.5">
             {/* The pair names the two flows it opens, so each takes that flow's colour, like the

@@ -226,6 +226,11 @@ jest.mock('lib/miden-chain/constants', () => ({
   getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
 }));
 
+const mockVerifyToken = jest.fn();
+jest.mock('lib/token-list/useTokenVerification', () => ({
+  useTokenVerification: () => mockVerifyToken
+}));
+
 const mockOpenExternalUrl = jest.fn();
 jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
@@ -778,6 +783,36 @@ describe('TokenDetail', () => {
 
       expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
       expect(mockOpenExternalUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the Unverified mark', () => {
+    it.each(['verified', 'unknown'] as const)('hides the Unverified mark for a %s token', verification => {
+      mockVerifyToken.mockReturnValue(verification);
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-unverified')).not.toBeInTheDocument();
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    });
+
+    it('shows the Unverified mark, its warning pill and explanation for an unverified token', () => {
+      mockVerifyToken.mockReturnValue('unverified');
+      renderPage();
+
+      const mark = screen.getByTestId('token-detail-unverified');
+      // Directly under the Hero, not buried further down the page.
+      expect(screen.getByTestId('token-detail-hero').nextElementSibling).toBe(mark);
+      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2', 'text-center');
+
+      // The pill itself: `sm`/`warning`, not any other size or tone.
+      const pillLabel = within(mark).getByText('unverifiedToken');
+      expect(pillLabel.parentElement).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
+
+      const description = within(mark).getByText('unverifiedTokenDescription');
+      expect(description.tagName).toBe('P');
+      expect(description).toHaveClass('text-caption', 'text-muted');
+
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
     });
   });
 });
