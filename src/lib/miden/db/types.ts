@@ -170,7 +170,10 @@ export interface IBridgedSendExtraInputs {
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
    */
   intentNonce?: string;
-  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  /**
+   * epoch: the quoted destination output, exact; screens round it down when they show it. Older
+   * rows hold the quote already rounded for display.
+   */
   outputAmount?: string;
   /** epoch: destination output token symbol (e.g. `USDC`). */
   outputSymbol?: string;

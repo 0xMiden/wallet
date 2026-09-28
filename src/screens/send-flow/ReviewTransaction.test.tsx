@@ -178,7 +178,8 @@ jest.mock('lib/agglayer/b2agg/constant', () => ({
 }));
 
 jest.mock('lib/epoch', () => ({
-  bridgeEpochSend: jest.fn()
+  bridgeEpochSend: jest.fn(),
+  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC'
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -593,6 +594,31 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
     expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+  });
+
+  // What arrives is the quote at most, so "you receive" rounds it down.
+  it('rounds the Fast route quote down in "you receive", never up', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '10.655599', loading: false, error: null };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+  });
+
+  // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.
+  it('shows the Slow route "you receive" as typed, without its trailing zero', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=12.3450&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 12.345 USDC')).toBeInTheDocument();
   });
 });
 

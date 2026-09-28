@@ -17,7 +17,6 @@ import {
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
-  formatBridgeOutputAmount,
   formatDate,
   formatEarnWithdrawAmount,
   formatMoneyAmount,
@@ -487,28 +486,28 @@ describe('isCompletedTransaction', () => {
   });
 });
 
-describe('formatBridgeOutputAmount', () => {
+describe('formatMoneyAmount receives', () => {
   it('passes undefined through', () => {
-    expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
+    expect(formatMoneyAmount(undefined, 'receives')).toBeUndefined();
   });
 
-  // Rounds DOWN, so the hero can never claim the user sent or received more than
-  // they did. Half-up would render 1.239999… as "1.24".
+  // Rounds DOWN, so a quote can never claim more than arrives. Half-up would render
+  // 1.239999… as "1.24".
   it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
-    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.23');
-    expect(formatBridgeOutputAmount('0')).toBe('0.00');
+    expect(formatMoneyAmount('1.239999999999999999', 'receives')).toBe('1.23');
+    expect(formatMoneyAmount('0', 'receives')).toBe('0');
   });
 
-  it('pads a whole number to 2 decimals', () => {
-    expect(formatBridgeOutputAmount('12')).toBe('12.00');
+  it('shows a whole number without padding it to 2 decimals', () => {
+    expect(formatMoneyAmount('12', 'receives')).toBe('12');
   });
 
   it('expands precision for a small non-zero output', () => {
-    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0012');
+    expect(formatMoneyAmount('0.00126', 'receives')).toBe('0.0012');
   });
 
   it('passes non-numeric input through unchanged', () => {
-    expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
+    expect(formatMoneyAmount('not-a-number', 'receives')).toBe('not-a-number');
   });
 });
 
@@ -654,6 +653,16 @@ describe('bridgeRowDisplay', () => {
       network: 'Sepolia',
       status: 'confirmed'
     });
+  });
+
+  it('rounds a stored quote down and drops the padding of a legacy display string', () => {
+    const quoted = (bridgeOutputAmount: string) =>
+      bridgeRowDisplay(bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount }))
+        .outAmount;
+
+    expect(quoted('10.655599')).toBe('10.65');
+    expect(quoted('12.00')).toBe('12');
+    expect(quoted('0.00')).toBe('0');
   });
 
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {

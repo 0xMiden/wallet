@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/adaptive-precision';
+import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -209,23 +209,6 @@ export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetada
     ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
     : undefined;
 
-/**
- * Round a bridge's (USDC) destination output to the standard 2 decimals for
- * display, expanding for small non-zero values. Passes non-numeric input
- * through unchanged.
- *
- * Rounds DOWN, never half-up: this now formats the bridge hero's IN side too,
- * which is the user's own sent amount, and half-up there displays MORE than was
- * sent (1.239999… → "1.24"). Rounding down also matches the two sibling money
- * formatters — `formatEarnWithdrawAmount` and the activity row — so the same
- * value cannot read differently depending on the surface.
- */
-export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
-  if (amount === undefined) return undefined;
-  const n = new BigNumber(amount);
-  return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
-};
-
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
@@ -256,7 +239,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** Quoted destination output, falling back to the input amount for legacy/in-flight rows. */
+  /**
+   * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
+   * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
+   * while in flight, then the credited amount rounded down once received.
+   */
   outAmount?: string;
   providerLabel: string;
   network: string;
@@ -271,7 +258,8 @@ export interface BridgeRowDisplay {
 export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
-  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
+  // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
+  const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };

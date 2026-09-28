@@ -2725,7 +2725,7 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
+    it('rounds a Fast-route bridge-out quote down, without padding', async () => {
       setMockRow({
         ...bridgedSendTx,
         extraInputs: {
@@ -2735,9 +2735,10 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.getByText('151.5')).toBeInTheDocument();
       expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
       expect(screen.queryByText('151.51')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.50')).not.toBeInTheDocument();
     });
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
