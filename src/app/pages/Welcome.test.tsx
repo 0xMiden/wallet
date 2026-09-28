@@ -2761,7 +2761,7 @@ describe('Welcome — back navigation', () => {
     }
   });
 
-  // #1086 (round 2): the gate is keyed to which FILE registered, not to "has anything ever landed
+  // #1086: the gate is keyed to which FILE registered, not to "has anything ever landed
   // for this attempt". A history round trip that lands back on #import-from-file and stages a
   // DIFFERENT file gets its own way back, because nothing has registered for that file yet.
   it('offers back on Confirmation for a different file staged through a history round trip after an earlier restore landed', async () => {

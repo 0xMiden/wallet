@@ -210,13 +210,10 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  // The identity of the file restore that has landed for this attempt, or null. Bound to the SAME
-  // fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a plain
-  // "has anything landed" flag: the escape back to the file picker is withdrawn only while the
-  // staged file is the one that landed, so a DIFFERENT file staged afterwards gets its own way
-  // back, even within the same attempt. It lasts as long as the attempt, so only resetFlowState
-  // clears it: a history round trip off Confirmation and back to the SAME file is the same
-  // attempt, and must not re-offer the way back to the file picker.
+  // The identity of the file restore that has landed for the current attempt, or null. Bound to
+  // the SAME fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a
+  // plain "has anything landed" flag. Only resetFlowState clears it, so it survives a history
+  // round trip back to the same file within the attempt (see canLeaveConfirmation).
   const [committedFileBinding, setCommittedFileBinding] = useState<string | null>(null);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
@@ -484,9 +481,8 @@ const Welcome: FC = () => {
       await registration.done;
       // From here a wallet may exist, whatever happens next: the escape back to the file picker is
       // withdrawn for THIS file, because it would show an empty picker implying the restore was
-      // abandoned while the databases are written and the registration has landed. A different
-      // file staged afterwards is a fresh attempt as far as Back is concerned - see
-      // canLeaveConfirmation.
+      // abandoned while the databases are written and the registration has landed (canLeaveConfirmation
+      // covers what happens on a different file).
       if (walletFilePayload) setCommittedFileBinding(JSON.stringify(fileRegistrationBinding(walletFilePayload)));
       if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
