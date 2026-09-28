@@ -1,8 +1,7 @@
 import React from 'react';
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -1024,38 +1023,6 @@ describe('HotKeyRotationGate', () => {
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-    });
-
-    // The mark is module-global. Unmounting first keeps its release from raising a gate that starts a rotation
-    // after the test.
-    it("renders nothing and starts no rotation at '/' while the onboarding tab finishes", async () => {
-      const mark = markOnboardingFinishing();
-      try {
-        mockLocation = { pathname: '/' };
-        const { container } = render(<HotKeyRotationGate />);
-        await act(async () => {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        });
-        expect(container).toBeEmptyDOMElement();
-        expect(mockInitiate).not.toHaveBeenCalled();
-      } finally {
-        cleanup();
-        mark.release();
-      }
-    });
-
-    it("renders the gate at '/' while the onboarding tab finishes without a side panel", async () => {
-      const mark = markOnboardingFinishing();
-      try {
-        mockLocation = { pathname: '/' };
-        mockHandoffAvailable = false;
-        render(<HotKeyRotationGate />);
-        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
-        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-      } finally {
-        cleanup();
-        mark.release();
-      }
     });
   });
 });

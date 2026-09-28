@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
@@ -65,21 +64,18 @@ import {
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
  *
- * The onboarding tab stays ungated while it finishes onboarding (the finishing
- * mark, held until the handler navigates on) and on its two side-panel handoff
- * screens: the panel's own gate starts the rotation, or adopts it if one is in
- * flight, so blocking the tab here would only hold the one tap that opens the
- * panel until the rotation lands (#1097).
+ * The onboarding tab's two side-panel handoff screens stay ungated: the panel's
+ * own gate starts the rotation, or adopts it if one is in flight, so blocking the
+ * tab here would only hold the one tap that opens the panel until the rotation
+ * lands (#1097).
  */
 export const HotKeyRotationGate: FC = () => {
   const currentAccount = useWalletStore(s => s.currentAccount);
   const { fullPage } = useAppEnv();
   const { pathname } = Woozie.useLocation();
-  const finishingOnboarding = useOnboardingFinishing();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
-  if (fullPage && canHandoffToSidePanel() && (finishingOnboarding || ONBOARDING_HANDOFF_ROUTES.has(pathname)))
-    return null;
+  if (fullPage && ONBOARDING_HANDOFF_ROUTES.has(pathname) && canHandoffToSidePanel()) return null;
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
