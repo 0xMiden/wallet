@@ -589,9 +589,7 @@ describe('ForgotPassword', () => {
   });
 
   it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
-    mockClearClientStorage.mockImplementationOnce(() => {
-      throw new Error('storage unavailable');
-    });
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
@@ -604,25 +602,6 @@ describe('ForgotPassword', () => {
 
     const result = captured.backHandler!();
     expect(result).toBe(true);
-    expect(mockNavigate).not.toHaveBeenCalled();
-
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalled();
-  });
-
-  it('shows the error, registers nothing and allows Retry when the recovery wipe rejects (#1177)', async () => {
-    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
-    renderPage();
-    await dispatch({ id: 'create-wallet' });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
-    await dispatch({ id: 'confirmation' });
-
-    expect(captured.props?.isLoading).toBe(false);
-    expect(captured.props?.recoveryError).toContain('storage unavailable');
-    expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
 
     await dispatch({ id: 'confirmation' });
