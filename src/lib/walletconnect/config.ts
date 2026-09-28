@@ -6,7 +6,14 @@
  * We're the dApp here; the user's EVM funds live in the external wallet.
  */
 
-export const WC_PROJECT_ID = process.env.WALLETCONNECT_PROJECT_ID ?? '';
+/** The Reown project id every bundle uses unless `WALLETCONNECT_PROJECT_ID` is set at build time. */
+export const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
+
+/**
+ * `WALLETCONNECT_PROJECT_ID` as the vite defines bake it at build time, trimmed; an unset, empty
+ * or blank value falls back to `DEFAULT_WC_PROJECT_ID`.
+ */
+export const WC_PROJECT_ID = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim() || DEFAULT_WC_PROJECT_ID;
 
 export type EvmChain = {
   id: number;
