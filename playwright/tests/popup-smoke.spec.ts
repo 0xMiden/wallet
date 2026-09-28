@@ -189,14 +189,13 @@ test.describe('Fullpage UI', () => {
     // there is no tap (#1097): the wallet becomes Ready in the background and the
     // "Open wallet" handoff screen appears (rather than the classic in-tab
     // Explore page). The in-tab path still applies to non-extension / E2E builds
-    // and is covered by the Welcome/ForgotPassword unit tests. Asserted, because
-    // the helper also taps when a button is up: a Confirmation button back on
-    // this build, or a Retry after a failed auto-register, would otherwise pass.
-    expect(await passImportConfirmation(page, 30000)).toBe('moved-on');
+    // and is covered by the Welcome/ForgotPassword unit tests. The helper fails if
+    // a Confirmation button, or the Retry of a failed auto-register, shows instead.
+    await passImportConfirmation(page, 30000);
 
     // …by way of the one-time telemetry consent prompt, which this profile has
-    // never answered. Raced against the handoff screen because a tapped
-    // Confirmation only starts `register()`; see `dismissTelemetryConsent`.
+    // never answered. Raced against the handoff screen because the helper returns
+    // on whichever of the two showed first; see `dismissTelemetryConsent`.
     const handoff = page.locator(HANDOFF_SELECTOR);
     await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
 
