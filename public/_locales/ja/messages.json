@@ -2795,6 +2795,55 @@
     "message": "再試行",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "MIDENを追加して、日常用キーを有効にしてください",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "日常用キーの有効化はトランザクションであり、すべてのトランザクションには少額のネットワーク手数料としてMIDENが支払われます。以下のこのアカウントのアドレスにMIDENを送金してください。ウォレットがそれを受け取り、自動的にキーの有効化を完了します。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "$amount$ MIDEN以上を送信してください。",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "アカウントアドレス",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "MIDENが届くのを待っています…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "受け取ったMIDENは、ネットワーク手数料を支払うには不足しています。もう少し送ってください。",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDENを受信しました。請求中…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "日常用キーの有効化…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "受け取ったMIDENは、受け取り請求できませんでした。",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "もう一度試してみてください",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "再度確認してください",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian 変更済み",
     "englishSource": "Guardian changed"
@@ -4486,6 +4535,14 @@
     "message": "未確認",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "未確認",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5284,16 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "このウォレットのロック解除方法の確認に、通常より時間がかかっています。再試行するには、戻ってこのページを再度開いてください。",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "このウォレットのロック解除方法を確認できませんでした。再試行するには、戻ってこのページを再度開いてください。",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "このウォレットのロック解除方法を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",

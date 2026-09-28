@@ -80,7 +80,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
   const isGuardReady = useScreenshotGuard(secret !== null);
-  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
   // The private-key reveal requires the user to tick an "I understand"
@@ -316,7 +316,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   if (probeFailed) {
     return (
       <SubPageLayout data-testid="reveal-secret">
-        <ProtectorProbeErrorNotice />
+        <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />
       </SubPageLayout>
     );
   }
