@@ -138,6 +138,8 @@
   // settles, so a slow answer never stacks polls; only disconnect() stops it.
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
+  // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
+  let disconnects = 0;
 
   // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
   // sees is a key that cannot be decoded, before any field changes.
@@ -301,6 +303,7 @@
       }
 
       async connect(privateDataPermission, network, allowedPrivateData) {
+        const disconnectsBefore = disconnects;
         const res = await request({
           type: 'PERMISSION_REQUEST',
           appMeta: { name: window.location.hostname },
@@ -309,6 +312,7 @@
           network,
           allowedPrivateData,
         });
+        if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
 
         // The key is decoded before any field is set, as the mobile connect does, so a key that cannot be decoded
         // leaves the provider, and any watch already running, as it was.
@@ -343,6 +347,7 @@
       // is refused once and stops, and two overlapping calls signal once (#1227).
       async disconnect() {
         stopPermissionWatch();
+        disconnects++;
         try {
           return await request({
             type: 'DISCONNECT_REQUEST',

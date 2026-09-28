@@ -151,6 +151,8 @@ export const INJECTION_SCRIPT = `
   // settles, so a slow answer never stacks polls; only disconnect() stops it.
   const PERMISSION_POLL_MS = 10000;
   let stopPermissionWatch = function() {};
+  // disconnect() counts itself before its request; a connect() it overlaps then rejects and starts no watch (#1227).
+  let disconnects = 0;
 
   // The wallet's own fields are the only state. Both emitters isolate their listeners, so the only throw a tick
   // sees is a key that cannot be decoded, before any field changes.
@@ -200,6 +202,7 @@ export const INJECTION_SCRIPT = `
     }
 
     async connect(privateDataPermission, network, allowedPrivateData) {
+      const disconnectsBefore = disconnects;
       const res = await request({
         type: 'PERMISSION_REQUEST',
         appMeta: { name: window.location.hostname },
@@ -208,6 +211,7 @@ export const INJECTION_SCRIPT = `
         network,
         allowedPrivateData
       });
+      if (disconnects !== disconnectsBefore) throw new Error('The wallet was disconnected while connecting');
 
       // Decode publicKey BEFORE touching other wallet state so a
       // malformed publicKey response (e.g. wallet bug, corrupt
@@ -244,6 +248,7 @@ export const INJECTION_SCRIPT = `
     // is refused once and stops, and two overlapping calls signal once (#1227).
     async disconnect() {
       stopPermissionWatch();
+      disconnects++;
       try {
         await request({ type: 'DISCONNECT_REQUEST' });
       } finally {

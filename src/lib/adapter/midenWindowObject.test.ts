@@ -1,6 +1,12 @@
-import { PrivateDataPermission, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import {
+  AllowedPrivateData,
+  PrivateDataPermission,
+  WalletAdapterNetwork,
+  WalletError
+} from '@miden-sdk/miden-wallet-adapter-base';
 
 import * as client from 'lib/adapter/client';
+import { MidenDAppMessageType } from 'lib/adapter/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 
 import { MidenWindowObject } from './midenWindowObject';
@@ -16,6 +22,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => {
   return {
     __esModule: true,
     EventEmitter: EE.EventEmitter ?? EE,
+    WalletError: class WalletError extends Error {},
     AllowedPrivateData: {},
     PrivateDataPermission: { None: 'None', OnRequest: 'OnRequest' },
     SignKind: { Transaction: 'Transaction', Message: 'Message' },
@@ -456,6 +463,72 @@ describe('MidenWindowObject', () => {
 
       expect(clearFn).toHaveBeenCalledTimes(1);
       expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    // A connect() waiting for its answer when disconnect() runs is ended by it, in either answer order (#1227).
+    type Granted = Awaited<ReturnType<typeof client.requestPermission>>;
+    type Disconnected = Awaited<ReturnType<typeof client.requestDisconnect>>;
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => undefined;
+      const promise = new Promise<T>(r => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    }
+    const granted: Granted = {
+      rpc: 'testnet',
+      address: ADDRESS,
+      privateDataPermission: PrivateDataPermission.UponRequest,
+      allowedPrivateData: AllowedPrivateData.All,
+      publicKey: new Uint8Array([1])
+    };
+    const disconnectedAnswer: Disconnected = { type: MidenDAppMessageType.DisconnectResponse };
+
+    it('ends a connect answered after the disconnect, which starts no poll', async () => {
+      const permission = deferred<Granted>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockResolvedValue(disconnectedAnswer);
+      const obj = new MidenWindowObject();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      await obj.disconnect();
+      permission.resolve(granted);
+      await expect(connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      await expect(connecting).rejects.toBeInstanceOf(WalletError);
+      expect(mockClient.onPermissionChange).not.toHaveBeenCalled();
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('ends a connect answered while the disconnect is pending, which starts no poll', async () => {
+      const permission = deferred<Granted>();
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      const obj = new MidenWindowObject();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      const disconnecting = obj.disconnect();
+      permission.resolve(granted);
+      await expect(connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      expect(mockClient.onPermissionChange).not.toHaveBeenCalled();
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('lets a connect begun after the disconnect connect once the disconnect settles', async () => {
+      const permission = deferred<Granted>();
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      mockClient.onPermissionChange.mockReturnValue(jest.fn());
+      const obj = new MidenWindowObject();
+      const disconnecting = obj.disconnect();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      permission.resolve(granted);
+      await expect(connecting).resolves.toBeUndefined();
+      expect(obj.address).toBe(ADDRESS);
+      expect(mockClient.onPermissionChange).toHaveBeenCalledTimes(1);
     });
 
     it('is a no-op on the interval clearer when never connected', async () => {
