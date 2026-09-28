@@ -8,6 +8,7 @@ import {
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
+  supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
@@ -606,11 +607,16 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
  * the swap row on its requested-token page too. The tab's unread mark
  * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
- * this feed hides.
+ * this feed hides. It also drops a Failed claim row whose every note this
+ * account has since claimed (`supersededFailedConsumeIds`, #771), so Token
+ * Detail and the unread mark follow the feed.
  */
 export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
-  const suppressed = await suppressedLinkedConsumeIds(transactions);
-  return transactions.filter(tx => !suppressed.has(tx.id));
+  const [linked, superseded] = await Promise.all([
+    suppressedLinkedConsumeIds(transactions),
+    supersededFailedConsumeIds(transactions)
+  ]);
+  return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

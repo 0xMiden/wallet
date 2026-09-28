@@ -20,6 +20,7 @@ const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
 const mockSuppressedLinkedConsumeIds = jest.fn();
+const mockSupersededFailedConsumeIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -95,6 +96,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
   suppressedLinkedConsumeIds: (...args: unknown[]) => mockSuppressedLinkedConsumeIds(...args),
+  supersededFailedConsumeIds: (...args: unknown[]) => mockSupersededFailedConsumeIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // The REAL predicate: which rows may be cancelled is exactly what these
@@ -325,6 +327,7 @@ beforeEach(() => {
     async (transactions: Array<{ id: string; extraInputs?: { bridgeIn?: { bridgeReceiveTxId?: string } } }>) =>
       new Set(transactions.filter(tx => tx.extraInputs?.bridgeIn?.bridgeReceiveTxId === 'BR-KEEP').map(tx => tx.id))
   );
+  mockSupersededFailedConsumeIds.mockResolvedValue(new Set());
   mockResolveConsumeExtraAmounts.mockResolvedValue([]);
 });
 
@@ -1177,6 +1180,44 @@ describe('History', () => {
       bridgeIntentNonce: 'n2',
       secondaryAddress: '0xpend'
     });
+  });
+
+  it('drops a failed claim row the superseded lookup names (#771)', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'CLAIMED',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 4n,
+              noteId: 'n1',
+              noteIds: ['n1'],
+              completedAt: 5000
+            },
+            {
+              id: 'ATTEMPT',
+              status: STATUS.Failed,
+              displayMessage: 'Failed',
+              displayIcon: 'FAILED',
+              faucetId: 'fa1',
+              type: 'consume',
+              noteId: 'n1',
+              completedAt: 4000
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['ATTEMPT']));
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-CLAIMED'));
+
+    expect(entryKeys()).not.toContain('completed-ATTEMPT');
   });
 });
 
