@@ -199,6 +199,7 @@ jest.mock('./transactionUtils', () => ({
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
+  formatMoneyAmount: jest.requireActual('./transactionUtils').formatMoneyAmount,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
@@ -618,7 +619,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'earn-deposit',
       txType: 'earn-deposit',
       transactionIcon: undefined,
-      amount: '5',
+      amount: '10.6555',
       token: 'USDC',
       message: 'Depositing',
       txId: 'tx-earn-deposit',
@@ -657,9 +658,10 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('Depositing');
     expect(iconNameIn(row)).toBe('Earn');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
-    expect(row).toHaveAttribute('data-amount-value', '-5');
+    expect(row).toHaveAttribute('data-amount-value', '-10.6555');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
-    expect(row).toHaveAttribute('data-amount-preformatted', 'no');
+    // The amount typed, as its Review showed it: the row's 3-decimal pass would cut it to 10.655.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   it('renders a date separator per calendar day', () => {

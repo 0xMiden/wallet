@@ -600,17 +600,27 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     spansMultipleAssets && transaction
       ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
       : [];
+  // The hero and the badge print one amount. An Earn withdrawal's is already formatted
+  // and an Earn deposit's is the amount typed, each as its Activity row shows it.
+  const historyAmount =
+    entry?.amount === undefined
+      ? undefined
+      : entry.txType === 'earn-withdraw'
+        ? entry.amount
+        : entry.txType === 'earn-deposit'
+          ? formatMoneyAmount(entry.amount, 'typed')
+          : formatDisplayAmount(entry.amount);
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
   const historySummaryBadgeContent =
     transactionSummaryBadgeContent &&
-    entry?.amount !== undefined &&
-    entry.token &&
+    historyAmount !== undefined &&
+    entry?.token &&
     (entry.txType === 'send' || entry.txType === 'bridged-send' || entry.txType === 'earn-deposit')
       ? {
           ...transactionSummaryBadgeContent,
-          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+          lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
@@ -677,12 +687,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                      {entry.amount !== undefined && (
-                        // An Earn withdrawal's amount is already formatted, as its Activity row shows it.
-                        <span className="text-ink">
-                          {entry.txType === 'earn-withdraw' ? entry.amount : formatDisplayAmount(entry.amount)}
-                        </span>
-                      )}
+                      {historyAmount !== undefined && <span className="text-ink">{historyAmount}</span>}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
                   )}

@@ -3267,6 +3267,32 @@ describe('HistoryDetails earn-deposit', () => {
     expect(rowByLabel('earnMarketLabel')?.textContent).toBe(':11155111:0xabc');
   });
 
+  // The Review shows the amount exactly as typed; the page's 3-decimal pass would cut 10.6555 to 10.655.
+  describe('the amount typed', () => {
+    beforeEach(() => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    });
+
+    it('reads as typed on the summary badge', async () => {
+      setMockRow(earnDepositTx({}, { amount: 10_655_500n }));
+      await renderAndLoad();
+
+      expect(screen.getByText('10.6555 USDC')).toBeInTheDocument();
+      expect(screen.queryByText('10.655 USDC')).toBeNull();
+    });
+
+    it('reads as typed in the hero when the market has no name for the badge', async () => {
+      // No protocol segment leaves the badge without a right side, so the hero prints the amount.
+      setMockRow(earnDepositTx({ marketUid: ':11155111:0xabc' }, { amount: 10_655_500n }));
+      await renderAndLoad();
+
+      expect(screen.getByText('10.6555')).toBeInTheDocument();
+      expect(screen.queryByText('10.655')).toBeNull();
+    });
+  });
+
   it('omits the intent and settlement rows before the lending leg reports them', async () => {
     setMockRow(earnDepositTx({}, { transactionId: undefined }));
     await renderAndLoad();
