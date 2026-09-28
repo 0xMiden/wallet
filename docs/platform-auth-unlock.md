@@ -484,8 +484,8 @@ Notes on the rows:
 A CDP virtual authenticator (`ctap2`, `internal`, resident keys, user
 verification) in Chrome for Testing 149.0.7827.55, driving a minimal MV3
 extension page with the wallet's CSP and isolation headers
-(`public/manifest.json:33-41`). The method and full results are in the
-appendix. Excerpt of `probe-results.json`:
+(`public/manifest.json:33-41`), headed on macOS, in a tab rather than the
+action popup. The method is in the appendix. Excerpt of `probe-results.json`:
 
 ```json
 {
@@ -1032,42 +1032,6 @@ page then:
    only the authenticator without PRF attached;
 5. checked `'credentials' in navigator` in the extension's service worker.
 
-### Results
-
-| Question | Observed | What it means |
-|---|---|---|
-| Does `navigator.credentials.create()`/`.get()` work at all from a `chrome-extension://` page, and what does the authenticator see as the RP ID? | `create.ok: true`, `get.ok: true`, `create.rpIdHashMatches: "chrome-extension://<id>"` | With no explicit `rp.id`, WebAuthn create/get succeed from an extension page, and the CTAP2 authenticator receives `chrome-extension://<id>` (the full URL, not the bare extension id) as the RP ID whose SHA-256 hash goes into `authenticatorData`. |
-| Does the PRF extension work at create time and at get time? | `create.prfEnabled: true`, `create.prfFirstAtCreateLength: 32`; `get.prfFirstLength: 32`, `get.sameSaltSameOutput: true`, `get.otherSaltDifferentOutput: true` | The virtual authenticator (`hasPrf: true`) evaluates the PRF extension both on `create()` (32-byte output already available on creation, when the CTAP2 authenticator supports it) and on `get()`. Output is deterministic per salt (same salt reproduces the same 32-byte value) and salt-dependent (a different salt gives a different value), matching the WebAuthn PRF extension's defined behaviour. |
-| Does `PublicKeyCredential.getClientCapabilities()['extension:prf']` reflect an authenticator that does NOT support PRF? | `capabilityWithoutPrf: true` | No. `getClientCapabilities()` is a platform/browser-level capability query, not a per-authenticator one. It reported `true` with a second virtual authenticator, set to `hasPrf: false`, added after removing the first. Blink returns it as `true` unconditionally (Support matrix), so it says nothing about the authenticator currently reachable. See "What this cannot show" below; this also means the flag cannot be used to predict whether an on-device authenticator (Touch ID, Windows Hello) will actually honor a PRF `eval` request. |
-| Can the extension's background service worker call WebAuthn? | `serviceWorkerHasCredentials: false` | `'credentials' in navigator` is `false` inside the MV3 service worker realm. Service workers have no `navigator.credentials` (WebAuthn is a Window-only API), so any platform-auth unlock flow must run from an extension page (popup, side panel, full-page tab or window; the offscreen document is **Unconfirmed**, see Mechanism), never from the background service worker directly. |
-| Can the extension page create a credential for an explicit, unrelated web RP ID (e.g. `example.com`)? | `webRpId.ok: false`, `errorName: "SecurityError"`, `errorMessage: "Public-key credentials are only available to HTTPS origins with valid certificates, HTTP origins that fall under 'localhost', or pages served from an extension. ..."` | Rejected. Setting `rp.id`, without a host permission, to a domain that does not match the calling origin's effective domain fails with `SecurityError`, even though the calling page itself is a valid extension-page WebAuthn origin. Chromium's error text is the generic origin-eligibility message and does not distinguish "your origin type is ineligible" from "your origin type is fine but the RP ID doesn't match it" - both hit the same wording. Without a host permission, an extension-page WebAuthn credential is therefore bound to the extension's own RP ID (`chrome-extension://<id>`, per the create-time result above), not an arbitrary web domain. |
-
-### What this cannot show
-
-- Real Touch ID, Windows Hello, iCloud Keychain, or Google Password Manager
-  behaviour. The CDP virtual authenticator is a software stub, configured
-  here with `isUserVerified: true`, that returns fixed-length PRF outputs; it
-  does not exercise a platform authenticator's actual biometric prompt,
-  enrollment state, credential storage, or PRF derivation.
-- Whether the extension's popup (or side panel) survives a real native OS
-  platform-authenticator sheet (Touch ID prompt, Windows Hello dialog) without
-  Chrome closing or backgrounding the popup mid-ceremony. The virtual
-  authenticator never opens any UI, so this probe cannot observe popup
-  lifecycle interaction with a real platform sheet.
-- Any Windows or ChromeOS-specific behaviour (this probe ran on macOS only;
-  platform authenticator availability, PRF support, and RP ID handling can
-  differ by OS and by the specific platform authenticator provider).
-- Behaviour of a *real* platform authenticator's PRF support detection:
-  `getClientCapabilities()['extension:prf']` was shown here to report `true`
-  for the platform in headed Chromium regardless of the virtual
-  authenticator's own `hasPrf` setting, so it should not be trusted as a proxy
-  for "will this specific device's Touch ID / Windows Hello / passkey provider
-  actually return a PRF value" without also attempting a real
-  `get()`/`create()` and checking `getClientExtensionResults().prf.results`.
-- Extension popup-specific quirks (this probe opened `probe.html` in a tab of
-  a persistent context; it exercised the extension-page WebAuthn origin type
-  Chrome exposes, but not the literal `chrome-extension://<id>/popup.html`
-  action-popup window, which Chrome can close on losing focus).
 
 [ambire-biometrics]: https://github.com/AmbireTech/extension/blob/3f6c7af91fde4c056da96ff9ede5c39f53ed7083/src/web/services/webauthnBiometrics.ts
 [android-keystore]: https://developer.android.com/privacy-and-security/keystore
