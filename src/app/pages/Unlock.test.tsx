@@ -830,21 +830,30 @@ describe('Unlock — mobile passcode numpad', () => {
   });
 
   it('applies the random back-off delay and time-lock past the last attempt', async () => {
-    // attempt 5 (> LAST_ATTEMPT) triggers the randomized pre-unlock delay; the guess then
-    // records the count and, as attempt >= LAST_ATTEMPT, a provisional stamp through
-    // writeLocalStorage before unlock(), and the rejection re-stamps it.
+    // attempt 5 (> LAST_ATTEMPT) sleeps the randomized delay before unlock(), and the guess in flight
+    // holds the count and the provisional stamp it recorded. The rejection's re-stamp is pinned by
+    // 'opens the countdown at a full tier measured from the failure'.
     jest.spyOn(Math, 'random').mockReturnValue(0); // delay -> 1000ms
-    mockUnlock.mockRejectedValue(new Error('nope'));
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
     mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
     const { container } = await renderUnlock();
 
     type(container, '222222');
-    await advance(1700); // 150ms auto-submit + 1000ms back-off: unlock() rejects at 1150ms
+    await advance(1149); // 150ms auto-submit + 1000ms back-off: unlock() is due at 1150ms
+    expect(mockUnlock).not.toHaveBeenCalled();
 
+    await advance(1);
     expect(mockUnlock).toHaveBeenCalledWith('222222');
     expect(mockLsStore.PasswordAttempts).toBe(6);
-    expect(typeof mockLsStore.TimeLock).toBe('number');
-    expect(mockLsStore.TimeLock).not.toBe(0); // recorded before unlock(), re-stamped at the rejection
+    expect(mockLsStore.TimeLock).toBe(BASE + 1150);
+
+    await act(async () => rejectUnlock(new Error('nope')));
   });
 
   it('clears the incorrect-passcode error when a digit is deleted', async () => {
