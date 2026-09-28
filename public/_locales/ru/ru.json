@@ -1208,6 +1208,7 @@
   "saveContact": "Сохранить",
   "contactAdded": "Добавлен",
   "guardianCardMeta": "Оператор: $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
   "receiveQrColorAction": "Изменить цвет QR-кода",
   "receiveAt": "Получить на",
   "earnTitle": "Ваш доход",

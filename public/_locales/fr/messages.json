@@ -5333,8 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Réessayez.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Changer la couleur du QR code",

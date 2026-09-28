@@ -5333,8 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Couldn't check this wallet's unlock method. Try again.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Change the QR code color",

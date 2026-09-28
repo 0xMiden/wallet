@@ -5333,8 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Spróbuj ponownie.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Zmień kolor kodu QR",

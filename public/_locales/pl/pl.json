@@ -1208,6 +1208,7 @@
   "saveContact": "Zapisz",
   "contactAdded": "Dodano",
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Spróbuj ponownie.",
   "receiveQrColorAction": "Zmień kolor kodu QR",
   "receiveAt": "Odbierz na",
   "earnTitle": "Twoje zarobki",

@@ -1208,6 +1208,7 @@
   "saveContact": "Speichern",
   "contactAdded": "Hinzugefügt",
   "guardianCardMeta": "Betrieben von $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
   "receiveQrColorAction": "Farbe des QR-Codes ändern",
   "receiveAt": "Empfangen an",
   "earnTitle": "Deine Erträge",

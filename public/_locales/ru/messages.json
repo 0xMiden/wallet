@@ -5333,8 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Изменить цвет QR-кода",

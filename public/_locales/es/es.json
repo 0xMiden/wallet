@@ -1208,6 +1208,7 @@
   "saveContact": "Guardar",
   "contactAdded": "Añadido",
   "guardianCardMeta": "Operado por $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "No se ha podido comprobar el método de desbloqueo de esta cartera. Inténtalo de nuevo.",
   "receiveQrColorAction": "Cambiar el color del código QR",
   "receiveAt": "Recibir en",
   "earnTitle": "Tus ganancias",

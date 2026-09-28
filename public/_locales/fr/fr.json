@@ -1208,6 +1208,7 @@
   "saveContact": "Enregistrer",
   "contactAdded": "Ajouté",
   "guardianCardMeta": "Exploité par $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Réessayez.",
   "receiveQrColorAction": "Changer la couleur du QR code",
   "receiveAt": "Recevoir sur",
   "earnTitle": "Vos gains",
