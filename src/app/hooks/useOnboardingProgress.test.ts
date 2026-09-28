@@ -46,4 +46,18 @@ describe('useSetOnboardingCompleted', () => {
     expect(mockSetOnboarding).toHaveBeenCalledWith(false);
     expect(mockPutToStorage).toHaveBeenCalledWith('onboarding_completed', false);
   });
+
+  it('leaves no unhandled rejection and keeps the local flag when the persisted write fails', async () => {
+    mockPutToStorage.mockRejectedValueOnce(new Error('write failed'));
+    const { result } = renderHook(() => useSetOnboardingCompleted());
+
+    act(() => result.current(true));
+    // Flush the rejected `putToStorage` promise's microtask queue.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockSetOnboarding).toHaveBeenCalledWith(true);
+    expect(mockSetOnboarding).toHaveBeenCalledTimes(1);
+  });
 });

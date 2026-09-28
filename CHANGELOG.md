@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
