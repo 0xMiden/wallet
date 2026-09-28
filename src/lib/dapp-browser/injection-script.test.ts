@@ -997,6 +997,21 @@ describe('account switch (#174)', () => {
     error.mockRestore();
   });
 
+  it('a listener that disconnects from the connect emission leaves no poll', async () => {
+    const win = makeWindow();
+    inject(win);
+    const w = win.midenWallet;
+    let disconnecting: Promise<unknown> | undefined;
+    w.on('connect', () => {
+      if (!disconnecting) disconnecting = w.disconnect();
+    });
+    await callAndResolve(win, () => w.connect('ALL', 'testnet', ['balance']), CONNECT);
+    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    await disconnecting;
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(0);
+  });
+
   it('a poll that times out is followed by the next one', async () => {
     const win = await connectedOnTestnet();
     jest.advanceTimersByTime(10000);
