@@ -32,6 +32,15 @@ beforeEach(() => {
   mockNative = 'native';
 });
 
+afterEach(() => {
+  Reflect.deleteProperty(document, 'visibilityState');
+});
+
+const setVisibility = (state: DocumentVisibilityState) => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  document.dispatchEvent(new Event('visibilitychange'));
+};
+
 it('is unknown while the list loads', () => {
   mockLoad.mockReturnValue(new Promise(() => undefined));
   const { result } = renderHook(() => useTokenVerification());
@@ -115,4 +124,23 @@ it('does not let a loaded network speak for another network still loading', asyn
   mockNetwork = 'devnet';
   rerender();
   expect(result.current('t')).toBe('unknown');
+});
+
+it('reloads when the app returns to the foreground, and stops listening once unmounted', async () => {
+  mockLoad.mockResolvedValue(new Set(['a']));
+  const { result, unmount } = renderHook(() => useTokenVerification());
+  await waitFor(() => expect(result.current('b')).toBe('unverified'));
+  expect(mockLoad).toHaveBeenCalledTimes(1);
+
+  await act(async () => setVisibility('hidden'));
+  expect(mockLoad).toHaveBeenCalledTimes(1);
+
+  mockLoad.mockResolvedValue(new Set(['a', 'b']));
+  await act(async () => setVisibility('visible'));
+  expect(mockLoad).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(result.current('b')).toBe('verified'));
+
+  unmount();
+  setVisibility('visible');
+  expect(mockLoad).toHaveBeenCalledTimes(2);
 });

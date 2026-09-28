@@ -30,9 +30,16 @@ export function useTokenVerification(): (faucetId: string) => TokenVerification 
     const unsubscribe = onTokenListUpdated(updated => {
       if (updated === network) void load();
     });
+    // Home stays mounted for the app's lifetime on mobile and desktop, so a return to the foreground
+    // is what lets a day-old list start its refresh.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       current = false;
       unsubscribe();
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [network]);
 
