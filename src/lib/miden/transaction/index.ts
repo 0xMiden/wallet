@@ -1,6 +1,5 @@
 import {
   ChainAnchor,
-  getWasmOrThrow,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -100,7 +99,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { isPrivateNoteType, standardPaymentScriptRoots } from '../helpers';
+import { isPrivateNoteType } from '../helpers';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -1637,31 +1636,28 @@ const buildColdServiceForAccount = async (
  * The generation-time half of the gate claim's native-only rule (#805): every note the
  * row names must still be listed for the account, hold only the native asset, and be a
  * standard P2ID or P2IDE payment. Read from the consumable-note DTO, which carries every
- * fungible asset of a note where the claimable list keeps only the first. A note with no
- * fungible asset proves nothing, so it is refused too. The script matters because the
- * recovery key and the guardian sign this claim with no user step, and a note's script
- * decides what consuming it does. Throws before any service is built or anything reaches
- * the guardian.
+ * fungible asset of a note where the claimable list keeps only the first, and the DTO's
+ * own standard-payment verdict (a note whose script could not be read reads `false`, so
+ * a missing verdict fails closed rather than passing). A note with no fungible asset
+ * proves nothing, so it is refused too. The script matters because the recovery key and
+ * the guardian sign this claim with no user step, and a note's script decides what
+ * consuming it does. Throws before any service is built or anything reaches the guardian.
  */
 const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
   const nativeFaucetId = await getFaucetIdSetting();
   if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
-  // The lazy entry's statics are empty until the module loads, and this realm may not have loaded it.
-  await getWasmOrThrow();
-  const { listed, paymentScriptRoots } = await withWasmClientLock(async hold => {
-    const roots = standardPaymentScriptRoots();
-    const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
+  const listed = await withWasmClientLock(async hold =>
+    midenClientProxy.getConsumableNotes(accountId, step =>
       assertWasmHoldCurrent(hold, 'rotation funding: consumable-note read', step)
-    );
-    return { listed: notes, paymentScriptRoots: roots };
-  });
+    )
+  );
   for (const noteId of noteIds) {
     const note = listed.find(candidate => candidate.noteId === noteId);
     if (!note) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR);
     if (
       note.assets.length === 0 ||
       note.assets.some(asset => asset.faucetId !== nativeFaucetId) ||
-      !paymentScriptRoots.has(note.scriptRoot ?? '')
+      note.standardPayment !== true
     ) {
       throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
     }

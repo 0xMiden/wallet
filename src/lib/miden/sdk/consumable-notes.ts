@@ -24,7 +24,7 @@
 // so the move is behavior-preserving field-for-field. See the per-caller mapping
 // in each rewired call site.
 
-import type { InputNoteRecord, InputNoteState, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import type { InputNoteRecord, InputNoteState, NoteDetails, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNoteRecallableAtMs, standardPaymentScriptRoots } from '../helpers';
 import { getBech32AddressFromAccountId } from './helpers';
@@ -69,8 +69,6 @@ export type ConsumableNoteDto = {
   swapAttachment: { orderId: string; depth: number } | null;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note. */
   recallableAtMs?: number;
-  /** The note script's root, hex; absent when the recipient cannot be read. */
-  scriptRoot?: string;
   /** The script is the standard P2ID or P2IDE payment; false when it cannot be read. */
   standardPayment?: boolean;
 };
@@ -110,13 +108,14 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
   return null;
 }
 
-/** Read on its own: a note whose script cannot be read is still listed, as no standard payment. */
-function scriptOf(record: InputNoteRecord): Pick<ConsumableNoteDto, 'scriptRoot' | 'standardPayment'> {
+/** Whether `details`' recipient runs a standard P2ID/P2IDE payment script, read off
+ * the details already fetched for the assets list (never a second `record.details()`
+ * call). A recipient or script that cannot be read is not a standard payment. */
+function isStandardPayment(details: NoteDetails): boolean {
   try {
-    const scriptRoot = record.details().recipient().script().root().toHex();
-    return { scriptRoot, standardPayment: standardPaymentScriptRoots().has(scriptRoot) };
+    return standardPaymentScriptRoots().has(details.recipient().script().root().toHex());
   } catch {
-    return { standardPayment: false };
+    return false;
   }
 }
 
@@ -145,18 +144,27 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?:
     const noteType = meta ? meta.noteType() : undefined;
     const senderAccountId = meta ? getBech32AddressFromAccountId(meta.sender()) : undefined;
     const state = record.state();
-    const assets = record
-      .details()
+    const details = record.details();
+    const assets = details
       .assets()
       .fungibleAssets()
       .map(asset => ({
         amount: asset.amount().toString(),
         faucetId: getBech32AddressFromAccountId(asset.faucetId())
       }));
+    const standardPayment = isStandardPayment(details);
     const swapAttachment = attachmentOrderAndDepth(record);
-    const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
+    const dto: ConsumableNoteDto = {
+      noteId,
+      nullifier,
+      noteType,
+      senderAccountId,
+      state,
+      assets,
+      swapAttachment,
+      standardPayment
+    };
     dto.blockNum = record.inclusionProof?.()?.location().blockNum();
-    Object.assign(dto, scriptOf(record));
     if (syncHeight !== undefined) {
       const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
       if (recallableAtMs !== undefined) dto.recallableAtMs = recallableAtMs;

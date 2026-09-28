@@ -222,15 +222,17 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
     expect(reduceConsumableNoteRecord(rec)?.assets).toEqual([]);
   });
 
-  it('carries the note script root, which the rotation gate claim checks (#805)', () => {
-    expect(reduceConsumableNoteRecord(fakeRecord({ scriptRoot: '0xroot' }))).toMatchObject({ scriptRoot: '0xroot' });
-  });
-
-  it('keeps a note whose script root cannot be read, with no root and not as a standard payment (#805)', () => {
+  it('keeps a note whose script cannot be read, not as a standard payment (#805)', () => {
     const dto = reduceConsumableNoteRecord(fakeRecord({ id: '0xnoroot' }));
     expect(dto?.noteId).toBe('0xnoroot');
-    expect(dto?.scriptRoot).toBeUndefined();
     expect(dto?.standardPayment).toBe(false);
+  });
+
+  it('reads record.details() exactly once per reduced note (#805)', () => {
+    const rec = fakeRecord({ scriptRoot: '0xp2id-root' });
+    const detailsSpy = jest.spyOn(rec, 'details');
+    reduceConsumableNoteRecord(rec);
+    expect(detailsSpy).toHaveBeenCalledTimes(1);
   });
 
   it.each([

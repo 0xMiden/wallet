@@ -279,27 +279,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 // a WASM ChainAnchor before pinning executeRequest to it.
 // eslint-disable-next-line no-var
 var mockChainAnchorDeserialize = jest.fn();
-// The standard payment scripts' roots, as the rotation gate claim compares a note's against (#805).
-// Like the lazy entry, the statics answer only once the module is loaded.
-const mockP2idRoot = '0xp2id-root';
-const mockP2ideRoot = '0xp2ide-root';
-let mockWasmLoaded = false;
-const mockScript = (root: string) => {
-  if (!mockWasmLoaded) throw new TypeError('WASM module not loaded');
-  return { root: () => ({ toHex: () => root }) };
-};
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    getWasmOrThrow: jest.fn(async () => {
-      mockWasmLoaded = true;
-      return {};
-    }),
-    NoteScript: {
-      p2id: () => mockScript(mockP2idRoot),
-      p2ide: () => mockScript(mockP2ideRoot)
-    },
     TransactionProver: {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
@@ -8212,7 +8195,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
   };
 
   /** A consumable-note DTO as the client reduces it: one fungible asset per faucet id given. */
-  const listedNote = (noteId: string, faucetIds: string[], scriptRoot = mockP2idRoot): ConsumableNoteDto => ({
+  const listedNote = (noteId: string, faucetIds: string[], standardPayment = true): ConsumableNoteDto => ({
     noteId,
     nullifier: `null-${noteId}`,
     noteType: undefined,
@@ -8220,7 +8203,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     state: 2,
     assets: faucetIds.map(faucetId => ({ faucetId, amount: '20000000' })),
     swapAttachment: null,
-    scriptRoot
+    standardPayment
   });
 
   const makeService = () => ({
@@ -8277,7 +8260,6 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
-    mockWasmLoaded = false;
   });
 
   it('proposes, signs and executes a flagged claim on a rotation-pending account with the recovery key', async () => {
@@ -8385,7 +8367,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
   // The recovery key and the guardian sign the claim with no user step, so the note's script
   // has to be a plain payment too, not only its assets.
   it('refuses a flagged claim whose native-only note runs another script, before building any service', async () => {
-    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE], '0xcustom-root')], true);
+    const { row, stored, hotService, coldService } = arrange([listedNote('note-1', [NATIVE], false)], true);
 
     await run(row, recovered);
 
@@ -8397,8 +8379,11 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
   });
 
-  it('refuses a flagged claim whose note carries no script root', async () => {
-    const { row, stored, coldService } = arrange([{ ...listedNote('note-1', [NATIVE]), scriptRoot: undefined }], true);
+  it('refuses a flagged claim whose note carries no standard-payment flag, a missing verdict failing closed', async () => {
+    const { row, stored, coldService } = arrange(
+      [{ ...listedNote('note-1', [NATIVE]), standardPayment: undefined }],
+      true
+    );
 
     await run(row, recovered);
 
@@ -8407,11 +8392,8 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     expect(coldService.createConsumeNotesProposal).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['P2ID', mockP2idRoot],
-    ['P2IDE', mockP2ideRoot]
-  ])('claims a native %s note with the recovery key', async (_name, scriptRoot) => {
-    const { row, coldService, client } = arrange([listedNote('note-1', [NATIVE], scriptRoot)], true);
+  it('claims a standard payment note with the recovery key', async () => {
+    const { row, coldService, client } = arrange([listedNote('note-1', [NATIVE])], true);
 
     await run(row, recovered);
 
