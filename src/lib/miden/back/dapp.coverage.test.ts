@@ -171,6 +171,13 @@ describe('getCurrentPermission', () => {
     const res = await dapp.getCurrentPermission('https://miden.xyz');
     expect(res.permission).toBeNull();
   });
+
+  it("carries the account's public key from its session (#174)", async () => {
+    storageState[STORAGE_KEY] = { 'https://miden.xyz': [{ ...SESSION, publicKey: 'AQID' }] };
+    const res = await dapp.getCurrentPermission('https://miden.xyz');
+    expect(res.permission?.publicKey).toBe('AQID');
+    expect(res.permission?.address).toBe('miden-account-1');
+  });
 });
 
 // ── requestDisconnect ──────────────────────────────────────────────

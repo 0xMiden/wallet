@@ -1199,6 +1199,7 @@
   "guardianCardMeta": "運営: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
   "checkingUnlockMethodSlow": "このウォレットのロック解除方法の確認に、通常より時間がかかっています。再試行するには、戻ってこのページを再度開いてください。",
+  "couldNotCheckUnlockMethodReopen": "このウォレットのロック解除方法を確認できませんでした。再試行するには、戻ってこのページを再度開いてください。",
   "receiveQrColorAction": "QRコードの色を変更",
   "receiveAt": "受取先",
   "earnTitle": "あなたの収益",

@@ -5291,6 +5291,10 @@
     "message": "La vérification de la méthode de déverrouillage de ce portefeuille prend plus de temps que d’habitude. Pour réessayer, revenez en arrière et rouvrez cette page.",
     "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
+  "couldNotCheckUnlockMethodReopen": {
+    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Pour réessayer, revenez en arrière et rouvrez cette page.",
+    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+  },
   "receiveQrColorAction": {
     "message": "Changer la couleur du QR code",
     "englishSource": "Change the QR code color"

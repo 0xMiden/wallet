@@ -5291,6 +5291,10 @@
     "message": "このウォレットのロック解除方法の確認に、通常より時間がかかっています。再試行するには、戻ってこのページを再度開いてください。",
     "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
   },
+  "couldNotCheckUnlockMethodReopen": {
+    "message": "このウォレットのロック解除方法を確認できませんでした。再試行するには、戻ってこのページを再度開いてください。",
+    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+  },
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",
     "englishSource": "Change the QR code color"
