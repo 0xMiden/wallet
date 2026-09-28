@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
@@ -14,7 +15,6 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
@@ -32,10 +32,6 @@ type FormData = {
 
 // The page opens on the privacy warning; the auth gate and the words come only after View.
 type Step = 'warning' | 'reveal';
-
-// The protector probe reads platform storage, which can hang rather than fail. Past this bound the
-// page says it is still checking and how to retry (leave and reopen); the probe itself stays in flight.
-const PROBE_TIMEOUT_MS = 5_000;
 
 const RevealSeedPhrase: FC = () => {
   const { t } = useTranslation();
@@ -73,19 +69,12 @@ const RevealSeedPhrase: FC = () => {
     setShowPasswordDrawer(false);
     popPage();
   }, [popPage, setSecret]);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  // Probes on mount whatever seedStatus is: the seed-state branch never renders the result, and the
+  // read is one storage lookup.
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  // Set only when BOTH protector reads fail, which means storage itself is
-  // unavailable rather than that the wallet has no credential - a wallet with no
-  // credential resolves both reads to false and never lands here. It therefore has
-  // its own surface on the warning step with a Retry, because the failure is
-  // transient and the mount probe runs once.
-  const [probeError, setProbeError] = useState<string | null>(null);
-  const [probing, setProbing] = useState(false);
-  const [probeSlow, setProbeSlow] = useState(false);
-  const probeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -105,49 +94,6 @@ const RevealSeedPhrase: FC = () => {
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
-
-  // Detect the auth type, so View knows which gate to open. `probeHardwareProtector` resolves a
-  // failed read through the password protector instead of guessing; only a failure of both reads
-  // reaches `probeError`.
-  //
-  // One probe per page at a time. Retry exists only once a probe has settled with both reads
-  // rejected, so no second probe can start while one is in flight, and staying on the page adopts the
-  // first read's answer however late. During a hang the only retry is leaving and reopening, which
-  // ends this probe with the page: its late settle writes to an unmounted component, which React
-  // ignores, and the new page's read answers if the first was lost rather than wedged.
-  const runProbe = useCallback(() => {
-    setProbing(true);
-    let waited = false;
-    probeTimer.current = setTimeout(() => {
-      waited = true;
-      console.warn(`[RevealSeedPhrase] protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`);
-      // The wait notice replaces an earlier failure's error: one message on screen at a time.
-      setProbeError(null);
-      setProbeSlow(true);
-    }, PROBE_TIMEOUT_MS);
-
-    probeHardwareProtector()
-      .then(hasHw => {
-        if (waited) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
-        setProbeError(null);
-        setHasHardwareProtector(hasHw);
-      })
-      .catch(err => {
-        console.warn(`[RevealSeedPhrase] protector probe failed: ${err instanceof Error ? err.message : String(err)}`);
-        setProbeError('couldNotCheckUnlockMethod');
-      })
-      .finally(() => {
-        clearTimeout(probeTimer.current);
-        setProbeSlow(false);
-        setProbing(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (seedStatus && seedStatus !== 'stored') return;
-    runProbe();
-    return () => clearTimeout(probeTimer.current);
-  }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.
   const handleView = useCallback(() => {
@@ -365,15 +311,7 @@ const RevealSeedPhrase: FC = () => {
             <SeedPhrasePlaceholder />
           </SubPageSection>
 
-          {probeError ? (
-            <ProtectorProbeErrorNotice onRetry={runProbe} retrying={probing} />
-          ) : (
-            probeSlow && (
-              <Notice tone="neutral" role="status" data-testid="reveal-seed-probe-slow">
-                {t('checkingUnlockMethodSlow')}
-              </Notice>
-            )
-          )}
+          {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
 
           <SeedPhrasePrivacyHero className="mt-auto pt-4" />
         </SubPageLayout>

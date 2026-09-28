@@ -5336,10 +5336,6 @@
     "message": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   },
-  "checkingUnlockMethodSlow": {
-    "message": "A verificação do método de desbloqueio desta carteira está demorando mais do que o normal. Para tentar novamente, volte e reabra esta página.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
   "receiveQrColorAction": {
     "message": "Alterar a cor do código QR",
     "englishSource": "Change the QR code color"

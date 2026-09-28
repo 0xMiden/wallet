@@ -1209,7 +1209,6 @@
   "contactAdded": "Hinzugefügt",
   "guardianCardMeta": "Betrieben von $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
-  "checkingUnlockMethodSlow": "Die Überprüfung der Entsperrmethode dieser Wallet dauert länger als gewöhnlich. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
   "receiveQrColorAction": "Farbe des QR-Codes ändern",
   "receiveAt": "Empfangen an",
   "earnTitle": "Deine Erträge",

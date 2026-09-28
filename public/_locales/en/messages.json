@@ -5336,10 +5336,6 @@
     "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   },
-  "checkingUnlockMethodSlow": {
-    "message": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
   "receiveQrColorAction": {
     "message": "Change the QR code color",
     "englishSource": "Change the QR code color"

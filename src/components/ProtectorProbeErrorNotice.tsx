@@ -7,9 +7,9 @@ import { Notice } from 'components/ui/Notice';
 
 /**
  * The rendering of `useHardwareProtector`'s failure state (#1056, #1241) on every screen that uses the
- * hook: RevealSecret, ExportAccountFile, EncryptedWalletFileWalletPassword, VerifySeedPhraseFlow and
- * RotateGuardianReview's footer. The probe failed or missed its deadline; Retry probes again and stays
- * loading until that attempt settles. RevealSeedPhrase shows the same copy beside its own Retry.
+ * hook: RevealSecret, RevealSeedPhrase, ExportAccountFile, EncryptedWalletFileWalletPassword,
+ * VerifySeedPhraseFlow and RotateGuardianReview's footer. The probe failed or missed its deadline;
+ * Retry probes again and stays loading until that attempt settles.
  */
 export const ProtectorProbeErrorNotice: React.FC<{ className?: string; onRetry: () => void; retrying: boolean }> = ({
   className,

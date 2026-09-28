@@ -1209,7 +1209,6 @@
   "contactAdded": "添加时间",
   "guardianCardMeta": "运营方：$operator$ · $location$",
   "couldNotCheckUnlockMethod": "无法验证此钱包的解锁方式。请检查您的网络连接并重试。",
-  "checkingUnlockMethodSlow": "验证此钱包的解锁方式耗时比平时更长。如需重试，请返回并重新打开此页面。",
   "receiveQrColorAction": "更改二维码颜色",
   "receiveAt": "接收地址",
   "earnTitle": "您的收益",

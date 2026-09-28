@@ -5336,10 +5336,6 @@
     "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   },
-  "checkingUnlockMethodSlow": {
-    "message": "Die Überprüfung der Entsperrmethode dieser Wallet dauert länger als gewöhnlich. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
   "receiveQrColorAction": {
     "message": "Farbe des QR-Codes ändern",
     "englishSource": "Change the QR code color"

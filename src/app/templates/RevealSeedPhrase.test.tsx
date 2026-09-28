@@ -1,9 +1,11 @@
 import React from 'react';
 
 import { App } from '@capacitor/app';
+import { getByTestId } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
 
@@ -35,8 +37,8 @@ let mockIsMobile = false;
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
-// A spy, not a bare identity fn: `probeError` holds a translation KEY that the render
-// site translates, while its sibling `authError` holds a message rendered raw. Under an
+// A spy, not a bare identity fn: the probe failure renders a KEY that ProtectorProbeErrorNotice
+// translates, while its sibling `authError` holds a message rendered raw. Under an
 // identity `t` both look the same on screen, so dropping the `t()` call would ship a raw
 // key in a user-facing banner with every test green. Asserting the CALL is the only way
 // to tell them apart here.
@@ -289,27 +291,64 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Initial null render (hasHardwareProtector still resolving).
   // -------------------------------------------------------------------------
-  it.each<Exclude<SeedPhraseStatus, 'stored'>>(['removed', 'removing', 'unavailable'])(
-    'does not request or display a phrase when its status is %s',
-    async status => {
-      mockSeedStatus = status;
-      mockSecret = 'alpha beta gamma delta';
-      const container = await render();
-      // Three distinct states, spelled out as a literal table rather than
-      // recomputed from the production map, which would make this tautological.
-      // 'removing' is retried on the next unlock; 'unavailable' means a wallet
-      // imported from a key that never had a phrase here, so neither may claim
-      // the phrase was removed.
-      const expectedNotice = {
-        removing: 'seedRemovalIncomplete',
-        removed: 'seedPhraseRemoved',
-        unavailable: 'seedPhraseUnavailable'
-      } as const;
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
-      expect(container.textContent).not.toContain('alpha');
-      expect(mockSetSecret).toHaveBeenCalledWith(null);
-      expect(mockHasHardwareProtector).not.toHaveBeenCalled();
-      expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  // Three distinct states, spelled out as a literal table rather than
+  // recomputed from the production map, which would make this tautological.
+  // 'removing' is retried on the next unlock; 'unavailable' means a wallet
+  // imported from a key that never had a phrase here, so neither may claim
+  // the phrase was removed.
+  const expectedNotice = {
+    removing: 'seedRemovalIncomplete',
+    removed: 'seedPhraseRemoved',
+    unavailable: 'seedPhraseUnavailable'
+  } as const;
+  const seedStates: Exclude<SeedPhraseStatus, 'stored'>[] = ['removed', 'removing', 'unavailable'];
+
+  it.each(seedStates)('does not request or display a phrase when its status is %s', async status => {
+    mockSeedStatus = status;
+    mockSecret = 'alpha beta gamma delta';
+    const container = await render();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
+    expect(container.textContent).not.toContain('alpha');
+    expect(mockSetSecret).toHaveBeenCalledWith(null);
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  // The page probes on mount whatever the status is, so this branch is what keeps a failed or hung
+  // probe off the status page: the hook reaches its failed state, and nothing renders it.
+  const unansweredProbes: [string, () => Promise<boolean>, string][] = [
+    ['both reads reject', () => Promise.reject(new Error('storage')), 'both protector reads failed'],
+    [
+      'the hardware read hangs',
+      () => new Promise<boolean>(() => {}),
+      `did not answer within ${PROTECTOR_PROBE_DEADLINE_MS}ms`
+    ]
+  ];
+  it.each(seedStates.flatMap(status => unansweredProbes.map(probe => [status, ...probe] as const)))(
+    'shows only the status notice when its status is %s and %s',
+    async (status, _probe, hardwareRead, failureLog) => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockSeedStatus = status;
+        mockHasHardwareProtector.mockImplementation(hardwareRead);
+        mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+        const container = renderNoFlush();
+        await act(async () => {
+          await Promise.resolve();
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+        });
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(failureLog));
+        expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
+        expect(probeRetryButton(container)).toBeNull();
+        expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
+        expect(mockRevealMnemonic).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
     }
   );
 
@@ -410,7 +449,7 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
       'couldNotCheckUnlockMethod'
     );
-    // The banner must be TRANSLATED, not rendered as the bare key it stores.
+    // The notice must TRANSLATE its key, not render it bare.
     expect(mockT).toHaveBeenCalledWith('couldNotCheckUnlockMethod');
     expect(buttonWithText(container, 'view')!.disabled).toBe(true);
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
@@ -427,7 +466,7 @@ describe('RevealSeedPhrase', () => {
 
   // Retry must survive its own click: a read that HANGS rather than rejecting used to leave a
   // disabled View, no Retry and only Close. The error now stays on screen with a disabled, loading
-  // Retry for the first 5 s; past the deadline the wait notice takes over (see 'swaps the error...').
+  // Retry until the retry's own deadline hands it back (see 'hands Retry back...').
   it('keeps the error and the Retry on screen while a retry is still in flight', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
@@ -445,8 +484,8 @@ describe('RevealSeedPhrase', () => {
   });
 
   // Names the contract that the mount-failure tests only cover incidentally: a retry
-  // that fails AGAIN must hand the button back. The catch re-sets the identical key, so
-  // React bails out of that re-render and only the probing flag returns the control.
+  // that fails AGAIN must hand the button back. The error never left the screen, so only
+  // the hook's retrying flag returns the control.
   it('re-enables Retry after a retry fails again', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
@@ -498,7 +537,9 @@ describe('RevealSeedPhrase', () => {
         jest.advanceTimersByTime(6000);
       });
 
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('still waiting after 5000ms'));
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(`did not answer within ${PROTECTOR_PROBE_DEADLINE_MS}ms`)
+      );
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
@@ -506,9 +547,9 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // Past the deadline the page keeps its one probe in flight and offers no Retry, so no two probes on
-  // one page ever overlap; the notice's way to retry is leaving and reopening the page.
-  it('shows the wait notice, not an error, when a probe hangs past the deadline', async () => {
+  // A hung read ends like a failed one: past the deadline the page shows the error with an enabled Retry,
+  // the surface every screen that checks the unlock method shares (#1241).
+  it('shows the error with an enabled Retry when the mount probe hangs past the deadline', async () => {
     jest.useFakeTimers();
     try {
       mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
@@ -516,21 +557,15 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
-
-      await act(async () => {
-        jest.advanceTimersByTime(6000);
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      const slow = container.querySelector('[data-testid="reveal-seed-probe-slow"]');
-      expect(slow!.textContent).toContain('checkingUnlockMethodSlow');
-      expect(mockT).toHaveBeenCalledWith('checkingUnlockMethodSlow');
-      expect(slow!.getAttribute('role')).toBe('status');
-      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(probeRetryButton(container)).toBeNull();
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+
+      expect(getByTestId<HTMLButtonElement>(container, 'protector-probe-retry').disabled).toBe(false);
+      expect(getByTestId(container, 'protector-probe-error').textContent).toContain('couldNotCheckUnlockMethod');
+      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
       // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
       expect(jest.getTimerCount()).toBe(0);
@@ -539,9 +574,8 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // The deadline and the failure raise different surfaces (the wait notice, then the error), so
-  // each gets its own line.
-  it('logs the wait and then the failure when a probe times out and then fails', async () => {
+  // A missed deadline and a later failure are two causes behind the one error, so each gets its own line.
+  it('logs the missed deadline and then the failure when a probe times out and then fails', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -574,7 +608,6 @@ describe('RevealSeedPhrase', () => {
 
       expect(warn).toHaveBeenCalledTimes(2);
       expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('protector probe failed:'));
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
       expect(probeRetryButton(container)!.disabled).toBe(false);
     } finally {
@@ -600,7 +633,7 @@ describe('RevealSeedPhrase', () => {
 
   // A slow read is the common case on mobile (a native bridge call into a WebView the OS suspends
   // when backgrounded). Staying on the page adopts the first read's answer whenever it lands.
-  it('adopts a slow answer that lands after the wait notice has appeared', async () => {
+  it("adopts a slow answer that lands after the deadline's error has appeared", async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -621,7 +654,7 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
 
       await act(async () => {
         settleRead(true);
@@ -630,19 +663,18 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
-      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('answered after the wait'));
+      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('answered after the deadline'));
     } finally {
       warn.mockRestore();
       jest.useRealTimers();
     }
   });
 
-  // The wait notice's way to retry: leaving ends this page's probe with it, and the reopened page starts
-  // a fresh read of its own, which answers when the first read was lost rather than wedged.
-  it('reopening the page after the wait notice probes again and uses the new answer', async () => {
+  // Leaving ends this page's probe with it, and the reopened page starts a fresh read of its own, which
+  // answers when the first read was lost rather than wedged.
+  it('reopening the page after a missed deadline probes again and uses the new answer', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -654,7 +686,7 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         jest.advanceTimersByTime(6000);
       });
-      expect(testContainer!.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
+      expect(testContainer!.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
 
       await act(async () => {
         testRoot!.unmount();
@@ -670,7 +702,7 @@ describe('RevealSeedPhrase', () => {
       });
 
       expect(mockHasHardwareProtector).toHaveBeenCalledTimes(2);
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
     } finally {
       warn.mockRestore();
@@ -678,10 +710,9 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
-  // A Retry from the error state keeps the error and its disabled Retry while it runs; if that read
-  // then hangs past the deadline, the wait notice replaces the error, so the page never sits on a
-  // disabled Retry that nothing will re-enable.
-  it('swaps the error for the wait notice when a retry hangs past the deadline', async () => {
+  // A Retry from the error state keeps the error and a loading Retry while it runs; if that read then
+  // hangs, its own deadline hands Retry back, so the page never sits on a Retry nothing re-enables.
+  it('hands Retry back when a retry hangs past its deadline, and a later answer opens the gate', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
     mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
     const container = await render();
@@ -695,23 +726,32 @@ describe('RevealSeedPhrase', () => {
       });
       expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
       expect(probeRetryButton(container)!.disabled).toBe(true);
+      expect(probeRetryButton(container)!.getAttribute('aria-busy')).toBe('true');
 
       await act(async () => {
-        jest.advanceTimersByTime(6000);
-      });
-      await act(async () => {
-        await Promise.resolve();
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
       });
 
-      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).not.toBeNull();
-      expect(probeRetryButton(container)).toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).not.toBeNull();
+      expect(probeRetryButton(container)!.disabled).toBe(false);
     } finally {
       jest.useRealTimers();
     }
+
+    mockHasHardwareProtector.mockResolvedValue(false);
+    await act(async () => {
+      probeRetryButton(container)!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
+    expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+    await clickView(container);
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(container.querySelector('input[name="password"]')).toBeTruthy();
   });
 
-  // Pins the bound from BELOW: a probe that settles normally never shows the wait notice and leaves no
+  // Pins the bound from BELOW: a probe that settles normally never shows the error and leaves no
   // timer behind.
   it('lets a normal probe settle without arming a lasting timer', async () => {
     jest.useFakeTimers();
@@ -735,7 +775,6 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
 
       await act(async () => {
@@ -745,11 +784,10 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="reveal-seed-probe-slow"]')).toBeNull();
       expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
       expect(jest.getTimerCount()).toBe(0);
-      // A probe that never waited has nothing to report.
+      // A probe that answered in time has nothing to report.
       expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
