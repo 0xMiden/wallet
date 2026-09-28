@@ -15,6 +15,7 @@ import {
   RotationFundingSelection
 } from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 
@@ -234,12 +235,25 @@ export const RotationFundingPanel: FC<PanelProps> = ({
       {status === 'claim-failed' && (
         <>
           {claimError && <p className="text-sm text-ink break-words select-text">{claimError}</p>}
-          <Button data-testid="hot-key-rotation-funding-claim-retry" onClick={onRetryClaim}>
+          <Button
+            data-testid="hot-key-rotation-funding-claim-retry"
+            onClick={() => {
+              hapticLight();
+              onRetryClaim();
+            }}
+          >
             {t('hotKeyRotationFundingClaimRetry')}
           </Button>
         </>
       )}
-      <Button data-testid="hot-key-rotation-retry" variant={ButtonVariant.Secondary} onClick={onCheckAgain}>
+      <Button
+        data-testid="hot-key-rotation-retry"
+        variant={ButtonVariant.Secondary}
+        onClick={() => {
+          hapticLight();
+          onCheckAgain();
+        }}
+      >
         {t('hotKeyRotationFundingCheckAgain')}
       </Button>
     </div>

@@ -7,6 +7,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 import type { ConsumableNote } from 'lib/miden/types';
+import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -130,6 +131,10 @@ jest.mock('lib/miden/repo', () => ({
       modify: async (change: (row: TableRow) => void) => mockTable.filter(predicate).forEach(change)
     })
   }
+}));
+
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -809,6 +814,20 @@ describe('HotKeyRotationGate', () => {
           verificationBaseFee: 10000
         })
       );
+    });
+
+    it('gives Try again and Check again a light haptic', async () => {
+      trackShortfall();
+      mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'] })];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      render(<HotKeyRotationGate />);
+      const tryAgain = await screen.findByTestId('hot-key-rotation-funding-claim-retry');
+
+      fireEvent.click(tryAgain);
+      expect(hapticLight).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
+      expect(hapticLight).toHaveBeenCalledTimes(2);
+      await publishTable();
     });
 
     it('offers Check again, which queues a fresh rotation', async () => {
