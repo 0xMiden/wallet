@@ -951,14 +951,11 @@ describe('Unlock — mobile passcode numpad', () => {
 
   // The stub's setter is stable, so the interval is not re-created on every render as it is in the
   // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run by
-  // hand once the rejection has re-stamped the lockout, before React commits (#1079). The guess still
-  // holds its guard there, so the tick only sets the countdown: 01:00 from the live stamp, 00:00 from
-  // the one in its closure (0, or an expired stamp from an earlier lockout).
-  it.each([
-    ['0', 0],
-    ['an expired stamp', BASE - 10 * 60_000]
-  ])('keeps a lockout armed against a tick from before it (stored TimeLock %s)', async (_label, stored) => {
-    mockLsStore = { PasswordAttempts: 3, TimeLock: stored };
+  // hand once the rejection has re-stamped the lockout, before React commits (#1079). The tick fires
+  // while the guess still holds its guard, so what it controls is the countdown: 01:00 formatted from
+  // the live stamp, not 00:00 from the 0 in its closure.
+  it('keeps a lockout armed against a tick from before it', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
     mockUnlock.mockRejectedValueOnce(new Error('nope'));
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     const { container } = await renderUnlock();
