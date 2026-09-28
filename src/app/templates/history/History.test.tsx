@@ -2119,5 +2119,32 @@ describe('History on the real SWR cache', () => {
         .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
       expect(stale).toEqual([]);
     });
+
+    it('keeps its failed attempts hidden when the page goes off screen before the refreshed read settles', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      const show = (onScreen: boolean, cards: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(onScreen, { pendingItems: cards })));
+        });
+      await act(async () => {
+        utils = render(inCache(page(true, { pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await show(true, []);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      await show(false, []);
+
+      // Off screen the page keeps drawing its pre-refresh rows, so the refresh settling there cannot release.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt']));
+      await release([...rows, freshRow]);
+      await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+    });
   });
 });

@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { usePageActive } from 'app/layouts/page-active';
@@ -314,37 +314,39 @@ const History = memo<HistoryProps>(
     // An ACCEPTED transfer has no card any more — it is an ordinary row in this feed, drawn by
     // the same component as every other settled transaction — so its consume row must come
     // through rather than be hidden behind a card that no longer exists.
-    const representedNotes = useStableIdSet(
+    const representedNotes: ReadonlySet<string> = new Set(
       pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
     // A note that leaves that set (its claim completed, auto-consume took it, a decline, a filter chip) can still
-    // have its failed attempts in reads fetched before its claim was Completed, which is what supersedes them (#771).
-    // So it stays hidden until a refresh started after it left settles with both reads running; the fresh read then
+    // have its failed attempts in settled reads fetched before its claim was Completed, which is what supersedes them
+    // (#771). Only the settled read holds Failed rows, and it runs only while the in-flight read does, so the note
+    // stays hidden until a refresh started after it left settles with the settled read running; the fresh read then
     // decides. The set as last committed covers the render in which a note leaves, which paints before any effect.
     const committedNotes = useRef<ReadonlySet<string>>(NO_NOTES);
     const [heldNotes, setHeldNotes] = useSafeState<ReadonlySet<string>>(NO_NOTES);
     const refreshSeq = useRef(0);
-    const refreshHeldNotes = useCallback(() => {
-      const seq = ++refreshSeq.current;
-      const bothRunning = readingCompleted && readingPending;
-      void Promise.allSettled([mutateLatest(), mutateTx()]).then(() => {
-        // Only the latest refresh started after every leave, and SWR discards an older fetch that a newer mutate
-        // replaced, so an earlier refresh can settle on stale data. A read not running was not refreshed at all.
-        if (bothRunning && seq === refreshSeq.current) setHeldNotes(NO_NOTES);
-      });
-    }, [readingCompleted, readingPending, mutateLatest, mutateTx, setHeldNotes]);
-    const readsRunning = useRef({ completed: readingCompleted, pending: readingPending });
+    // Written only by the effect, which runs after every commit and does nothing on one with no leave and no read
+    // starting, so a refresh that settles after the page left the screen (or went to Pending) sees the read stopped:
+    // the page then still draws its pre-refresh rows, attempts included.
+    const settledReadRunning = useRef(readingCompleted);
     useEffect(() => {
       const leaving = [...committedNotes.current].filter(id => !representedNotes.has(id));
       committedNotes.current = representedNotes;
-      const readStarted =
-        (readingCompleted && !readsRunning.current.completed) || (readingPending && !readsRunning.current.pending);
-      readsRunning.current = { completed: readingCompleted, pending: readingPending };
+      const readStarted = readingCompleted && !settledReadRunning.current;
+      settledReadRunning.current = readingCompleted;
       if (leaving.length > 0) setHeldNotes(held => new Set([...held, ...leaving]));
-      // A read that was off when the last refresh settled still owes the held notes one. No timer: a refresh that
-      // never settles keeps them until the next one does, and while it hangs the feed cannot update anyway.
-      if (leaving.length > 0 || (readStarted && heldNotes.size > 0)) refreshHeldNotes();
-    }, [representedNotes, readingCompleted, readingPending, heldNotes, refreshHeldNotes, setHeldNotes]);
+      // A settled read that was off when the last refresh settled still owes the held notes one. No timer: a refresh
+      // that never settles keeps them hidden until the next leave's refresh settles or History unmounts, even while
+      // the other read keeps updating.
+      if (leaving.length === 0 && !(readStarted && heldNotes.size > 0)) return;
+      const seq = ++refreshSeq.current;
+      const startedRunning = readingCompleted;
+      void Promise.allSettled([mutateLatest(), mutateTx()]).then(() => {
+        // Only the latest refresh started after every leave, and SWR discards an older fetch that a newer mutate
+        // replaced, so an earlier refresh can settle on stale data. A read not running was not refreshed at all.
+        if (startedRunning && settledReadRunning.current && seq === refreshSeq.current) setHeldNotes(NO_NOTES);
+      });
+    });
     const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes]);
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>
@@ -440,14 +442,6 @@ function useLastData<T>(key: unknown[], running: boolean, live: T | undefined): 
   if (running && live !== undefined) last.current = { id, data: live };
   const kept = last.current?.id === id ? last.current.data : undefined;
   return running ? (live ?? kept) : kept;
-}
-
-/** `ids` as one set object for as long as its contents stay the same, so an effect can key on what it holds. */
-function useStableIdSet(ids: string[] = []): ReadonlySet<string> {
-  const last = useRef<ReadonlySet<string>>(NO_NOTES);
-  const next = new Set(ids);
-  if (next.size !== last.current.size || ids.some(id => !last.current.has(id))) last.current = next;
-  return last.current;
 }
 
 /** Types whose (non-failed) row would carry the SEND icon. */
