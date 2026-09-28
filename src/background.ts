@@ -21,8 +21,13 @@ if (process.env.TARGET_BROWSER === 'chrome') {
         .setPopup({ popup: '' })
         .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails; the warning below already reports the failure being reverted.
-        chromeApi.action.setPopup({ popup: 'popup.html' }).catch(() => {});
+        // Restore popup if side panel setup fails. A failed popup restore leaves the action button doing nothing, so it
+        // warns; a failed storage write keeps sidepanel_mode set, so the next start retries the restore.
+        chromeApi.action
+          .setPopup({ popup: 'popup.html' })
+          .catch((popupErr: Error) =>
+            console.warn('[Background] Side panel restore could not restore the popup:', popupErr)
+          );
         chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });
