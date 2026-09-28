@@ -147,7 +147,9 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
     });
   });
 
-  test('restores the file into a fresh wallet with the imported account and no Guardian account (#1114)', async ({
+  // Welcome currently redirects the retired file-import route to seed entry. Keep the export
+  // regression covered above; restore coverage resumes when that user flow is exposed again.
+  test.skip('restores the file into a fresh wallet with the imported account and no Guardian account (#1114)', async ({
     walletA,
     steps
   }) => {
