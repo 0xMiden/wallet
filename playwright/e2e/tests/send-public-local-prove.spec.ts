@@ -187,12 +187,18 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
         ).toBeLessThanOrEqual(MAX_FRAME_GAP_MS);
 
         const expectedThreads = await walletA.page.evaluate(() => Math.min(navigator.hardwareConcurrency, 6));
-        // Searched backwards from the window's own `openTs`, not forwards from
+        // Searched backwards from the window's own `closeTs`, not forwards from
         // `armedAt`: a worker already warm from an earlier local prove in this test
         // (a delegated claim that fell back locally) never fires a second `ready`, so
         // a search that only looked after arming would find none for a healthy run.
+        // `closeTs`, not `openTs`: prewarm's boot and the "window open" marker are two
+        // independent timers racing each other, and boot losing that race is the
+        // COMMON case for a cold spawn (`local-prove-window open` is stamped as soon
+        // as the calling code decides to prove, before the worker's own WASM+rayon
+        // boot - measured ~140ms after open - actually finishes). Bounding on `openTs`
+        // missed every fresh-worker run, not just the warm-worker one this fix targets.
         expect(
-          readyWorkerThreads(markers, proveWindow.openTs, 'before'),
+          readyWorkerThreads(markers, proveWindow.closeTs, 'before'),
           'the prove worker came up cross-origin isolated with the capped pool'
         ).toBe(expectedThreads);
         // Offscreen documents get chrome.runtime but never chrome.storage, so

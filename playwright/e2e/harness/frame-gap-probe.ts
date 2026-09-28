@@ -106,8 +106,12 @@ export function measureFrameGap(frames: number[], openTs: number, closeTs: numbe
  * `'after'` (the default) takes the FIRST such marker at or after the boundary - the
  * shape a fresh spawn always has. `'before'` takes the LATEST one at or before it: a
  * worker already warm from an earlier local prove in the same test never fires a
- * second `ready`, so the boundary has to search backwards from the prove window's own
- * `openTs` instead of forwards from when the flow was armed (#945).
+ * second `ready`, so the boundary has to search backwards from a point IN OR AFTER the
+ * prove window - its `closeTs`, not its `openTs` - instead of forwards from when the
+ * flow was armed (#945). `openTs` is not late enough: it is stamped as soon as the
+ * calling code decides to prove, and a cold spawn's own WASM+rayon boot is an
+ * independent timer that can still be running at that point (measured ~140ms of a
+ * cold boot landing after `openTs` on this suite's own runner).
  */
 export function readyWorkerThreads(
   markers: ProveMarker[],
