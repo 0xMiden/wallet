@@ -549,6 +549,22 @@ describe('formatMoneyAmount', () => {
     expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
   });
 
+  // Expanding 9e9999999 would build ten million digits during render.
+  it.each(['1e41', '1e-41', '9e9999999', '1e-9999999'])(
+    'reads %s, outside the display window, as non-numeric without expanding it',
+    value => {
+      expect(formatMoneyAmount(value, 'typed')).toBe('0');
+      expect(formatMoneyAmount(value, 'receives')).toBe(value);
+      expect(formatMoneyAmount(value, 'pays')).toBe(value);
+    }
+  );
+
+  it('still expands a value at the edge of the display window', () => {
+    expect(formatMoneyAmount('1e40', 'typed')).toBe(`1${'0'.repeat(40)}`);
+    expect(formatMoneyAmount('1e-40', 'typed')).toBe(`0.${'0'.repeat(39)}1`);
+    expect(formatMoneyAmount('1e40', 'receives')).toBe(`1${'0'.repeat(40)}`);
+  });
+
   // The Slow detail hero formats a stored source amount; a throw here takes the page down.
   describe('a stored amount a restored backup left as a number or a BigInt', () => {
     const stored = (value: unknown) => restoredEntry({}, { bridgeInSourceAmount: value }).bridgeInSourceAmount;

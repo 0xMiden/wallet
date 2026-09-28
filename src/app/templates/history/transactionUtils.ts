@@ -185,12 +185,22 @@ const amountText = (stored: unknown): string | undefined =>
   typeof stored === 'string' || typeof stored === 'number' || typeof stored === 'bigint' ? String(stored) : undefined;
 
 /**
+ * How far either side of the point a displayed amount's leading digit may sit. No amount a person holds comes near
+ * it, and expanding a value past it writes out every digit: 9e9999999 is ten million characters.
+ */
+const DISPLAY_EXPONENT_LIMIT = 40;
+
+/** A finite amount of display size; `e`, the decimal exponent, is null for NaN and the infinities. */
+const isDisplayable = (amount: BigNumber): boolean => amount.e !== null && Math.abs(amount.e) <= DISPLAY_EXPONENT_LIMIT;
+
+/**
  * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
  * promises more than arrives; `pays` rounds up, so it never shows less than leaves the account;
  * `typed` shows the exact decimal the user typed, without grouping, a trailing separator or
  * trailing zeros, and reads an empty or non-numeric value as 0. Rounded kinds keep at least the
  * asset's minimum decimals, expand for a small value and never pad. A non-numeric rounded value
- * (a legacy or restored string) and `undefined` pass through unchanged.
+ * (a legacy or restored string) and `undefined` pass through unchanged. A value outside the display
+ * window (`DISPLAY_EXPONENT_LIMIT`) reads as non-numeric: 0 when typed, passed through when rounded.
  */
 export function formatMoneyAmount(value: string, kind: MoneyKind, symbol?: string): string;
 export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined;
@@ -200,10 +210,10 @@ export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, sy
   if (text === undefined) return kind === 'typed' ? '0' : value;
   if (kind === 'typed') {
     const typed = new BigNumber(text.replace(/,/g, ''));
-    return typed.isFinite() ? typed.toFixed() : '0';
+    return isDisplayable(typed) ? typed.toFixed() : '0';
   }
   const amount = new BigNumber(text);
-  if (!amount.isFinite()) return value;
+  if (!isDisplayable(amount)) return value;
   const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
   const places = getAdaptiveDecimalPlaces(amount, minimum);
   return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
