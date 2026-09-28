@@ -15,7 +15,7 @@ import type { GuardianProvider } from 'lib/shared/types';
 
 import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
-import { withGuardianRateLimitRetry } from './serialize';
+import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -328,12 +328,12 @@ const GUARDIAN_CREATE_REGISTER_ATTEMPTS = 3;
 const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
 
 /**
- * Sleep for a guardian 429 wait. Chrome stops an idle MV3 service worker after
- * ~30 s and a wait can last up to GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, so on the
- * extension a repeating alarm keeps the worker alive for the wait, as the
- * transaction processor's does for its loop, and is cleared when the wait ends.
- * The polyfill is loaded only there: it throws at load outside an extension, and
- * this module is in the mobile bundle.
+ * Sleep for a guardian 429 wait, or for the backoff before a timed-out registration
+ * is retried. Chrome stops an idle MV3 service worker after ~30 s and a 429 wait can
+ * last up to GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, so on the extension a repeating
+ * alarm keeps the worker alive for the wait, as the transaction processor's does for
+ * its loop, and is cleared when the wait ends. The polyfill is loaded only there: it
+ * throws at load outside an extension, and this module is in the mobile bundle.
  */
 async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
   const browser = isExtension() ? await import('webextension-polyfill').then(m => m.default) : undefined;
@@ -527,8 +527,8 @@ export async function createGuardianAccount(
  * as the rotation path's registration does outside the lock. Its 429 waits get their
  * own deadline, anchored to when this call starts, from what phase 1 left of the creation's
  * budget. A timeout cannot cancel the request, so a timed-out attempt may have landed: it is
- * retried with the same state, and the guardian's `account_already_exists` counts as success,
- * as on the switch paths (`registerOnGuardianWithRetry`).
+ * retried with the same state after the switch paths' backoff, and the guardian's
+ * `account_already_exists` counts as success, as on those paths (`registerOnGuardianWithRetry`).
  *
  * A failure leaves what `createGuardianAccount` wrote, the account in the SDK store and the cold
  * key the vault's insert-key sink stored, but no entry in the vault's account list, since the
@@ -540,6 +540,8 @@ export async function registerGuardianAccount(registration: PendingGuardianRegis
     // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
     // account build sit between the two and are not guardian waits (#1207). Every attempt
     // shares it, and a timed-out attempt is retried even past it: it bounds only 429 waits.
+    // A timed-out attempt's retry waits `guardianRegisterBackoffMs` first, as the switch
+    // paths' retries do, so a slow guardian is not sent a second /configure at once.
     const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -560,6 +562,7 @@ export async function registerGuardianAccount(registration: PendingGuardianRegis
         }
         if (!(e instanceof GuardianProbeTimeoutError) || attempt >= GUARDIAN_CREATE_REGISTER_ATTEMPTS) throw e;
         console.warn(`Guardian registration timed out (attempt ${attempt}/${GUARDIAN_CREATE_REGISTER_ATTEMPTS})`, e);
+        await sleepKeepingWorkerAlive(guardianRegisterBackoffMs(e, attempt));
       }
     }
   } catch (e) {

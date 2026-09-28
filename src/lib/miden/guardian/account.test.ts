@@ -891,9 +891,10 @@ describe('createGuardianAccount', () => {
       multisig.registerOnGuardian.mockReturnValueOnce(new Promise<void>(() => {})).mockImplementationOnce(retry);
 
       const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
-      await jest.advanceTimersByTimeAsync(29_999);
-      expect(registration.outcome).toBe('pending');
+      // The retry follows the 30 s timeout after the switch paths' 1 s backoff.
+      await jest.advanceTimersByTimeAsync(30_999);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(registration.outcome).toBe('pending');
       await jest.advanceTimersByTimeAsync(1);
 
       expect(registration.outcome).toBe('resolved');
@@ -902,22 +903,29 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state);
     });
 
-    it('fails the registration after three timed-out attempts, at 90 s, with the timeout as the cause', async () => {
+    // Timeouts at 30, 61 and 93 s, with backoffs of 1 s and 2 s between them and none after the last.
+    it('fails the registration after three timed-out attempts, at 93 s, with the timeout as the cause', async () => {
       const multisig = makeMultisig();
-      multisig.registerOnGuardian.mockReturnValue(new Promise<void>(() => {}));
+      const callsAtMs: number[] = [];
+      const pendingState = await pendingRegistration(multisig);
+      const startedAt = performance.now();
+      multisig.registerOnGuardian.mockImplementation(() => {
+        callsAtMs.push(performance.now() - startedAt);
+        return new Promise<void>(() => {});
+      });
 
-      const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
-      await jest.advanceTimersByTimeAsync(89_999);
+      const registration = track(registerGuardianAccount(pendingState));
+      await jest.advanceTimersByTimeAsync(92_999);
       expect(registration.outcome).toBe('pending');
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
       await jest.advanceTimersByTimeAsync(1);
 
       expect(registration.outcome).toMatchObject(timedOut);
-      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
+      expect(callsAtMs).toEqual([0, 31_000, 63_000]);
     });
 
     // One 429 deadline spans every attempt: a hung attempt does not buy the next one a fresh budget.
-    it('fails at 90 s on a 429 after a hung attempt, the 429 waits of all attempts sharing one deadline', async () => {
+    it('fails at 91 s on a 429 after a hung attempt and its backoff, all attempts sharing one deadline', async () => {
       const multisig = makeMultisig();
       const secondLimited = rateLimited(60);
       multisig.registerOnGuardian
@@ -926,7 +934,7 @@ describe('createGuardianAccount', () => {
         .mockRejectedValueOnce(secondLimited);
 
       const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
-      await jest.advanceTimersByTimeAsync(89_999);
+      await jest.advanceTimersByTimeAsync(90_999);
       expect(registration.outcome).toBe('pending');
       await jest.advanceTimersByTimeAsync(1);
 
@@ -934,6 +942,28 @@ describe('createGuardianAccount', () => {
       expect(outcome).toMatchObject({ message: 'Failed to create Guardian account' });
       expect(outcome instanceof Error && outcome.cause).toBe(secondLimited);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps the extension service worker alive through the backoff before a registration retry', async () => {
+      mockIsExtension.mockReturnValue(true);
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockReturnValueOnce(new Promise<void>(() => {}));
+
+      const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockAlarmsCreate).toHaveBeenCalledTimes(1);
+      expect(mockAlarmsCreate).toHaveBeenCalledWith(expect.any(String), { periodInMinutes: 0.4 });
+      expect(mockAlarmsClear).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(registration.outcome).toBe('resolved');
+      expect(mockAlarmsClear).toHaveBeenCalledWith(mockAlarmsCreate.mock.calls[0]?.[0]);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      // Cleared before the retry is sent, not left armed across it.
+      expect(mockAlarmsClear.mock.invocationCallOrder[0]).toBeLessThan(
+        multisig.registerOnGuardian.mock.invocationCallOrder[1] ?? 0
+      );
     });
   });
 });
