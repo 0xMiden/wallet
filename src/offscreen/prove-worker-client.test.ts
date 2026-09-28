@@ -12,12 +12,28 @@ import {
   ProveWorkerClient
 } from './prove-worker-client';
 
+/** The message as the worker receives it: its byte payloads copied before the sender's buffers detach. */
+function receivedCopy(message: unknown): unknown {
+  if (typeof message !== 'object' || message === null) return message;
+  return Object.fromEntries(
+    Object.entries(message).map(([key, value]) => [key, value instanceof Uint8Array ? value.slice() : value])
+  );
+}
+
 class FakeWorker extends EventTarget {
   readonly posted: Array<{ message: unknown; transfer: Transferable[] }> = [];
   terminated = 0;
 
+  // Detaches every transferred buffer as a real post does, so a sender that reads a
+  // payload after posting it sees zero bytes here too. jsdom has no structuredClone.
   postMessage(message: unknown, transfer: Transferable[]): void {
-    this.posted.push({ message, transfer });
+    if (typeof structuredClone === 'function') {
+      this.posted.push({ message: structuredClone(message, { transfer }), transfer });
+      return;
+    }
+    const received = receivedCopy(message);
+    for (const item of transfer) if (item instanceof ArrayBuffer) item.transfer();
+    this.posted.push({ message: received, transfer });
   }
 
   terminate(): void {
@@ -171,8 +187,9 @@ describe('ProveWorkerClient proving', () => {
 
     worker(0).ready();
     expect(worker(0).posted).toEqual([
-      { message: { type: 'prove', id: 1, txResult: bytes }, transfer: [bytes.buffer] }
+      { message: { type: 'prove', id: 1, txResult: new Uint8Array([4, 5, 6]) }, transfer: [bytes.buffer] }
     ]);
+    expect(bytes.byteLength).toBe(0);
   });
 
   it('resolves with the proof bytes and the duration the worker measured', async () => {

@@ -94,7 +94,9 @@ export class ProveWorkerClient implements LocalProveTransport {
     const live = this.live ?? this.start();
     if (!live || !live.ready) return;
     // Transferring detaches the caller's buffer; every caller serializes a fresh one.
+    // Its length is read first, since the post leaves it zero.
     const { bytes, transfer } = transferable(head.request.txResult);
+    const { byteLength } = bytes;
     try {
       live.worker.postMessage({ type: 'prove', id: head.id, txResult: bytes }, transfer);
     } catch (error) {
@@ -106,7 +108,7 @@ export class ProveWorkerClient implements LocalProveTransport {
     live.proveTimer = setTimeout(() => {
       if (this.live === live) this.fail('prove-timeout', `no result within ${PROVE_WORKER_PROVE_TIMEOUT_MS}ms`);
     }, PROVE_WORKER_PROVE_TIMEOUT_MS);
-    recordProveTiming(`prove-worker posted id=${head.id} bytes=${bytes.byteLength}`);
+    recordProveTiming(`prove-worker posted id=${head.id} bytes=${byteLength}`);
   }
 
   /** Spawn and wire a worker. A spawn that throws fails the head call, if any. */
