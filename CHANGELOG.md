@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
@@ -82,7 +83,9 @@
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
 - [FIX][all] Creating a Guardian account while its Guardian is rate-limiting no longer freezes sync, sends and claims for up to 90 seconds while the wallet waits (#1207).
+- [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
 - [FIX][all] A closed connectivity banner stays closed in the window where it was closed until that problem clears, even after another window's change or a failed save, and a dismissal made after the device clock was set back is kept across windows and reopening. On iOS 15.0-15.3 and older macOS web views, which lack Web Locks, a closed banner is now saved, Home's prompts load and can be dismissed, and Fund's request goes out (#1186).
+- [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
 
 ## 1.16.2 (2026-09-24)
 
