@@ -228,15 +228,22 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → 150.12 USDC');
   });
 
-  it('shows the stored "you receive" amount while in flight, without padding', () => {
-    mockRowState = {
-      row: makeRow(makeInputs({ phase: 'delivering', outputAmount: '12.00', outputSymbol: 'USDC' })),
-      loaded: true
-    };
-    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+  // 12.345 reads 12.34 rounded down and 12.35 rounded up, so only the exact stored amount passes.
+  it.each([
+    ['12.00', '12'],
+    ['12.345', '12.345']
+  ])(
+    'shows the stored "you receive" amount %s while in flight as %s, unpadded and unrounded',
+    (outputAmount, shown) => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount, outputSymbol: 'USDC' })),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → 12 USDC');
-  });
+      expect(screen.getByTestId('summary-badge').textContent).toBe(`12.5 USDC → ${shown} USDC`);
+    }
+  );
 
   it('names the asset without a number once received when the delivered faucet has no known scale', () => {
     mockRowState = {
@@ -291,14 +298,15 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('1 ETH → 1 ETH');
   });
 
-  it('shows the Slow route amounts as typed, not rounded to two decimals', () => {
+  // Past ETH's six decimals: 0.0151235 reads 0.015123 rounded down and 0.015124 rounded up.
+  it('shows the Slow route amounts as typed, not rounded at the asset precision', () => {
     mockRowState = {
       row: makeRow(
         makeInputs({
           provider: 'agglayer',
-          sourceAmount: '0.015',
+          sourceAmount: '0.0151235',
           sourceSymbol: 'ETH',
-          outputAmount: '0.015',
+          outputAmount: '0.0151235',
           outputSymbol: 'ETH',
           phase: 'delivering'
         })
@@ -307,6 +315,6 @@ describe('EvmBridgeDepositStatus', () => {
     };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.015 ETH → 0.015 ETH');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('0.0151235 ETH → 0.0151235 ETH');
   });
 });
