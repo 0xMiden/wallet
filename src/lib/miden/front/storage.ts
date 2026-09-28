@@ -101,10 +101,10 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Every storage operation on a key takes a number when this page issues or receives it (a read, a putToStorage write,
-// a change event), and the cache keeps the value of the highest-numbered one that succeeded: an action gives way only
-// to a newer one that landed, so a failure never blocks an older success. Issue order is storage order, since each
-// backend runs a page's calls in call order.
+// Every storage operation on a key takes a number when this page issues or receives it (a read, a wipe's re-read
+// included, a putToStorage write, a change event), and the cache keeps the value of the highest-numbered one that
+// succeeded: an action gives way only to a newer one that landed, so a failure never blocks an older success. Issue
+// order is storage order, since each backend runs a page's calls in call order.
 let lastSeq = 0;
 // Per key, the number of the operation whose value the cache entry holds.
 const appliedSeq = new Map<string, number>();
@@ -167,6 +167,7 @@ async function readThrough<T>(key: string): Promise<T | null> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
+ * `rereadStorageCache` re-reads every cached key through here after a wipe.
  * A key's read replaces the cached value unless an operation on the key that started after it (a read, a write
  * or a change event) landed first; one that failed does not count.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
@@ -191,6 +192,15 @@ export async function preloadStorage(
   if (failures.length > 0) {
     throw new Error(`storage preload failed for ${failures.length} of ${keys.length} keys: ${failures.join('; ')}`);
   }
+}
+
+/**
+ * After a wipe of the key-value store: re-reads every key a storage hook or a preload has read, through the numbered
+ * read path, so each reader mounted afterwards renders what storage holds now. Never rejects; a key whose read fails
+ * keeps its cached value, and the failure is logged.
+ */
+export async function rereadStorageCache(): Promise<void> {
+  await preloadStorage([...cachedKeys]).catch(error => console.warn('[storage] re-read after a wipe failed:', error));
 }
 
 /**
