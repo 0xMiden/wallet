@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
+import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
@@ -2112,6 +2113,35 @@ describe('History on the real SWR cache', () => {
       mockGetCompletedTransactions.mockResolvedValue([...rows, freshRow]);
       const from = mockHistoryViewCalls.length;
       await show('all', []);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
+    });
+
+    it('refreshes a note that left under Pending when the switch to all commits before any other render', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      await act(async () => {
+        utils = render(inCache(page(true, { filter: 'all', pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      await act(async () => {
+        utils?.rerender(inCache(page(true, { filter: 'pending', pendingItems: [claimCard('note-n')] })));
+      });
+
+      mockGetCompletedTransactions.mockResolvedValue([...rows, freshRow]);
+      const before = settledReads();
+      const from = mockHistoryViewCalls.length;
+      // Two sync commits: the effect after the leave queues its updates at default priority, which the switch skips.
+      await act(async () => {
+        flushSync(() => utils?.rerender(inCache(page(true, { filter: 'pending', pendingItems: [] }))));
+        flushSync(() => utils?.rerender(inCache(page(true, { filter: 'all', pendingItems: [] }))));
+      });
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
       await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
       const stale = mockHistoryViewCalls
         .slice(from)

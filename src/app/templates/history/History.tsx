@@ -322,8 +322,13 @@ const History = memo<HistoryProps>(
     // (#771). Only the settled read holds Failed rows, and it runs only while the in-flight read does, so the note
     // stays hidden until a refresh started after it left settles with the settled read running; the fresh read then
     // decides. The set as last committed covers the render in which a note leaves, which paints before any effect.
+    // The held notes are a ref, filled in the same step that empties the committed set: a state update queued from
+    // the effect is skipped by a higher-priority render, which would then hide the note through neither set and find
+    // no hold to restart for. The state is only a counter a release bumps to draw the rows it frees, and a counter
+    // never nets back to the value last rendered.
     const committedNotes = useRef<ReadonlySet<string>>(NO_NOTES);
-    const [heldNotes, setHeldNotes] = useSafeState<ReadonlySet<string>>(NO_NOTES);
+    const heldNotes = useRef<ReadonlySet<string>>(NO_NOTES);
+    const [, setReleases] = useSafeState(0);
     const refreshSeq = useRef(0);
     // Written only by the effect, which runs after every commit and does nothing on one with no leave and no read
     // starting, so a refresh that settles after the page left the screen (or went to Pending) sees the read stopped:
@@ -334,20 +339,23 @@ const History = memo<HistoryProps>(
       committedNotes.current = representedNotes;
       const readStarted = readingCompleted && !settledReadRunning.current;
       settledReadRunning.current = readingCompleted;
-      if (leaving.length > 0) setHeldNotes(held => new Set([...held, ...leaving]));
+      if (leaving.length > 0) heldNotes.current = new Set([...heldNotes.current, ...leaving]);
       // A settled read that was off when the last refresh settled still owes the held notes one. No timer: a refresh
       // that never settles keeps them hidden until the next leave's refresh settles or History unmounts, even while
       // the other read keeps updating.
-      if (leaving.length === 0 && !(readStarted && heldNotes.size > 0)) return;
+      if (leaving.length === 0 && !(readStarted && heldNotes.current.size > 0)) return;
       const seq = ++refreshSeq.current;
       const startedRunning = readingCompleted;
       void Promise.allSettled([mutateLatest(), mutateTx()]).then(() => {
         // Only the latest refresh started after every leave, and SWR discards an older fetch that a newer mutate
         // replaced, so an earlier refresh can settle on stale data. A read not running was not refreshed at all.
-        if (startedRunning && settledReadRunning.current && seq === refreshSeq.current) setHeldNotes(NO_NOTES);
+        if (startedRunning && settledReadRunning.current && seq === refreshSeq.current) {
+          heldNotes.current = NO_NOTES;
+          setReleases(n => n + 1);
+        }
       });
     });
-    const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes]);
+    const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>
         !(
