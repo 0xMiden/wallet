@@ -873,15 +873,14 @@ against it.
 - No-go if only a device-bound wrapping is acceptable, until a platform
   authenticator in Chrome offers a device-bound PRF credential, except on
   Windows 11 if Hello passes the device test and the owner takes decision 2.
-- The evidence sharpened one condition. Whether the popup survives the native
-  OS sheets is **Unconfirmed**, and a Chrome 156 change force-closes popups
-  while a security dialog shows (Surfaces and focus), so milestone 1 also
-  picks the surface the ceremony runs in. After onboarding, Chrome's action
-  opens the side panel instead of the popup
-  (`src/lib/extension/side-panel-handoff.ts:84-91`), so both risks mainly
-  affect wallets left in popup mode: those whose handoff did not run or
-  failed, and those whose side-panel restore failed at startup
-  (`src/background.ts:18-33`).
+- The evidence sharpened one condition. Whether the popup survives the native OS
+  sheets is **Unconfirmed**, and a Chrome 156 change force-closes popups while a
+  security dialog shows (Surfaces and focus), so milestone 1 also picks the
+  surface the ceremony runs in. After onboarding, Chrome's action opens the side
+  panel instead of the popup (`src/lib/extension/side-panel-handoff.ts:84-91`),
+  so both risks mainly affect wallets whose toolbar action still opens the
+  popup: those whose side-panel handoff did not run or failed, and those whose
+  side-panel restore failed at startup (`src/background.ts:18-33`).
 
 ### First implementation scope
 
