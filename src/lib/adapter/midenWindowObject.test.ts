@@ -444,7 +444,7 @@ describe('MidenWindowObject', () => {
       await obj.disconnect();
 
       expect(mockClient.requestDisconnect).toHaveBeenCalledTimes(1);
-      expect(clearFn).toHaveBeenCalledTimes(1);
+      expect(clearFn).toHaveBeenCalledTimes(2);
       expect(obj.address).toBeUndefined();
       expect(obj.permission).toBeUndefined();
     });
@@ -461,7 +461,7 @@ describe('MidenWindowObject', () => {
 
       await expect(obj.disconnect()).rejects.toBe(refused);
 
-      expect(clearFn).toHaveBeenCalledTimes(1);
+      expect(clearFn).toHaveBeenCalledTimes(2);
       expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
     });
 
@@ -529,6 +529,21 @@ describe('MidenWindowObject', () => {
       await expect(connecting).resolves.toBeUndefined();
       expect(obj.address).toBe(ADDRESS);
       expect(mockClient.onPermissionChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('a disconnect that settles after a later connect leaves no poll running', async () => {
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockResolvedValue(granted);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      const laterStop = jest.fn();
+      mockClient.onPermissionChange.mockReturnValue(laterStop);
+      const obj = new MidenWindowObject();
+      const disconnecting = obj.disconnect();
+      await obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      expect(obj.address).toBe(ADDRESS);
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      expect(laterStop).toHaveBeenCalledTimes(1);
     });
 
     it('is a no-op on the interval clearer when never connected', async () => {
