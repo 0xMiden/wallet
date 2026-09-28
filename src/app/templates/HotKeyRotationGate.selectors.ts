@@ -21,7 +21,6 @@ export type GateRow = Pick<
   | 'initiatedAt'
   | 'queuedSeq'
   | 'completedAt'
-  | 'noteId'
   | 'noteIds'
 >;
 
@@ -57,7 +56,7 @@ export const newestRow = <T extends GateRow>(rows: readonly T[]): T | undefined 
     undefined
   );
 
-export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? (row.noteId ? [row.noteId] : []);
+export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
 
 /** The balance trigger. The pre-fetch placeholder is a zero native row, so it waits for a real read. */
 export const isBelowBaseFee = (

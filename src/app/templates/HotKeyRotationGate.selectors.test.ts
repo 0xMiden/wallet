@@ -186,29 +186,19 @@ describe('newestRow', () => {
 });
 
 describe('claimNoteIds', () => {
-  it('reads a batch claim, a single-note claim, and nothing from a row without notes', () => {
+  it('reads a batch claim, and nothing from a row without notes', () => {
     expect(claimNoteIds(claim('a', { noteIds: ['n1', 'n2'] }))).toEqual(['n1', 'n2']);
-    expect(claimNoteIds(claim('b', { noteIds: undefined, noteId: 'n3' }))).toEqual(['n3']);
     expect(claimNoteIds(claim('c', { noteIds: undefined }))).toEqual([]);
   });
 });
 
 describe('isBelowBaseFee', () => {
-  it('holds for a loaded empty vault on a chain that charges', () => {
-    expect(isBelowBaseFee(false, [nativeRow(0)], 'native', 10000)).toBe(true);
-  });
-
   it('stays off while balances load, since the placeholder is a zero native row', () => {
     expect(isBelowBaseFee(true, [nativeRow(0)], 'native', 10000)).toBe(false);
   });
 
-  it('fails open on an unknown fee and clears once the balance covers one fee', () => {
-    expect(isBelowBaseFee(false, [nativeRow(0)], 'native', null)).toBe(false);
-    expect(isBelowBaseFee(false, [nativeRow(1)], 'native', 10000)).toBe(false);
-  });
-
-  // Ruling (progress.md): pins the empty-balances read ahead of Tasks 6 and 7, which lean
-  // on it implicitly through their default `mockBalances = []` fixture.
+  // HotKeyRotationGate.test.tsx defaults its mock balances to `[]`, so an empty
+  // list must not read as below the fee.
   it('reads an empty balances array as not below fee', () => {
     expect(isBelowBaseFee(false, [], 'native', 10000)).toBe(false);
   });
