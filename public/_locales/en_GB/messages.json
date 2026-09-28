@@ -2190,31 +2190,6 @@
     "message": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Fastest operator right now, out of $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "The operator on this network",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "The Guardian can't move your funds on its own",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "The Guardian backs up your account state",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "You can switch Guardians with your recovery phrase",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Checking which operator answers fastest…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2230,26 +2205,6 @@
   "chooseDifferentGuardian": {
     "message": "Choose a different Guardian",
     "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "An independent Guardian operator on Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Learn more about the Guardian",

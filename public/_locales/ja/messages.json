@@ -2190,31 +2190,6 @@
     "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$社の中で現在最速のオペレーター",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "このネットワークの運営者",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardianは、単独では資金を移動することはできません",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardianはアカウントの状態をバックアップします",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "リカバリーフレーズを使ってGuardianを切り替えられます",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2230,26 +2205,6 @@
   "chooseDifferentGuardian": {
     "message": "別のGuardianを選択してください",
     "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden上の独立したGuardianオペレーター。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムで広く使用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset（KODA）は、韓国で規制対象となっているデジタル資産カストディアンです。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",

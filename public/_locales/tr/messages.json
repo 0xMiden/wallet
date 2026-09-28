@@ -2190,31 +2190,6 @@
     "message": "Guardian, hesap durumunuzu saklar ve geri almanıza yardımcı olur. Bunu, size yedekleme sağlayan bir sunucu olarak düşünün; ancak bu sunucu, fonlarınıza asla erişemez.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$ arasından şu anda en hızlı operatör",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Bu ağdaki operatör",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian, fonlarınızı kendi başına hareket ettiremez",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian, hesap durumunuzu yedekler",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Kurtarma ifadenizle başka bir Guardian operatörüne geçebilirsiniz",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2230,26 +2205,6 @@
   "chooseDifferentGuardian": {
     "message": "Farklı bir Guardian seçin",
     "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden'de bağımsız bir Guardian operatörü.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin, Ethereum için yaygın olarak kullanılan akıllı sözleşme kütüphanelerinin arkasındaki bir blockchain güvenlik şirketidir.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm, ağlar ve rollup'lar için blockchain altyapısı kurar ve işletir.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass, gelişmiş kriptografi ve blockchain altyapısı geliştiren bir mühendislik firmasıdır.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA), Güney Kore’de faaliyet gösteren ve düzenlemelere tabi bir dijital varlık saklama kuruluşudur.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardian hakkında daha fazla bilgi edinin",

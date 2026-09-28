@@ -331,7 +331,6 @@ describe('MeetGuardianScreen', () => {
     });
 
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
-    expect(screen.queryByText(/meetGuardianFastestOf/)).toBeNull();
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 

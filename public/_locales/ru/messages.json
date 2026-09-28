@@ -2190,31 +2190,6 @@
     "message": "Файл «Guardian» хранит состояние вашего счёта и помогает вам его восстановить. Представьте себе его как сервер, который создаёт резервную копию ваших данных, но никогда не может получить доступ к вашим средствам.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "На данный момент самый быстрый оператор из $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Оператор этой сети",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian не может самостоятельно перемещать ваши средства",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian создает резервную копию состояния вашей учетной записи",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "С помощью фразы восстановления вы можете сменить Guardian",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Проверяю, какой оператор отвечает быстрее всего…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2230,26 +2205,6 @@
   "chooseDifferentGuardian": {
     "message": "Выберите другой «Guardian»",
     "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Независимый оператор Guardian на Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "Компания OpenZeppelin, специализирующаяся на безопасности blockchain, создала широко используемые библиотеки смарт-контрактов для Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm создаёт и управляет инфраструктурой blockchain для сетей и роллапов.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass — инженерная компания, занимающаяся созданием передовой инфраструктуры в области криптографии и технологии «blockchain».",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) — это регулируемый хранитель цифровых активов в Южной Корее.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Узнайте больше о «Guardian»",
