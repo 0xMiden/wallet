@@ -77,6 +77,7 @@
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][all] Creating a Guardian account while its Guardian is rate-limiting no longer freezes sync, sends and claims for up to 90 seconds while the wallet waits (#1207).
 
 ## 1.16.2 (2026-09-24)
 
