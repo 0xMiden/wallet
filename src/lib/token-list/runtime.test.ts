@@ -106,7 +106,8 @@ it('falls back to the bundled snapshot with no cache, and a failed fetch stores 
 });
 
 it.each([
-  ['a 404', response('Not Found', { ok: false })],
+  // A valid list, so only the status can refuse it.
+  ['a 404', response(doc(['x']), { ok: false })],
   ['a malformed document', response({ name: 'x' })],
   ['a declared oversize body', response(doc(['x']), { length: 300 * 1_024 })],
   ['an oversize body', response(`${' '.repeat(300 * 1_024)}${JSON.stringify(doc(['x']))}`)],

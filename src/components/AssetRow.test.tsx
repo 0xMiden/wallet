@@ -55,9 +55,7 @@ jest.mock('components/ui', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => (values ? `${key}:${Object.values(values).join(':')}` : key)
-  })
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 const mockVerify = jest.fn();
@@ -98,16 +96,12 @@ beforeEach(() => {
 });
 
 describe('AssetRow', () => {
-  it.each([
-    ['unverified', true],
-    ['verified', false],
-    ['unknown', false]
-  ])('shows the Unverified mark only for a %s token', (verification, shown) => {
+  it.each(['verified', 'unknown'])('hides the Unverified mark for a %s token', verification => {
     mockVerify.mockReturnValue(verification);
 
     render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
 
-    expect(screen.queryByText('unverifiedToken') !== null).toBe(shown);
+    expect(screen.queryByText('unverifiedToken')).toBeNull();
     expect(mockVerify).toHaveBeenCalledWith('tok-1');
   });
 

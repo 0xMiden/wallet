@@ -113,11 +113,14 @@ describe('AssetListItem', () => {
   it('truncates a long name before it pushes the price or the check out of the row', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
 
-    const nameColumn = screen.getByText('A very long token name').parentElement!;
-    expect(nameColumn).toHaveClass('min-w-0');
-    expect(nameColumn).not.toHaveClass('shrink-0');
-    // The name row sits inside the name+amount stack, which sits inside the leading group.
-    const leading = nameColumn.parentElement!.parentElement!;
+    const nameRow = screen.getByText('A very long token name').parentElement!;
+    expect(nameRow).toHaveClass('min-w-0');
+    expect(nameRow).not.toHaveClass('shrink-0');
+    // The name row sits inside the name+amount stack, which sits inside the leading group; each must
+    // be allowed to shrink, or the one above it cannot.
+    const stack = nameRow.parentElement!;
+    expect(stack).toHaveClass('min-w-0');
+    const leading = stack.parentElement!;
     expect(leading).toHaveClass('min-w-0', 'flex-1');
     const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
     expect(trailing).toHaveClass('shrink-0');
@@ -130,18 +133,20 @@ describe('AssetListItem', () => {
   });
 
   describe('badge rendering', () => {
-    it('renders a badge after the name, outside the truncating name element', () => {
+    it('renders a badge right after the name, outside the truncating name element, in a wrapper that never shrinks', () => {
       renderItem({ name: 'A very long token name', badge: <span data-testid="badge">B</span> });
 
-      const badge = screen.getByTestId('badge');
-      expect(screen.getByText('A very long token name')).not.toContainElement(badge);
-      expect(badge.closest('.shrink-0')).not.toBeNull();
+      const name = screen.getByText('A very long token name');
+      const wrapper = screen.getByTestId('badge').parentElement!;
+      expect(name).not.toContainElement(wrapper);
+      expect(name.nextElementSibling).toBe(wrapper);
+      expect(wrapper).toHaveClass('shrink-0');
     });
 
-    it('renders no badge slot content when none is given', () => {
+    it('leaves the name alone in its row when no badge is given', () => {
       renderItem();
 
-      expect(screen.queryByTestId('badge')).toBeNull();
+      expect(screen.getByText('Miden').parentElement!.children).toHaveLength(1);
     });
   });
 
