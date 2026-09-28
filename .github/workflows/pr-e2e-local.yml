@@ -11,8 +11,8 @@ jobs:
   chrome-local:
     # Required-check name: keep this exact string.
     name: local-e2e (chrome)
-    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'
     # Full E2E runs once per pull request stack: on a pull request based on main (#1071).
+    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'
     # The full suite imports the published Linux napi module, which has no ARM64
     # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
     # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
