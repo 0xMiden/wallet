@@ -79,6 +79,7 @@
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][all] A Guardian account recovered from its recovery phrase that holds no MIDEN no longer stays stuck on the everyday-key activation screen: the screen explains that activating the key pays a small network fee, shows the account address with a Copy button, claims the MIDEN sent there with the recovery key, and then finishes activating the key on its own (#805).
 
 ## 1.16.2 (2026-09-24)
 
