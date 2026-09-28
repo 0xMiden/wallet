@@ -284,11 +284,19 @@ jest.mock('../sdk/helpers', () => ({
 // ---------------------------------------------------------------------------
 // clearStorage stub — wipes in-memory store.
 // ---------------------------------------------------------------------------
-jest.mock('lib/miden/reset', () => ({
-  clearStorage: jest.fn(async (_clearDb: boolean = true) => {
-    for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-  })
-}));
+jest.mock('lib/miden/reset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+  return {
+    PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    SETUP_PRESERVED_STORAGE_KEYS: actual.SETUP_PRESERVED_STORAGE_KEYS,
+    // Mirrors the real reset: every key but the kept list goes (the setup list by default).
+    clearStorage: jest.fn(
+      async (_clearDb: boolean = true, keep: readonly string[] = actual.SETUP_PRESERVED_STORAGE_KEYS) => {
+        for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+      }
+    )
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Platform detection — default to "extension" context. Tests can override.
@@ -2377,6 +2385,42 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
+  it('keeps the legacy guardian URL and the endpoint override through a rejected restore (#1174)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    memoryStore['stale_setting'] = 'from the previous profile';
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+
+    // The opening wipe and its undo both ran, so what survived them was kept, not skipped.
+    expect(memoryStore['stale_setting']).toBeUndefined();
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+  });
+
+  it("surfaces the restore's own error when its undo cannot clear storage (#1174)", async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const wipe = clearStorage.getMockImplementation();
+    // The restore's opening wipe runs as usual; the undo's wipe fails.
+    clearStorage.mockImplementationOnce(wipe).mockImplementationOnce(async () => {
+      throw new Error('storage down');
+    });
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    consoleErrorSpy.mockRestore();
+  });
+
   it('rejects a version 2 restore when the SDK database lacks the imported account', async () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([]);
 
@@ -2465,6 +2509,20 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
     // The restore installed the new key's sink before it could insert anything (#878).
     expect((globalThis as any).__vaultTestRealmInsertKey).toEqual(expect.any(Function));
+  });
+
+  it('keeps the legacy guardian URL through a restore; the action drops it once published (#1174)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    memoryStore['stale_setting'] = 'from the previous profile';
+
+    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+    ]);
+
+    expect(memoryStore['stale_setting']).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
   });
 
   it('restores a matching account through the sink installed before the loop inserts (#878)', async () => {
@@ -4271,6 +4329,26 @@ describe('Vault.spawnFromHotKey', () => {
     await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
 
     expect(order).toEqual(['wasm', 'parse']);
+  });
+
+  it('recovers through the legacy guardian URL when no endpoint is passed (#1174)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    // This suite stubs the resolver; give it the real one's order (the account's field, then the
+    // legacy key, then the default) so the spawn's use of it is what is under test.
+    const stub = mockResolveGuardianEndpoint.getMockImplementation();
+    mockResolveGuardianEndpoint.mockImplementation(
+      async (acc: { guardianEndpoint?: string }) =>
+        acc?.guardianEndpoint || memoryStore['guardian_url_setting'] || 'https://default.example'
+    );
+    try {
+      await Vault.spawnFromHotKey('pw', PAIR);
+      expect(mockRecoverGuardianAccountByHotKey).toHaveBeenCalledWith(
+        expect.any(String),
+        'https://my-guardian.example'
+      );
+    } finally {
+      if (stub) mockResolveGuardianEndpoint.mockImplementation(stub);
+    }
   });
 
   it('adopts the guardian account and persists a hot-key-only wallet', async () => {
