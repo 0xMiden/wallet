@@ -21,18 +21,20 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  * transient guardian 5xx and the product needs the fix.
  *
  * A 5xx at proposal creation reads as a guardian outage, so each faulted POST
- * requeues the consume with a 60 s cooldown instead of failing it (#779). The
- * claim budget carries one cooldown and one service-worker pass per faulted
- * POST on top of the landing, or two requeues alone could outlast it.
+ * requeues the consume instead of failing it (#779), for 60 s and then 120 s,
+ * since each consecutive requeue doubles the wait (#1223). The claim budget
+ * carries both cooldowns and a service-worker pass per faulted POST on top of
+ * the landing, or the two requeues alone could outlast it.
  */
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 const MINT_BASE_UNITS = 100_000_000_000n; // 1000 TST
 const FAULTED_POSTS = 2;
-// The unreachable arm's requeue cooldown plus one 5 s pass of the service worker's processing loop: the longest one
-// faulted POST can hold the consume back before the loop runs it again.
-const REQUEUE_COOLDOWN_PASS_MS = 65_000;
+// The unreachable arm's cooldowns for the two faulted POSTs, 60 s and then 120 s since each consecutive requeue
+// doubles the wait (#1223), plus one 5 s pass of the service worker's processing loop after each: the longest the
+// faulted POSTs can hold the consume back before the loop runs it again.
+const REQUEUE_COOLDOWNS_PASSES_MS = 60_000 + 120_000 + FAULTED_POSTS * 5_000;
 const LANDING_BUDGET_MS = 180_000;
-const CLAIM_BUDGET_MS = LANDING_BUDGET_MS + FAULTED_POSTS * REQUEUE_COOLDOWN_PASS_MS;
+const CLAIM_BUDGET_MS = LANDING_BUDGET_MS + REQUEUE_COOLDOWNS_PASSES_MS;
 
 test.describe('infra resilience — transient guardian 5xx during a consume', () => {
   test.describe.configure({ mode: 'serial' });
@@ -43,7 +45,7 @@ test.describe('infra resilience — transient guardian 5xx during a consume', ()
     steps,
     timeline
   }) => {
-    test.setTimeout(600_000 + FAULTED_POSTS * REQUEUE_COOLDOWN_PASS_MS);
+    test.setTimeout(600_000 + REQUEUE_COOLDOWNS_PASSES_MS);
 
     let addressA = '';
 
