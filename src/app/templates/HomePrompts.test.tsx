@@ -2228,6 +2228,9 @@ describe('HomePrompts', () => {
     await act(async () => {});
     // Stored since this card's read, as the sent record the lock refuses over.
     markerStore.set('accountA', { ...record, submitted: true });
+    // The read the refusal's idle status re-runs fails and keeps what the card holds, so only the
+    // refusal's own handler can name the record.
+    mockFetchFaucetFundingMarker.mockRejectedValueOnce(new Error('storage unreadable'));
     mockGetInFlightFaucetRequest.mockReturnValue(null);
     await act(async () => {
       refuse();
