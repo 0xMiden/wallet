@@ -437,9 +437,9 @@ describe('Unlock — extension password form', () => {
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
 
     // The stamp this window adopted is another window's provisional one, for a guess still in flight
-    // (count >= 3 records it before unlock(), :323-327). That guess's rejection re-stamps it later and
-    // leaves the count at 6 (:344-346), so storage has moved on before this window's tick finds its
-    // own stamp expired.
+    // (a guess at the last attempt records it before unlock()). That guess's rejection re-stamps it
+    // later and leaves the count at 6, so storage has moved on before this window's tick finds its own
+    // stamp expired.
     const NEW_STAMP = Date.now();
     mockLsStore.TimeLock = NEW_STAMP;
 
