@@ -43,10 +43,11 @@ const idleEpoch = { ...epochState };
 
 jest.mock('lib/epoch', () => ({
   MIDEN_DESTINATION_CHAIN_ID: 1,
-  // Mirrors the real contract (`string | undefined`): the screen aborts a requote on
-  // a falsy result, so a constant would hide that branch. Unused on the Slow route,
-  // which needs no quote.
-  evmToMidenMinTokenOut: (amount: string) => (Number(amount) > 0 ? '1000000' : undefined),
+  // The real conversion: `fastReady` holds only while the quote's `minTokenOut` is what the typed
+  // amount asks for, and the screen aborts a requote on an undefined result. Unused on the Slow
+  // route, which needs no quote.
+  evmToMidenMinTokenOut:
+    jest.requireActual<typeof import('lib/epoch/bridge')>('lib/epoch/bridge').evmToMidenMinTokenOut,
   useEpochStore: (selector: (s: typeof epochState) => unknown) => selector(epochState)
 }));
 
@@ -105,7 +106,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
-      <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.50')}>
+      <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.5050')}>
         padded amount
       </button>
       <button data-testid="open-token-drawer" onClick={onSelectToken}>
@@ -192,8 +193,9 @@ const reachReview = async (amountButton = 'set-amount') => {
 };
 
 /**
- * A Fast quote for the typed amount: `minTokenOut` is what the typed amount asks for (1 at the
- * faucet's 6 decimals), `tokenOut` a quote of 10, and `tokenIn` a deposit of 10.6555 at 18.
+ * A Fast quote for the padded typed amount: `minTokenOut` is what 1.5050 asks for (1.505 at the
+ * faucet's 6 decimals), `tokenOut` a quote of 10, and `tokenIn` a deposit of 10.6512 at 18. Both
+ * need more than two decimals so typed, rounded up, half-up and rounded down each read differently.
  */
 const quoteFast = () =>
   Object.assign(epochState, {
@@ -201,13 +203,13 @@ const quoteFast = () =>
     status: 'quoted',
     flow: 'evm-to-miden',
     quote: {
-      params: { minTokenOut: '1000000' },
-      quoteResult: { tokenIn: '10655500000000000000', tokenOut: '10000000' }
+      params: { minTokenOut: '1505000' },
+      quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000' }
     }
   });
 
 const reachFastReview = async () => {
-  fireEvent.click(screen.getByTestId('set-amount'));
+  fireEvent.click(screen.getByTestId('set-amount-padded'));
   await settle();
   fireEvent.click(screen.getByTestId('continue'));
   await settle();
@@ -309,7 +311,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     await reachFastReview();
 
-    expect(await screen.findByTestId('review-output')).toHaveTextContent(/^1$/);
+    expect(await screen.findByTestId('review-output')).toHaveTextContent(/^1\.505$/);
   });
 
   it('stores the exact typed "you receive" on a Fast row, and the quoted tokenOut as its amount', async () => {
@@ -321,7 +323,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await settle();
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 10_000_000n, sourceAmount: '10.6555', outputAmount: '1' })
+      expect.objectContaining({ amount: 10_000_000n, sourceAmount: '10.6512', outputAmount: '1.505' })
     );
   });
 
@@ -330,8 +332,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     await reachReview('set-amount-padded');
 
-    expect(screen.getByTestId('review-amount')).toHaveTextContent(/^1\.5$/);
-    expect(screen.getByTestId('review-output')).toHaveTextContent(/^1\.5$/);
+    expect(screen.getByTestId('review-amount')).toHaveTextContent(/^1\.505$/);
+    expect(screen.getByTestId('review-output')).toHaveTextContent(/^1\.505$/);
   });
 
   it("keeps storing a Slow row's amounts exactly as typed", async () => {
@@ -342,7 +344,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await settle();
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceAmount: '1.50', outputAmount: '1.50' })
+      expect.objectContaining({ sourceAmount: '1.5050', outputAmount: '1.5050' })
     );
   });
 
