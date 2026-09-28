@@ -318,11 +318,14 @@ describe('the cold-start sweep against a row the real writer moved to Generating
     );
     const sending = runSend('tx-live');
     await reached;
+    const reachedAt = Math.floor(Date.now() / 1000);
 
     const live = txStore.find(r => r.id === 'tx-live')!;
     expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
     expect(Number.isInteger(live.processingStartedAt)).toBe(true);
+    // Both bounds pin the unit: a milliseconds stamp clears the lower one and would spare every earlier row.
     expect(live.processingStartedAt).toBeGreaterThanOrEqual(SESSION_STARTED_AT);
+    expect(live.processingStartedAt).toBeLessThanOrEqual(reachedAt);
 
     txStore.push({
       id: 'tx-orphan',
