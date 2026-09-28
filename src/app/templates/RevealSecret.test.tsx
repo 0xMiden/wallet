@@ -25,6 +25,7 @@ const mockSetSecret = jest.fn((v: string | null) => {
   mockSecret = v;
 });
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockRevealPrivateKey = jest.fn();
 const mockRevealMnemonic = jest.fn();
 const mockRevealHotKey = jest.fn();
@@ -81,7 +82,10 @@ jest.mock('components/PasscodeEntry', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -303,15 +307,46 @@ describe('RevealSecret', () => {
     expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
-  it('falls back to the password step-up when the protector check rejects', async () => {
-    mockHasHardwareProtector.mockRejectedValue(new Error('probe failed'));
-    const container = await renderReveal('private-key');
-    await act(async () => {
-      await Promise.resolve();
-    });
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  // A macrotask lets that second read and the hook's state update land.
+  const settleProbe = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+
+  it('takes the password step-up when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
 
     expect(container.querySelector('input[name="password"]')).not.toBeNull();
     expect(buttonWithText(container, 'continue')).toBeTruthy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    expect(container.querySelector('input[name="password"]')).toBeNull();
+    await act(async () => {
+      buttonWithText(container, 'unlock')!.click();
+    });
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+  });
+
+  it('shows an error and offers no credential step when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
+      'couldNotCheckUnlockMethodReopen'
+    );
+    expect(container.querySelector('input[name="password"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeFalsy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
   });
 
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {
