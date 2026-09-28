@@ -9,6 +9,7 @@ import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
+  clearGuardianServiceFor,
   getOrCreateMultisigService,
   isGuardianAccount,
   type GuardianAccountProvider
@@ -96,6 +97,7 @@ import {
   ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
+  STRUCTURAL_GUARDIAN_TYPES,
   SwapTransaction,
   SwitchGuardianTransaction,
   Transaction,
@@ -885,15 +887,21 @@ async function requeueWithWake(
 }
 
 /**
- * Run the structural side effects a structural Guardian op needs after its
- * submit landed on chain but the LOCAL apply failed (`ApplyTransactionAfterSubmitFailed`).
- * Without this the generic apply-failure handler would mark the tx Completed and
- * skip reconciliation, stranding the account.
+ * Run the side effects a structural Guardian op needs after its submit landed on
+ * chain but a post-submit step failed (an apply-after-submit error, or a
+ * canonicalization refusal). Without this the op would be cancelled with the
+ * account unreconciled.
  *
  * replace-hot-key → swap the vault hot pointer (idempotent).
+ * update-procedure-threshold → evict the cached service, then mark Completed
+ *   without the result fields. No re-register: the apply failed, so the local
+ *   store still holds the pre-update account, and pushing it would put the
+ *   guardian behind the chain. The guardian learns the update when the
+ *   co-signed candidate canonicalizes.
  * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
  *   re-syncs the post-switch account state itself) + persist the per-account
- *   endpoint. Both completion handlers tolerate a missing TransactionResult.
+ *   endpoint. The replace-hot-key and switch-guardian completion handlers
+ *   tolerate a missing TransactionResult.
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
@@ -901,6 +909,18 @@ async function reconcileStructuralApplyFailure(
 ): Promise<void> {
   if (tx.type === 'replace-hot-key') {
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
+    return;
+  }
+  if (tx.type === 'update-procedure-threshold') {
+    // Evict first: the threshold changed on chain whatever the row write below does, and the
+    // cached hot service still holds the pre-update threshold map.
+    clearGuardianServiceFor(tx.accountId);
+    // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
+    // carries, and minus its re-register: the local store still holds the pre-update account.
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      displayMessage: 'Account secured',
+      completedAt: Math.floor(Date.now() / 1000) // seconds
+    });
     return;
   }
   // A switch that ran the DIRECT fallback (old guardian unreachable) can't
@@ -1182,23 +1202,23 @@ const generateTransactionWithProvider = async (
       if (isLockedError(error)) {
         throw error;
       }
-      // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
-      // / switch-guardian) is special: the change IS on chain, but the failure
-      // happened before generateGuardianTransaction's completion handler ran, so
-      // the vault hot pointer / guardian re-registration are un-reconciled. Cancelling
-      // would strand the account (signing with a rotated-out key, or talking to the
-      // old guardian). Run the same finalization the happy path would; only cancel if
-      // that reconcile itself fails.
+      // A structural op whose submit landed and whose post-submit step then failed never ran
+      // its completion handler, so the vault hot pointer, the guardian registration or the
+      // cached threshold map is un-reconciled. Cancelling would strand the account. Run the
+      // finalization the happy path would. A reconcile that throws fails the row HERE: falling
+      // through would reach arm E, which marks a refusal Completed with no finalization.
       if (
-        isApplyAfterSubmitError(error) &&
-        (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
+        STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) &&
+        (isApplyAfterSubmitError(error) ||
+          (transaction.type === 'update-procedure-threshold' && isGuardianCanonicalizationError(error)))
       ) {
         try {
           await reconcileStructuralApplyFailure(transaction, guardianProvider);
-          return;
         } catch (reconcileError) {
           console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
+          await cancelTransactionAfterPipelineStopped(transaction, error);
         }
+        return;
       }
       // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
       // chain but whose LOCAL apply failed. The tx IS live — cancelling would leave

@@ -19,7 +19,7 @@
  * `persistNewHotKey` running SW-side BEFORE dispatch (byte-identical order flag-on
  * vs flag-off), the proxy-routed `waitForTransactionCommit` running AFTER with the
  * re-derived tx id, and the structural apply-after-submit classifier (reconcile for
- * replace-hot-key / switch-guardian; Fail for update-procedure-threshold).
+ * every structural type; update-procedure-threshold completes with its finalization).
  *
  * Coverage:
  *   - §4.0 round-trip: the co-signed request crosses to the offscreen leaf as the
@@ -48,8 +48,8 @@
  *     double-apply. Falling through to Failed matches slices 5a/5b and flag-OFF.
  *   - errorCode: a round-tripped `ApplyTransactionAfterSubmitFailed` reaches the
  *     GUARDIAN classifier → value-moving marks Completed (mirrors the fixed
- *     non-guardian bug); structural replace-hot-key / switch-guardian route to the
- *     reconcile handler, update-procedure-threshold to Failed.
+ *     non-guardian bug); every structural type routes to its reconcile, and
+ *     update-procedure-threshold completes with its finalization (#1233).
  */
 
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -2931,6 +2931,16 @@ describe('structural guardian leaf kill-window (funds-safety) — an offscreen k
 });
 
 describe('structural guardian leaf errorCode preservation → guardian classifier routes per type', () => {
+  // The two refusals the pinned multisig client (0.17.0) throws from syncState (#1233), as the
+  // service worker rebuilds an offscreen failure.
+  const REFUSAL_EQUAL_NONCE =
+    'Refusing to overwrite local state: incoming nonce 4 equals local nonce 4 but commitments differ for account 0xacc';
+  const REFUSAL_ONCHAIN_COMMITMENT =
+    'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account 0xacc';
+  const guardianManagerMock = jest.requireMock<{ clearGuardianServiceFor: jest.Mock }>(
+    'lib/miden/front/guardian-manager'
+  );
+
   it.each([
     {
       type: 'replace-hot-key',
@@ -2966,7 +2976,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     }
   );
 
-  it('update-procedure-threshold: a round-tripped ApplyTransactionAfterSubmitFailed reaches the classifier → Failed', async () => {
+  it('update-procedure-threshold landed: a round-tripped ApplyTransactionAfterSubmitFailed completes the row with its finalization', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
@@ -2976,14 +2986,51 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
 
     await generateTransaction(buildTx('s-apply-upt', row) as never, signCallback, false, sp as never);
 
-    // update-procedure-threshold has NO reconcile handler (unlike replace-hot-key /
-    // switch-guardian): the classifier routes its post-submit apply failure straight to
-    // cancelTransaction → Failed — byte-identical to flag-OFF (the same inline apply throw
-    // classifies the same way). The errorCode still reached the classifier; the
-    // type-appropriate outcome is Failed, and the completion handler does not run.
+    // The node has the update, so the row gets the happy path's finalization without a
+    // TransactionResult; the typed completion handler is not called with an undefined one,
+    // and no service is built for a re-register (one build, the proposal's).
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     const finalRow = txStore.find(r => r.id === 's-apply-upt')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.displayMessage).toBe('Account secured');
+  });
+
+  it('update-procedure-threshold landed: a canonicalization refusal completes the row with its finalization (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
+    );
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { provider: sp } = arrangeStructural('s-refusal-upt', row);
+
+    await generateTransaction(buildTx('s-refusal-upt', row) as never, signCallback, false, sp as never);
+
+    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 's-refusal-upt')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.displayMessage).toBe('Account secured');
+  });
+
+  it('update-procedure-threshold landed: a refusal whose Completed write fails ends Failed, not Completed as a send (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-upt-write-fails';
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      // Armed at the failure, so the first row read to fail is the reconcile's Completed write.
+      mockFailRowReads = { id, times: 1 };
+      throw new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`);
+    });
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { provider: sp } = arrangeStructural(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    expect(mockFailRowReads?.times).toBe(0);
+    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+    // The threshold changed on chain whatever the row says, so the stale cache still goes.
+    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
   });
 });

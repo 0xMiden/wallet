@@ -6795,6 +6795,63 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  // #1233: a threshold update whose submit lands and whose local apply then fails. The cold
+  // service backs the proposal; the reconcile builds none.
+  const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1]) => {
+    const coldService = {
+      createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
+        id: 'prop-upt',
+        nonce: 9
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {})
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      client: makeClientApi(makeResult(), apply)
+    });
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ ...tx });
+    const row = () => txStore.find(r => r.id === tx.id);
+    return { tx, row, coldService, provider: makeGuardianProvider(true) };
+  };
+
+  it('update-procedure-threshold landed: an apply-after-submit failure completes the row and pushes no stale state (#1233)', async () => {
+    const { tx, row, coldService, provider } = arrangeLandedThreshold(
+      jest.fn(async () => {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      })
+    );
+    // On both services a later change could reach for, so a reintroduced push is seen.
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    Object.assign(coldService, { reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian
+    });
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+    expect(row()?.displayMessage).toBe('Account secured');
+    // The cached hot service holds the pre-update threshold map.
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    // The local store still holds the pre-update account: nothing may push it to the guardian.
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+  });
+
   it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {
     const txId = 'consume-apply-fail';
     const multisigService = {
