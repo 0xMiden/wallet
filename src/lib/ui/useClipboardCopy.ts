@@ -17,16 +17,19 @@ export type ClipboardCopyStatus = 'idle' | 'success' | 'failure';
  * `status` is `'success'` once the write resolves, or `'failure'` once it rejects (the error is
  * logged), and either decays to `'idle'` after `COPY_FEEDBACK_MS`; a newer outcome replaces the
  * older one's timer, so a failure is never erased early by an earlier success. `copied` is
- * `status === 'success'`. A `copy()` while a write is still in flight is ignored, and the latch
- * is released however that write settles.
+ * `status === 'success'`. Both follow `text`: a `copy()` of the text already being written is
+ * ignored, and its latch released however that write settles, while a text rendered since writes
+ * at once; an outcome is reported only while its own text is the one rendered.
  *
  * Does not fire a haptic itself — callers differ on when: `CopyButton` fires it directly,
  * `CopyChip` gets it from `Pill`'s own tap handler, and firing it here too would double it.
  */
 export function useClipboardCopy(text: string) {
-  const [status, setStatus] = useState<ClipboardCopyStatus>('idle');
+  const [outcome, setOutcome] = useState<{ status: 'success' | 'failure'; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const inFlightRef = useRef(false);
+  // The write on its way, not a flag: `text` is a render argument, and a plain latch dropped a value
+  // rendered mid-write while the older write went on to report "Copied" beside it.
+  const inFlightRef = useRef<{ text: string } | null>(null);
   // A write that settles after the component has already unmounted (e.g. the row it copied from
   // disappeared, or the page navigated away) must not set state or arm a timeout nobody will ever
   // clear — both are a no-op-but-warn in React and, for the timer, a dangling callback that fires
@@ -47,23 +50,25 @@ export function useClipboardCopy(text: string) {
   }, []);
 
   const copy = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    let outcome: ClipboardCopyStatus;
+    if (inFlightRef.current?.text === text) return;
+    const write = { text };
+    inFlightRef.current = write;
+    let status: 'success' | 'failure';
     try {
       await Clipboard.write({ string: text });
-      outcome = 'success';
+      status = 'success';
     } catch (error) {
       console.error('[clipboard] failed to copy:', error);
-      outcome = 'failure';
+      status = 'failure';
     } finally {
-      inFlightRef.current = false;
+      if (inFlightRef.current === write) inFlightRef.current = null;
     }
     if (!mountedRef.current) return;
-    setStatus(outcome);
+    setOutcome({ status, text });
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setStatus('idle'), COPY_FEEDBACK_MS);
+    timerRef.current = setTimeout(() => setOutcome(null), COPY_FEEDBACK_MS);
   }, [text]);
 
+  const status: ClipboardCopyStatus = outcome?.text === text ? outcome.status : 'idle';
   return { status, copied: status === 'success', copy };
 }
