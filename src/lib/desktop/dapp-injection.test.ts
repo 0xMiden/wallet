@@ -242,7 +242,10 @@ describe('account switch (#174)', () => {
     const connecting = w.connect('ALL', 'testnet', ['balance']);
     h.answer(h.last().reqId, CONNECT);
     await connecting;
-    h.answer(h.last().reqId, { type: 'DISCONNECT_RESPONSE' });
+    const reqId = h.last().reqId;
+    jest.advanceTimersByTime(10000);
+    expect(h.polls()).toHaveLength(0);
+    h.answer(reqId, { type: 'DISCONNECT_RESPONSE' });
     await disconnecting;
     jest.advanceTimersByTime(10000);
     expect(h.polls()).toHaveLength(0);

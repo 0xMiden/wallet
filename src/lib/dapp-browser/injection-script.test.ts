@@ -1006,7 +1006,10 @@ describe('account switch (#174)', () => {
       if (!disconnecting) disconnecting = w.disconnect();
     });
     await callAndResolve(win, () => w.connect('ALL', 'testnet', ['balance']), CONNECT);
-    respond(win, lastMessage(win).reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
+    const reqId = lastMessage(win).reqId;
+    jest.advanceTimersByTime(10000);
+    expect(polls(win)).toHaveLength(0);
+    respond(win, reqId, { type: 'MIDEN_PAGE_RESPONSE', payload: { type: 'DISCONNECT_RESPONSE' } });
     await disconnecting;
     jest.advanceTimersByTime(10000);
     expect(polls(win)).toHaveLength(0);
