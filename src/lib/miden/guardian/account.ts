@@ -11,6 +11,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
+import { isGuardianKeyCommitment } from './key-commitment';
 import { registerGuardianOrigin } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
@@ -243,7 +244,7 @@ export function getGuardianCommitmentFromAccount(account: Account): string | und
  * on-chain commitment comparison.
  */
 export function assertGuardianKeyCommitment(commitment: unknown, endpoint: string): string {
-  if (typeof commitment !== 'string' || !/^(0x)?[0-9a-fA-F]{64}$/.test(commitment)) {
+  if (!isGuardianKeyCommitment(commitment)) {
     throw new Error(
       `Guardian endpoint ${endpoint} returned a malformed key commitment; expected a 32-byte hex word (64 hex digits)`
     );

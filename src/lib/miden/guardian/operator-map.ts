@@ -20,6 +20,7 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
 import { withGuardianProbe } from 'lib/miden/guardian/native-http';
 import { getBuiltInGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
@@ -48,7 +49,8 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * reconciler, the manual-URL apply below and the picker's ping hand to this
  * function: without it those paths report every custom operator unreachable on
  * mobile. The probe keeps the origin routed only when the endpoint answers with a
- * key, so a URL that is not a Guardian is not left routed.
+ * key commitment of a Guardian's shape (`isGuardianKeyCommitment`), so a URL that
+ * is not a Guardian is not left routed.
  *
  * A non-string commitment is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
@@ -89,7 +91,7 @@ export async function fetchOperatorCommitment(
           }
         );
       }),
-    commitment => Boolean(commitment)
+    isGuardianKeyCommitment
   );
 }
 

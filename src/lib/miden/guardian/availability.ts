@@ -13,6 +13,7 @@
  * response) reports offline: the picker disables that operator's card until a
  * later round reports it online, and onboarding never picks it.
  */
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
 import { fetchOperatorCommitment } from 'lib/miden/guardian/operator-map';
 
 /**
@@ -36,9 +37,9 @@ export async function pingGuardianEndpointLatency(
   // One try around everything, so the ping cannot reject whatever the helper below does.
   try {
     const startedAt = performance.now();
-    // Probes the origin on mobile, and reads a non-string commitment as no answer.
+    // Probes the origin on mobile, and settles it by the same rule as the verdict below.
     const commitment = await fetchOperatorCommitment(endpoint, timeoutMs);
-    return commitment ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
+    return isGuardianKeyCommitment(commitment) ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
   } catch {
     // Offline, whatever the cause.
     return null;

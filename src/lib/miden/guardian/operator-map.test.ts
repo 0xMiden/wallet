@@ -426,6 +426,8 @@ describe('mobile native-HTTP probe', () => {
   });
 
   it('keeps the origin routed once the endpoint answers with a key, even another operator key', async () => {
+    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = `0x${'ab'.repeat(32)}`;
+
     await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', 'bbb')).resolves.toBe('mismatch');
     expect(mockProbeVerdicts).toEqual([['https://guardian.openzeppelin.com', true]]);
   });
@@ -440,6 +442,14 @@ describe('mobile native-HTTP probe', () => {
 
     await expect(checkEndpointCommitment('https://empty.guardian.test', 'aaa')).resolves.toBe('unreachable');
     expect(mockProbeVerdicts).toEqual([['https://empty.guardian.test', false]]);
+  });
+
+  // Only a 32-byte word is a Guardian's key, whatever this function returns for the comparison.
+  it('releases the origin when the endpoint answers with a key that is not a 32-byte hex word', async () => {
+    mockPubkeyByEndpoint['https://short.guardian.test'] = '0xdeadbeef';
+
+    await expect(checkEndpointCommitment('https://short.guardian.test', 'aaa')).resolves.toBe('mismatch');
+    expect(mockProbeVerdicts).toEqual([['https://short.guardian.test', false]]);
   });
 
   it('releases the origin when the request rejects', async () => {
