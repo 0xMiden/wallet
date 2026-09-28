@@ -2872,7 +2872,9 @@ describe('MidenClientInterface', () => {
         senderAccountId: 'bech32(sender-kept)',
         state: 2,
         assets: [{ amount: '100', faucetId: 'bech32(faucet-kept)' }],
-        swapAttachment: null
+        swapAttachment: null,
+        // The fixture record has no readable script.
+        standardPayment: false
       }
     ]);
   });

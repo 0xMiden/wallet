@@ -45,6 +45,17 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
+// The worker store's account list, read for the rotation-pending guard (#805).
+let mockStoreAccounts: Array<{ publicKey: string; requiresHotKeyRotation?: boolean }> = [];
+jest.mock('lib/miden/back/store', () => ({
+  store: { getState: () => ({ accounts: mockStoreAccounts }) }
+}));
+
+jest.mock('../sdk/helpers', () => ({
+  // Mirrors the real helper: an account id may carry a `_<suffix>` the other spelling lacks.
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+}));
+
 jest.mock('lib/miden/transaction/initiate', () => ({
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
 }));
@@ -116,6 +127,7 @@ describe('swap order note settlement', () => {
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
     (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
+    mockStoreAccounts = [];
   });
 
   it('classifies the lineage tip and PSWAP-attached paybacks without amount heuristics', async () => {
@@ -375,6 +387,30 @@ describe('swap order note settlement', () => {
 
     expect(modify).not.toHaveBeenCalled();
     expect(toArray).toHaveBeenCalledTimes(1);
+  });
+
+  describe('rotation-pending accounts (#805)', () => {
+    it("leaves a rotation-pending account's open swap order to its rotation gate", async () => {
+      mockStoreAccounts = [{ publicKey: 'account-1', requiresHotKeyRotation: true }];
+      const payback = consumable('payback', 'payback', 'filled');
+
+      await reconcileSwapOrderNotes('account-1', [payback], false, 150);
+
+      expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+      expect(modify).not.toHaveBeenCalled();
+    });
+
+    it('does not affect a non-pending account even while another account in the store is pending', async () => {
+      mockStoreAccounts = [
+        { publicKey: 'account-1', requiresHotKeyRotation: false },
+        { publicKey: 'account-2', requiresHotKeyRotation: true }
+      ];
+      const payback = consumable('payback', 'payback', 'filled');
+
+      await reconcileSwapOrderNotes('account-1', [payback], false, 150);
+
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false);
+    });
   });
 
   // The settlement tick is a 3s timer that rebuilds the client whenever the slot is

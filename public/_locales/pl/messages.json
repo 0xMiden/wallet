@@ -2795,6 +2795,55 @@
     "message": "Spróbuj ponownie",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "Dodaj MIDEN, aby aktywować swój klucz codzienny",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Aktywacja klucza codziennego jest transakcją, a każda transakcja wiąże się z niewielką opłatą sieciową w MIDEN. Wyślij MIDEN na adres tego konta podany poniżej. Portfel odbierze środki i automatycznie zakończy aktywację klucza.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Wyślij co najmniej $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Adres Twojego konta",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Czekam na nadejście MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Otrzymana kwota MIDEN jest zbyt mała, aby pokryć opłatę sieciową. Wyślij nieco więcej.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "Otrzymano MIDEN. Zgłaszam roszczenie…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Aktywacja klucza codziennego…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Otrzymany przez Ciebie MIDEN nie mógł zostać odebrany.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Spróbuj ponownie",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Sprawdź jeszcze raz",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian zmieniono",
     "englishSource": "Guardian changed"
