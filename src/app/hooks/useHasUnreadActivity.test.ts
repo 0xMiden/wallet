@@ -165,6 +165,15 @@ describe('useHasUnreadActivity - the account feed rows', () => {
     expect((await renderUnread()).current).toBe(false);
   });
 
+  it('does not light for a failed claim of a note this account has since claimed (#771)', async () => {
+    await transactions.bulkAdd([
+      tx('claimed', { type: 'consume', noteId: 'n1', noteIds: ['n1'], initiatedAt: 20, completedAt: 20 }),
+      tx('attempt', { type: 'consume', noteId: 'n1', status: ITransactionStatus.Failed, initiatedAt: 10 })
+    ]);
+    setRead(txKey('claimed'));
+    expect((await renderUnread()).current).toBe(false);
+  });
+
   it('lights for an unread ordinary row behind more than 50 newer raw rows, most of them settlement consumes', async () => {
     const consumes = Array.from({ length: 55 }, (_, i) =>
       tx(`settle${i}`, {
