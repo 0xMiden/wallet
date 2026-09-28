@@ -5333,16 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "檢查此錢包的解鎖方式所花費的時間比平常更長。若要重新嘗試，請返回並重新開啟此頁面。",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "無法驗證此錢包的解鎖方式。若要重新嘗試，請返回並重新開啟此頁面。",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "無法驗證此錢包的解鎖方式。請重試。",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "更改 QR Code 顏色",

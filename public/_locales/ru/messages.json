@@ -5333,16 +5333,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Проверка метода разблокировки этого кошелька занимает больше времени, чем обычно. Чтобы повторить попытку, вернитесь назад и заново откройте эту страницу.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Не удалось проверить способ разблокировки этого кошелька. Чтобы повторить попытку, вернитесь назад и заново откройте эту страницу.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Изменить цвет QR-кода",
