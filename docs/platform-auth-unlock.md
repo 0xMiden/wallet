@@ -89,9 +89,9 @@ first; everything in this section stays as it is.
 5. The extension page then reloads (`src/app/pages/Unlock.tsx:337-341`).
 
 The unwrapped key lives only in service-worker memory. The popup never runs
-`Actions.init` and never signs (`src/lib/miden/back/actions.ts:151-155`). No code
-in `src` uses `chrome.storage.session`, so nothing of the unlock survives a
-service-worker restart.
+`Actions.init` and never signs (`src/lib/miden/back/actions.ts:151-155`). No
+code in `src` uses `chrome.storage.session`, so nothing of the unlock survives
+a service-worker restart.
 
 What locks it:
 
@@ -114,8 +114,9 @@ What locks it:
   (`vite.background.config.ts:203-209`).
 
 Wrong passwords are throttled in the page only: a lockout that grows by 60
-seconds for each three attempts (`src/app/pages/Unlock.tsx:40-41`) and a random
-1 to 3 second delay on later attempts (`src/app/pages/Unlock.tsx:311`).
+seconds (`src/app/pages/Unlock.tsx:30`) for each three attempts
+(`src/app/pages/Unlock.tsx:40-41`) and a random 1 to 3 second delay on later
+attempts (`src/app/pages/Unlock.tsx:311`).
 
 ### Legacy wallets
 
@@ -234,20 +235,25 @@ exists yet: nothing in the repo calls `navigator.credentials`.
   ([`get_assertion_request_handler.cc`][cr-get-assertion]). iCloud Keychain
   returned different values with and without verification, one reason Chrome
   disabled its PRF support before launch ([Chromium 58e4f0f7][cr-icloud-uv],
-  2024-10-09), and Apple states it seeds the PRF differently depending on
-  whether verification ran ([Apple developer forums][apple-forum-prf],
-  2024-09). Every ceremony therefore asks for `userVerification: 'required'`
-  and checks the UV flag.
+  2024-10-09), and an Apple engineer confirms the PRF uses "different seeds
+  depending on whether UV (passcode/biometrics) was performed or not"
+  ([Apple developer forums][apple-forum-prf], 2024-09). Every ceremony
+  therefore asks for `userVerification: 'required'` and checks the UV flag.
 - The output is key material, not a key. HKDF-SHA256 turns it into a
   non-extractable AES-GCM-256 key; WebCrypto's `deriveKey` supports HKDF with
   an AES-GCM target ([MDN `deriveKey`][mdn-derivekey], modified 2025-09-17).
-  Proposed parameters: the PRF output as input keying material, the credential
-  id as salt, and a versioned `info` such as
-  `miden-wallet:vault-key-platform:v1`.
-- That key wraps the same 32 vault-key bytes the password wraps, with a fresh
-  random IV and the record's version and credential id as additional
-  authenticated data. The vault key and every item encrypted under it stay as
-  they are.
+  Proposed parameters: the PRF output as input keying material, the raw
+  credential-id bytes (not their base64url text) as salt, and a versioned
+  `info` such as `miden-wallet:vault-key-platform:v1`.
+- That key wraps the same 32 vault-key bytes the password wraps, under a fresh
+  random 12-byte IV, the length NIST recommends for GCM
+  ([NIST SP 800-38D][nist-gcm], 2007-11). The repo's other AES-GCM uses take
+  16-byte IVs (`src/lib/miden/passworder.ts:27`,
+  `src/lib/miden/passworder.ts:244`); the new record does not copy that.
+- The additional authenticated data is one version byte followed by the raw
+  credential-id bytes, so a record cannot be replayed under another version or
+  credential.
+- The vault key and every item encrypted under it stay as they are.
 
 ### The stored record
 
@@ -257,11 +263,11 @@ A third plain-storage key, `vault_key_platform`, next to the other two
 
 | Field | Content |
 |---|---|
-| `version` | Record format, starting at 1; the HKDF `info` and the additional data carry it |
-| `credentialId` | The credential's raw id (base64url), passed in `allowCredentials` at unlock |
+| `version` | Record format, starting at 1; carried in the HKDF `info` and as the first byte of the additional data |
+| `credentialId` | The credential's raw id, stored as base64url; passed in `allowCredentials` at unlock, and its raw bytes are the HKDF salt and follow the version byte in the additional data |
 | `prfSalt` | 32 random bytes, the PRF input, one per credential |
 | `rpId` | `chrome-extension://<id>` at enrollment, so a changed extension id is caught before a ceremony |
-| `wrappedKey` | IV, then AES-GCM ciphertext and tag of the 32 vault-key bytes |
+| `wrappedKey` | 12-byte IV, then AES-GCM ciphertext and tag of the 32 vault-key bytes |
 
 The salt is not secret: it is stored next to the wrapped key.
 
@@ -319,7 +325,13 @@ Enrollment, as proposed:
    10.1.4][webauthn-l3]). If the response has no `prf.results.first`, the page
    runs `get()` once with the new credential in `allowCredentials`. No output
    from either means the authenticator has no PRF, and enrollment stops with
-   nothing stored.
+   nothing stored in the wallet. The `create()` has already made a credential
+   in the provider, though: on macOS the likely case is a Chrome-profile
+   passkey, which stays listed in `chrome://settings/passkeys` until the user
+   deletes it there ([Chromium 5c360860][cr-cbd-m126]).
+   `signalUnknownCredential` is known to hide only GPM entries
+   ([delegate][cr-delegate]); its effect on iCloud Keychain is
+   **Unconfirmed**.
 3. The page sends the password, credential id, salt and PRF output to the
    service worker.
 4. The service worker unwraps the vault-key bytes with the password, wraps
@@ -339,9 +351,9 @@ alone.
 | OS | Authenticator Chrome uses | PRF | Since | Synced | Source |
 |---|---|---|---|---|---|
 | macOS | Chrome profile (Chrome's own Touch ID store) | No | never | No | [`authenticator.mm`][cr-mac-authenticator] sets no `supports_prf` (default false, [`authenticator_supported_options.h`][cr-supported-options]); [MetaMask #45783][metamask-45783] (2026-08-26, secondary) |
-| macOS 15+ | iCloud Keychain | Yes, create and get | Chrome 132 (stable 2025-01-14) | Yes | [`icloud_keychain.mm`][cr-icloud]; [Chromium 52fceaad][cr-icloud-launch] (2025-03-17, "launched since M132"); [Apple][apple-icloud-security] (2024-09-16) |
-| macOS, Windows, Linux, ChromeOS | Google Password Manager | Yes, create and get | GPM desktop passkeys, 2024-09-19 | Yes | [`enclave_protocol_utils.cc`][cr-enclave]; [`webauthn_credential_specifics.proto`][cr-gpm-proto]; [Google][google-gpm-blog] (2024-09-19) |
-| Windows 11 | Windows Hello, through `webauthn.dll` | **Unconfirmed** | Chrome passes PRF at get on every Windows API version; at create from Chrome 147 (stable 2026-04-07) | No | [`win/authenticator.cc`][cr-win-authenticator]; [Chromium af1aabea][cr-win-prf-create] (2026-02-23); [Bitwarden forum][bitwarden-hello-thread] (2026-03-23, secondary); [MetaMask #46400][metamask-46400] (2026-09-16, secondary) |
+| macOS 15+ | iCloud Keychain | Yes, create and get; with a `chrome-extension://` RP ID **Unconfirmed** | Chrome 132 (stable 2025-01-14) | Yes | [`icloud_keychain.mm`][cr-icloud]; [Chromium 52fceaad][cr-icloud-launch] (2025-03-17, "launched since M132"); [Apple][apple-icloud-security] (2024-09-16) |
+| macOS, Windows, Linux, ChromeOS | Google Password Manager | Yes, create and get; with a `chrome-extension://` RP ID, secondary evidence only | GPM desktop passkeys, 2024-09-19 | Yes | [`enclave_protocol_utils.cc`][cr-enclave]; [`webauthn_credential_specifics.proto`][cr-gpm-proto]; [Google][google-gpm-blog] (2024-09-19); extension RP ID: [MetaMask #46400][metamask-46400] (2026-09-16, secondary) |
+| Windows 11 | Windows Hello, through `webauthn.dll` | **Unconfirmed** | Chrome passes PRF at get on every Windows API version; at create from Chrome 147 (stable 2026-04-07), and only where `webauthn.dll` reports API version 8 or later (`supports_hmac_secret_mc = api_version >= WEBAUTHN_API_VERSION_8`); which Windows build ships API version 8 is **Unconfirmed** | No | [`win/authenticator.cc`][cr-win-authenticator] ([line 68][cr-win-hmac-mc]); [Chromium af1aabea][cr-win-prf-create] (2026-02-23); [Microsoft `webauthn.h`][ms-webauthn-v8] (API version 8 added 2025-01-30); [Bitwarden forum][bitwarden-hello-thread] (2026-03-23, secondary); [MetaMask #46400][metamask-46400] (2026-09-16, secondary) |
 | Windows 10 | Windows Hello | No, **Unconfirmed** | - | No | [Corbado][corbado] (2026-09-22, secondary); [Bitwarden help][bitwarden-help-passkeys] (read 2026-09-28, secondary) |
 | Linux | No OS authenticator; Google Password Manager only | Yes, through GPM | as GPM | Yes | [Google supported environments][google-envs] (updated 2025-05-19) |
 | ChromeOS | ChromeOS platform authenticator | No | - | No | [`cros/authenticator.cc`][cr-cros] |
@@ -377,7 +389,8 @@ Notes on the rows:
   authenticator data is readable only after creation
   ([WebAuthn Level 3][webauthn-l3]); GPM sets it
   ([`passkey_model_utils.cc`][cr-passkey-model-utils]) and Chrome's macOS
-  profile store never does ([`credential_store.mm`][cr-credential-store]).
+  profile store never does: its `MakeAuthenticatorData` sets only the UP, UV
+  and AT flags ([`mac/util.mm`][cr-mac-util]).
 - Capability detection cannot answer for the authenticator: Blink returns
   `extension:prf` true from `getClientCapabilities()` unconditionally
   ([`public_key_credential.cc`][cr-pkc], Chrome 133+). Only a PRF result from
@@ -449,10 +462,16 @@ appendix. Excerpt of `probe-results.json`:
 
 ### Where unlock can run
 
-The build's HTML entries are listed at `vite.extension.config.ts:394-398`. A
-locked wallet shows Unlock in each of them
-(`src/app/PageRouter.tsx:140-145`); the popup and side panel count as compact
-(`src/app/env.ts:40`).
+The build's HTML entries are listed at `vite.extension.config.ts:394-398`.
+`options.html` renders only a reset page, not the wallet
+(`src/options.tsx:26-32`, `src/options.tsx:42-66`), so it never shows Unlock.
+A locked wallet shows Unlock in the popup, side panel and full-page tab
+through the router (`src/app/PageRouter.tsx:140-145`), and in the confirm
+window through `ConfirmPage` instead (`src/app/App.tsx:88-89`,
+`src/app/ConfirmPage.tsx:67-68`). The confirm window renders as
+`WindowType.Popup` (`src/confirm.tsx:20`), so like the popup and side panel it
+counts as compact (`src/app/env.ts:38-40`), and Forgot password closes it
+(`src/app/pages/Unlock.tsx:392-402`).
 
 | Surface | Entry | How it opens | Notes |
 |---|---|---|---|
@@ -538,7 +557,7 @@ as it is today.
 
 | Event | What happens to the credential | What the user sees | Password still unlocks? |
 |---|---|---|---|
-| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves nothing stored. | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used. | Yes: `vault_key_password` is not touched. |
+| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves nothing in the wallet, but `create()` has already made its credential: on macOS most likely a Chrome-profile passkey, which stays listed in `chrome://settings/passkeys` ([Chromium 5c360860][cr-cbd-m126]). `signalUnknownCredential` is known to hide only GPM entries ([delegate][cr-delegate]); for iCloud Keychain **Unconfirmed**. | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used, and a leftover entry in that provider. | Yes: `vault_key_password` is not touched. |
 | Re-enrollment | The new record replaces `vault_key_platform`; the old credential stays in its provider unless removed. `PublicKeyCredential.signalUnknownCredential` (Chrome 132+, [MDN browser-compat-data][mdn-bcd]) asks the provider to hide it; Chrome acts on it for GPM ([delegate][cr-delegate]), and for iCloud Keychain it is **Unconfirmed**. After Forgot password, setup wipes every storage key but the preserved ones (`src/lib/miden/reset.ts:22-42`, `src/lib/miden/reset.ts:67-81`), so the record goes and the new vault key needs a new enrollment. | The enrollment flow again; the old entry may stay listed in the provider. | Yes. |
 | Device loss | The record was on the lost device. A synced credential (iCloud Keychain, GPM) stays usable elsewhere but has no record to unwrap there; a device-bound one is gone. | On a new device: restore from the seed phrase or a backup file, set a password, enroll again. | Not applicable: the vault was on the lost device; recovery is the seed phrase or backup, as today. |
 | Browser-profile reset | Deleting the profile deletes its `chrome.storage.local`, record included. "Reset settings" resets "Extensions and themes" and "Cookies and site data" and keeps saved passwords ([Chrome Help][chrome-reset], read 2026-09-28); whether extension storage survives it is **Unconfirmed**. iCloud Keychain, GPM and Windows Hello keep the credential outside the profile (**Unconfirmed** as documented behaviour). | Profile deleted: onboarding. Reset settings: unlock as before if storage survived (**Unconfirmed**). | Yes while the storage survives; both wrappings go if it does not. |
@@ -546,7 +565,7 @@ as it is today.
 | Uninstall and Web Store reinstall | Removal clears `chrome.storage.local` ([chrome.storage][chrome-storage]), so both wrapped keys go. The credential stays in its provider under `chrome-extension://<id>` (how it is listed: **Unconfirmed**). The reinstalled extension keeps its id and RP ID ([`id_util.h`][cr-id-util]) but has no record for the old credential. From another store the id may differ: **Unconfirmed**. | A fresh install opens onboarding in a tab (`vite.background.config.ts:197-202`); restore from the seed phrase or backup, then enroll again. | No: `vault_key_password` is gone too; recovery is the seed phrase or backup, as today. |
 | Windows Hello PIN reset | A destructive PIN reset deletes the keys in the user's Windows Hello container, listed for Microsoft accounts ([Microsoft Learn][ms-pin-reset], 2026-03-29). Whether consumer passkeys sit in that container: **Unconfirmed**. Reports conflict on whether a PIN change drops passkeys ([Microsoft Q&A][ms-qa-pin], 2025-05, secondary). | Platform unlock fails with no credential found; the password form. | Yes. |
 | Touch ID re-enrollment | Chrome's profile keys use private-key usage and user presence, not the current biometric set ([`credential_store.mm`][cr-credential-store]), so a new fingerprint does not invalidate them (inference); they have no PRF anyway. For iCloud Keychain passkeys Apple documents nothing: **Unconfirmed**. | Expected: nothing. If the credential stopped working: the password form. | Yes. |
-| A synced passkey on another device | GPM syncs the credential's `hmac-secret` inside its encrypted entity ([`webauthn_credential_specifics.proto`][cr-gpm-proto]). For iCloud Keychain an Apple engineer states that PRF values over hybrid match local ones from iOS 18.4 and macOS 15.4 ([Apple developer forums][apple-forum-prf], 2025-02). The other device computes the same PRF output; the record exists only in this profile. | The passkey is listed in the provider on the user's other devices. Another install of the wallet has no record for it and does not offer platform unlock until it enrolls its own. | Yes, on every install. |
+| A synced passkey on another device | GPM syncs the credential's `hmac-secret` inside its encrypted entity ([`webauthn_credential_specifics.proto`][cr-gpm-proto]). For iCloud Keychain an Apple engineer wrote that PRF values over hybrid differing from local ones was a bug that "should be fixed in the current iOS 18.4 and macOS 15.4 betas" ([Apple developer forums][apple-forum-prf], 2025-02). A GPM passkey therefore yields the same PRF output on every synced device; for iCloud Keychain that is the expected reading, **Unconfirmed**. The record exists only in this profile. | The passkey is listed in the provider on the user's other devices. Another install of the wallet has no record for it and does not offer platform unlock until it enrolls its own. | Yes, on every install. |
 
 ## Security comparison
 
@@ -597,6 +616,7 @@ To be written.
 [cr-id-util]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/components/crx_file/id_util.h
 [cr-m148-host]: https://chromium.googlesource.com/chromium/src/+/ecf43dd2aa505fc586380559884f304e1846c32d
 [cr-mac-authenticator]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/mac/authenticator.mm
+[cr-mac-util]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/mac/util.mm#L92-L106
 [cr-origins-md]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/content/browser/webauth/origins.md
 [cr-passkey-model-utils]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/components/webauthn/core/browser/passkey_model_utils.cc
 [cr-pkc]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/third_party/blink/renderer/modules/credentialmanagement/public_key_credential.cc
@@ -606,6 +626,7 @@ To be written.
 [cr-security-utils]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/components/webauthn/core/browser/webauthn_security_utils.cc
 [cr-supported-options]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/authenticator_supported_options.h
 [cr-win-authenticator]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/win/authenticator.cc
+[cr-win-hmac-mc]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/win/authenticator.cc#L68
 [cr-win-prf-create]: https://chromium.googlesource.com/chromium/src/+/af1aabea3579861072872d9209bad47b3ff5b8e6
 [credman]: https://w3c.github.io/webappsec-credential-management/
 [google-envs]: https://developers.google.com/identity/passkeys/supported-environments
@@ -622,5 +643,7 @@ To be written.
 [ms-passkeys]: https://learn.microsoft.com/en-us/windows/security/identity-protection/passkeys/
 [ms-pin-reset]: https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/pin-reset
 [ms-qa-pin]: https://learn.microsoft.com/en-us/answers/questions/3856049/
+[ms-webauthn-v8]: https://github.com/microsoft/webauthn/commit/706d98d73a8c3d888e77f0d524f630d551b194c3
+[nist-gcm]: https://csrc.nist.gov/pubs/sp/800/38/d/final
 [w3c-list-2023]: https://lists.w3.org/Archives/Public/public-webauthn/2023Dec/0078.html
 [webauthn-l3]: https://www.w3.org/TR/webauthn-3/
