@@ -526,6 +526,42 @@ describe('onPermissionChange', () => {
 
     stop();
   });
+
+  it('a callback that throws is not called again for the same permission, and a switch back still arrives (#174)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn((perm: any) => {
+      if (perm?.address === 'b') throw new Error('listener failed');
+    });
+    const stop = onPermissionChange(cb);
+    resolveWith(permA);
+    await flush();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    expect(cb.mock.calls).toEqual([[permA], [permB]]);
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permA);
+    await flush();
+    expect(cb.mock.calls).toEqual([[permA], [permB], [permA]]);
+    stop();
+  });
+
+  it('drops a check that answers after stop, and polls no more (#174)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb);
+    // The first check is in flight when the provider disconnects.
+    stop();
+    resolveWith(permA);
+    await flush();
+    expect(cb).not.toHaveBeenCalled();
+    const requestsAfterStop = postSpy.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(postSpy.mock.calls.length).toBe(requestsAfterStop);
+  });
 });
 
 // ── assertResponse (direct) ────────────────────────────────────────
