@@ -29,21 +29,22 @@ const networkKind = (network: string): NetworkChipKind => (network.toLowerCase()
  * The asset and its network as ONE compact mark: the token's logo with the network's mark badged on
  * its corner, the shape the send flow gives a token or a recipient. It replaces the wide
  * "{asset} on {network}" pill, which took the width a two-word protocol needed and wrapped the
- * header onto a second line. The pill was also the only thing naming the pair in text, so the mark
- * carries that name for assistive tech.
+ * header onto a second line. Where nothing else names the pair in text the mark carries that name
+ * for assistive tech; beside `EarnSubjectSubtitle`, which says it already, it is `decorative`:
+ * hidden and unnamed, so the pair is announced once.
  */
-export const EarnAssetMark: FC<{ asset: string; network: string; className?: string }> = ({
+export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: boolean; className?: string }> = ({
   asset,
   network,
+  decorative = false,
   className
 }) => {
   const { t } = useTranslation();
-  const label = t('earnAssetOnNetwork', { asset, network });
 
   return (
-    <span className={classNames('flex shrink-0 items-center', className)}>
+    <span aria-hidden={decorative || undefined} className={classNames('flex shrink-0 items-center', className)}>
       <TokenLogo symbol={asset} size="md" badge={<NetworkLogo kind={networkKind(network)} />} />
-      <span className="sr-only">{label}</span>
+      {!decorative && <span className="sr-only">{t('earnAssetOnNetwork', { asset, network })}</span>}
     </span>
   );
 };
@@ -74,7 +75,7 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
       title={subject ? earnSubjectTitle(subject) : t('earnDeposit')}
       subtitle={subject && <EarnSubjectSubtitle subject={subject} />}
       onBack={goBack}
-      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} />}
+      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} decorative />}
     />
   );
 };

@@ -227,7 +227,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (

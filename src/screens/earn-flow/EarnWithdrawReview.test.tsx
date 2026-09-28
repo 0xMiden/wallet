@@ -143,12 +143,13 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     // The protocol is the title; the asset and its network are the muted line under it.
     expect(screen.getByRole('heading')).toHaveTextContent(/^Aave$/);
-    expect(screen.getAllByText('earnAssetOnNetwork').some(el => !el.classList.contains('sr-only'))).toBe(true);
     // The asset and its network ride the header as the shared mark, the same one the vault and
-    // deposit pages carry, rather than a page-local pill.
+    // deposit pages carry, rather than a page-local pill. The subtitle names the pair, so the mark
+    // is hidden and the banner says it once.
     const banner = screen.getByRole('banner');
-    expect(within(banner).getByText('earnAssetOnNetwork', { selector: '.sr-only' })).toBeInTheDocument();
+    expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
     expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
+    expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
     // The hero's figure carries the withdrawn token as its unit.
     const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
     expect(within(hero).getByText('42.25')).toBeInTheDocument();

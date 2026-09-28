@@ -91,3 +91,17 @@ it('keeps the two-line clamped title when there is no subtitle', () => {
 
   expect(screen.getByRole('heading')).toHaveClass('line-clamp-2');
 });
+
+it('keeps the focused title the same element when a subtitle arrives or leaves', () => {
+  const { rerender } = render(<PageHeader title="Dummy Lending" focusTitleOnMount />);
+  const heading = screen.getByRole('heading', { level: 1 });
+  expect(document.activeElement).toBe(heading);
+
+  rerender(<PageHeader title="Dummy Lending" subtitle="USDC on Ethereum" focusTitleOnMount />);
+  expect(document.activeElement).toBe(heading);
+  expect(screen.getByRole('heading', { level: 1 })).toBe(heading);
+
+  rerender(<PageHeader title="Dummy Lending" focusTitleOnMount />);
+  expect(document.activeElement).toBe(heading);
+  expect(heading).toHaveClass('line-clamp-2');
+});

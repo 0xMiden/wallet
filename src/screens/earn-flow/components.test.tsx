@@ -178,9 +178,18 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader subject={VAULT} />);
 
     // The pill was a 32px `bg-fill` capsule wide enough to spell "{asset} on {network}"; the mark
-    // is the token avatar, and the name it used to show is now screen-reader-only.
-    expect(screen.getAllByText('earnAssetOnNetwork').some(el => el.classList.contains('sr-only'))).toBe(true);
-    expect(screen.getByRole('banner')).toContainElement(screen.getByTestId('token-logo'));
+    // is the token avatar, and the subtitle under the title now says the name it used to show.
+    const banner = screen.getByRole('banner');
+    expect(banner).toContainElement(screen.getByTestId('token-logo'));
+    expect(screen.getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('names the asset and network once in the banner: the subtitle says it, so the mark does not', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
+    expect(within(banner).queryByText('earnAssetOnNetwork', { selector: '.sr-only' })).toBeNull();
   });
 
   it('reflects a different vault protocol/asset/network', () => {

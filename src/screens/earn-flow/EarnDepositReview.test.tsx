@@ -200,8 +200,13 @@ jest.mock('./components', () => {
     earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
     EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
       `${subject.asset} on ${subject.network}`,
-    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
-      R.createElement('span', { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network }),
+    EarnAssetMark: ({ asset, network, decorative }: { asset: string; network: string; decorative?: boolean }) =>
+      R.createElement('span', {
+        'data-testid': 'earn-asset-mark',
+        'data-asset': asset,
+        'data-network': network,
+        'data-decorative': String(Boolean(decorative))
+      }),
     EarnAmountUnit: ({ symbol }: { symbol: string }) =>
       R.createElement(
         'span',
@@ -277,6 +282,8 @@ describe('EarnDepositReview', () => {
       const mark = screen.getByTestId('earn-asset-mark');
       expect(mark).toHaveAttribute('data-asset', 'USDC');
       expect(screen.getByRole('banner')).toContainElement(mark);
+      // The subtitle names the pair, so the mark beside it is decorative: announced once.
+      expect(mark).toHaveAttribute('data-decorative', 'true');
 
       // Amount from the query string, formatted to 2 dp.
       expect(screen.getByText('1000.00')).toBeInTheDocument();

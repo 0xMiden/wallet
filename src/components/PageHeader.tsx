@@ -68,28 +68,24 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             data-testid={backTestId}
           />
         )}
-        {title && subtitle ? (
-          // The title and its subtitle stack in the title's slot, one line each, so the row keeps
-          // its 60px instead of growing for a title that had carried both.
+        {title ? (
+          // One column in the title's slot whether or not a subtitle is given, so a subtitle that
+          // arrives or leaves never recreates the h1 (and drops the focus `focusTitleOnMount` put
+          // there). With one, the two stack one line each and the row keeps its 60px.
           <div className="flex min-w-0 flex-1 flex-col">
             <h1
               ref={titleRef}
               tabIndex={focusTitleOnMount ? -1 : undefined}
-              className="truncate text-title-tab text-ink outline-none"
+              className={clsx(
+                'text-title-tab text-ink outline-none',
+                // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
+                subtitle ? 'truncate' : 'line-clamp-2 break-words'
+              )}
             >
               {title}
             </h1>
-            <p className="truncate text-caption-heading text-muted">{subtitle}</p>
+            {subtitle && <p className="truncate text-caption-heading text-muted">{subtitle}</p>}
           </div>
-        ) : title ? (
-          <h1
-            ref={titleRef}
-            tabIndex={focusTitleOnMount ? -1 : undefined}
-            // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-            className="line-clamp-2 min-w-0 flex-1 text-title-tab break-words text-ink outline-none"
-          >
-            {title}
-          </h1>
         ) : (
           <span className="flex-1" />
         )}

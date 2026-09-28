@@ -84,7 +84,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         title={found ? earnSubjectTitle(found) : t('withdraw')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
