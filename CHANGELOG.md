@@ -78,7 +78,7 @@
 - [FIX][all] A custom Guardian URL is checked for a live Guardian before it can be chosen, the same ping that marks a built-in operator offline, so an account can no longer be bound for recovery to a host that is not a Guardian (#1084).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
-- [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity, Token Detail or the Activity tab's unread mark once the note has been claimed (#771).
+- [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).
 
 ## 1.16.2 (2026-09-24)
 
