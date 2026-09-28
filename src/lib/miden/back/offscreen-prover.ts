@@ -205,7 +205,7 @@ export type ProveViaOffscreenResult = {
  */
 export async function proveViaOffscreen(
   txResultBytes: Uint8Array,
-  proverDescriptor: string | null
+  proverDescriptor: 'local' | null
 ): Promise<ProveViaOffscreenResult> {
   // Increment BEFORE ensureOffscreenDocument so an interleaving deadline kill
   // sees us as in-flight. Decrement in finally.
