@@ -1199,6 +1199,7 @@
   "guardianCardMeta": "營運方：$operator$ · $location$",
   "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
   "checkingUnlockMethodSlow": "檢查此錢包的解鎖方式所花費的時間比平常更長。若要重新嘗試，請返回並重新開啟此頁面。",
+  "couldNotCheckUnlockMethodReopen": "無法驗證此錢包的解鎖方式。若要重新嘗試，請返回並重新開啟此頁面。",
   "receiveQrColorAction": "更改 QR Code 顏色",
   "receiveAt": "接收地址",
   "earnTitle": "您的收益",
