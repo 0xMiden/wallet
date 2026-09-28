@@ -1,4 +1,4 @@
-import { unauthorizedRequeueCooldownSec } from 'lib/miden/transaction';
+import { guardianRequeueBackoffSec, unauthorizedRequeueCooldownSec } from 'lib/miden/transaction';
 
 describe('unauthorizedRequeueCooldownSec', () => {
   // Both ends matter and neither is arbitrary. The floor has to stay clear of
@@ -34,5 +34,26 @@ describe('unauthorizedRequeueCooldownSec', () => {
       expect(cooldown).toBeGreaterThanOrEqual(15);
       expect(cooldown).toBeLessThanOrEqual(54);
     }
+  });
+});
+
+describe('guardianRequeueBackoffSec', () => {
+  // A guardian arm that requeues the same row again doubles its cooldown, so rows a guardian keeps failing stop being
+  // eligible at every lap (#1223); the cap bounds how long a row waits once the guardian is back.
+  it('doubles the base for each consecutive requeue', () => {
+    expect(guardianRequeueBackoffSec(60, 1)).toBe(60);
+    expect(guardianRequeueBackoffSec(60, 2)).toBe(120);
+    expect(guardianRequeueBackoffSec(60, 3)).toBe(240);
+    expect(guardianRequeueBackoffSec(15, 4)).toBe(120);
+  });
+
+  it('stops at 240 s however long the streak runs', () => {
+    expect(guardianRequeueBackoffSec(60, 4)).toBe(240);
+    expect(guardianRequeueBackoffSec(15, 12)).toBe(240);
+  });
+
+  it("never cuts a base above the cap short, since a 429's base is the guardian's own retry-after", () => {
+    expect(guardianRequeueBackoffSec(300, 1)).toBe(300);
+    expect(guardianRequeueBackoffSec(300, 3)).toBe(300);
   });
 });

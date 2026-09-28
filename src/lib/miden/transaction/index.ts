@@ -290,6 +290,12 @@ const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 // connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
+// Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
+// the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
+// can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
+// timeout, so the rows between them get laps.
+const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
+
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
 // declares rate-limit rejections retryable, so terminal-failing a value-moving
@@ -402,6 +408,16 @@ export const UNAUTHORIZED_EXECUTION_REQUEUEABLE: ReadonlySet<ITransactionType> =
 
 const MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC;
 const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
+
+/**
+ * The cooldown a guardian arm gives a row it requeues for the `streak`-th time in a row: the arm's `baseSec`, doubled
+ * for each earlier requeue in the streak and capped at GUARDIAN_REQUEUE_BACKOFF_CAP_SEC, but never below `baseSec`,
+ * because a 429's base is the guardian's own retry-after and the cap must not cut that short.
+ *
+ * Pure and exported for its unit test, so the doubling and both bounds are pinned without driving a pipeline.
+ */
+export const guardianRequeueBackoffSec = (baseSec: number, streak: number): number =>
+  Math.min(baseSec * 2 ** Math.max(streak - 1, 0), Math.max(baseSec, GUARDIAN_REQUEUE_BACKOFF_CAP_SEC));
 
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
