@@ -152,7 +152,7 @@ Biometric matching is performed entirely by your device's operating system insid
 
 The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
 
-It also downloads public data that carries nothing about you: Miden's verified-token list and update notices from GitHub (`raw.githubusercontent.com`), and token prices from Binance.
+It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
 
 If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
 
