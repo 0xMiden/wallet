@@ -565,8 +565,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
-      bridgeInFromEarnWithdraw: bridgeIn?.earnWithdrawTxId !== undefined
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
