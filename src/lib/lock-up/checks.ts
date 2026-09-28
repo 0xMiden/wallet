@@ -10,7 +10,7 @@ const CLOSURE_STORAGE_KEY = 'last-page-closure-timestamp';
 
 const isSinglePageOpened = () => getOpenedMidenPagesN() === 1;
 
-export const needsLocking = async () => {
+const needsLocking = async () => {
   if (!getIsLockUpEnabled() || !isSinglePageOpened()) return false;
   // This check is the wallet's only idle lock, so a closure time it cannot read counts as expired.
   const lastClosedTime = await getLastClosedTimeOrNow().catch(err => {

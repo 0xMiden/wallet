@@ -196,6 +196,8 @@ describe('runLockUpChecks', () => {
     await runLockUpChecks();
     expect(mockSet).toHaveBeenCalledTimes(1);
 
+    // Without updateClosureTimestamp's catch, this tick's failed write rejects unhandled and Jest fails the test; the
+    // assertions below hold either way, since the interval keeps firing.
     mockSet.mockRejectedValueOnce(new Error('set failed'));
 
     await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST);
