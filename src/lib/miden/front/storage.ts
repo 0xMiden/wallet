@@ -16,9 +16,6 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
   });
   const { cache } = useSWRConfig();
 
-  // On the extension each commit to the key arrives here, this page's own included; a removal carries no newValue.
-  useEffect(() => onStorageChanged<unknown>(key, newValue => settle(key, begin(), newValue)), [key]);
-
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
   const setValue = useCallback(
@@ -129,11 +126,37 @@ function settle(key: string, seq: number, value: unknown) {
 
 const ignoreFailedWrite = () => {};
 
+let changeListener: Promise<void> | 'attached' | undefined;
+
+// One listener per extension page settles every cached key, mounted or not, from any realm's commit (a removal carries
+// no newValue). It is never removed. Returns the pending attach; undefined off the extension and once attached.
+function listenForChanges(): Promise<void> | undefined {
+  if (changeListener === 'attached' || !isExtension()) return undefined;
+  changeListener ??= import('webextension-polyfill').then(
+    ({ default: browser }) => {
+      browser.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'local') return;
+        for (const [key, change] of Object.entries(changes)) settle(key, begin(), change.newValue);
+      });
+      changeListener = 'attached';
+    },
+    error => {
+      changeListener = undefined;
+      console.warn('[storage] not listening for storage changes yet:', error);
+    }
+  );
+  return changeListener;
+}
+
 // SWR keeps a fetch result only when no mutate touched the key after the fetch began. Here one always did: this
 // read's own settle, or the newer operation that outnumbered it, so the cache only ever takes settle's value.
 async function readThrough<T>(key: string): Promise<T | null> {
   // Marked before the read is issued, so a write that lands while the read is in flight settles too.
   cachedKeys.add(key);
+  // Only while the attach is pending, so no change committed after the read is issued goes unheard; once attached,
+  // the number and the storage call are one synchronous step and issue order stays storage order.
+  const attaching = listenForChanges();
+  if (attaching) await attaching;
   const seq = begin();
   const value = await fetchFromStorage<T>(key);
   settle(key, seq, value);

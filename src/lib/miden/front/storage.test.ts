@@ -380,4 +380,46 @@ describe('storage utilities', () => {
       });
     });
   });
+
+  describe('the page change listener (#1177)', () => {
+    it('attaches before the page issues its first read', async () => {
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+
+      await jest.isolateModulesAsync(async () => {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        await preloadFresh(['k']);
+      });
+
+      const [attachedAt] = mockStorage.onChanged.addListener.mock.invocationCallOrder;
+      const [readAt] = mockStorage.local.get.mock.invocationCallOrder;
+      expect(attachedAt).toBeLessThan(readAt!);
+    });
+
+    it('logs a failed attach, lets the read through, and attaches on the next read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      let imports = 0;
+      // A mock the registry already holds would be reused, so the failing one needs a fresh registry.
+      jest.resetModules();
+      jest.doMock('webextension-polyfill', () => {
+        imports += 1;
+        if (imports === 1) throw new Error('chunk failed to load');
+        return { __esModule: true, default: { storage: mockStorage }, storage: mockStorage };
+      });
+      try {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        const { SWRConfig } = await import('swr');
+
+        await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+        expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('v');
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+
+        await preloadFresh(['k']);
+        expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
 });

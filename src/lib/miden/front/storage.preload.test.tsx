@@ -81,7 +81,8 @@ const holdNextSet = () => {
   return () => release();
 };
 
-// Lets pending writes, a mounted hook's own SWR revalidation and, on the extension, its listener's import finish.
+// Lets pending writes and a mounted hook's own SWR revalidation finish. On the extension the page's change listener is
+// attached by the first read, which waits for it.
 const drain = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
 
 const Reader = ({ storageKey }: { storageKey: string }) => {
@@ -932,7 +933,7 @@ describe('storage writes and wipes (#1177)', () => {
     await preloadStorage(['put-undefined-key']);
     renderReader('put-undefined-key');
     await drain();
-    // A backend keeps nothing for an undefined value.
+    // Models a backend that drops the key; the real adapters do not, and no caller writes undefined.
     mockSet.mockImplementationOnce(async () => {
       delete mockStored['put-undefined-key'];
     });
@@ -943,5 +944,79 @@ describe('storage writes and wipes (#1177)', () => {
 
     expect(screen.queryByTestId('suspended')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it.each([
+    ['useStorage', Reader],
+    ['usePassiveStorage', PassiveReader]
+  ])(
+    "ext: a key no %s reader has mounted takes another page's write, and reads a removal as null without suspending",
+    async (hook, Component) => {
+      jest.mocked(isExtension).mockReturnValue(true);
+      const key = `ext-unmounted-${hook}-key`;
+      mockStored[key] = 'old';
+      await preloadStorage([key]);
+
+      act(() => emitChange(key, 'new'));
+      const first = renderReader(key, Component);
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('new');
+      await drain();
+      first.unmount();
+
+      act(() => emitChange(key));
+      renderReader(key, Component);
+
+      expect(screen.queryByTestId('suspended')).toBeNull();
+      expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+    }
+  );
+
+  it('ext: a change in another storage area, or to a key no reader asked for, leaves the cache alone', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-kept-key'] = 'EUR';
+    await preloadStorage(['ext-kept-key']);
+
+    act(() => {
+      for (const listener of [...mockListeners]) {
+        listener({ 'ext-kept-key': {} }, 'sync');
+        listener({ 'ext-uncached-key': { newValue: 'written' } }, 'local');
+      }
+    });
+    renderReader('ext-kept-key', PassiveReader);
+
+    expect(screen.getByTestId('value').textContent).toBe('EUR');
+    expect(SWRConfig.defaultValue.cache.get('ext-uncached-key')).toBeUndefined();
+  });
+
+  it('ext: a wipe in one change naming many keys settles each cached key as null and skips the rest', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockStored['ext-wiped-a-key'] = 'a';
+    mockStored['ext-wiped-b-key'] = 'b';
+    await preloadStorage(['ext-wiped-a-key', 'ext-wiped-b-key']);
+    delete mockStored['ext-wiped-a-key'];
+    delete mockStored['ext-wiped-b-key'];
+
+    act(() => {
+      for (const listener of [...mockListeners]) {
+        listener(
+          {
+            'ext-wiped-a-key': { oldValue: 'a' },
+            'ext-wiped-uncached-key': { oldValue: 'x' },
+            'ext-wiped-b-key': { oldValue: 'b' }
+          },
+          'local'
+        );
+      }
+    });
+    renderReader('ext-wiped-a-key', PassiveReader);
+    renderReader('ext-wiped-b-key', PassiveReader);
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getAllByTestId('value').map(element => element.textContent)).toEqual([
+      'fallback-value',
+      'fallback-value'
+    ]);
+    expect(SWRConfig.defaultValue.cache.get('ext-wiped-uncached-key')).toBeUndefined();
   });
 });
