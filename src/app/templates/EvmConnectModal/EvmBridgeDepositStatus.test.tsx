@@ -192,6 +192,8 @@ describe('EvmBridgeDepositStatus', () => {
 
   const submittedPhases: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];
 
+  // The deposit is what the wallet signed for, so it never reads less than left the account: 10.6512 reads 10.66,
+  // where down and half-up both read 10.65.
   it.each(submittedPhases)('rounds a long Fast deposit up in the %s state instead of showing every digit', phase => {
     mockRowState = { row: makeRow(makeInputs({ phase, sourceAmount: '10.6512' })), loaded: true };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
@@ -206,14 +208,6 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.0000013 USDC');
-  });
-
-  // The deposit is what the wallet signed for, so it never reads less than left the account.
-  it('rounds the Fast route deposit up, never down or half-up', () => {
-    mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '10.6512' })), loaded: true };
-    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
-
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('10.66 USDC');
   });
 
   it('shows the credited amount once received, never the quote', () => {

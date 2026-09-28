@@ -490,31 +490,6 @@ describe('isCompletedTransaction', () => {
   });
 });
 
-describe('formatMoneyAmount receives', () => {
-  it('passes undefined through', () => {
-    expect(formatMoneyAmount(undefined, 'receives')).toBeUndefined();
-  });
-
-  // Rounds DOWN, so a quote can never claim more than arrives. Half-up would render
-  // 1.239999… as "1.24".
-  it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
-    expect(formatMoneyAmount('1.239999999999999999', 'receives')).toBe('1.23');
-    expect(formatMoneyAmount('0', 'receives')).toBe('0');
-  });
-
-  it('shows a whole number without padding it to 2 decimals', () => {
-    expect(formatMoneyAmount('12', 'receives')).toBe('12');
-  });
-
-  it('expands precision for a small non-zero output', () => {
-    expect(formatMoneyAmount('0.00126', 'receives')).toBe('0.0012');
-  });
-
-  it('passes non-numeric input through unchanged', () => {
-    expect(formatMoneyAmount('not-a-number', 'receives')).toBe('not-a-number');
-  });
-});
-
 // One rule for every Bridge and Earn amount. 10.6555 separates the three kinds: down reads
 // 10.65, up reads 10.66 and half-up would read 10.66 too, so only an exact 10.6555 is typed.
 describe('formatMoneyAmount', () => {
@@ -528,6 +503,11 @@ describe('formatMoneyAmount', () => {
 
   it.each(separating)('reads 10.6555 %s as %s', (kind, expected) => {
     expect(formatMoneyAmount('10.6555', kind)).toBe(expected);
+  });
+
+  // Parsed from its text, never through Number(): as a double, 1.239999999999999999 is 1.24.
+  it('rounds an eighteen-digit received amount down from its exact text', () => {
+    expect(formatMoneyAmount('1.239999999999999999', 'receives')).toBe('1.23');
   });
 
   it.each(kinds)('trims zeros and never pads (%s)', kind => {
@@ -916,20 +896,6 @@ describe('earn withdraw helpers', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-withdraw' }))).toBe(true);
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-deposit' }))).toBe(false);
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
-  });
-
-  it('trims a human decimal amount to two places, rounding down', () => {
-    expect(formatMoneyAmount('2.50000000', 'receives')).toBe('2.5');
-    expect(formatMoneyAmount('1.239', 'receives')).toBe('1.23');
-    expect(formatMoneyAmount('7', 'receives')).toBe('7');
-  });
-
-  it('expands precision for a small non-zero withdrawal amount', () => {
-    expect(formatMoneyAmount('0.001239', 'receives')).toBe('0.0012');
-  });
-
-  it('passes a non-numeric amount through unchanged', () => {
-    expect(formatMoneyAmount('not-a-number', 'receives')).toBe('not-a-number');
   });
 });
 
