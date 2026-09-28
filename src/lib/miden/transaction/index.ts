@@ -503,19 +503,25 @@ const requeueWakeDelayMs = (
 };
 
 /**
+ * True unless a Queued row awaits its recovery seed: the loop never picks such a row and the reaper never expires
+ * it, so a wake for it would re-arm after every run for as long as it waits for the seed. Shared by
+ * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
+ */
+const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
  * How long until the soonest of `rows` that is Queued next needs a drive, by the same rule as a requeue wake, or
  * `undefined` when none does. The extension's service worker arms a one-shot alarm from it when a processing run ends,
  * because the run stops after a fixed number of passes and a backed-off row can come due after it has (#1223).
  *
- * A row paused for its recovery seed is left out: the loop never picks it and the reaper never expires it, so a wake
- * for it would re-arm after every run for as long as it waits for the seed.
+ * Rows `loopCanPick` excludes are left out too, for the same reason.
  */
 export const nextQueuedWakeDelayMs = (
   rows: readonly Pick<ITransaction, 'status' | 'initiatedAt' | 'nextEligibleAt' | 'awaitingRecoverySeed'>[]
 ): number | undefined => {
   const fallbackReapsAt = Date.now() + MAX_REQUEUE_WAKE_LIFETIME_MS;
   const delays = rows
-    .filter(row => row.status === ITransactionStatus.Queued && !row.awaitingRecoverySeed)
+    .filter(row => row.status === ITransactionStatus.Queued && loopCanPick(row))
     .map(row => requeueWakeDelayMs(row, fallbackReapsAt));
   return delays.length > 0 ? Math.min(...delays) : undefined;
 };
@@ -3378,7 +3384,7 @@ export const generateTransactionsLoop = async (
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
   const nextTransaction = queuedTransactions.find(
-    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
+    tx => loopCanPick(tx) && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
   );
   if (!nextTransaction) return;
 
