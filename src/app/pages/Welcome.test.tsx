@@ -125,6 +125,10 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
   canHandoffToSidePanel: () => mockCanHandoff,
   postOnboardingRoute: () => (mockCanHandoff ? '/finish-side-panel' : '/')
 }));
+// The real set: each route a finished onboarding takes in its tab must be one the running wallet leaves uncovered.
+const { ONBOARDING_HANDOFF_ROUTES } = jest.requireActual<typeof import('lib/extension/side-panel-handoff')>(
+  'lib/extension/side-panel-handoff'
+);
 
 // Miden context + store + intercom sync.
 const mockRegisterWallet = jest.fn();
@@ -3322,6 +3326,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'aa bb cc dd', true, undefined);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
     // The restoring spinner stayed up and no readiness wait ran, so no tap took part.
     expect(mockFlowProps.current.confirmCreating).toBe(true);
     expect(mockFetchState).not.toHaveBeenCalled();
@@ -3484,6 +3489,7 @@ describe('Welcome — telemetry consent detour', () => {
     expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith(CONSENT_ROUTE);
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
   });
 
   it('never re-asks an in-tab user who has already answered', async () => {

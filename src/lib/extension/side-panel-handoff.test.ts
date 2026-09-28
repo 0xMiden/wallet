@@ -133,6 +133,11 @@ describe('ONBOARDING_HANDOFF_ROUTES', () => {
   it('is exactly the consent prompt and the handoff screen', () => {
     expect(ONBOARDING_HANDOFF_ROUTES).toEqual(new Set(['/finish-side-panel', '/help-improve-wallet']));
   });
+
+  it('holds the route postOnboardingRoute takes when the handoff is available', () => {
+    setChrome(makeChrome());
+    expect(ONBOARDING_HANDOFF_ROUTES.has(postOnboardingRoute())).toBe(true);
+  });
 });
 
 describe('openSidePanelToWallet', () => {
