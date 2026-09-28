@@ -1276,7 +1276,8 @@ describe('transactions utilities', () => {
         { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
         { ...base, id: 'legacy' },
         { ...base, id: 'same-second', processingStartedAt: SESSION_STARTED_AT },
-        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 }
+        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 },
+        { ...base, id: 'future', processingStartedAt: SESSION_STARTED_AT + 3600 }
       ];
       mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
         toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
@@ -1297,7 +1298,7 @@ describe('transactions utilities', () => {
         nowSpy.mockRestore();
       }
 
-      expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
+      expect(modifiedIds.sort()).toEqual(['future', 'legacy', 'orphan']);
     });
 
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
