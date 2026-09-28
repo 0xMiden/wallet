@@ -2797,7 +2797,7 @@ describe('Welcome — back navigation', () => {
       expect(mockFlowProps.current.canGoBack).toBe(false);
 
       await setHash('#import-from-file');
-      await dispatch({ id: 'import-wallet-file-submit', payload: { ...VERSION_TWO_PAYLOAD } });
+      await dispatch({ id: 'import-wallet-file-submit', payload: JSON.parse(JSON.stringify(VERSION_TWO_PAYLOAD)) });
       await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
       await setHash('#confirmation');
 
