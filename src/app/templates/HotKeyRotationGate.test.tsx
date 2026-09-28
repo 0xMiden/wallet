@@ -3,6 +3,9 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { MIDEN_METADATA } from 'lib/miden/metadata';
+import type { ConsumableNote } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -17,6 +20,13 @@ const mockUseTransactionRow = jest.fn();
 // would answer every query with the same row.
 type TableRow = Pick<ITransaction, 'id' | 'type' | 'accountId' | 'status' | 'initiatedAt'> & Partial<ITransaction>;
 let mockTable: TableRow[] = [];
+// Every live query the gate subscribed; `publishTable` re-runs them, as a Dexie write would.
+const mockLiveQueries: Array<() => void> = [];
+let mockBaseFee: number | null = 10000;
+let mockBalances: TokenBalanceData[] = [];
+let mockBalancesLoading = false;
+let mockClaimable: { data?: ConsumableNote[]; isFallback: boolean } = { data: [], isFallback: false };
+const mockEnqueue = jest.fn(async (..._args: unknown[]): Promise<string | null> => 'claim-tx');
 
 let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
@@ -40,8 +50,29 @@ beforeAll(() => {
 });
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join(',')}` : key)
+  })
 }));
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'native-faucet' }));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+jest.mock('lib/dexie-live-query', () => ({
+  subscribeToLiveQuery: (query: () => unknown, observer: { next: (value: unknown) => void }) => {
+    const run = () => {
+      void Promise.resolve(query()).then(value => observer.next(value));
+    };
+    mockLiveQueries.push(run);
+    run();
+    return () => {
+      mockLiveQueries.splice(mockLiveQueries.indexOf(run), 1);
+    };
+  }
+}));
+
+// The root manual mock of this module has no `formatBigInt`; the minimum line needs the real one.
+jest.mock('lib/i18n/numbers', () => jest.requireActual('lib/i18n/numbers'));
 
 jest.mock('lib/miden/activity', () => ({
   initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiate(...args),
@@ -50,7 +81,18 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ signTransaction: jest.fn() })
+  useMidenContext: () => ({ signTransaction: jest.fn() }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({ data: mockBalances, isLoading: mockBalancesLoading })
+}));
+
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => mockClaimable
+}));
+
+jest.mock('lib/miden/transaction/rotation-funding', () => ({
+  ...jest.requireActual('lib/miden/transaction/rotation-funding'),
+  enqueueRotationFundingClaim: (...args: unknown[]) => mockEnqueue(...args)
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
@@ -71,13 +113,18 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
 }));
 
-jest.mock('lib/platform', () => ({
-  isExtension: () => false,
-  isMobile: () => false
-}));
+// The factory owns the state: `lib/miden/metadata` reads the platform while it loads, before any
+// `let` in this file is initialised.
+jest.mock('lib/platform', () => {
+  const state = { isExtension: false };
+  return { state, isExtension: () => state.isExtension, isMobile: () => false };
+});
+const mockPlatform: { isExtension: boolean } = jest.requireMock('lib/platform').state;
 
+// Auto-consume is OFF: the gate's claim must not read it (#805).
 jest.mock('lib/settings/helpers', () => ({
-  isDelegateProofEnabled: () => false
+  isDelegateProofEnabled: () => false,
+  isAutoConsumeEnabled: () => false
 }));
 
 jest.mock('lib/store', () => ({
@@ -92,7 +139,14 @@ jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
 
+jest.mock('components/ui/CopyButton', () => ({
+  CopyButton: ({ text, 'data-testid': testId }: { text: string; 'data-testid'?: string }) => (
+    <button type="button" data-testid={testId} data-copy-text={text} />
+  )
+}));
+
 jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({
     children,
     onClick,
@@ -134,12 +188,54 @@ const shortfallRow = rotationRow('tx-shortfall', {
   error: 'assertion failed with error code: 644413868907058392'
 });
 
+const nativeNote = (id: string, extra: Partial<ConsumableNote> = {}): ConsumableNote => ({
+  id,
+  faucetId: 'native-faucet',
+  amount: '20000000',
+  senderAddress: 'sender',
+  isBeingClaimed: false,
+  type: 'unknown',
+  ...extra
+});
+const nativeBalance = (balance: number): TokenBalanceData => ({
+  tokenId: 'native-faucet',
+  tokenSlug: 'MIDEN',
+  metadata: MIDEN_METADATA,
+  balance,
+  fiatPrice: 0,
+  change24h: 0
+});
+
+/** Re-run every live query and let the gate settle, as after a Dexie write. */
+const publishTable = async () => {
+  await act(async () => {
+    mockLiveQueries.forEach(run => run());
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+};
+
+/** Track the adopted shortfall: the row a funding test starts from. */
+const trackShortfall = () => {
+  mockTable = [shortfallRow];
+  mockUseTransactionRow.mockImplementation((txId: string) => ({
+    row: mockTable.find(r => r.id === txId),
+    loaded: true
+  }));
+};
+
 describe('HotKeyRotationGate', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     storeState = { currentAccount: flaggedAccount };
     loopLockHeld = false;
     mockTable = [];
+    mockLiveQueries.length = 0;
+    mockBaseFee = 10000;
+    mockBalances = [];
+    mockBalancesLoading = false;
+    mockClaimable = { data: [], isFallback: false };
+    mockEnqueue.mockResolvedValue('claim-tx');
+    mockPlatform.isExtension = false;
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
     mockUseTransactionRow.mockReturnValue({ row: undefined, loaded: true });
@@ -328,6 +424,303 @@ describe('HotKeyRotationGate', () => {
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
       expect(mockUseTransactionRow).not.toHaveBeenCalledWith('tx-shortfall');
+    });
+  });
+
+  describe('the funding state (#805)', () => {
+    it('shows the address and its copy action for a rotation that fell short of its fee', async () => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+
+      render(<HotKeyRotationGate />);
+
+      const panel = await screen.findByTestId('hot-key-rotation-funding');
+      expect(panel).toHaveAttribute('data-funding-reason', 'rotation-shortfall');
+      expect(screen.getByTestId('hot-key-rotation-funding-address')).toHaveTextContent('account-1');
+      expect(screen.getByTestId('hot-key-rotation-funding-copy')).toHaveAttribute('data-copy-text', 'account-1');
+      expect(screen.getByText('hotKeyRotationFundingMinimum:0.6')).toBeInTheDocument();
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'waiting');
+      expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+    });
+
+    it('shows the panel for a balance below one fee while the first rotation runs', async () => {
+      mockBalances = [nativeBalance(0)];
+      mockTable = [rotationRow('tx-new')];
+
+      render(<HotKeyRotationGate />);
+
+      const panel = await screen.findByTestId('hot-key-rotation-funding');
+      expect(panel).toHaveAttribute('data-funding-reason', 'below-base-fee');
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'activating')
+      );
+      expect(screen.queryByText(/hotKeyRotationFundingMinimum/)).toBeInTheDocument();
+    });
+
+    it('leaves the minimum out while the fee is unknown', async () => {
+      mockBaseFee = null;
+      trackShortfall();
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-funding');
+      expect(screen.queryByText(/hotKeyRotationFundingMinimum/)).not.toBeInTheDocument();
+    });
+
+    it('claims only the native notes, as the gate claim, with auto-consume off', async () => {
+      trackShortfall();
+      mockClaimable = { data: [nativeNote('n1'), nativeNote('n2', { faucetId: 'other-faucet' })], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      expect(mockEnqueue).toHaveBeenCalledWith('account-1', [nativeNote('n1')], {
+        delegate: false,
+        verificationBaseFee: 10000
+      });
+    });
+
+    it('kicks the service worker after queueing the claim on the extension', async () => {
+      mockPlatform.isExtension = true;
+      trackShortfall();
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      // After the claim, not only after the mount adopted the shortfall.
+      await waitFor(() =>
+        expect(Math.max(...mockRequestSW.mock.invocationCallOrder)).toBeGreaterThan(
+          mockEnqueue.mock.invocationCallOrder[0] ?? Infinity
+        )
+      );
+      expect(mockLoop).not.toHaveBeenCalled();
+    });
+
+    it('keeps the panel up and logs it when queueing the claim fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      trackShortfall();
+      mockEnqueue.mockRejectedValue(new Error('native asset is not known yet'));
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledWith('[HotKeyRotationGate] funding claim enqueue failed:', expect.any(Error))
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'waiting');
+      warn.mockRestore();
+    });
+
+    it('claims nothing while a rotation row is live', async () => {
+      mockBalances = [nativeBalance(0)];
+      mockTable = [rotationRow('tx-new')];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-funding');
+      await publishTable();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('claims nothing from the cached list', async () => {
+      trackShortfall();
+      mockClaimable = { data: [nativeNote('n1')], isFallback: true };
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-funding');
+      await publishTable();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('retries the rotation exactly once when its funding claim completes', async () => {
+      trackShortfall();
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      expect(mockInitiate).not.toHaveBeenCalled();
+
+      mockTable = [shortfallRow, fundingRow('claim-1')];
+      await publishTable();
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claiming');
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+      await publishTable();
+      await publishTable();
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not queue a second rotation when a claim completes while a rotation is live', async () => {
+      mockTable = [rotationRow('tx-live'), fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction })];
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-live'));
+
+      mockTable = [rotationRow('tx-live'), fundingRow('claim-1', { status: ITransactionStatus.Completed })];
+      await publishTable();
+
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
+    it('claims nothing more while its own claim is live', async () => {
+      mockTable = [shortfallRow, fundingRow('claim-1', { noteIds: ['n1'] })];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-funding');
+      await publishTable();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('does not retry again when the note its completed claim consumed leaves the list late', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      mockTable = [shortfallRow, fundingRow('claim-1', { noteIds: ['n1'] })];
+      await publishTable();
+      mockTable = [
+        shortfallRow,
+        fundingRow('claim-1', { noteIds: ['n1'], status: ITransactionStatus.Completed, completedAt: 300 })
+      ];
+      await publishTable();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      // That retry fell short too: the note paid for its claim and little more.
+      mockTable = [
+        ...mockTable,
+        rotationRow('tx-new', {
+          status: ITransactionStatus.Failed,
+          initiatedAt: 400,
+          error: 'assertion failed with error code: 644413868907058392'
+        })
+      ];
+      await publishTable();
+
+      mockClaimable = { data: [], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry for a claim that had already completed when the gate mounted', async () => {
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Completed, completedAt: 300 })];
+
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      await publishTable();
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries once when a watched native note leaves the list with no claim carrying it', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockClaimable = { data: [nativeNote('n1'), nativeNote('n2')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockClaimable = { data: [], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      mockClaimable = { data: [], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+
+      expect(mockInitiate).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries when a note whose claim failed leaves the list: another device claimed it', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockTable = [shortfallRow, fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'] })];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockClaimable = { data: [], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not read a fall back to the cached list as notes leaving it', async () => {
+      trackShortfall();
+      mockEnqueue.mockResolvedValue(null);
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      mockClaimable = { data: [], isFallback: true };
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+
+      expect(mockInitiate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the tracked shortfall when a retry defers behind a live claim', async () => {
+      trackShortfall();
+      mockClaimable = { data: [nativeNote('n1'), nativeNote('n2')], isFallback: false };
+      const { rerender } = render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      mockTable = [shortfallRow, fundingRow('claim-2', { noteIds: ['n2'] })];
+      await publishTable();
+
+      mockClaimable = { data: [nativeNote('n2', { isBeingClaimed: true })], isFallback: false };
+      rerender(<HotKeyRotationGate />);
+      await publishTable();
+
+      expect(mockInitiate).not.toHaveBeenCalled();
+      expect(screen.getByTestId('hot-key-rotation-funding')).toHaveAttribute(
+        'data-funding-reason',
+        'rotation-shortfall'
+      );
+    });
+
+    it('shows a failed claim with its reason, and Try again bypasses the backoff', async () => {
+      trackShortfall();
+      mockTable = [
+        shortfallRow,
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error: 'guardian unreachable', noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('hot-key-rotation-funding-claim-retry'));
+      await waitFor(() =>
+        expect(mockEnqueue).toHaveBeenLastCalledWith('account-1', [nativeNote('n1')], {
+          delegate: false,
+          manualRetry: true,
+          verificationBaseFee: 10000
+        })
+      );
+    });
+
+    it('offers Check again, which queues a fresh rotation', async () => {
+      trackShortfall();
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+
+      fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
+
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('never shows the panel on a chain that charges nothing', async () => {
+      mockBaseFee = 0;
+      trackShortfall();
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-failed');
+      expect(screen.queryByTestId('hot-key-rotation-funding')).not.toBeInTheDocument();
     });
   });
 });

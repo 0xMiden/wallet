@@ -1,7 +1,9 @@
-import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
@@ -11,7 +13,8 @@ import {
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { useMidenContext } from 'lib/miden/front';
+import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
+import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
@@ -20,7 +23,8 @@ import {
   isLiveRotationFundingRow,
   isLiveRotationRow,
   isRotationFundingRow,
-  isRotationRow
+  isRotationRow,
+  selectRotationFundingNotes
 } from 'lib/miden/transaction/rotation-funding';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -30,18 +34,30 @@ import { navigate } from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
-import { newestRow } from './HotKeyRotationGate.selectors';
+import { RotationFundingPanel, useRotationFundingClaim, useRotationGateRows } from './HotKeyRotationFunding';
+import {
+  isBelowBaseFee,
+  newestRow,
+  resolveRotationGateView,
+  rotationFundingMinimum
+} from './HotKeyRotationGate.selectors';
 
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
  * Guardian accounts recovered via seed phrase (and legacy accounts migrated on
- * unlock) carry `requiresHotKeyRotation` — they have no usable local hot key
+ * unlock) carry `requiresHotKeyRotation`: they have no usable local hot key
  * and cannot sign, sync, or transact until a `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate auto-initiates the
  * rotation and paints a full-screen overlay that blocks all wallet
- * interaction; the flag clearing (via `Vault.swapHotKey` → accountsUpdated →
+ * interaction; the flag clearing (via `Vault.swapHotKey`, accountsUpdated,
  * store sync) is the authoritative "done" signal that dismisses it.
+ *
+ * The rotation is a transaction and pays its fee from the account's vault, so an
+ * account that holds no MIDEN cannot leave (#805). The gate then shows its funding
+ * state: the address to send MIDEN to, and a claim of the arriving native notes with
+ * the recovery key (`HotKeyRotationFunding.tsx`), never alongside the rotation, which
+ * it retries once a claim lands. Nothing else is unlocked while it waits.
  *
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
@@ -142,6 +158,16 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const [initError, setInitError] = useState<string | null>(null);
   const inFlightRef = useRef<Promise<string | null> | null>(null);
   const { row } = useTransactionRow(txId ?? '');
+  const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
+  const feeFaucetId = useMidenFaucetId();
+  const baseFee = useVerificationBaseFee();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);
+  const { data: claimableNotes, isFallback } = useClaimableNotes(accountPublicKey);
+  const selection = useMemo(
+    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, baseFee),
+    [claimableNotes, isFallback, feeFaucetId, baseFee]
+  );
 
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
   // this component (which only mounts while blocking), so it is active exactly
@@ -197,8 +223,19 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     return () => clearInterval(intervalId);
   }, [driveLoop]);
 
-  const rowFailed = row?.status === ITransactionStatus.Failed;
-  const failureMessage = initError ?? (rowFailed ? (row?.error ?? t('hotKeyRotationFailedGeneric')) : null);
+  const gate = resolveRotationGateView({
+    trackedRow: row,
+    initError,
+    baseFee,
+    belowBaseFee: isBelowBaseFee(balancesLoading, balances, feeFaucetId, baseFee),
+    rotationRows,
+    fundingRows,
+    listedNoteIds: new Set(selection.native.map(note => note.id)),
+    tooSmall: selection.tooSmall
+  });
+  const rotationLive = rotationRows.some(
+    r => r.status === ITransactionStatus.Queued || r.status === ITransactionStatus.GeneratingTransaction
+  );
 
   const onRetry = useCallback(() => {
     setTxId(null);
@@ -206,7 +243,23 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     void beginRotation(false);
   }, [beginRotation]);
 
-  if (row?.awaitingRecoverySeed && row.status === ITransactionStatus.Queued) {
+  // A funding trigger never queues a second rotation beside a live one.
+  const onFunded = useCallback(() => {
+    if (!rotationLive) void beginRotation(false);
+  }, [beginRotation, rotationLive]);
+
+  const { retryClaim } = useRotationFundingClaim({
+    accountPublicKey,
+    active: rowsLoaded && gate.view === 'funding' && !rotationLive,
+    listLive: !isFallback && claimableNotes !== undefined,
+    selection,
+    baseFee,
+    fundingRows,
+    rowsLoaded,
+    onFunded
+  });
+
+  if (gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
   }
 
@@ -220,20 +273,37 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       data-testid="hot-key-rotation-gate"
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 px-8 text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
     >
-      {failureMessage === null ? (
+      {gate.view === 'funding' ? (
+        <RotationFundingPanel
+          address={accountPublicKey}
+          reason={gate.reason}
+          status={gate.status}
+          minimum={rotationFundingMinimum(
+            baseFee,
+            balances.find(balance => balance.tokenId === feeFaucetId)
+          )}
+          claimError={gate.failedClaim?.error}
+          onRetryClaim={() => {
+            if (gate.failedClaim) retryClaim(gate.failedClaim);
+          }}
+          onCheckAgain={onRetry}
+        />
+      ) : gate.view === 'failed' ? (
+        <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
+          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
+          <p className="text-sm text-ink break-words select-text">
+            {initError ?? row?.error ?? t('hotKeyRotationFailedGeneric')}
+          </p>
+          <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
+            {t('hotKeyRotationRetry')}
+          </Button>
+        </div>
+      ) : (
         <>
           <Spinner />
           <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
           <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
         </>
-      ) : (
-        <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
-          <p className="text-sm text-ink break-words select-text">{failureMessage}</p>
-          <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
-            {t('hotKeyRotationRetry')}
-          </Button>
-        </div>
       )}
     </div>
   );
