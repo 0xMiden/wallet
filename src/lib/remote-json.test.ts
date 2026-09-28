@@ -1,4 +1,4 @@
-import { fetchBoundedJson, readTimestampedEntry, withRequestTimeout } from './remote-json';
+import { fetchBoundedJson, type JsonResponse, readTimestampedEntry, withRequestTimeout } from './remote-json';
 
 /** Runs `body` as on iOS 15 WebKit and Safari before 16, which have no AbortSignal.timeout. */
 const withoutAbortSignalTimeout = async (body: () => Promise<void>) => {
@@ -48,6 +48,19 @@ describe('withRequestTimeout', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it.each([
+    ['resolves', () => Promise.resolve('headers')],
+    ['rejects', () => Promise.reject(new Error('offline'))]
+  ])('aborts the signal once the request %s, ending any body it left unread', async (_label, settle) => {
+    let signal: AbortSignal | undefined;
+    const run = (given: AbortSignal) => {
+      signal = given;
+      return settle();
+    };
+    await withRequestTimeout(10_000, run).catch(() => undefined);
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('leaves no timer behind when the request throws before it starts', async () => {
     const run = (): Promise<string> => {
       throw new TypeError('bad options');
@@ -72,14 +85,70 @@ describe('fetchBoundedJson', () => {
     json: jest.fn()
   });
 
+  const streamResponse = (chunks: Uint8Array[]) => {
+    const read = jest.fn(async () => {
+      const value = chunks.shift();
+      return value ? { done: false, value } : { done: true };
+    });
+    return { ok: true, body: { getReader: () => ({ read }) }, read, text: jest.fn(), json: jest.fn() };
+  };
+  /** Answers with `response` and records the signal it was given, and whether it was aborted at call time. */
+  const recordingFetch = (response: JsonResponse) => {
+    const seen: { signal?: AbortSignal; abortedAtCall?: boolean } = {};
+    const fetchFn = jest.fn(async (_url: string, init: { signal: AbortSignal }) => {
+      seen.signal = init.signal;
+      seen.abortedAtCall = init.signal.aborted;
+      return response;
+    });
+    return { fetchFn, seen };
+  };
+
   it('asks for JSON past the browser cache, under a signal, and parses the body it measured', async () => {
-    const fetchFn = jest.fn().mockResolvedValue(textResponse('{"a":1}'));
+    const { fetchFn, seen } = recordingFetch(textResponse('{"a":1}'));
     await expect(fetchBoundedJson(fetchFn, LIST_URL, LIMITS)).resolves.toEqual({ a: 1 });
     expect(fetchFn).toHaveBeenCalledWith(LIST_URL, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
-      signal: expect.objectContaining({ aborted: false })
+      signal: expect.any(AbortSignal)
     });
+    expect(seen.abortedAtCall).toBe(false);
+  });
+
+  it.each([
+    ['a failed response', { ...textResponse('{"a":1}'), ok: false }],
+    ['a declared length past the cap', textResponse('{}', { 'content-length': '65' })]
+  ])('ends the unread body of %s once it rejects', async (_label, response) => {
+    const { fetchFn, seen } = recordingFetch(response);
+    await expect(fetchBoundedJson(fetchFn, LIST_URL, LIMITS)).rejects.toThrow();
+    expect(seen.signal?.aborted).toBe(true);
+  });
+
+  it('stops reading a body stream at the chunk that passes the cap, and never buffers it through text()', async () => {
+    // Valid JSON, so only the cap refuses it: maxBytes + 1 bytes over three chunks.
+    const bytes = new TextEncoder().encode(`${' '.repeat(63)}{}`);
+    const response = streamResponse([bytes.slice(0, 22), bytes.slice(22, 44), bytes.slice(44)]);
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).rejects.toThrow(
+      'too large'
+    );
+    expect(response.read).toHaveBeenCalledTimes(3);
+    expect(response.text).not.toHaveBeenCalled();
+  });
+
+  it('decodes a body stream split inside multi-byte characters', async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ name: '€🪙' }));
+    const response = streamResponse(Array.from(bytes, byte => Uint8Array.of(byte)));
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(response), LIST_URL, LIMITS)).resolves.toEqual({
+      name: '€🪙'
+    });
+  });
+
+  it('measures a text() body in UTF-8 bytes, not UTF-16 units', async () => {
+    // 42 UTF-16 units, 82 bytes.
+    const text = JSON.stringify('é'.repeat(40));
+    expect(text.length).toBeLessThanOrEqual(LIMITS.maxBytes);
+    await expect(fetchBoundedJson(jest.fn().mockResolvedValue(textResponse(text)), LIST_URL, LIMITS)).rejects.toThrow(
+      'too large'
+    );
   });
 
   it('reads json() when the response has no headers or text()', async () => {

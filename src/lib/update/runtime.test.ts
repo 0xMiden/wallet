@@ -171,9 +171,13 @@ describe('createUpdateNotificationRuntime', () => {
   });
 
   it('loads the presentation catalog from the fixed raw main URL without a browser cache', async () => {
-    const fetchManifest = jest
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => ({ schemaVersion: 1, releases: [] }) });
+    let signal: AbortSignal | undefined;
+    let abortedAtCall: boolean | undefined;
+    const fetchManifest = jest.fn(async (_url: string, init: { signal: AbortSignal }) => {
+      signal = init.signal;
+      abortedAtCall = init.signal.aborted;
+      return { ok: true, json: async () => ({ schemaVersion: 1, releases: [] }) };
+    });
     const runtime = await createUpdateNotificationRuntime({
       createAdapter: async () => ({
         platform: 'chrome',
@@ -196,8 +200,11 @@ describe('createUpdateNotificationRuntime', () => {
       headers: { Accept: 'application/json' },
       // The controller's deadline abandons a slow read; only the request's own
       // signal ends it.
-      signal: expect.objectContaining({ aborted: false })
+      signal: expect.any(AbortSignal)
     });
+    expect(abortedAtCall).toBe(false);
+    // Aborted once the read settles, so no body the request left unread outlives it.
+    expect(signal?.aborted).toBe(true);
   });
 
   it.each([
