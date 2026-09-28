@@ -18,6 +18,8 @@ type Wallet = {
   connect: (...args: unknown[]) => Promise<unknown>;
   disconnect: () => Promise<unknown>;
   on: (event: string, cb: (data: unknown) => void) => () => void;
+  off: (event: string, cb: (data: unknown) => void) => void;
+  emit: (event: string, data: unknown) => void;
 };
 type Sent = { payload: { type: string }; reqId: string };
 type DappWindow = Window & {
@@ -425,5 +427,69 @@ describe('a disconnect ends the connection (#1227)', () => {
     expect(spy.mock.calls).toEqual([[expect.objectContaining({ address: '0xabc' })], [null]]);
     jest.advanceTimersByTime(60000);
     expect(h.polls()).toHaveLength(1);
+  });
+});
+
+describe('an emission visits the listeners registered when it began (#1241)', () => {
+  it('runs a listener that re-registers itself once per emission', () => {
+    const wallet = load().win.midenWallet;
+    let calls = 0;
+    const listener = () => {
+      calls += 1;
+      // Bounded, so an emitter that visits the re-added listener fails here instead of never returning.
+      if (calls > 5) return;
+      wallet.off('accountChange', listener);
+      wallet.on('accountChange', listener);
+    };
+    wallet.on('accountChange', listener);
+
+    wallet.emit('accountChange', null);
+    expect(calls).toBe(1);
+    wallet.emit('accountChange', null);
+    expect(calls).toBe(2);
+  });
+
+  it('runs a listener added during an emission from the next one', () => {
+    const wallet = load().win.midenWallet;
+    const late = jest.fn();
+    wallet.on('accountChange', () => {
+      wallet.on('accountChange', late);
+    });
+
+    wallet.emit('accountChange', 'first');
+    expect(late).not.toHaveBeenCalled();
+    wallet.emit('accountChange', 'second');
+    expect(late.mock.calls).toEqual([['second']]);
+  });
+
+  it('still runs a listener an earlier one removed during the same emission, as on mobile', () => {
+    const wallet = load().win.midenWallet;
+    const second = jest.fn();
+    wallet.on('accountChange', () => wallet.off('accountChange', second));
+    wallet.on('accountChange', second);
+
+    wallet.emit('accountChange', 'x');
+    expect(second.mock.calls).toEqual([['x']]);
+    wallet.emit('accountChange', 'y');
+    expect(second.mock.calls).toEqual([['x']]);
+  });
+
+  it('logs a throwing listener like the other providers and runs the next one', () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const wallet = load().win.midenWallet;
+      const boom = new Error('boom');
+      const after = jest.fn();
+      wallet.on('accountChange', () => {
+        throw boom;
+      });
+      wallet.on('accountChange', after);
+
+      wallet.emit('accountChange', 'x');
+      expect(error).toHaveBeenCalledWith('[MidenWallet] Error in accountChange listener:', boom);
+      expect(after.mock.calls).toEqual([['x']]);
+    } finally {
+      error.mockRestore();
+    }
   });
 });
