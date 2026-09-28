@@ -301,7 +301,7 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
-      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed', outSymbol) ?? entry.amount);
+      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ?? entry.amount);
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

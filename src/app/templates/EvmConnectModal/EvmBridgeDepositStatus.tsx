@@ -42,7 +42,7 @@ const outputLabel = (
     return amount === undefined ? symbol : `${amount} ${symbol}`;
   }
   if (!inputs.outputAmount) return 'Miden';
-  return `${formatMoneyAmount(inputs.outputAmount, 'typed', inputs.outputSymbol)} ${inputs.outputSymbol ?? ''}`.trim();
+  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${inputs.outputSymbol ?? ''}`.trim();
 };
 
 /** Bridge-specific post-review progress/failure/success screen. */

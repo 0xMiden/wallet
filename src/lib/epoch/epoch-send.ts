@@ -29,7 +29,6 @@ export interface EpochQuoteOutput {
  * decimal. Never rounded: the row stores it and every screen formats it when it shows it.
  */
 function exactQuoteAmount(raw: string, decimals: number): string {
-  if (!raw || raw === '0') return '0';
   try {
     return /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
   } catch {

@@ -586,12 +586,17 @@ describe('formatMoneyAmount', () => {
       expect(formatMoneyAmount(stored(12n), kind)).toBe('12');
     });
 
+    // A one-element array stringifies to its element, so only the type check keeps ['12'] from reading 12.
     it('reads any other shape as 0 when typed and passes it through when rounded', () => {
       const shape = { amount: '12' };
+      const list = ['12'];
       expect(formatMoneyAmount(stored(shape), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(list), 'typed')).toBe('0');
       expect(formatMoneyAmount(stored(null), 'typed')).toBe('0');
       expect(formatMoneyAmount(stored(shape), 'receives')).toBe(shape);
       expect(formatMoneyAmount(stored(shape), 'pays')).toBe(shape);
+      expect(formatMoneyAmount(stored(list), 'receives')).toBe(list);
+      expect(formatMoneyAmount(stored(list), 'pays')).toBe(list);
     });
   });
 });
