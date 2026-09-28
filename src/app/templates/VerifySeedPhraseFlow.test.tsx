@@ -350,6 +350,7 @@ describe('VerifySeedPhraseFlow', () => {
 
     await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
     clickText('continue');
+    await flush();
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
   });
