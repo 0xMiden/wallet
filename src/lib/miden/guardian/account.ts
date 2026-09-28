@@ -1,5 +1,6 @@
 import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
-import { AccountInspector, EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { GuardianHttpClient } from '@openzeppelin/guardian-client';
+import { AccountInspector, EcdsaSigner, MultisigClient, type Multisig } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -9,6 +10,7 @@ import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
@@ -140,12 +142,32 @@ export interface CreatedGuardianKeys {
   coldSecretKeyHex: string; // serialized AuthSecretKey hex (for cold-mirror storage)
 }
 
+/** The guardian's key for a new account, plus the deadline its registration shares. */
+export interface GuardianCreateKey {
+  guardianEndpoint: string;
+  guardianCommitment: string;
+  guardianPubkey: string;
+  rateLimitDeadlineMs: number;
+}
+
+/**
+ * A created account's guardian registration, run after the WASM hold ends
+ * (#1207). `stateBase64` is the account state `client.create` returned,
+ * serialized under the hold so `registerOnGuardian` needs no client call.
+ */
+export interface PendingGuardianRegistration {
+  multisig: Multisig;
+  stateBase64: string;
+  rateLimitDeadlineMs: number;
+}
+
 export interface CreatedGuardianAccount {
   account: Account;
   keys: CreatedGuardianKeys;
   // The guardian operator endpoint this account was registered with — persisted
   // onto the WalletAccount so runtime reads resolve per-account, not globally.
   guardianEndpoint: string;
+  registration: PendingGuardianRegistration;
 }
 
 /**
@@ -274,11 +296,10 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
 
 /**
  * How long a Guardian account creation may spend waiting out guardian 429s,
- * across both of its guardian calls. The creation runs inside the WASM client
- * lock, so its waits are held against `WASM_LOCK_WATCHDOG_MS` and block every
- * other WASM operation in the realm; 90 s covers one full per-minute cooldown
- * and keeps the onboarding spinner bounded. Moving the waits off the lock is
- * wallet#1207.
+ * across both of its guardian calls (the key fetch and the registration).
+ * Both waits run outside the WASM client lock (#1207), so this no longer
+ * bounds anything against `WASM_LOCK_WATCHDOG_MS`; it still bounds the
+ * onboarding spinner and covers one full per-minute cooldown.
  */
 export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 
@@ -303,6 +324,34 @@ async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
 }
 
 /**
+ * The guardian's key for a new account, fetched with no WASM client hold: its 429 waits
+ * (#906) must not block the realm's other client work (#1207). Starts the rate-limit
+ * deadline the registration shares.
+ */
+export async function fetchGuardianCreateKey(guardianEndpointOverride?: string): Promise<GuardianCreateKey> {
+  // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
+  // inherits the frozen global key (#408 stage 3).
+  const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
+  registerGuardianOrigin(guardianEndpoint);
+  const rateLimitDeadlineMs = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
+  try {
+    const { commitment, pubkey } = await withGuardianRateLimitRetry(
+      () => new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
+      { deadlineMs: rateLimitDeadlineMs, sleepFn: sleepKeepingWorkerAlive }
+    );
+    // `pubkey` is optional on the wire type; an 'ecdsa' response omitting it is
+    // itself the guardian misbehaving, not something the account build can proceed on.
+    if (!pubkey) {
+      throw new Error(`Guardian endpoint ${guardianEndpoint} returned no public key`);
+    }
+    return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitDeadlineMs };
+  } catch (e) {
+    console.error('Error creating Guardian account:', e);
+    throw new Error('Failed to create Guardian account', { cause: e });
+  }
+}
+
+/**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
  * key (held inside the keystore, used for rotation/recovery), and the external
@@ -311,23 +360,19 @@ async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
  * client-side (see Phase 0 in the migration plan).
  *
  * @param webClient - The Miden WebClient instance.
+ * @param createKey - The guardian's key and rate-limit deadline, from
+ *   `fetchGuardianCreateKey`.
  * @param coldSeed - HD-derived seed for the cold key. Random if absent (only
  *   appropriate for tests / non-recoverable flows).
- * @param skipRegistration - Skip guardian registration (used by the import path).
- * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
- *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes the effective default
- *   guardian endpoint to reproduce the ID the account originally had.
- * @param assertLive - The caller's WASM lock hold re-check. The creation runs
- *   inside that hold and its 429 waits park there; an evicted flow is abandoned,
- *   not cancelled, so every WASM call and guardian write after a parking await
- *   runs it first, and the poison error it throws leaves here unwrapped.
+ * @param assertLive - The caller's WASM lock hold re-check. Every WASM call
+ *   after a parking await runs it first; an evicted flow is abandoned, not
+ *   cancelled, so the poison error it throws leaves here unwrapped.
+ *   Registration is the caller's, after the hold (see `registerGuardianAccount`).
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
+  createKey: GuardianCreateKey,
   coldSeed?: Uint8Array,
-  skipRegistration: boolean = false,
-  guardianEndpointOverride?: string,
   assertLive: AssertLive = () => {}
 ): Promise<CreatedGuardianAccount> {
   if (!coldSeed) {
@@ -352,27 +397,10 @@ export async function createGuardianAccount(
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
 
-    // Get Guardian endpoint and initialize client. Onboarding always threads the
-    // picked endpoint as the override (stage 1 of #408); with no override we use
-    // the effective network default. The frozen global GUARDIAN_URL_STORAGE_KEY
-    // is intentionally NOT consulted here (#408 stage 3) — a NEW account must
-    // never inherit a stale global pointer.
-    const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
-
-    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {
-      guardianEndpoint,
+      guardianEndpoint: createKey.guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
-    // Both guardian calls count against its per-IP rate limit, which users
-    // behind a shared egress IP (NAT, VPN) share; a 429 is waited out within
-    // GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, one deadline for both calls (#906).
-    const rateLimitDeadline = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
-    const afterWait = () => assertLive('after a guardian 429 wait');
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
-      () => client.guardianClient.getPubkey('ecdsa'),
-      { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
-    );
     assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
@@ -380,8 +408,8 @@ export async function createGuardianAccount(
       {
         threshold: 1,
         signerCommitments: [hot.commitmentHex, coldCommitmentHex],
-        guardianCommitment,
-        guardianPublicKey: guardianPubkey,
+        guardianCommitment: createKey.guardianCommitment,
+        guardianPublicKey: createKey.guardianPubkey,
         // No `guardianEnabled` since multisig-client 0.17: the builder now
         // rejects a config without a guardian commitment outright, so every
         // account it creates is guarded and the flag had nothing left to
@@ -410,14 +438,11 @@ export async function createGuardianAccount(
       new EcdsaSigner(coldSk)
     );
 
-    if (!skipRegistration) {
-      assertLive('before guardian registration');
-      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), {
-        deadlineMs: rateLimitDeadline,
-        sleepFn: sleepKeepingWorkerAlive,
-        afterWait
-      });
-    }
+    // The account object is borrowed from the client, so its read needs the hold too.
+    assertLive('before the account serialize');
+    // The state /configure receives, serialized now: registration runs after the hold ends (#1207).
+    const stateBase64 = u8ToB64(multisig.account.serialize());
+
     assertLive('before the sync');
     await webClient.sync();
 
@@ -439,7 +464,8 @@ export async function createGuardianAccount(
         hotCiphertext: hot.ciphertext,
         coldSecretKeyHex
       },
-      guardianEndpoint
+      guardianEndpoint: createKey.guardianEndpoint,
+      registration: { multisig, stateBase64, rateLimitDeadlineMs: createKey.rateLimitDeadlineMs }
     };
   } catch (e) {
     // The lock's kill classifiers read the poison error's identity; wrapped, an
@@ -448,6 +474,24 @@ export async function createGuardianAccount(
     console.error('Error creating Guardian account:', e);
     // Preserve the original cause so callers can distinguish guardian-unreachable
     // from node/registration/WASM failures.
+    throw new Error('Failed to create Guardian account', { cause: e });
+  }
+}
+
+/**
+ * Registers a created account on its guardian, with no WASM client hold: `registerOnGuardian`
+ * gets the serialized state, so it makes no client call, and signs with the standalone cold key,
+ * as the rotation path's registration already does outside the lock. Its 429 waits share the
+ * creation's deadline.
+ */
+export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
+  try {
+    await withGuardianRateLimitRetry(() => registration.multisig.registerOnGuardian(registration.stateBase64), {
+      deadlineMs: registration.rateLimitDeadlineMs,
+      sleepFn: sleepKeepingWorkerAlive
+    });
+  } catch (e) {
+    console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });
   }
 }
