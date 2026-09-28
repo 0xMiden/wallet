@@ -291,7 +291,7 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
   });
 
-  // Earn delivers to the Miden USDC faucet, which only the store resolves; without that read it reads Unknown.
+  // Earn delivers to the Miden USDC faucet, which only the store resolves; without that read the arrow stays on Miden.
   it('reads a delivered non-native faucet from the store once received', () => {
     mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
     mockRowState = {
@@ -303,13 +303,17 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 USDC');
   });
 
-  it('names the delivered asset without a number when its scale is unknown', () => {
+  // The row's stored output symbol is the bridged source token, not what arrived, so it names nothing here.
+  it('keeps the arrow on Miden while the delivered faucet scale is unknown', () => {
     mockRowState = {
-      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_123_456n, faucetId: 'unresolved-faucet' }),
+      row: makeRow(makeInputs({ phase: 'received', outputSymbol: 'USDC' }), {
+        amount: 250_123_456n,
+        faucetId: 'unresolved-faucet'
+      }),
       loaded: true
     };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
-    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Unknown');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
 });

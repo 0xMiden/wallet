@@ -12,6 +12,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -62,14 +63,13 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     inputs.phase === 'delivering' ||
     inputs.phase === 'received';
   const amountLabel = `${formatMoneyAmount(inputs.sourceAmount, 'receives', inputs.sourceSymbol)} ${inputs.sourceSymbol}`;
-  // Once received, the arrow points at what was credited, as the Activity row shows it.
+  // Once received, the arrow points at what was credited, as the Activity row shows it. Until the
+  // delivered faucet's scale is known it stays on the network: the row's output symbol is the
+  // bridged source token, so it cannot name what arrived.
+  const delivered = resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId);
   const credited =
-    inputs.phase === 'received' && row.amount !== undefined
-      ? earnWithdrawAmountFields(
-          inputs,
-          row.amount,
-          resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId)
-        )
+    inputs.phase === 'received' && row.amount !== undefined && hasKnownScale(delivered)
+      ? earnWithdrawAmountFields(inputs, row.amount, delivered)
       : undefined;
   const destinationLabel = credited
     ? [credited.amount, credited.token].filter(part => part !== undefined).join(' ')
