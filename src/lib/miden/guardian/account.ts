@@ -13,7 +13,7 @@ import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
-import { withTimeout } from './discover';
+import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
@@ -322,6 +322,9 @@ export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 // Bounds a silent guardian per request now that no WASM watchdog does; unlock waits behind creation (#1207).
 export const GUARDIAN_CREATE_REQUEST_TIMEOUT_MS = 30_000;
 
+// Registration attempts before a timeout fails creation: a timed-out request may land, and a retry tells if it did.
+const GUARDIAN_CREATE_REGISTER_ATTEMPTS = 3;
+
 const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
 
 /**
@@ -505,22 +508,37 @@ export async function createGuardianAccount(
  * gets the serialized state, so it makes no client call, and signs with the standalone cold key,
  * as the rotation path's registration already does outside the lock. Its 429 waits get their
  * own deadline, anchored to when this call starts, from what phase 1 left of the creation's
- * budget.
+ * budget. A timeout cannot cancel the request, so a timed-out attempt may have landed: it is
+ * retried with the same state, and the guardian's `account_already_exists` counts as success,
+ * as on the switch paths (`registerOnGuardianWithRetry`).
  */
 export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
   try {
     // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
-    // account build sit between the two and are not guardian waits (#1207).
+    // account build sit between the two and are not guardian waits (#1207). Every attempt
+    // shares it, and a timed-out attempt is retried even past it: it bounds only 429 waits.
     const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
-    await withGuardianRateLimitRetry(
-      () =>
-        withTimeout(
-          registration.multisig.registerOnGuardian(registration.stateBase64),
-          GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
-          'Guardian registration'
-        ),
-      { deadlineMs, sleepFn: sleepKeepingWorkerAlive }
-    );
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await withGuardianRateLimitRetry(
+          () =>
+            withTimeout(
+              registration.multisig.registerOnGuardian(registration.stateBase64),
+              GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+              'Guardian registration'
+            ),
+          { deadlineMs, sleepFn: sleepKeepingWorkerAlive }
+        );
+        return;
+      } catch (e) {
+        if (isGuardianAccountAlreadyRegistered(e)) {
+          console.warn('The guardian already holds this account; registration is a no-op.');
+          return;
+        }
+        if (!(e instanceof GuardianProbeTimeoutError) || attempt >= GUARDIAN_CREATE_REGISTER_ATTEMPTS) throw e;
+        console.warn(`Guardian registration timed out (attempt ${attempt}/${GUARDIAN_CREATE_REGISTER_ATTEMPTS})`, e);
+      }
+    }
   } catch (e) {
     console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });

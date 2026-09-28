@@ -612,14 +612,14 @@ describe('createGuardianAccount', () => {
     });
   });
 
-  describe('a guardian answering 429 (#906)', () => {
-    const rateLimited = (retryAfterSecs = 1) =>
-      Object.assign(new Error('GUARDIAN HTTP error 429: Too Many Requests'), {
-        status: 429,
-        code: 'rate_limit_exceeded',
-        meta: { retryable: true, retryAfterSecs }
-      });
+  const rateLimited = (retryAfterSecs = 1) =>
+    Object.assign(new Error('GUARDIAN HTTP error 429: Too Many Requests'), {
+      status: 429,
+      code: 'rate_limit_exceeded',
+      meta: { retryable: true, retryAfterSecs }
+    });
 
+  describe('a guardian answering 429 (#906)', () => {
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
 
@@ -870,19 +870,68 @@ describe('createGuardianAccount', () => {
       expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
     });
 
-    it('fails the registration after 30 s, without retrying', async () => {
-      const multisig = makeMultisig();
-      multisig.registerOnGuardian.mockReturnValueOnce(new Promise<void>(() => {}));
+    // A timed-out /configure may still land, so registration retries the same state and
+    // takes the guardian's account_already_exists as the earlier attempt having landed.
+    const pendingRegistration = async (multisig: ReturnType<typeof makeMultisig>) => {
       multisigClientConfig.create.mockResolvedValueOnce(multisig);
-      const created = await createAndRegister(makeWebClient(), new Uint8Array(32), false);
+      const createKey = await fetchGuardianCreateKey();
+      return (await createGuardianAccount(makeWebClient() as never, createKey, new Uint8Array(32))).registration;
+    };
+    const state = Buffer.from([7, 8, 9]).toString('base64');
+    const alreadyRegistered = () =>
+      Object.assign(new Error('GUARDIAN HTTP error 409'), { status: 409, code: 'account_already_exists' });
 
-      const registration = track(registerGuardianAccount(created.registration));
+    it.each([
+      ['accepts account_already_exists', () => Promise.reject(alreadyRegistered())],
+      ['resolves when the retry succeeds', () => Promise.resolve()]
+    ])('retries a timed-out registration with the same state and %s', async (_label, retry) => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockReturnValueOnce(new Promise<void>(() => {})).mockImplementationOnce(retry);
+
+      const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
       await jest.advanceTimersByTimeAsync(29_999);
       expect(registration.outcome).toBe('pending');
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(registration.outcome).toBe('resolved');
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, state);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state);
+    });
+
+    it('fails the registration after three timed-out attempts, at 90 s, with the timeout as the cause', async () => {
+      const multisig = makeMultisig();
+      multisig.registerOnGuardian.mockReturnValue(new Promise<void>(() => {}));
+
+      const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
+      await jest.advanceTimersByTimeAsync(89_999);
+      expect(registration.outcome).toBe('pending');
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
       await jest.advanceTimersByTimeAsync(1);
 
       expect(registration.outcome).toMatchObject(timedOut);
-      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
+    });
+
+    // One 429 deadline spans every attempt: a hung attempt does not buy the next one a fresh budget.
+    it('fails at 90 s on a 429 after a hung attempt, the 429 waits of all attempts sharing one deadline', async () => {
+      const multisig = makeMultisig();
+      const secondLimited = rateLimited(60);
+      multisig.registerOnGuardian
+        .mockRejectedValueOnce(rateLimited(60))
+        .mockReturnValueOnce(new Promise<void>(() => {}))
+        .mockRejectedValueOnce(secondLimited);
+
+      const registration = track(registerGuardianAccount(await pendingRegistration(multisig)));
+      await jest.advanceTimersByTimeAsync(89_999);
+      expect(registration.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      const outcome = registration.outcome;
+      expect(outcome).toMatchObject({ message: 'Failed to create Guardian account' });
+      expect(outcome instanceof Error && outcome.cause).toBe(secondLimited);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(3);
     });
   });
 });
