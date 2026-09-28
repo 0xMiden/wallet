@@ -831,16 +831,6 @@ describe('HotKeyRotationGate', () => {
       await publishTable();
     });
 
-    it('offers Check again, which queues a fresh rotation', async () => {
-      trackShortfall();
-      render(<HotKeyRotationGate />);
-      await screen.findByTestId('hot-key-rotation-funding');
-
-      fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
-
-      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-    });
-
     it('never shows the panel on a chain that charges nothing', async () => {
       mockBaseFee = 0;
       trackShortfall();

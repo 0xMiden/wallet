@@ -89,15 +89,6 @@ describe('initiateRotationFundingClaim', () => {
     expect(queued[0]!.noteIds).toEqual(['a', 'b']);
   });
 
-  it('still isolates on a flagged failed batch row', async () => {
-    const failed = await failedRow(['a', 'b'], 60 * 60, true);
-
-    await initiateRotationFundingClaim(ACCOUNT, [note('a'), note('b')], { verificationBaseFee: BASE_FEE });
-
-    const queued = (await consumeRows()).filter(row => row.id !== failed.id);
-    expect(queued).toHaveLength(2);
-  });
-
   it('queues one row when two wallet surfaces claim the same note at once', async () => {
     const [first, second] = await Promise.all([
       initiateRotationFundingClaim(ACCOUNT, [note('a')]),

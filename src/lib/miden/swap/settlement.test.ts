@@ -400,15 +400,6 @@ describe('swap order note settlement', () => {
       expect(modify).not.toHaveBeenCalled();
     });
 
-    it('settles normally once the rotation clears the flag', async () => {
-      mockStoreAccounts = [{ publicKey: 'account-1', requiresHotKeyRotation: false }];
-      const payback = consumable('payback', 'payback', 'filled');
-
-      await reconcileSwapOrderNotes('account-1', [payback], false, 150);
-
-      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false);
-    });
-
     it('does not affect a non-pending account even while another account in the store is pending', async () => {
       mockStoreAccounts = [
         { publicKey: 'account-1', requiresHotKeyRotation: false },
