@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 
@@ -163,9 +164,9 @@ describe('useEarnPositions', () => {
   it('loads every historical owner plus the lowercased wallet address once', async () => {
     let loadPositions: (() => Promise<EarnPositionsResult>) | undefined;
     let receivedKey: unknown;
-    let receivedConfig: { isPaused?: () => boolean } | undefined;
+    let receivedConfig: unknown;
     mockUseRetryableSWR.mockImplementation(
-      (key: unknown, fetcher: () => Promise<EarnPositionsResult>, config: { isPaused?: () => boolean }) => {
+      (key: unknown, fetcher: () => Promise<EarnPositionsResult>, config: unknown) => {
         receivedKey = key;
         loadPositions = fetcher;
         receivedConfig = config;
@@ -183,18 +184,23 @@ describe('useEarnPositions', () => {
     expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF']);
     expect(receivedConfig).toEqual({
       revalidateOnMount: true,
+      revalidateIfStale: true,
       refreshInterval: 30_000,
       revalidateOnFocus: false,
-      dedupingInterval: 3_000,
-      isPaused: expect.any(Function)
+      dedupingInterval: 3_000
     });
-    // The page is on screen by default, so the poll is not paused.
-    expect(receivedConfig?.isPaused?.()).toBe(false);
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
       owners: ['0xabcdef', '0xhistorical']
     });
+
+    // A covered page holds a null key, not a paused one.
+    renderHook(() => useEarnPositions(), {
+      wrapper: ({ children }: { children: React.ReactNode }) =>
+        React.createElement(PageActiveContext.Provider, { value: false }, children)
+    });
+    expect(receivedKey).toBeNull();
   });
 
   it('uses only historical owners when the wallet has no derived EVM address', async () => {
@@ -242,6 +248,111 @@ describe('useEarnPositions', () => {
 
       expect(result.current.positions).toEqual([]);
       expect(result.current.vaults).toEqual([]);
+    });
+  });
+
+  describe('on and off screen, with the real SWR', () => {
+    type Earn = ReturnType<typeof useEarnPositions>;
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+
+    function Probe({ report }: { report: (earn: Earn) => void }) {
+      report(useEarnPositions());
+      return null;
+    }
+    const page = (onScreen: boolean, report: (earn: Earn) => void) =>
+      React.createElement(PageActiveContext.Provider, { value: onScreen }, React.createElement(Probe, { report }));
+
+    beforeEach(() => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('retries on the page that is showing when a covered page of the same account mounted first', async () => {
+      jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('positions down')).mockResolvedValue(liveResult);
+      // One cache for both, as the app's pages share one: the covered Earn pane under a slide earn page.
+      const cache = new Map();
+      let showing: Earn | undefined;
+      await act(async () => {
+        render(
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            page(false, () => undefined),
+            page(true, earn => (showing = earn))
+          )
+        );
+      });
+      await waitFor(() => expect(showing?.loadError).toBe('positions down'));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await act(async () => showing?.refetch());
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+    });
+
+    // One hook whose page each test puts on or off screen, in a cache of its own.
+    let onScreen = true;
+    const renderOnPage = () => {
+      const cache = new Map();
+      return renderHook(() => useEarnPositions(), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            React.createElement(PageActiveContext.Provider, { value: onScreen }, children)
+          )
+      });
+    };
+    // Past the hook's own 3 s dedupe window, so a read again is SWR revalidating a key that comes back.
+    const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+
+    beforeEach(() => {
+      onScreen = true;
+    });
+
+    it('never reads while its page is covered', async () => {
+      onScreen = false;
+      await act(async () => {
+        renderOnPage();
+      });
+
+      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+      expect(fetchEarnPositions).not.toHaveBeenCalled();
+    });
+
+    it('reads again once when its page comes back past the dedupe window', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      onScreen = true;
+      rerender();
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await act(() => new Promise(resolve => setTimeout(resolve, 100)));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
+    }, 10_000);
+
+    it('keeps showing what it loaded while its page is covered', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      onScreen = false;
+      rerender();
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.vaults).toHaveLength(1);
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it('reads as loading, not empty, when mounted on a covered page', () => {
+      onScreen = false;
+      const { result } = renderOnPage();
+
+      expect(result.current.isLoading).toBe(true);
     });
   });
 });

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useRetryableSWR } from 'lib/swr';
+import { useLastData } from 'lib/swr/last-data';
 
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
@@ -49,13 +50,15 @@ export function useEarnPositions(): {
   const account = useAccount();
   const onScreen = usePageActive();
 
+  // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and error retry to its first
+  // subscriber, and a paused one swallows them. `revalidateIfStale` reads a returning key again, deduped for 3 s.
+  const key = ['earn-positions', account.publicKey, account.evmAddress];
   const {
-    data,
-    isLoading,
+    data: liveData,
     error: swrError,
     mutate
   } = useRetryableSWR(
-    ['earn-positions', account.publicKey, account.evmAddress],
+    onScreen ? key : null,
     async () => {
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
@@ -64,22 +67,16 @@ export function useEarnPositions(): {
     },
     {
       revalidateOnMount: true,
+      revalidateIfStale: true,
       // The Epoch positions service allows 10 requests per minute, and each tick sends one request for each owner.
       refreshInterval: 30_000,
       revalidateOnFocus: false,
-      dedupingInterval: 3_000,
-      isPaused: () => !onScreen
+      dedupingInterval: 3_000
     }
   );
-
-  // A paused poll ticks again only on its next interval, so a page that comes back on screen refreshes at once.
-  const wasOnScreen = useRef(onScreen);
-  useEffect(() => {
-    if (onScreen && !wasOnScreen.current) {
-      mutate();
-    }
-    wasOnScreen.current = onScreen;
-  }, [onScreen, mutate]);
+  const data = useLastData(key, onScreen, liveData);
+  // No data (live or kept) and no error: a page mounted covered reads as loading, not empty.
+  const isLoading = data === undefined && !swrError;
 
   return useMemo(() => {
     // Owner queries never reject: a full outage resolves with only errors and no vaults, which is a failed
