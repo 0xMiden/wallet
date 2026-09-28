@@ -12,11 +12,12 @@ import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
+let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 
 // The delivered faucet resolves synchronously from the store; the native one needs no record.
 jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
-    selector({ assetsMetadata: {} })
+    selector({ assetsMetadata: mockAssetsMetadata })
 }));
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({
@@ -157,6 +158,7 @@ describe('EarnWithdrawStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
+    mockAssetsMetadata = {};
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -287,6 +289,18 @@ describe('EarnWithdrawStatus', () => {
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
+  });
+
+  // Earn delivers to the Miden USDC faucet, which only the store resolves; without that read it reads Unknown.
+  it('reads a delivered non-native faucet from the store once received', () => {
+    mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'miden-usdc' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 USDC');
   });
 
   it('names the delivered asset without a number when its scale is unknown', () => {
