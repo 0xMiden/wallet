@@ -187,8 +187,12 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
         ).toBeLessThanOrEqual(MAX_FRAME_GAP_MS);
 
         const expectedThreads = await walletA.page.evaluate(() => Math.min(navigator.hardwareConcurrency, 6));
+        // Searched backwards from the window's own `openTs`, not forwards from
+        // `armedAt`: a worker already warm from an earlier local prove in this test
+        // (a delegated claim that fell back locally) never fires a second `ready`, so
+        // a search that only looked after arming would find none for a healthy run.
         expect(
-          readyWorkerThreads(markers, armedAt),
+          readyWorkerThreads(markers, proveWindow.openTs, 'before'),
           'the prove worker came up cross-origin isolated with the capped pool'
         ).toBe(expectedThreads);
         // Offscreen documents get chrome.runtime but never chrome.storage, so

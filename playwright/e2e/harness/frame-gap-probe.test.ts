@@ -59,4 +59,38 @@ describe('readyWorkerThreads', () => {
     const markers = [{ ts: 10, line: '[prove-timing] prove-worker ready threads=6 coi=false ms=50' }];
     expect(readyWorkerThreads(markers, 0)).toBeUndefined();
   });
+
+  // #945: a worker already warm from an earlier local prove in the same test (a
+  // delegated claim that fell back locally) never fires a second `ready` - the send
+  // under test reuses it and posts straight away. Searching only after arming would
+  // report `undefined` for a perfectly healthy warm-worker run, so the prove window's
+  // own `openTs` is searched backwards instead.
+  it('takes the latest ready marker at or before a boundary, for a worker already warm', () => {
+    const markers = [
+      { ts: 5, line: '[prove-timing] prove-worker ready threads=4 coi=true ms=300' },
+      { ts: 40, line: '[prove-timing] local-prove-window open' },
+      { ts: 90, line: '[prove-timing] local-prove-window close' }
+    ];
+    // Warm before arming: no marker at or after 40 would ever match.
+    expect(readyWorkerThreads(markers, 40, 'before')).toBe(4);
+  });
+
+  it('prefers the LATEST ready marker at or before the boundary, not the first', () => {
+    const markers = [
+      { ts: 5, line: '[prove-timing] prove-worker ready threads=2 coi=true ms=100' },
+      { ts: 15, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=120' },
+      { ts: 40, line: '[prove-timing] local-prove-window open' }
+    ];
+    expect(readyWorkerThreads(markers, 40, 'before')).toBe(6);
+  });
+
+  it('includes a ready marker exactly at the boundary when searching before it', () => {
+    const markers = [{ ts: 40, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=1' }];
+    expect(readyWorkerThreads(markers, 40, 'before')).toBe(6);
+  });
+
+  it('is undefined searching before a boundary with no ready marker at or before it', () => {
+    const markers = [{ ts: 50, line: '[prove-timing] prove-worker ready threads=6 coi=true ms=1' }];
+    expect(readyWorkerThreads(markers, 40, 'before')).toBeUndefined();
+  });
 });

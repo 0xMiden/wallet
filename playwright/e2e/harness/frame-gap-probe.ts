@@ -100,12 +100,27 @@ export function measureFrameGap(frames: number[], openTs: number, closeTs: numbe
   return { windowMs, framesInWindow: inWindow.length, maxGapMs };
 }
 
-/** The `threads` a `prove-worker ready` marker after `armedAt` reports, if one was recorded. */
-export function readyWorkerThreads(markers: ProveMarker[], armedAt: number): number | undefined {
+/**
+ * The `threads` an isolated `prove-worker ready` marker reports, relative to `boundaryTs`.
+ *
+ * `'after'` (the default) takes the FIRST such marker at or after the boundary - the
+ * shape a fresh spawn always has. `'before'` takes the LATEST one at or before it: a
+ * worker already warm from an earlier local prove in the same test never fires a
+ * second `ready`, so the boundary has to search backwards from the prove window's own
+ * `openTs` instead of forwards from when the flow was armed (#945).
+ */
+export function readyWorkerThreads(
+  markers: ProveMarker[],
+  boundaryTs: number,
+  relativeTo: 'after' | 'before' = 'after'
+): number | undefined {
+  let latest: number | undefined;
   for (const { ts, line } of markers) {
-    if (ts < armedAt) continue;
+    if (relativeTo === 'after' ? ts < boundaryTs : ts > boundaryTs) continue;
     const match = /prove-worker ready threads=(\d+) coi=true /.exec(line);
-    if (match?.[1]) return Number(match[1]);
+    if (!match?.[1]) continue;
+    if (relativeTo === 'after') return Number(match[1]);
+    latest = Number(match[1]);
   }
-  return undefined;
+  return latest;
 }
