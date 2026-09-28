@@ -34,9 +34,15 @@ function buildHarness() {
       };
     })
   }));
+  const applyFailure: { error?: Error } = {};
   const submitProven = jest.fn(async (_proof: unknown, _result: unknown) => {
     order.push('submitProven');
-    return { apply: jest.fn(async () => order.push('apply')) };
+    return {
+      apply: jest.fn(async () => {
+        if (applyFailure.error) throw applyFailure.error;
+        order.push('apply');
+      })
+    };
   });
   const allInOne = (label: string) =>
     jest.fn(async (...args: unknown[]) => {
@@ -85,6 +91,7 @@ function buildHarness() {
     delegated,
     executeRequest,
     submitProven,
+    applyFailure,
     fakeClient,
     inner,
     transport,
@@ -496,6 +503,41 @@ describe('swap (site 8)', () => {
     });
     await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toThrow('worker gone');
     expect(harness.submitProven).not.toHaveBeenCalled();
+  });
+});
+
+type LoadedClient = Awaited<ReturnType<typeof load>>['client'];
+
+describe('the node has the write once submitProven resolves', () => {
+  const legs: Array<[string, (client: LoadedClient) => Promise<unknown>]> = [
+    ['send', client => client.sendTransaction(sendTx(false))],
+    ['consume', client => client.consumeNoteId(consumeTx(false))],
+    ['swap', client => client.swapTransaction(swapTx(false))],
+    ['newTransaction', client => client.newTransaction('acct', new Uint8Array([4]), false)]
+  ];
+
+  it.each(legs)('a %s whose apply fails carries the apply-after-submit code and its cause', async (_leg, write) => {
+    const harness = buildHarness();
+    const storeQuota = new Error('store quota');
+    harness.applyFailure.error = storeQuota;
+    const { client, withWasmClientLock } = await load(harness);
+    const { extractSdkErrorCode, isApplyAfterSubmitError } = await import('./sdk-error-code');
+    const error = await withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(error).toHaveProperty('cause', storeQuota);
+  });
+
+  it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {
+    const harness = buildHarness();
+    const refused = new Error('node refused the transaction');
+    harness.submitProven.mockRejectedValueOnce(refused);
+    const { client, withWasmClientLock } = await load(harness);
+    const { isApplyAfterSubmitError } = await import('./sdk-error-code');
+    const error = await withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught);
+    expect(error).toBe(refused);
+    expect(isApplyAfterSubmitError(error)).toBe(false);
   });
 });
 
