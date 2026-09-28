@@ -647,7 +647,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * the swap row on its requested-token page too. The tab's unread mark
  * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
  * this feed hides. It also drops a Failed claim row whose every note this
- * account has since claimed (`supersededFailedConsumeIds`, #771), so Token
+ * account has claimed (`supersededFailedConsumeIds`, #771), so Token
  * Detail and the unread mark follow the feed.
  */
 export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {

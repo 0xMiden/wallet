@@ -26,6 +26,10 @@ beforeEach(async () => {
   await transactions.clear();
 });
 
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 afterAll(async () => {
   await transactions.clear();
 });
@@ -53,6 +57,11 @@ describe('supersededFailedConsumeIds (#771)', () => {
   it('keeps the failure when the only claim is on another account', async () => {
     await transactions.add(completedClaim('elsewhere', ['n1'], { accountId: B }));
     expect(await supersededFailedConsumeIds([row('attempt', { noteId: 'n1' })])).toEqual(new Set());
+  });
+
+  it('matches the claim by account whatever suffix its stored account id carries', async () => {
+    await transactions.add(completedClaim('suffixed', ['n1'], { accountId: `${A}_x` }));
+    expect(await supersededFailedConsumeIds([row('attempt', { noteId: 'n1' })])).toEqual(new Set(['attempt']));
   });
 
   it('keeps the failure when the only claim was restored from a backup', async () => {
@@ -83,6 +92,5 @@ describe('supersededFailedConsumeIds (#771)', () => {
     const whereSpy = jest.spyOn(transactions, 'where');
     expect(await supersededFailedConsumeIds([completedClaim('done', ['n1'])])).toEqual(new Set());
     expect(whereSpy).not.toHaveBeenCalled();
-    whereSpy.mockRestore();
   });
 });

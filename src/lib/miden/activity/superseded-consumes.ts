@@ -6,7 +6,7 @@ import { ITransaction, ITransactionStatus } from '../db/types';
 const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx.noteId] : []);
 
 /**
- * The Failed claim rows in `transactions` whose every note this account has since claimed (#771). Failed rows are
+ * The Failed claim rows in `transactions` whose every note this account has claimed (#771). Failed rows are
  * never deleted, because the auto-consume backoff counts them, so without this a note the wallet now holds shows
  * one "Transaction failed" per earlier attempt. The evidence is read from the database rather than the batch, since
  * the successful claim can sit on another page, and it follows the claim dedup's rule: a Completed consume row of
