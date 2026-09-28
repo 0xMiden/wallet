@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { fetchFromStorage, putToStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { putToStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
+import { getFaucetIdSetting } from './faucet-id-setting';
 import { Asset, Token, FA2Token } from './types';
 
 export async function toTransferParams(assetSlug: string, toPublicKey: string, amount: BigNumber.Value) {
@@ -65,31 +65,7 @@ function useDebounce(_arg0: string, _arg1: number): [any] {
   throw new Error('Function not implemented.');
 }
 
-/**
- * Returns the faucet ID the wallet should treat as the native asset, or `null`
- * if discovery hasn't completed yet (first install + offline, or a transient
- * RPC failure).
- *
- * Resolution order:
- *   1. user override (dev-mode escape hatch, written from EditMidenFaucetId)
- *   2. discovered native asset ID (BlockHeader.feeFaucetId(), keyed per RPC node)
- *   3. `null` — callers must tolerate unknown-native-asset by falling through
- *      comparisons to "not MIDEN" so the rest of the UI still works
- *
- * No hardcoded fallback by design — if we guessed wrong, MIDEN-tagged UI
- * would render under the wrong token ID until discovery corrected it. Better
- * to show no MIDEN branding than to show it under a stale ID.
- */
-export async function getFaucetIdSetting(): Promise<string | null> {
-  const override = (await fetchFromStorage(FAUCET_ID_STORAGE_KEY)) as string | null;
-  if (override) return override;
-  try {
-    return await getNativeAssetId();
-  } catch (err) {
-    console.warn('getFaucetIdSetting: native asset discovery failed', err);
-    return null;
-  }
-}
+export { getFaucetIdSetting } from './faucet-id-setting';
 
 export async function setFaucetIdSetting(faucetId: string): Promise<void> {
   // Persist through the SAME platform storage adapter `getFaucetIdSetting`

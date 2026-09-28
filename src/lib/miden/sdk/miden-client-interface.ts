@@ -68,15 +68,18 @@ import { beginProveAttempt, recordProveMarker } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
 import { wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
-// Guardian helpers are dynamic-imported inside the methods that use them to avoid
-// a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
-// miden-client-interface. Static imports here deadlock init_guardian_manager in the
-// SW bundle (both sides' __esmMin wrappers await each other).
-// guardian/native-http is cycle-safe (it only pulls constants + platform).
+// guardian/index is dynamic-imported inside the methods that use it and is never imported
+// statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
+// is a module init cycle, and a static import deadlocks init_guardian_manager in the SW bundle
+// (both sides' __esmMin wrappers await each other). guardian/account and guardian/native-http
+// are statically imported and cycle-safe.
 import {
+  createGuardianAccount,
   getSignerDetailsFromAccount,
   insertGuardianAccountMonotonically,
-  type CreatedGuardianKeys
+  type CreatedGuardianKeys,
+  type GuardianCreateKey,
+  type PendingGuardianRegistration
 } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
 import { isPrivateNoteType } from '../helpers';
@@ -87,6 +90,8 @@ export interface GuardianAccountCreationResult {
   // Guardian operator endpoint the account was registered with — persisted onto
   // the WalletAccount so runtime endpoint resolution is per-account.
   guardianEndpoint: string;
+  // The pending registration phase 3 consumes.
+  registration: PendingGuardianRegistration;
 }
 
 /**
@@ -610,16 +615,10 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      // NOTE: Guardian creation never reaches here — Vault.spawn and
-      // createHDAccount always route Guardian to createGuardianMidenWallet
-      // (which threads the picked endpoint). This branch passes no endpoint
-      // override, so createGuardianAccount binds to the network default (the
-      // frozen global key is no longer consulted for NEW accounts — #408
-      // stage 3). If anything ever routes Guardian through createMidenWallet for
-      // a non-default operator, thread the per-account endpoint here.
-      const { createGuardianAccount } = await import('../guardian/account');
-      const { account } = await createGuardianAccount(this.client, seed);
-      return getBech32AddressFromAccountId(account.id());
+      // Every caller runs this inside a vault hold, and a Guardian creation's guardian calls
+      // run outside one (#1207): a Guardian account is created with createGuardianMidenWallet,
+      // whose callers fetch the key before their hold and register after it.
+      throw new Error('A Guardian account is created with createGuardianMidenWallet, not createMidenWallet');
     }
 
     const isPublic = walletType === WalletType.OnChain;
@@ -637,26 +636,31 @@ export class MidenClientInterface {
   /**
    * Create a 3-key Guardian account. Returns the account ID alongside the hot
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
-   * both before writing them to storage). `assertLive` is the caller's hold
-   * re-check, forwarded to createGuardianAccount, whose guardian 429 waits park
-   * inside that hold.
+   * both before writing them to storage), plus the pending `registration` to
+   * run after this hold ends. The caller fetched `createKey` (via
+   * `fetchGuardianCreateKey`) before taking its hold, so its guardian 429 wait
+   * does not park inside it (#1207); the caller registers `registration`
+   * afterwards, via `registerGuardianAccount`, outside the hold too.
+   * `assertLive` is the caller's hold re-check, forwarded to
+   * createGuardianAccount, whose account build runs inside that hold.
    */
   async createGuardianMidenWallet(
-    coldSeed?: Uint8Array,
-    guardianEndpoint?: string,
+    coldSeed: Uint8Array | undefined,
+    createKey: GuardianCreateKey,
     assertLive: AssertLive = noAssertLive
   ): Promise<GuardianAccountCreationResult> {
-    const { createGuardianAccount } = await import('../guardian/account');
-    // Forward the caller's picked endpoint as the override so the account binds
-    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
-    // the network default (the frozen global key is no longer consulted for NEW
-    // accounts — #408 stage 3).
     const {
       account,
       keys,
-      guardianEndpoint: usedEndpoint
-    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint, assertLive);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
+      guardianEndpoint: usedEndpoint,
+      registration
+    } = await createGuardianAccount(this.client, createKey, coldSeed, assertLive);
+    return {
+      accountId: getBech32AddressFromAccountId(account.id()),
+      keys,
+      guardianEndpoint: usedEndpoint,
+      registration
+    };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
