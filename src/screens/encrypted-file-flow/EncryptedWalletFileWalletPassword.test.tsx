@@ -15,6 +15,7 @@ import EncryptedWalletFileWalletPassword, {
 // ---------------------------------------------------------------------------
 const mockUnlock = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 let mockIsMobile = false;
 // Backing store for the mocked `useLocalStorage` — seed keys per-test to drive
 // the attempt/timelock branches.
@@ -49,7 +50,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => {
@@ -226,6 +230,40 @@ describe('EncryptedWalletFileWalletPassword', () => {
     const page = screen.getByTestId('encrypted-file-wallet-password');
     expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
     expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+    expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
+  });
+
+  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
+
+    expect(await screen.findByTestId('action-button')).toHaveTextContent('unlock');
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    clickConfirm();
+    fireEvent.click(screen.getByTestId('action-button'));
+    await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  });
+
+  it('shows an error and offers no credential step when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
     expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
