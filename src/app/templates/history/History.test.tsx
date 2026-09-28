@@ -2072,11 +2072,17 @@ describe('History on the real SWR cache', () => {
       expect(shownSince(from, 'completed-attempt-a')).toBe(false);
       expect(shownSince(from, 'completed-attempt-b')).toBe(false);
 
-      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-a', 'attempt-b']));
+      // Attempt-a is left unsuperseded, so only the release can show it.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-b']));
       await releaseB([...rows, freshRow]);
       await waitFor(() => expect(entryKeys()).toContain('completed-fresh'));
       await act(async () => {});
-      expect(shownSince(from, 'completed-attempt-a')).toBe(false);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt-a'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt-a'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
       expect(shownSince(from, 'completed-attempt-b')).toBe(false);
     });
 
