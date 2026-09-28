@@ -179,6 +179,12 @@ export async function putToStorage<T = any>(key: string, value: T) {
 // writer, so ordering its own turns is enough.
 const storageTurnTails = new Map<string, Promise<void>>();
 
+// Test-only: whether this realm still holds a tail for `name`. There is no other way from outside the module to
+// observe whether a settled turn's entry was actually dropped.
+export function __hasStorageTurnTailForTests(name: string): boolean {
+  return storageTurnTails.has(name);
+}
+
 /**
  * Runs `operation` as one turn named `name`: under the Web Lock of that name, which every extension surface (popup,
  * side panel, tabs, service worker) shares, or, without Web Locks, after this realm's earlier turns of that name. A
@@ -196,5 +202,10 @@ export async function inStorageTurn<T>(name: string, operation: () => Promise<T>
     () => undefined
   );
   storageTurnTails.set(name, settled);
+  // Drop the entry once it settles, but only while it is still the one this call registered: a later turn of the
+  // same name may already have replaced it, and that tail must survive this cleanup.
+  void settled.then(() => {
+    if (storageTurnTails.get(name) === settled) storageTurnTails.delete(name);
+  });
   return run;
 }
