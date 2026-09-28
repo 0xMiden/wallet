@@ -97,6 +97,7 @@ jest.mock('./defaults', () => ({
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  mockWithUnlocked.mockReset();
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
@@ -681,5 +682,13 @@ describe('a one-shot wake for rows still queued when a run ends (#1223)', () => 
     const mod = await import('./transaction-processor');
     await mod.startTransactionProcessing();
     expect(clearedBeforeFirstPass).toBe(true);
+  });
+
+  it('arms no wake while the vault is locked, since unlocking restarts processing (#924)', async () => {
+    lockedWithUnlocked();
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
   });
 });

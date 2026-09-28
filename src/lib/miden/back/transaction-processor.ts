@@ -240,6 +240,13 @@ export async function startTransactionProcessing(): Promise<void> {
 /** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
 async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
   try {
+    withUnlocked(() => undefined);
+  } catch {
+    // Locked: every row fails at its first step and unlocking restarts processing itself (#924). A wake would only reap
+    // claims while locked, and each expired auto-claim doubles its note's retry backoff (#215).
+    return;
+  }
+  try {
     const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
     if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
   } catch (e) {
