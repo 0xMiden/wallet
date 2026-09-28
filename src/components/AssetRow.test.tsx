@@ -111,6 +111,17 @@ describe('AssetRow', () => {
     expect(mockVerify).toHaveBeenCalledWith('tok-1');
   });
 
+  it('draws the Unverified mark as an xs warning pill', () => {
+    mockVerify.mockReturnValue('unverified');
+
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    const pill = screen.getByTestId('pill');
+    expect(pill).toHaveTextContent('unverifiedToken');
+    expect(pill).toHaveAttribute('data-tone', 'warning');
+    expect(pill).toHaveAttribute('data-size', 'xs');
+  });
+
   it('renders a positive 24h delta with a "+" prefix, positive direction, and status-positive sparkline color', () => {
     tokenPrices = { BTC: priceInfo({ price: 100, percentageChange24h: 5.256 }) };
     mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
