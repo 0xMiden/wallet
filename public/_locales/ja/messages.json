@@ -1820,6 +1820,22 @@
     "message": "資金の準備ができました",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "以前のリクエストがまだ届く可能性があります。",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "もう一度リクエストしますか？",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "以前のリクエストはまだ届く可能性があります。再度リクエストすると、ウォレットに2回資金が入金される可能性があります。",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "再度リクエストしてください",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "アカウントの回復が検出されました",
     "englishSource": "Account recovery detected"

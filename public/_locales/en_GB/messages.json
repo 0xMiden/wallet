@@ -1820,6 +1820,22 @@
     "message": "Your funds are ready",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "An earlier request may still arrive.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Request again?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Your earlier request may still arrive. Requesting again could fund your wallet twice.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Request again",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Account recovery detected",
     "englishSource": "Account recovery detected"

@@ -1820,6 +1820,22 @@
     "message": "Ihr Geld ist bereit",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Möglicherweise geht noch eine frühere Anfrage ein.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Noch einmal anfragen?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Ihre frühere Anfrage könnte noch eintreffen. Eine erneute Anfrage könnte dazu führen, dass Ihr Wallet doppelt aufgefüllt wird.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Erneut anfordern",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Kontowiederherstellung erkannt",
     "englishSource": "Account recovery detected"
