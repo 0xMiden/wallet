@@ -460,13 +460,22 @@ describe('HotKeyRotationGate', () => {
       mockPlatform.isExtension = true;
       mockTable = [
         shortfallRow(),
-        fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction, processingStartedAt: 5 })
+        fundingRow('claim-1', {
+          status: ITransactionStatus.GeneratingTransaction,
+          processingStartedAt: 5,
+          requeueStreak: { arm: 'guardian-unreachable', count: 2 }
+        })
       ];
 
       render(<HotKeyRotationGate />);
 
+      // An orphan reset is not a requeue down a guardian arm, so the claim's backoff starts over (#1223).
       await waitFor(() =>
-        expect(mockTable[1]).toMatchObject({ status: ITransactionStatus.Queued, processingStartedAt: undefined })
+        expect(mockTable[1]).toMatchObject({
+          status: ITransactionStatus.Queued,
+          processingStartedAt: undefined,
+          requeueStreak: undefined
+        })
       );
       await waitFor(() => expect(mockRequestSW).toHaveBeenCalled());
       expect(mockInitiate).not.toHaveBeenCalled();
