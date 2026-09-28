@@ -115,7 +115,7 @@ const ForgotPassword: FC = () => {
       // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so nothing here
       // reads or rewrites the endpoint override or the legacy guardian URL.
       try {
-        clearClientStorage();
+        await clearClientStorage();
         // Resolve the probed guardian endpoint (import path only) and thread it
         // explicitly into registerWallet (stage 1 of #408) rather than writing the
         // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
