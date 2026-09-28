@@ -449,7 +449,8 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
           hotCiphertext: 'cf'.repeat(64),
           coldPublicKey: 'bb'.repeat(33),
           coldSecretKeyHex: 'dd'.repeat(32)
-        }
+        },
+        registration: { stateBase64: 'state' }
       }),
       getAccounts: async () => [],
       getAccount: async () => null,
