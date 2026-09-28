@@ -235,7 +235,7 @@ describe('faucet-api', () => {
     it('does not retry a 429 with no Retry-After — returns it for the caller to fail', async () => {
       fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited'));
 
-      const res = await faucetFetch('https://faucet-api.example/pow');
+      const res = await faucetFetch('https://faucet-api.example/pow', undefined, readStatus);
 
       expect(res.status).toBe(429);
       expect(fetchMock).toHaveBeenCalledTimes(1);

@@ -45,9 +45,6 @@ export type FaucetFetchHooks = {
   onStatus?: (status: number) => void;
 };
 
-/** What faucetFetch resolves to without a `read`: the body ends with its attempt, so only the status is kept. */
-type FaucetStatusLine = Pick<Response, 'ok' | 'status' | 'headers'>;
-
 /**
  * `fetch` bounded by a timeout, honoring a single `429 Retry-After` back-off,
  * with `read` run on the response inside the same bound.
@@ -60,23 +57,13 @@ type FaucetStatusLine = Pick<Response, 'ok' | 'status' | 'headers'>;
  * and self-clears - and its body is never read. Any other response, a final 429
  * included, goes to `read` for the caller to classify.
  */
-export function faucetFetch(url: string, init?: RequestInit): Promise<FaucetStatusLine>;
-export function faucetFetch<T>(
+export async function faucetFetch<T>(
   url: string,
   init: RequestInit | undefined,
   read: (response: Response) => Promise<T>,
-  timeoutMs?: number,
-  hooks?: FaucetFetchHooks
-): Promise<T>;
-export async function faucetFetch<T>(
-  url: string,
-  init?: RequestInit,
-  read?: (response: Response) => Promise<T>,
   timeoutMs: number = FAUCET_FETCH_TIMEOUT_MS,
   hooks?: FaucetFetchHooks
-): Promise<T | FaucetStatusLine> {
-  const readBody: (response: Response) => Promise<T | FaucetStatusLine> =
-    read ?? (async ({ ok, status, headers }) => ({ ok, status, headers }));
+): Promise<T> {
   // The timeout needs its own controller, so a caller-provided `init.signal`
   // can't ride through to `fetch` directly — link it to the internal one
   // instead (abort either way, preserving the caller's abort reason).
@@ -100,11 +87,11 @@ export async function faucetFetch<T>(
   };
 
   // The first attempt ends in the caller's read, or in the wait before its one retry.
-  type FirstAttempt = { value: T | FaucetStatusLine } | { waitMs: number };
+  type FirstAttempt = { value: T } | { waitMs: number };
   const first = await attempt(async (response): Promise<FirstAttempt> => {
     // A 429 with no honorable delay is not retried: the caller fails it.
     const waitMs = response.status === 429 ? retryAfterMs(response) : null;
-    return waitMs === null ? { value: await readBody(response) } : { waitMs };
+    return waitMs === null ? { value: await read(response) } : { waitMs };
   });
   if ('value' in first) return first.value;
 
@@ -126,7 +113,7 @@ export async function faucetFetch<T>(
     }, waitMs);
     external?.addEventListener('abort', onAbort, { once: true });
   });
-  return attempt(readBody);
+  return attempt(read);
 }
 
 export async function getPowChallenge(
