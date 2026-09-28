@@ -338,22 +338,24 @@
         this._emit('accountChange', this.permission);
       }
 
+      // The connection ends whether the request succeeds, is refused or times out, and its error still reaches the
+      // caller. Only the call that clears a connected wallet signals it, so a listener that disconnects on the signal
+      // is refused once and stops, and two overlapping calls signal once (#1227).
       async disconnect() {
         stopPermissionWatch();
-        const res = await request({
-          type: 'DISCONNECT_REQUEST',
-          network: this.network,
-        });
-
-        this.address = undefined;
-        this.publicKey = undefined;
-        this.permission = undefined;
-        this.network = undefined;
-
-        // Emit accountChange with null
-        this._emit('accountChange', null);
-
-        return res;
+        try {
+          return await request({
+            type: 'DISCONNECT_REQUEST',
+            network: this.network,
+          });
+        } finally {
+          const connected = !!this.address;
+          this.address = undefined;
+          this.publicKey = undefined;
+          this.permission = undefined;
+          this.network = undefined;
+          if (connected) this._emit('accountChange', null);
+        }
       }
 
       // Fields follow the new account before listeners hear of it; null clears them. The permission

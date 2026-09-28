@@ -239,13 +239,20 @@ export const INJECTION_SCRIPT = `
       return this.permission;
     }
 
+    // The connection ends whether the request succeeds, is refused or times out, and its error still reaches the
+    // caller. Only the call that clears a connected wallet signals it, so a listener that disconnects on the signal
+    // is refused once and stops, and two overlapping calls signal once (#1227).
     async disconnect() {
       stopPermissionWatch();
-      await request({ type: 'DISCONNECT_REQUEST' });
-      this.address = undefined;
-      this.permission = undefined;
-      this.publicKey = undefined;
-      this.emit('disconnect');
+      try {
+        await request({ type: 'DISCONNECT_REQUEST' });
+      } finally {
+        const connected = !!this.address;
+        this.address = undefined;
+        this.permission = undefined;
+        this.publicKey = undefined;
+        if (connected) this.emit('disconnect');
+      }
     }
 
     // Fields follow the new account before listeners hear of it; null clears them. The permission
