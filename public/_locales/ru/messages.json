@@ -1820,6 +1820,22 @@
     "message": "Ваши средства готовы",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Возможно, предыдущий запрос ещё не поступил.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Повторить запрос?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Ваш предыдущий запрос может ещё поступить. Повторный запрос может привести к двойному пополнению вашего кошелька.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Попросите ещё раз",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Обнаружено восстановление учетной записи",
     "englishSource": "Account recovery detected"

@@ -1820,6 +1820,22 @@
     "message": "您的資金已準備好",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "先前提出的請求可能仍會送達。",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "需要再次確認嗎？",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "您先前的請求可能仍會送達。若再次提出請求，可能會導致您的錢包被轉入兩次資金。",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "請再次提出請求",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "偵測到帳戶復原",
     "englishSource": "Account recovery detected"

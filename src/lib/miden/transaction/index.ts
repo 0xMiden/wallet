@@ -56,7 +56,7 @@ import {
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
-import { TRANSACTION_EXPIRED_ERROR } from './constants';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, isGuardianOutage, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   isGuardianCanonicalizationError,
@@ -144,6 +144,13 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'earn-deposit',
   'execute'
 ]);
+
+// Minus `execute`, only ever a dApp request: the dApp reads its five-minute wait running out as a failure, while a
+// requeued row can land up to MAX_QUEUED_AGE later. A dApp `send` is awaited too and stays, as on the 409, 429 and
+// prover arms, because its row carries no origin to tell it from the user's own.
+const GUARDIAN_UNREACHABLE_REQUEUEABLE: ReadonlySet<ITransactionType> = new Set<ITransactionType>(
+  [...REQUEUEABLE_ON_PENDING_CONFLICT].filter(type => type !== 'execute')
+);
 
 // Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
 // Slice 6a routed the four value-moving types (send / consume / swap / execute);
@@ -269,6 +276,11 @@ const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
 // temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
 const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
+// Cooldown (seconds) for a tx requeued because `isGuardianOutage` reads the guardian as down (#779): a transport
+// failure with no HTTP response (refused, DNS, TLS, a timeout), a 5xx, or a 2xx whose body does not parse as JSON. A
+// connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
+const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
+
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
 // declares rate-limit rejections retryable, so terminal-failing a value-moving
@@ -362,18 +374,15 @@ export const unauthorizedRequeueCooldownSec = (draw: number): number =>
 // `earn-deposit`. Derived rather than restated so a type added there is picked
 // up here too, with the one exclusion made explicit.
 //
-// `earn-deposit` is result-awaiting (`isResultAwaitingRow`): its caller reads
-// `resultBytes` / `outputNoteIds` back off the finished row, so a requeue leaves
-// that caller waiting on a row that will not finish this cycle — the same hang
-// the post-submit branch above deliberately fails the row to avoid. Its
-// collateral note is bound to an allocator mandate rather than being a transfer
-// that can simply be rebuilt, so failing it (and letting the user re-initiate)
-// is the honest outcome.
+// `earn-deposit` is left out as a scope choice. This arm retries on a short cap
+// of its own (UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC) that does not extend to
+// Earn, so a deposit that races a signature fails at once and the user
+// re-initiates it.
 // Exported for its test: this set is what stands between a structural op and a
 // requeue this arm would run after the persist - for replace-hot-key that rerun
-// reads the persisted key back rather than minting, so the reason it stays
-// excluded is the same honest-outcome call as `earn-deposit` above, not a
-// re-mint risk; for switch-guardian / update-procedure-threshold it is still the
+// reads the persisted key back rather than minting, so it stays excluded to
+// leave a failed rotation for the user to re-initiate, not for a re-mint risk;
+// for switch-guardian / update-procedure-threshold it is still the
 // duplicate-delta risk a rerun can register. It is derived rather than written
 // out, so nothing else pins its membership. A behavioural test cannot exercise a
 // structural type through this arm (see the membership test's own premise for
@@ -446,14 +455,16 @@ const MAX_REQUEUE_WAKE_LIFETIME_MS = (MAX_QUEUED_AGE + 60) * 1000;
 /**
  * Keep a requeued row moving, OFF-extension only.
  *
- * The extension has a service worker driving the queue on its own timer, so a
- * Queued row is always picked back up. Mobile and desktop do not: the only
- * driver for a send is the generating-transaction screen's interval, cleared on
- * unmount, and the screen's own copy invites the user to leave. Before this arm
- * existed a failure here ended the row terminally inside the same call, so
- * nothing needed to come back for it; now it is Queued, and without a wake it
- * would sit untouched until the next app launch's orphan recovery — a send that
- * silently does nothing, which is worse than the failure it replaced.
+ * The extension's service worker drives the queue itself: each kick runs the loop
+ * for at most sixty passes, 5 s apart, and a later kick (a new transaction, the
+ * guardian-sync kick when an outage clears) starts it again. Mobile and desktop
+ * have none: the only driver for a send is the generating-transaction screen's
+ * interval, cleared on unmount, and the screen's own copy invites the user to
+ * leave. Before this arm existed a failure here ended the row terminally inside
+ * the same call, so nothing needed to come back for it; now it is Queued, and
+ * without a wake it would sit untouched until the next app launch's orphan
+ * recovery: a send that silently does nothing, which is worse than the failure
+ * it replaced.
  *
  * A single fire is not enough, because firing does not imply progress. The wake
  * can be swallowed three ways that all look identical from here:
@@ -640,7 +651,7 @@ function scheduleRequeueWake(
         // In flight under another driver. NOT a reason to stop: that attempt can
         // end by requeueing rather than finishing, through the pending-delta
         // (409), rate-limit (429), prover-outage or locked-wallet arms — none of
-        // which schedules a wake, since only the unauthorized arm does. Stopping
+        // which schedules a wake, since only the unauthorized and unreachable arms do. Stopping
         // here on `GeneratingTransaction` would hand the row back to a queue
         // with no driver off-extension, which is the strand this chain exists to
         // prevent, and the row would look healthy on the way there. So watch it
@@ -666,7 +677,13 @@ function scheduleRequeueWake(
       // Come back when the row is next eligible — or at the reap boundary if
       // that comes first, since past it the row needs a drive to be reaped and
       // waiting out a long cooldown first would only delay that.
-      const waitMs = Math.max(Math.min((row.nextEligibleAt ?? 0) * 1000, reapsAt) - Date.now(), REQUEUE_WAKE_REARM_MS);
+      // A beat past `nextEligibleAt`, as `requeueWithWake` arms it: this re-arm
+      // replaces the wake a requeue inside the lap just set, and a timer aimed at
+      // the boundary itself can fire on a clock still short of it, wasting the lap.
+      const waitMs = Math.max(
+        Math.min((row.nextEligibleAt ?? 0) * 1000 + 1000, reapsAt) - Date.now(),
+        REQUEUE_WAKE_REARM_MS
+      );
       scheduleRequeueWake(txId, waitMs, signCallback, guardianProvider, chainStartedAt);
     })();
   }, delayMs);
@@ -674,11 +691,13 @@ function scheduleRequeueWake(
 }
 
 /**
- * Return a value-moving tx to the Queued state for a later generateTransactionsLoop
- * cycle instead of terminal-failing it, backing it off with `nextEligibleAt` so it
- * doesn't starve other accounts' queued txs. Shared by the guardian pending-delta
- * 409 requeue, the remote-prover-outage requeue (#419) and the guardian
- * unauthorized-at-execution requeue. Clearing `processingStartedAt` avoids
+ * Return a tx to the Queued state for a later generateTransactionsLoop cycle
+ * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
+ * doesn't starve other accounts' queued txs. Called by the guardian arms for a
+ * pending-delta 409, a remote-prover outage (#419) and a rate-limit 429, by
+ * `requeueWithWake` for the unreachable-guardian (#779) and
+ * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
+ * locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
@@ -690,17 +709,20 @@ async function requeueTransactionForRetry(
   cooldownSec: number,
   extraValues?: { unauthorizedRetryUntil?: number }
 ): Promise<void> {
-  // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
-  // time (syncHeight + recallBlocks); reusing them across a long requeue loop
-  // would strand the collateral at the Epoch allocator. Drop the cached request
-  // so the next cycle rebuilds the P2IDE note against a fresh sync height. Safe:
-  // nothing reached the chain on a pre-submit requeue.
+  // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
+  // recallBlocks) and its asset when its bytes are first built, so a wrong callback
+  // flag there fails the kernel's remove-asset assertion on every cycle for as long
+  // as the bytes survive. Drop the cached request so the next cycle rebuilds it.
+  // Safe: nothing reached the chain on a pre-submit requeue.
   //
-  // A guardian recallable `send` freezes the same absolute height, and freezes
-  // its asset too — built at first attempt, so a wrong callback flag there fails
-  // the kernel's remove-asset assertion on every cycle for as long as the bytes
-  // survive. Same rule, same pre-submit safety argument. `swap` is requeueable
-  // too and must NOT be cleared: the PSWAP flow requires byte-identical reuse.
+  // An Earn deposit keeps its bytes. They carry the mandate-binding attachment,
+  // built once at initiate (`buildEpochCollateralRequestBytes`), and nothing on the
+  // row can rebuild it: every rebuild path mints a plain P2IDE the allocator
+  // refuses to bind. Their frozen reclaim height is safe to reuse, because the
+  // SDK's reclaim window carries a 1000-block buffer that outlasts the caller's
+  // 5-minute wait, and `assertEarnDepositIntentLive` refuses the submit once that
+  // wait gives up. `swap` keeps its bytes too: the PSWAP flow requires
+  // byte-identical reuse.
   //
   // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
   // requeue from proposal creation or proving), but not necessarily for the row:
@@ -729,7 +751,7 @@ async function requeueTransactionForRetry(
   // once the row is picked up again. `updateTransactionStatus` Object.assigns
   // `otherValues`, so the undefined lands in the same transaction as the status.
   const row = await Repo.transactions.where({ id: txId }).first();
-  const clearRequestBytes = (txType === 'earn-deposit' || txType === 'send') && row?.mayHaveSubmitted !== true;
+  const clearRequestBytes = txType === 'send' && row?.mayHaveSubmitted !== true;
   // The unauthorized budget is a wall clock, so time this row spends backing off
   // for an UNRELATED reason would otherwise be charged against it. That is not
   // hypothetical arithmetic: a rate limit from the same overloaded guardian can
@@ -760,6 +782,24 @@ async function requeueTransactionForRetry(
     ...carriedDeadline,
     ...extraValues
   });
+}
+
+/**
+ * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
+ * arm its wake. The wake fires a beat past eligibility, so the loop does not
+ * re-read the row while `nextEligibleAt` still excludes it and go straight back
+ * to sleep.
+ */
+async function requeueWithWake(
+  txId: string,
+  txType: ITransactionType,
+  cooldownSec: number,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider,
+  extraValues?: { unauthorizedRetryUntil?: number }
+): Promise<void> {
+  await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  scheduleRequeueWake(txId, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
 }
 
 /**
@@ -964,6 +1004,17 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
   }
 };
 
+/**
+ * An Earn deposit's precondition for both leaves: its intent is still live and the row carries the collateral request
+ * built at initiate, which is returned. Nothing on the row can rebuild that request's mandate-binding attachment, so a
+ * row without it fails here. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ */
+const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promise<Uint8Array> => {
+  await assertEarnDepositIntentLive(transaction);
+  if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+  return transaction.requestBytes;
+};
+
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
@@ -987,10 +1038,13 @@ export const generateTransaction = async (
         );
     }
   }
+  // A requeue wake drives the whole loop with this wrapped provider, so another row can wrap it again. That row's
+  // id arrives here and must reach the vault, which finds a recovery authorization by it.
   const provider: GuardianAccountProvider = {
     ...guardianProvider,
     getAccounts,
-    signWord: (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, transaction.id)
+    signWord: (publicKey, wordHex, transactionId) =>
+      guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
@@ -1085,8 +1139,8 @@ const generateTransactionWithProvider = async (
       // blindly re-queued into a duplicate collateral note (both are excluded from
       // `REQUEUEABLE_TYPES` — earn-deposit outright, bridged-send for the Epoch
       // provider, which is the only provider that takes this collateral-note path).
-      // (earn-deposit IS a member of REQUEUEABLE_ON_PENDING_CONFLICT, but that set
-      // only requeues still-Queued rows on a transient pre-submit 409; a Failed row
+      // (The 409, 429, prover-outage and unreachable arms below DO requeue an
+      // earn-deposit, with its bytes, but only on a pre-submit failure; a Failed row
       // is terminal.)
       if (
         isResultAwaitingRow(transaction) &&
@@ -1205,11 +1259,12 @@ const generateTransactionWithProvider = async (
       // the user's transfer on a transient remote-prover outage (#419). It retries
       // (with backoff) and completes once the prover recovers. Re-read the row: the
       // in-memory `transaction` still carries the stage it was picked at, not the
-      // 'proving' stage set mid-run. Structural ops are gated out via
-      // REQUEUEABLE_ON_PENDING_CONFLICT: by this stage replace-hot-key's key is
-      // already persisted, so it is excluded for the same honest-outcome reason as
-      // `earn-deposit` (fail it, let the user re-initiate), not a re-mint risk,
-      // while switch-guardian / update-procedure-threshold stay excluded for the
+      // 'proving' stage set mid-run. An earn-deposit is requeued like the other
+      // members of REQUEUEABLE_ON_PENDING_CONFLICT, keeping its bytes. Structural
+      // ops are gated out: by this stage replace-hot-key's key is already
+      // persisted, so it is excluded to leave a failed rotation for the user to
+      // re-initiate, not for a re-mint risk, while switch-guardian /
+      // update-procedure-threshold stay excluded for the
       // duplicate-delta risk a rerun can register; MAX_QUEUED_AGE remains the
       // terminal cap. The prover connectivity banner explains the wait and
       // auto-clears on the next success.
@@ -1230,6 +1285,8 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate — this is the
       // invariant made local rather than inherited from that adjacency.)
       const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
+      // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
+      const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
@@ -1271,11 +1328,7 @@ const generateTransactionWithProvider = async (
       // staying locked until the guardian worker confirms. A leftover candidate
       // surfaces as a 409 on the next cycle, which the pending-conflict requeue
       // above already handles.
-      if (
-        isGuardianRateLimited(error) &&
-        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
-        (currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal')
-      ) {
+      if (isGuardianRateLimited(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && failedAtProposal) {
         const cooldown = Math.min(
           Math.max(
             guardianRetryAfterSec(error) ?? RATE_LIMIT_REQUEUE_COOLDOWN_SEC,
@@ -1285,6 +1338,23 @@ const generateTransactionWithProvider = async (
         );
         console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
         await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
+        return;
+      }
+      // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
+      // also call, is down rather than refusing. A kernel failure a 5xx carries is not an outage and fails at once.
+      // Same pre-submit stage gate as the 429 arm above, so a retry cannot double-spend (#779).
+      if (isGuardianOutage(error) && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) && failedAtProposal) {
+        console.warn(
+          `[Guardian] guardian unreachable pre-submit, requeueing in ${GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC}s`,
+          error
+        );
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC,
+          signCallback,
+          guardianProvider
+        );
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the
@@ -1312,11 +1382,11 @@ const generateTransactionWithProvider = async (
       // input-note nullifier needs. Structural ops stay excluded via
       // UNAUTHORIZED_EXECUTION_REQUEUEABLE: this arm fires after replace-hot-key's
       // key is already persisted, so a rerun would read it back rather than mint
-      // another, and it is the same honest-outcome call as `earn-deposit` (fail
-      // it, let the user re-initiate) that excludes it here, not a re-mint risk;
-      // switch-guardian / update-procedure-threshold stay excluded for the
-      // duplicate-delta risk a rerun can register. `earn-deposit` is excluded
-      // too, whose caller is waiting on the row's result.
+      // another, and it is excluded to leave a failed rotation for the user to
+      // re-initiate, not for a re-mint risk; switch-guardian /
+      // update-procedure-threshold stay excluded for the duplicate-delta risk a
+      // rerun can register. `earn-deposit` is excluded too, as a scope choice
+      // (see UNAUTHORIZED_EXECUTION_REQUEUEABLE).
       //
       // Bounded by age so a row that is genuinely — rather than racily —
       // unauthorized surfaces that reason instead of ageing out as "expired";
@@ -1362,12 +1432,9 @@ const generateTransactionWithProvider = async (
             `${unauthorizedDeadline - nowSec}s of retry budget left`,
           error
         );
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldownSec, {
+        await requeueWithWake(transaction.id, transaction.type, cooldownSec, signCallback, guardianProvider, {
           unauthorizedRetryUntil: unauthorizedDeadline
         });
-        // A beat past eligibility, so the loop does not re-read the row while
-        // `nextEligibleAt` still excludes it and go straight back to sleep.
-        scheduleRequeueWake(transaction.id, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
         return;
       }
       // Same error, retries exhausted. Said out loud because the two outcomes are
@@ -1417,9 +1484,10 @@ const generateTransactionWithProvider = async (
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
   // that would stall SW sync and block the reverse-IPC sign handler).
   //
-  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (send-style for the
-  // Epoch bridge + earn collateral, `newTransaction` for a pre-built Agglayer
-  // request) with extra pre/post orchestration; the pre-build (guardian
+  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (`newTransaction`
+  // for the pre-built request an Earn deposit and every current bridge row carry,
+  // send-style only for a legacy Epoch bridged-send row without one) with extra
+  // pre/post orchestration; the pre-build (guardian
   // requestBytes freeze) and the completion handlers are untouched — only the LEAF
   // write moves offscreen. Funds-safety mirrors the moved send/execute exactly: a
   // wedge-kill → OperationAbortedError → the generateTransactionsLoop catch →
@@ -1461,16 +1529,15 @@ const generateTransactionWithProvider = async (
       // note with the mandate-binding attachment (smallocator PR #38), built at
       // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
       // the proxy so it runs offscreen flag-on, inline flag-off. The bare
-      // `sendTransaction` fallback only remains for legacy rows queued before the
-      // binding migration.
+      // `sendTransaction` fallback is bridged-send only, for legacy rows queued
+      // before the binding migration: an Earn deposit without its bytes fails
+      // instead, since that fallback mints a note with no binding.
       //
       // The abandoned-intent guard the Guardian leaf has must apply here too: this
       // shared block had none, so a non-Guardian account still minted the orphan
       // collateral note. `bridged-send` needs no equivalent — its abandonment path
       // writes `status = Failed`, which takes the row out of the Queued scan.
-      if (transaction.type === 'earn-deposit') {
-        await assertEarnDepositIntentLive(transaction);
-      }
+      if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
       if (transaction.requestBytes) {
         // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
         // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -1600,7 +1667,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
   // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
   const feeSalt = randomFeeSalt();
   const requestBytes = await withWasmClientLock(async hold => {
-    // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
+    // `freshSync` (Epoch bridge collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
     // head, so the absolute reclaim height must be measured against a CURRENT head
     // — a stale cached height on a cold-started wallet could understate it below the
@@ -2488,7 +2555,7 @@ const generateGuardianTransaction = async (
           NoteType.Public,
           recallBlocks,
           // Allocator-validated collateral: measure the reclaim height against a
-          // fresh chain head (same rule as earn-deposit below).
+          // fresh chain head.
           { freshSync: true }
         );
         proposalResult = await withGuardianConflictRetry(() =>
@@ -2510,46 +2577,27 @@ const generateGuardianTransaction = async (
     }
     case 'earn-deposit': {
       // Guardian earn deposit: the Epoch mandate requires a P2IDE collateral note
-      // with a reclaim height, which the multisig client's P2ID proposal cannot
-      // express — so route it through a custom proposal built from a P2IDE send
-      // request, exactly like the recallable `send` case (see OpenZeppelin/
-      // guardian#366). `recallBlocks` (set on the row from the Epoch SDK's mint
-      // callback — allocator minimum + SDK drift buffer) is a RELATIVE
-      // blocks-until-reclaim offset; the note's absolute reclaim height is
-      // `head + recallBlocks` at build time. The Epoch allocator validates the
-      // REMAINING reclaim window against its own (later) chain head — not an exact
-      // height — so the extra guardian propose/sign/submit delay is absorbed by
-      // the ~1000-block buffer the SDK bakes into `recallBlocks`.
-      const earnTx = transaction as EarnDepositTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const recallBlocks = earnTx.extraInputs?.recallBlocks;
-      if (!recallBlocks || !earnTx.secondaryAccountId) {
-        throw new Error(
-          'Earn deposit is missing recallBlocks/allocator — the collateral must be a recallable P2IDE note.'
-        );
-      }
+      // with a reclaim height and the mandate-binding attachment, which the
+      // multisig client's P2ID proposal cannot express, so it is proposed as a
+      // custom proposal (see OpenZeppelin/guardian#366). `recallBlocks` (set on the
+      // row from the Epoch SDK's mint callback: allocator minimum + SDK drift
+      // buffer) fixed the note's absolute reclaim height when the request was
+      // built. The Epoch allocator validates the REMAINING reclaim window against
+      // its own (later) chain head, not an exact height, so the extra guardian
+      // propose/sign/submit delay is absorbed by the ~1000-block buffer the SDK
+      // bakes into `recallBlocks`.
+      //
       // If openEarnPosition already abandoned this deposit, bail out rather than
       // submit a collateral note the allocator has no live intent for. A guardian
       // requeue can keep this row live long past the caller's wait (up to
-      // MAX_QUEUED_AGE). See assertEarnDepositIntentLive; the throw is terminal
-      // (→ cancelTransaction below) and a Failed row is never re-picked.
-      await assertEarnDepositIntentLive(earnTx);
-      // Rows queued by `createEarnP2IDENote` carry the pre-built P2IDE collateral
-      // request (own output note with the mandate-binding attachment, smallocator
-      // PR #38) in `requestBytes`, which the shared guardian helper returns
-      // verbatim; its build path is only a fallback for legacy attachment-less
-      // rows (`freshSync`: measure the reclaim height against a current head).
-      // Earn collateral is always PUBLIC — the allocator discovers + consumes it
-      // on-chain (createEarnP2IDENote hardcodes it), regardless of the row's noteType.
-      const requestBytes = await ensureGuardianRecallableSendRequestBytes(
-        transaction,
-        earnTx.secondaryAccountId!,
-        earnTx.faucetId,
-        BigInt(earnTx.amount),
-        NoteType.Public,
-        recallBlocks,
-        { freshSync: true }
-      );
+      // MAX_QUEUED_AGE). The throw is terminal (→ cancelTransaction below) and a
+      // Failed row is never re-picked. Rows queued by `createEarnP2IDENote` carry
+      // the pre-built P2IDE collateral request (own output note with the
+      // mandate-binding attachment, smallocator PR #38) in `requestBytes`, and they
+      // are proposed as they are, with the fee conversion salt declared when they
+      // were built. Checked before the service load, which can reach the guardian.
+      const requestBytes = await requireEarnDepositRequestBytes(transaction);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createCustomProposal(requestBytes, 'earn_deposit')
       );
