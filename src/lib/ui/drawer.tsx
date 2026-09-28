@@ -194,7 +194,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-body-sm text-muted', className)}
+      className={cn('px-4 pb-2 text-caption-heading text-muted', className)}
       {...props}
     />
   );

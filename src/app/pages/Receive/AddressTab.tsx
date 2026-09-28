@@ -14,6 +14,7 @@ import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
 import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
+import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
@@ -86,13 +87,9 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
         }}
         data-testid={dataTestId}
       >
-        <span
-          aria-hidden="true"
-          data-slot="icon"
-          className={cn('flex h-9 w-9 items-center justify-center rounded-full', tone.tint, tone.text)}
-        >
+        <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
           <Icon name={icon} size="xs" />
-        </span>
+        </IconCircle>
         <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
           <span data-slot="title" className="truncate text-row-title text-ink">
             {title}

@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
 
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from './drawer';
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from './drawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -105,6 +105,24 @@ describe('Drawer', () => {
     expect(title).toHaveClass('text-title-section');
     expect(title.className).toContain('text-left');
     expect(title.className).toContain('text-ink');
+  });
+
+  it('sets DrawerDescription under the header rule, in the muted caption heading at the page gutter', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerHeader>
+          <DrawerDescription>What this sheet is for.</DrawerDescription>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const description = screen.getByText('What this sheet is for.');
+    expect(description).toHaveAttribute('data-slot', 'drawer-description');
+    expect(description).toHaveClass('px-4', 'pb-2', 'text-caption-heading', 'text-muted');
+    expect(description).not.toHaveClass('text-body-sm');
   });
 
   it('draws no rule under the header: a sheet separates with fill groups, not a divider', () => {

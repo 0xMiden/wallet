@@ -62,9 +62,7 @@ export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange
             <DrawerHeader>
               <DrawerTitle>{t('networkModeSheetTitle', { network })}</DrawerTitle>
             </DrawerHeader>
-            <DrawerDescription className="px-4 pb-2 text-caption-heading text-muted">
-              {t('networkNoticeBody')}
-            </DrawerDescription>
+            <DrawerDescription>{t('networkNoticeBody')}</DrawerDescription>
             <div className="px-4">
               <NetworkNoticeRows />
             </div>

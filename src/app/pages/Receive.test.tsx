@@ -434,6 +434,8 @@ describe('Receive - Address', () => {
       for (const testId of ['receive-share', 'receive-cross-chain']) {
         const tile = container.querySelector(`[data-testid="${testId}"]`)!;
         expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+        // The shared IconCircle at its 36px size, not a disc drawn on the page.
+        expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('shrink-0', 'h-9', 'w-9', 'rounded-full');
         // The titles stay `ink`: the accent is under 4.5:1 as text.
         expect(tile.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
       }
