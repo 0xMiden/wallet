@@ -1,6 +1,7 @@
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro } from 'lib/prices/usd';
 
 import { fetchTokenMetadata } from '../metadata';
@@ -12,6 +13,11 @@ jest.mock('lib/prices/usd', () => ({
   getPriceMicro: jest.fn()
 }));
 jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
+// The shared SDK mock has no MidenClient, so the real readiness call would throw.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: jest.fn(() => Promise.resolve())
+}));
 // The dApp custom path emits a faucet's hex spelling; map one to IETH's bech32 id so the test
 // can tell whether the canonical id or the raw one reaches the price-symbol lookup.
 const IETH_HEX = '0x1eth00000000000000000000000000';
@@ -34,6 +40,7 @@ jest.mock('../sdk/helpers', () => {
 
 const mockedPrice = jest.mocked(getPriceMicro);
 const mockedMetadata = jest.mocked(fetchTokenMetadata);
+const mockedSdkReady = jest.mocked(ensureSdkWasmReady);
 
 const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
   base: { symbol, decimals, name: symbol, ...(scaleIsUnknown !== undefined && { scaleIsUnknown }) },
@@ -156,6 +163,33 @@ describe('resolveSpendsUsd', () => {
 
   it('values an empty spend list as nothing', async () => {
     await expect(resolveSpendsUsd([], 10)).resolves.toBe(0n);
+    expect(mockedMetadata).not.toHaveBeenCalled();
+    expect(mockedSdkReady).not.toHaveBeenCalled();
+  });
+
+  it('reads no metadata until the SDK has loaded (#1131 F-012)', async () => {
+    let load!: () => void;
+    mockedSdkReady.mockReturnValueOnce(new Promise<void>(resolve => (load = resolve)));
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockResolvedValue(1_000_000n);
+
+    const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockedMetadata).not.toHaveBeenCalled();
+
+    load();
+    await expect(valued).resolves.toBe(25_000_000n);
+    expect(mockedSdkReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a spend it cannot value because the SDK will not load (#1131 F-012)', async () => {
+    mockedSdkReady.mockRejectedValueOnce(new Error('wasm fetch failed'));
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockResolvedValue(1_000_000n);
+
+    const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ symbol: MIDEN_USDC_FAUCET });
     expect(mockedMetadata).not.toHaveBeenCalled();
   });
 

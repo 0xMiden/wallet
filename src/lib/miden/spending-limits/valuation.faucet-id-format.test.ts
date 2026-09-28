@@ -1,4 +1,6 @@
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/tokens';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 
 import { resolveSpendsUsd } from './valuation';
 
@@ -84,6 +86,8 @@ jest.mock('../metadata', () => jest.requireActual('../metadata/fetch'));
 describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // An earlier case's successful parse would otherwise match the allowlist without the SDK.
+    _resetNormalizedFaucetIdsForTest();
     process.env.MIDEN_E2E_TEST = 'true';
 
     // The metadata cache holds TST under the BECH32 key - the form every wallet-populated cache
@@ -126,6 +130,34 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
   });
 
   it('counts a USDC spend given by its bech32 id toward the total (#1131)', async () => {
+    mockFetchFromStorage.mockImplementation(async (key: string) =>
+      key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [USDC_BECH32]: USDC_METADATA }
+    );
+
+    await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
+  });
+
+  it('loads the SDK before matching a cached USDC spend against its hex allowlist entry (#1131 F-012)', async () => {
+    // A freshly woken service worker with this faucet's metadata cached: the lazy SDK's statics
+    // throw until its WASM loads, and the metadata cache hit never loads it.
+    let sdkLoaded = false;
+    jest.mocked(ensureSdkWasmReady).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve =>
+          setTimeout(() => {
+            sdkLoaded = true;
+            resolve();
+          }, 0)
+        )
+    );
+    const untilLoaded =
+      <A extends unknown[], R>(parse: (...args: A) => R) =>
+      (...args: A): R => {
+        if (!sdkLoaded) throw new TypeError('SDK not loaded');
+        return parse(...args);
+      };
+    mockFromHex.mockImplementation(untilLoaded(mockFromHex.getMockImplementation()!));
+    mockFromBech32.mockImplementation(untilLoaded(mockFromBech32.getMockImplementation()!));
     mockFetchFromStorage.mockImplementation(async (key: string) =>
       key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [USDC_BECH32]: USDC_METADATA }
     );

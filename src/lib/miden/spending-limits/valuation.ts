@@ -1,4 +1,5 @@
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro, isCoveredSymbol } from 'lib/prices/usd';
 
 import { IConsumedAssetTotal } from '../db/types';
@@ -38,8 +39,19 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  * than quietly counting as nothing - otherwise "make the price lookup fail" is the way past the
  * cap. A registry token is valued at the asset it stands for (IETH at ETH), as the rest of the
  * wallet prices it (#1133).
+ *
+ * The SDK is loaded before any faucet id is parsed: its statics throw until then, and a freshly
+ * woken service worker with cached metadata would otherwise miss the allowlist match and count a
+ * priced spend as nothing, so a load that fails refuses the spend instead.
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
+  const [first] = spends;
+  if (first === undefined) return 0n;
+  try {
+    await ensureSdkWasmReady();
+  } catch {
+    throw new SpendingLimitPriceUnavailableError(first.faucetId);
+  }
   let total = 0n;
   for (const spend of spends) {
     let symbol: string;
