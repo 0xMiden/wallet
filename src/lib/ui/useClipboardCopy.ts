@@ -27,12 +27,11 @@ export type ClipboardCopyStatus = 'idle' | 'success' | 'failure';
 export function useClipboardCopy(text: string) {
   const [outcome, setOutcome] = useState<{ status: 'success' | 'failure'; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  // The write on its way, not a flag: `text` is a render argument, and a plain latch dropped a value
-  // rendered mid-write while the older write went on to report "Copied" beside it.
-  const inFlightRef = useRef<{ text: string } | null>(null);
-  // The most recently started write, regardless of settle order: a write that settles after a
-  // later one started must not overwrite that later write's outcome or restart its timer.
-  const lastStartedRef = useRef<{ text: string } | null>(null);
+  // The most recently started write and whether it has settled: `text` is a render argument, so a
+  // value rendered mid-write must still write (a plain in-flight latch dropped it, while the older
+  // write went on to report "Copied" beside it), and a write settling after a later one started must
+  // not overwrite that later write's outcome or restart its timer.
+  const lastWriteRef = useRef<{ text: string; settled: boolean } | null>(null);
   // A write that settles after the component has already unmounted (e.g. the row it copied from
   // disappeared, or the page navigated away) must not set state or arm a timeout nobody will ever
   // clear — both are a no-op-but-warn in React and, for the timer, a dangling callback that fires
@@ -53,10 +52,9 @@ export function useClipboardCopy(text: string) {
   }, []);
 
   const copy = useCallback(async () => {
-    if (inFlightRef.current?.text === text) return;
-    const write = { text };
-    inFlightRef.current = write;
-    lastStartedRef.current = write;
+    if (lastWriteRef.current?.text === text && !lastWriteRef.current.settled) return;
+    const write = { text, settled: false };
+    lastWriteRef.current = write;
     let status: 'success' | 'failure';
     try {
       await Clipboard.write({ string: text });
@@ -65,10 +63,10 @@ export function useClipboardCopy(text: string) {
       console.error('[clipboard] failed to copy:', error);
       status = 'failure';
     } finally {
-      if (inFlightRef.current === write) inFlightRef.current = null;
+      write.settled = true;
     }
     if (!mountedRef.current) return;
-    if (lastStartedRef.current !== write) return;
+    if (lastWriteRef.current !== write) return;
     setOutcome({ status, text });
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setOutcome(null), COPY_FEEDBACK_MS);
