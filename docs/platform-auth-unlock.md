@@ -345,11 +345,10 @@ unlock as it does for a wrong password.
 
 Enrollment, as proposed:
 
-1. The page asks for the password, and the service worker checks it by
-   unwrapping `vault_key_password` before anything is created, so a mistyped
-   password never leaves a credential in a provider. The page then runs
-   `navigator.credentials.create()` with the default RP ID (no `rp.id`) and
-   `prf: { eval: { first: prfSalt } }` for a new random salt. The other options:
+1. The page asks for the password and runs `navigator.credentials.create()`
+   with the default RP ID (no `rp.id`) and
+   `prf: { eval: { first: prfSalt } }` for a new random salt. The other
+   options:
    - `authenticatorAttachment: 'platform'`, which admits iCloud Keychain, GPM,
      Windows Hello and Chrome's profile store and leaves out security keys
      (Recommendation and scope).
@@ -373,34 +372,21 @@ Enrollment, as proposed:
    10.1.4][webauthn-l3]). If the response has no `prf.results.first`, the page
    runs `get()` once with the new credential in `allowCredentials`. No output
    from either means the authenticator has no PRF, and enrollment stops with
-   nothing stored in the wallet. The `create()` has already made a credential in
-   the provider, though: on macOS the likely case is a Chrome-profile passkey,
-   which stays listed in `chrome://settings/passkeys` until the user deletes it
-   there ([Chromium 5c360860][cr-cbd-m126]). So does every other credential the
-   wallet creates and does not keep: one refused for its BE flag under a
-   device-bound-only policy or at step 4, one a re-enrollment replaces (whatever
-   provider the new one lands in), one that loses a concurrent enrollment (step
-   4), one the user removes (milestone 4), and the one a wipe of the record
-   leaves: Forgot password's setup (`clearStorage`, `src/lib/miden/reset.ts:67`)
-   and Reset extension and Developer Settings' reset (`resetStorageDestructive`,
-   `src/lib/miden/reset.ts:96`), where the page that starts the wipe reads the
-   record's credential id first. For each, the wallet calls
-   `PublicKeyCredential.signalUnknownCredential` (Chrome 132+, [MDN
-   browser-compat-data][mdn-bcd-pkc], v8.1.3) with its id and tells the user to
-   delete that entry in its provider. The signal is known to hide only GPM
-   entries ([delegate][cr-delegate]); its effect on iCloud Keychain is
-   **Unconfirmed** (Open question 12). An uninstall runs no wallet code, so its
-   credential stays (Lifecycle, uninstall row).
+   nothing stored in the wallet. The `create()` has already made a credential
+   in the provider, though: on macOS the likely case is a Chrome-profile
+   passkey, which stays listed in `chrome://settings/passkeys` until the user
+   deletes it there ([Chromium 5c360860][cr-cbd-m126]). A credential that a
+   re-enrollment replaces stays in its provider the same way.
+   `PublicKeyCredential.signalUnknownCredential` (Chrome 132+,
+   [MDN browser-compat-data][mdn-bcd-pkc], v8.1.3) asks the provider to hide
+   such an entry and is known to hide only GPM entries
+   ([delegate][cr-delegate]); its effect on iCloud Keychain is
+   **Unconfirmed** (Open question 12).
 3. The page sends the password, credential id, salt and PRF output to the
    service worker.
-4. The service worker unwraps the vault-key bytes with the password, wraps them
-   under the PRF-derived key, unwraps the result once to check it, and only then
-   saves `vault_key_platform`, and only while that key still holds the
-   credential the page read at step 1, or none: of two surfaces enrolling at
-   once, one fails and its new credential is dropped as in step 2. Once the new
-   record is saved and checked, the credential it replaced is signalled (step
-   2); a cancelled or refused re-enrollment never gets this far, so the record
-   still in use keeps its credential.
+4. The service worker unwraps the vault-key bytes with the password, wraps
+   them under the PRF-derived key, unwraps the result once to check it, and
+   only then saves `vault_key_platform`.
 
 A legacy wallet has no `vault_key_password` to unwrap, so this path does not
 apply to it as written.
@@ -626,8 +612,8 @@ as it is today.
 
 | Event | What happens to the credential | What the user sees | Password still unlocks? |
 |---|---|---|---|
-| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves nothing in the wallet but leaves its credential in the provider, which the wallet signals (Mechanism, enrollment step 2; Open question 12). | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used and that its leftover entry can be deleted in that provider. | Yes: `vault_key_password` is not touched. |
-| Re-enrollment | The new record replaces `vault_key_platform`; the old credential is signalled once the new record is saved, and stays in its provider until the user deletes it (Mechanism, enrollment steps 2 and 4; Open question 12). After Forgot password, setup wipes every storage key but the preserved ones (`src/lib/miden/reset.ts:22-42`, `src/lib/miden/reset.ts:67-81`), so the record goes, its credential signalled first (Mechanism, enrollment step 2), and the new vault key needs a new enrollment. | The enrollment flow again, then a note to delete the old entry in its provider, where it may stay listed. | Yes. |
+| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves nothing in the wallet but leaves its credential in the provider (Mechanism, enrollment step 2; Open question 12). | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used, and a leftover entry in that provider. | Yes: `vault_key_password` is not touched. |
+| Re-enrollment | The new record replaces `vault_key_platform`; the old credential stays in its provider unless removed (Mechanism, enrollment step 2; Open question 12). After Forgot password, setup wipes every storage key but the preserved ones (`src/lib/miden/reset.ts:22-42`, `src/lib/miden/reset.ts:67-81`), so the record goes and the new vault key needs a new enrollment. | The enrollment flow again; the old entry may stay listed in the provider. | Yes. |
 | Device loss | The record was on the lost device. A synced credential (iCloud Keychain, GPM) stays usable elsewhere but has no record to unwrap there; a device-bound one is gone. | On a new device: restore from the seed phrase or a backup file, set a password, enroll again. | Not applicable: the vault was on the lost device; recovery is the seed phrase or backup, as today. |
 | Browser-profile reset | Deleting the profile deletes its `chrome.storage.local`, record included. "Reset settings" resets "Extensions and themes" and "Cookies and site data" and keeps saved passwords ([Chrome Help][chrome-reset], read 2026-09-28); whether extension storage survives it is **Unconfirmed**. iCloud Keychain, GPM and Windows Hello keep the credential outside the profile (**Unconfirmed** as documented behaviour). | Profile deleted: onboarding. Reset settings: unlock as before if storage survived (**Unconfirmed**). | Yes while the storage survives; both wrappings go if it does not. |
 | Clearing browsing data | `chrome.storage.local` persists when the user clears cache and history ([chrome.storage][chrome-storage], read 2026-09-28). Chrome's macOS profile passkeys left Clear Browsing Data in Chrome 126 ([Chromium 5c360860][cr-cbd-m126], 2024-05-09), and the remover deletes platform credentials only on ChromeOS ([remover delegate][cr-cbd]). Whether clearing passwords removes GPM passkeys: **Unconfirmed** (the remover has no GPM passkey deletion). | Nothing changes. | Yes. |
@@ -944,18 +930,16 @@ against it.
      `prfOutput` would not be. The PRF output therefore travels under a key with
      a listed part, such as `prfSecret`, or `prf` joins the list, and a
      redaction test covers it.
-4. **Removal and re-enrollment.** Removal deletes `vault_key_platform`;
-   re-enrollment replaces the record. Both, and every other path that leaves a
-   wallet-created credential without a record, signal it and tell the user to
-   delete it (Mechanism, enrollment steps 2 and 4; Open question 12). A wallet
-   setup already wipes every storage key but the preserved ones
-   (`src/lib/miden/reset.ts:13-18`, `src/lib/miden/reset.ts:22-42`), so Forgot
-   password removes the record, and signals its credential the same way. A
-   removal, a re-enrollment or a wipe is not revocation: the vault key never
-   rotates, so a profile copy taken before it plus the old passkey, if it
-   survives in the provider, still opens the old record. Hence the instruction
-   to delete the passkey in the provider as well. Open questions 12 to 18 are
-   settled here, before release, by the device tests their rows name.
+4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and
+   calls `signalUnknownCredential` (Mechanism, enrollment step 2; Open
+   question 12); re-enrollment replaces the record. A wallet setup already
+   wipes every storage key but the preserved ones
+   (`src/lib/miden/reset.ts:13-18`, `src/lib/miden/reset.ts:22-42`), so
+   Forgot password removes the record. Removal is not revocation: the vault
+   key never rotates, so a profile copy taken before removal plus the passkey,
+   if it survives in the provider, still opens the old record. The removal
+   step therefore tells the user to delete the passkey in the provider as
+   well. Open questions 12 to 18 are settled here, before release.
 
 What stays out:
 
