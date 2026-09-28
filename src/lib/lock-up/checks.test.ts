@@ -93,17 +93,22 @@ describe('runLockUpChecks', () => {
     await runLockUpChecks();
 
     expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.LockRequest });
+    // A throwing assertResponse inside lock() must surface as a rejection here, not hide behind the
+    // silenced warn spy.
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('does not lock within the auto-lock time, or with another page open', async () => {
     mockGet.mockResolvedValue({ [CLOSURE_STORAGE_KEY]: String(NOW - 1) });
     await runLockUpChecks();
     expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
 
     mockGetViews.mockReturnValue([window, window]);
     mockGet.mockResolvedValue({ [CLOSURE_STORAGE_KEY]: String(NOW - WALLET_AUTOLOCK_TIME) });
     await runLockUpChecks();
     expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('resolves and does not lock when the closure time cannot be read', async () => {

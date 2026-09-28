@@ -48,10 +48,11 @@ export default {
   // - `lib/miden/swap/test-hooks.ts` — E2E-only window hooks, not production
   //   application behavior.
   // - `packages/dapp-browser/` — external package build output.
-  // - `lib/lock-up/run-checks.ts` - the extension pages' bootstrap; its only
-  //   statement is a top-level `await` of `runLockUpChecks` (the moved,
-  //   tested logic lives in `lib/lock-up/checks.ts`). @swc/jest emits bare TLA
-  //   into a CommonJS wrapper that won't load, so this file stays untestable.
+  // - `lib/lock-up/run-checks.ts` - the extension pages' bootstrap; it holds
+  //   the extension-page guard and a top-level `await` of `runLockUpChecks`
+  //   (the moved, tested logic lives in `lib/lock-up/checks.ts`). @swc/jest
+  //   emits bare TLA into a CommonJS wrapper that won't load, so this file
+  //   stays untestable.
   // - `lib/miden/assets/stake.ts` — zero-byte placeholder module: no exports,
   //   not referenced by the `./index` barrel, not imported anywhere. It has no
   //   runtime surface to test; when real staking logic lands, remove it from

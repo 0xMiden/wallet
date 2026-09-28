@@ -20,8 +20,8 @@ export const needsLocking = async () => {
 
 /**
  * Locks the wallet when this page is the first to open after the auto-lock time, then keeps the closure timestamp
- * fresh while any wallet page is open. Never rejects: the popup, side panel and options pages await it before they
- * render.
+ * fresh while any wallet page is open. A failed storage read or write, or a failed lock request, never rejects it:
+ * the popup, side panel and options pages await it before they render.
  */
 export async function runLockUpChecks(): Promise<void> {
   // An unreadable closure time counts as none, which never locks.
@@ -35,8 +35,8 @@ export async function runLockUpChecks(): Promise<void> {
   // that finds no receiving end (service worker still starting, or the context
   // orphaned by an extension reload) leaves `runtime.lastError` unread, and
   // Chrome logs "Unchecked runtime.lastError: Could not establish connection".
-  // This port is fire-and-forget by design — the service worker only uses its
-  // disconnect to timestamp closure — so there is nothing to retry here.
+  // This port is fire-and-forget by design - the service worker only uses its
+  // disconnect to timestamp closure - so there is nothing to retry here.
   popupPort.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;
   });
@@ -50,7 +50,7 @@ export async function runLockUpChecks(): Promise<void> {
       try {
         // Waking the service worker is best-effort. Unguarded, a reject here
         // (worker still starting, or context orphaned by a reload) became an
-        // uncaught rejection every 10s for the life of the page — and skipped
+        // uncaught rejection every 10s for the life of the page - and skipped
         // the timestamp update below, which is the part that actually matters.
         await browser.runtime.sendMessage('wakeup');
       } catch {
@@ -69,7 +69,6 @@ async function getLastClosedTimeOrNow(): Promise<number> {
   return Number((await browser.storage.local.get(CLOSURE_STORAGE_KEY))[CLOSURE_STORAGE_KEY] ?? Date.now());
 }
 
-// Best-effort, like the wake-up: the next tick writes it again.
 async function updateClosureTimestamp() {
   try {
     await browser.storage.local.set({ [CLOSURE_STORAGE_KEY]: Date.now().toString() });
