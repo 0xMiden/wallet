@@ -3692,6 +3692,66 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
   });
 
+  it('guardianPipeline: an apply failure after submit replies with the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      G.__off.guardianSubmitted = true;
+      return {
+        apply: jest.fn(async () => {
+          throw new Error('IndexedDB transaction aborted while applying the transaction update: QuotaExceededError');
+        })
+      };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianSubmitted).toBe(true);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorName: 'ApplyAfterSubmitError'
+    });
+    expect(resp.errorReason).toBeUndefined();
+    // Only `error`, `errorCode` and `errorName` cross the realm, never `cause`. The service
+    // worker rebuilds `Offscreen call '<method>' failed: <error>` with the code re-attached
+    // (miden-client-proxy finishOp), and each signal alone classifies as landed.
+    expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(`Offscreen call 'guardianPipeline' failed: ${resp.error}`))).toBe(true);
+  });
+
+  it('guardianPipeline: a rejected submit replies without the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      throw new Error('node refused the proven transaction');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianApplied).toBe(false);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp).toMatchObject({ ok: false, error: 'node refused the proven transaction' });
+    expect(resp.errorCode).toBeUndefined();
+    expect(resp.errorName).toBeUndefined();
+  });
+
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
     await loadModule();
     let signatureSeen: Uint8Array | null = null;

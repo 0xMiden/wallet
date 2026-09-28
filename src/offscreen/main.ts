@@ -87,7 +87,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { ApplyAfterSubmitError, extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -1042,7 +1042,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent(context, 'submitting');
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
-    await submittedTx.apply();
+    // Same rule as the inline pipeline: once submit resolved the node has the write, so a failed
+    // local apply crosses back as submitted. Its code survives the crossing; its cause does not
+    // (#1233).
+    try {
+      await submittedTx.apply();
+    } catch (error) {
+      throw new ApplyAfterSubmitError(error);
+    }
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
