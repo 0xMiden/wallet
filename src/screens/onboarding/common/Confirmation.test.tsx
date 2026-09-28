@@ -131,10 +131,10 @@ describe('ConfirmationScreen', () => {
       expect(screen.getByText('recoveryPhraseDailyReminder')).toBeInTheDocument();
     });
 
-    it('shows the recovered copy for an import, with no create reminder', () => {
+    it('tells an import that opening the wallet finishes the restore, with no create reminder', () => {
       renderComponent({ onboardingType: OnboardingType.Import });
 
-      expect(screen.getByText('walletRecoveredFromPhrase')).toBeInTheDocument();
+      expect(screen.getByText('finishRestoringOnOpen')).toBeInTheDocument();
       expect(screen.queryByText('recoveryPhraseSevenDayReminder')).not.toBeInTheDocument();
       expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
     });

@@ -32,8 +32,8 @@ export interface ConfirmationScreenProps {
    */
   creating?: boolean;
   /**
-   * A recovery shows its own "restoring"/"recovered" copy; the create-flow
-   * daily reminder is armed only for a create (undefined or `Create`).
+   * A recovery shows its own "restoring" and "finish restoring" copy; the
+   * create-flow daily reminder is armed only for a create (undefined or `Create`).
    */
   onboardingType?: OnboardingType;
   onSubmit?: () => void;
@@ -124,7 +124,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             hasFailure ? undefined : (
               // Held to a readable measure and balanced, so the sentence breaks into two even lines.
               <span className="mx-auto block max-w-[300px] text-balance">
-                {t(isRecovery ? 'walletRecoveredFromPhrase' : 'recoveryPhraseSevenDayReminder')}
+                {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
               </span>
             )
           }
