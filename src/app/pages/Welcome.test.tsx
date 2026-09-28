@@ -2761,6 +2761,53 @@ describe('Welcome — back navigation', () => {
     }
   });
 
+  // #1086 (round 2): the gate is keyed to which FILE registered, not to "has anything ever landed
+  // for this attempt". A history round trip that lands back on #import-from-file and stages a
+  // DIFFERENT file gets its own way back, because nothing has registered for that file yet.
+  it('offers back on Confirmation for a different file staged through a history round trip after an earlier restore landed', async () => {
+    const differentPayload: DecryptedWalletFile = {
+      seedPhrase: 'zulu yankee xray whiskey',
+      midenClientDbContent: 'other-miden-db',
+      walletDbContent: 'other-wallet-db',
+      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, publicKey: 'different-account-id' }]
+    };
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+
+      await setHash('#import-from-file');
+      await dispatch({ id: 'import-wallet-file-submit', payload: differentPayload });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The re-keying compares registration IDENTITY, not object reference: re-staging the SAME file
+  // (a fresh parse of the same bytes, a new object) must still read as the attempt that landed.
+  it('keeps back withdrawn when the same landed file is staged again through a fresh parse', async () => {
+    jest.useFakeTimers();
+    try {
+      await landFileRestoreThatNeverTurnsReady();
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+
+      await setHash('#import-from-file');
+      await dispatch({ id: 'import-wallet-file-submit', payload: { ...VERSION_TWO_PAYLOAD } });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+
+      expect(currentStep()).toBe(OnboardingStep.Confirmation);
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('hides back on Confirmation for a wallet being created from a seed', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
