@@ -27,7 +27,9 @@
  *
  * Scope: the DELEGATION seam only. The proxy is a spy here. The last describe
  * reuses this harness for #1202: it holds the send open, so the row keeps the
- * GeneratingTransaction stamp the real writer gave it while the cold-start sweep runs.
+ * GeneratingTransaction stamp the real writer gave it while the cold-start sweep runs,
+ * and in one test holds the stamp write itself open, to pin that the writer marks the
+ * row as this realm's before that write.
  */
 
 import * as Repo from 'lib/miden/repo';
@@ -305,89 +307,161 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
 });
 
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {
-  it('spares the row this session is sending and fails an orphan stamped before the session, in one sweep', async () => {
-    let sendReached!: () => void;
-    const reached = new Promise<void>(resolve => (sendReached = resolve));
-    let finishSend!: (result: ReturnType<typeof makeResult>) => void;
-    mockProxySendTransaction.mockImplementationOnce(
-      () =>
-        new Promise(resolve => {
-          finishSend = resolve;
-          sendReached();
-        })
-    );
-    const sending = runSend('tx-live');
-    await reached;
-    const reachedAt = Math.floor(Date.now() / 1000);
-
-    const live = txStore.find(r => r.id === 'tx-live')!;
-    expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
-    expect(Number.isInteger(live.processingStartedAt)).toBe(true);
-    // Both bounds pin the unit: a milliseconds stamp clears the lower one and would spare every earlier row.
-    expect(live.processingStartedAt).toBeGreaterThanOrEqual(SESSION_STARTED_AT);
-    expect(live.processingStartedAt).toBeLessThanOrEqual(reachedAt);
-
-    txStore.push({
-      id: 'tx-orphan',
-      type: 'send',
-      accountId: 'acc-1',
-      status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: SESSION_STARTED_AT - 10,
-      processingStartedAt: SESSION_STARTED_AT - 1
+  /** Holds the next proxy send open until `release`, which is safe to call before the send gets there. */
+  function holdNextProxySend() {
+    let markReached!: () => void;
+    const reached = new Promise<void>(resolve => (markReached = resolve));
+    let release!: () => void;
+    const released = new Promise<void>(resolve => (release = resolve));
+    mockProxySendTransaction.mockImplementationOnce(async () => {
+      markReached();
+      await released;
+      return makeResult();
     });
-    jest
-      .mocked(Repo.transactions.filter)
-      .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
-    const liveBefore = { ...live };
+    return { reached, release };
+  }
 
-    await failInterruptedTransactions();
+  it('spares the row this session is sending and fails an orphan stamped before the session, in one sweep', async () => {
+    const send = holdNextProxySend();
+    const sending = runSend('tx-live');
+    try {
+      await Promise.race([
+        send.reached,
+        sending.then(() => {
+          throw new Error('send settled before reaching the proxy');
+        })
+      ]);
+      const reachedAt = Math.floor(Date.now() / 1000);
 
-    expect(live).toEqual(liveBefore);
-    expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+      const live = txStore.find(r => r.id === 'tx-live')!;
+      expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(Number.isInteger(live.processingStartedAt)).toBe(true);
+      // Both bounds pin the unit: a milliseconds stamp clears the lower one and would spare every earlier row.
+      expect(live.processingStartedAt).toBeGreaterThanOrEqual(SESSION_STARTED_AT);
+      expect(live.processingStartedAt).toBeLessThanOrEqual(reachedAt);
 
-    finishSend(makeResult());
+      txStore.push({
+        id: 'tx-orphan',
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      });
+      jest
+        .mocked(Repo.transactions.filter)
+        .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
+      const liveBefore = { ...live };
+
+      await failInterruptedTransactions();
+
+      expect(live).toEqual(liveBefore);
+      expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      send.release();
+    }
     await sending;
   });
 
   it('spares the row this realm is sending even when the clock stepped back before its stamp', async () => {
-    let sendReached!: () => void;
-    const reached = new Promise<void>(resolve => (sendReached = resolve));
-    let finishSend!: (result: ReturnType<typeof makeResult>) => void;
-    mockProxySendTransaction.mockImplementationOnce(
-      () =>
-        new Promise(resolve => {
-          finishSend = resolve;
-          sendReached();
-        })
-    );
+    const send = holdNextProxySend();
     const clockStepped = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT - 5) * 1000);
     const sending = runSend('tx-live-clock-stepped-back');
-    await reached;
-    clockStepped.mockRestore();
+    try {
+      try {
+        await Promise.race([
+          send.reached,
+          sending.then(() => {
+            throw new Error('send settled before reaching the proxy');
+          })
+        ]);
+      } finally {
+        clockStepped.mockRestore();
+      }
 
-    const live = txStore.find(r => r.id === 'tx-live-clock-stepped-back')!;
-    expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
-    expect(live.processingStartedAt).toBe(SESSION_STARTED_AT - 5);
+      const live = txStore.find(r => r.id === 'tx-live-clock-stepped-back')!;
+      expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(live.processingStartedAt).toBe(SESSION_STARTED_AT - 5);
 
-    txStore.push({
-      id: 'tx-orphan',
-      type: 'send',
-      accountId: 'acc-1',
-      status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: SESSION_STARTED_AT - 10,
-      processingStartedAt: SESSION_STARTED_AT - 1
-    });
-    jest
-      .mocked(Repo.transactions.filter)
-      .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
-    const liveBefore = { ...live };
+      txStore.push({
+        id: 'tx-orphan',
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      });
+      jest
+        .mocked(Repo.transactions.filter)
+        .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
+      const liveBefore = { ...live };
 
-    await failInterruptedTransactions();
+      await failInterruptedTransactions();
 
-    expect(live).toEqual(liveBefore);
-    expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+      expect(live).toEqual(liveBefore);
+      expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      send.release();
+    }
+    await sending;
+  });
 
-    finishSend(makeResult());
+  it('marks the row before its stamp write, so a sweep while that write is held spares it', async () => {
+    const send = holdNextProxySend();
+    const where = jest.mocked(Repo.transactions.where);
+    const realWhere = where.getMockImplementation();
+    let stampApplied!: () => void;
+    const applied = new Promise<void>(resolve => (stampApplied = resolve));
+    let releaseStamp!: () => void;
+    const stampReleased = new Promise<void>(resolve => (releaseStamp = resolve));
+    let stampHeld = false;
+    // Applies the row's first write that moves it to GeneratingTransaction, then holds it open; later writes pass through.
+    where.mockImplementation(
+      query =>
+        ({
+          first: async () => txStore.find(r => r.id === query.id),
+          modify: async (fn: (tx: Record<string, unknown>) => void) => {
+            const row = txStore.find(r => r.id === query.id);
+            if (!row) return;
+            const before = row.status;
+            fn(row);
+            const setsGenerating =
+              before !== ITransactionStatus.GeneratingTransaction &&
+              row.status === ITransactionStatus.GeneratingTransaction;
+            if (stampHeld || !setsGenerating) return;
+            stampHeld = true;
+            stampApplied();
+            await stampReleased;
+          }
+        }) as never
+    );
+    // Stepped through the sweep, so the stamp is below the cutoff and only the id set can spare the row.
+    const clockStepped = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT - 5) * 1000);
+    const sending = runSend('tx-live-marked-before-stamp');
+    try {
+      await Promise.race([
+        applied,
+        sending.then(() => {
+          throw new Error('send settled before its stamp write');
+        })
+      ]);
+
+      const live = txStore.find(r => r.id === 'tx-live-marked-before-stamp')!;
+      expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(live.processingStartedAt).toBe(SESSION_STARTED_AT - 5);
+      jest
+        .mocked(Repo.transactions.filter)
+        .mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(row => pred(row as never)) }) as never);
+
+      await failInterruptedTransactions();
+
+      expect(live.status).not.toBe(ITransactionStatus.Failed);
+    } finally {
+      clockStepped.mockRestore();
+      where.mockImplementation(realWhere);
+      releaseStamp();
+      send.release();
+    }
     await sending;
   });
 });
