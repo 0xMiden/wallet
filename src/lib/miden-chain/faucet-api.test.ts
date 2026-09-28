@@ -155,6 +155,26 @@ describe('faucet-api', () => {
         await jest.advanceTimersByTimeAsync(1);
 
         expect(challenge.outcome).toBe(seen.signal?.reason);
+        expect(seen.signal?.reason.name).toBe('TimeoutError');
+        expect(seen.signal?.reason).toBeInstanceOf(DOMException);
+        expect(seen.signal?.reason.message).toBe('Request timed out after 15000 ms');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps the status of a failed challenge whose body stalls past the faucet timeout', async () => {
+      jest.useFakeTimers();
+      try {
+        answerWithStalledBody(errorResponse(503, 'overloaded'));
+
+        const challenge = track(getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n));
+        await jest.advanceTimersByTimeAsync(14_999);
+        expect(challenge.outcome).toBe('pending');
+        await jest.advanceTimersByTimeAsync(1);
+
+        expect(challenge.outcome).toBeInstanceOf(Error);
+        expect(challenge.outcome).toMatchObject({ message: expect.stringContaining('status 503') });
       } finally {
         jest.useRealTimers();
       }

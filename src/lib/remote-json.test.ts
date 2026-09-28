@@ -1,4 +1,10 @@
-import { fetchBoundedJson, type JsonResponse, readTimestampedEntry, withRequestTimeout } from './remote-json';
+import {
+  fetchBoundedJson,
+  type JsonResponse,
+  readTimestampedEntry,
+  requestTimeoutError,
+  withRequestTimeout
+} from './remote-json';
 
 /** Runs `body` as on iOS 15 WebKit and Safari before 16, which have no AbortSignal.timeout. */
 const withoutAbortSignalTimeout = async (body: () => Promise<void>) => {
@@ -11,6 +17,16 @@ const withoutAbortSignalTimeout = async (body: () => Promise<void>) => {
     if (descriptor) Object.defineProperty(AbortSignal, 'timeout', descriptor);
   }
 };
+
+describe('requestTimeoutError', () => {
+  it('is a TimeoutError naming the milliseconds, as AbortSignal.timeout names its reason', () => {
+    const reason = requestTimeoutError(15_000);
+
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('TimeoutError');
+    expect(reason.message).toBe('Request timed out after 15000 ms');
+  });
+});
 
 describe('withRequestTimeout', () => {
   beforeEach(() => {

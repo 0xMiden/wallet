@@ -1,4 +1,5 @@
 import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { requestTimeoutError } from 'lib/remote-json';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
 
@@ -73,7 +74,7 @@ export async function faucetFetch<T>(
     const abortFromExternal = () => controller.abort(external?.reason);
     if (external?.aborted) abortFromExternal();
     external?.addEventListener('abort', abortFromExternal, { once: true });
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(requestTimeoutError(timeoutMs)), timeoutMs);
     try {
       hooks?.onAttempt?.();
       const response = await fetch(url, { ...init, signal: controller.signal });
@@ -125,7 +126,9 @@ export async function getPowChallenge(
   const params = new URLSearchParams({ account_id: accountId, amount: amount.toString() });
   return faucetFetch(`${baseUrl}/pow?${params}`, { signal }, async response => {
     if (!response.ok) {
-      throw new Error(`Faucet PoW request failed with status ${response.status}: ${await response.text()}`);
+      // The status is the error; a body that fails or stalls past the bound only loses the explanation.
+      const detail = await response.text().catch(() => '');
+      throw new Error(`Faucet PoW request failed with status ${response.status}: ${detail}`);
     }
 
     const json: { challenge: string; target: number } = await response.json();

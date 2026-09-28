@@ -16,6 +16,14 @@ export type JsonFetch = (
 ) => Promise<JsonResponse>;
 
 /**
+ * The reason a request timer aborts with after `ms`, named as `AbortSignal.timeout` names it, so a
+ * caller's error says the request timed out.
+ */
+export function requestTimeoutError(ms: number): DOMException {
+  return new DOMException(`Request timed out after ${ms} ms`, 'TimeoutError');
+}
+
+/**
  * Runs `run` with a signal that aborts after `ms`. Once `run` settles it clears the timer and aborts the
  * signal, which ends any body `run` left unread and is a no-op for one it read. It stands in for
  * `AbortSignal.timeout`, which iOS 15 WebKit and Safari before 16 lack. The signal ends only what it is
@@ -23,11 +31,7 @@ export type JsonFetch = (
  */
 export async function withRequestTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  // Named as AbortSignal.timeout names it, so a caller's error says the request timed out.
-  const timer = setTimeout(
-    () => controller.abort(new DOMException(`Request timed out after ${ms} ms`, 'TimeoutError')),
-    ms
-  );
+  const timer = setTimeout(() => controller.abort(requestTimeoutError(ms)), ms);
   try {
     return await run(controller.signal);
   } finally {
