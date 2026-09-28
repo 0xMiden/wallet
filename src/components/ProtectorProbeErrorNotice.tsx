@@ -24,7 +24,9 @@ export const ProtectorProbeErrorNotice: React.FC<{ className?: string; onRetry: 
         {t('couldNotCheckUnlockMethod')}
       </Notice>
       <Button
-        className="mt-3"
+        // Uncapped: the default `max-w-92.5` left Retry narrower than the full-width Notice above
+        // it, and narrower than RotateGuardianReview's `max-w-none` Continue in its stacked footer.
+        className="mt-3 max-w-none"
         variant={ButtonVariant.Secondary}
         title={t('retry')}
         onClick={onRetry}

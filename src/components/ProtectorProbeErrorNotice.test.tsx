@@ -34,3 +34,12 @@ it('keeps the notice up and disables Retry with aria-busy while a retry is in fl
   expect(retry).toBeDisabled();
   expect(retry).toHaveAttribute('aria-busy', 'true');
 });
+
+// #1241: Button's default width caps at `max-w-92.5`, which left Retry left-aligned and narrower
+// than the full-width Notice above it wherever the notice renders, including RotateGuardianReview's
+// stacked footer next to a `max-w-none` Continue.
+it('spans the full notice width, uncapped, everywhere it renders', () => {
+  render(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying={false} />);
+
+  expect(screen.getByTestId('protector-probe-retry')).toHaveClass('max-w-none');
+});
