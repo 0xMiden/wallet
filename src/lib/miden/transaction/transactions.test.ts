@@ -1266,7 +1266,7 @@ describe('transactions utilities', () => {
       expect(modifiedIds).toEqual(['gen']);
     });
 
-    it('spares every row this session started and fails the ones an earlier process left (#1202)', async () => {
+    it('fails the rows an earlier process left and spares every row this session started (#1202)', async () => {
       const base = {
         type: 'send',
         status: ITransactionStatus.GeneratingTransaction,
@@ -1276,30 +1276,6 @@ describe('transactions utilities', () => {
         { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
         { ...base, id: 'legacy' },
         { ...base, id: 'same-second', processingStartedAt: SESSION_STARTED_AT },
-        // Stamped the way generateTransactionWithProvider stamps the Queued to GeneratingTransaction write.
-        { ...base, id: 'live', processingStartedAt: Math.floor(Date.now() / 1000) }
-      ];
-      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
-        toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
-      }));
-      const modifiedIds: string[] = [];
-      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
-        first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
-        })
-      }));
-
-      await failInterruptedTransactions();
-
-      expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
-    });
-
-    it('spares a row this session started seconds before the sweep runs (#1202)', async () => {
-      const base = { type: 'send', status: ITransactionStatus.GeneratingTransaction, initiatedAt: SESSION_STARTED_AT };
-      const rows = [
-        { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
         { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 }
       ];
       mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
@@ -1321,7 +1297,7 @@ describe('transactions utilities', () => {
         nowSpy.mockRestore();
       }
 
-      expect(modifiedIds).toEqual(['orphan']);
+      expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
     });
 
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
