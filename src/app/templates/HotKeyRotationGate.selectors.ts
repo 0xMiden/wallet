@@ -21,7 +21,6 @@ export type GateRow = Pick<
   | 'status'
   | 'error'
   | 'rawError'
-  | 'mayHaveSubmitted'
   | 'awaitingRecoverySeed'
   | 'initiatedAt'
   | 'queuedSeq'
