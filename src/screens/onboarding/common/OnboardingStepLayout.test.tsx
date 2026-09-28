@@ -64,5 +64,5 @@ it('sets the description in Nunito semibold at the explainer size, muted', () =>
   render(<OnboardingStepLayout title="Set up your account" description="Check each point once." />);
 
   const description = screen.getByText('Check each point once.');
-  expect(description).toHaveClass('text-explainer', 'font-semibold', 'text-muted', '[--font-sans:var(--font-heading)]');
+  expect(description).toHaveClass('text-explainer', 'font-semibold', 'text-muted', 'face-heading');
 });

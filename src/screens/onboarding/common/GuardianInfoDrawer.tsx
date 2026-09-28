@@ -31,7 +31,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
 
         {/* Every line of the sheet is Nunito: the body styles that read `--font-sans` resolve to the
             heading face here, the explainer's bold phrase included. */}
-        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4 [--font-sans:var(--font-heading)]">
+        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4 face-heading">
           <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
           <p className="text-body text-ink">

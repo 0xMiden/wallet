@@ -426,6 +426,13 @@ button:disabled,
   line-height: var(--tw-leading, 17px);
   font-weight: var(--tw-font-weight, 600);
 }
+/* A subtree set wholly in Nunito: the roles below it that read `--font-sans`, shared components'
+ * row labels and captions included, resolve to the heading face, and text that sets no face of
+ * its own inherits it. */
+@utility face-heading {
+  --font-sans: var(--font-heading);
+  font-family: var(--font-heading);
+}
 
 /* Force Inter as the inherited default. Tailwind v4's preflight should set this
  * via --default-font-family, but the @config + JS-theme path doesn't reliably

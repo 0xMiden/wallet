@@ -397,7 +397,7 @@ describe('Receive - Address', () => {
     // 16px gutter every pane shares.
     // Through the page's font scope, a `contents` box that adds no layout of its own.
     const fontScope = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
-    expect(fontScope).toHaveClass('contents', 'font-sans', '[--font-sans:var(--font-heading)]');
+    expect(fontScope).toHaveClass('contents', 'face-heading');
     const column = fontScope.parentElement!;
     expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
     expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-5');

@@ -234,7 +234,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
           captions, the warning) resolve to the heading face here. `contents` adds no box, so the
           pane's layout is untouched. */}
-      <div className="contents font-sans [--font-sans:var(--font-heading)]">
+      <div className="contents face-heading">
         {/* No visible title: the action bar already says Receive and the code leads the page. The
           heading stays for assistive tech. */}
         <h1 data-testid="receive-title" className="sr-only">

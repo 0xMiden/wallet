@@ -107,7 +107,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
     >
       {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
           heading face here. */}
-      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center [--font-sans:var(--font-heading)]">
+      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center face-heading">
         <Hero
           nameAs="h1"
           nameSize="lg"

@@ -43,9 +43,7 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
         {eyebrow && <div className="pb-1">{eyebrow}</div>}
         {title && <h1 className="text-title-tab text-ink">{title}</h1>}
         {/* The explainer's size and leading, in Nunito semibold like the rest of the step's text. */}
-        {description && (
-          <div className="text-explainer font-semibold text-muted [--font-sans:var(--font-heading)]">{description}</div>
-        )}
+        {description && <div className="text-explainer font-semibold text-muted face-heading">{description}</div>}
         {aside}
       </div>
     )}
