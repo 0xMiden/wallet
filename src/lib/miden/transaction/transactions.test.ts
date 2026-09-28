@@ -809,7 +809,8 @@ describe('transactions utilities', () => {
       });
       const rowRef: Record<string, unknown> = {
         nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
-        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60
+        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60,
+        requeueStreak: { arm: 'guardian-rate-limited', count: 2 }
       };
       const backedOff = {
         id: 'backed-off-tx',
@@ -833,6 +834,8 @@ describe('transactions utilities', () => {
       // while it sat here would otherwise get no automatic attempt at all on the
       // retry the user just asked for.
       expect(rowRef.unauthorizedRetryUntil).toBeUndefined();
+      // Or the guardian backoff, so the tapped row's next requeue waits its arm's base cooldown (#1223).
+      expect(rowRef.requeueStreak).toBeUndefined();
     });
 
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
