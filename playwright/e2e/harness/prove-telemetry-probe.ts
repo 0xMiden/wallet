@@ -47,19 +47,31 @@ export interface ProveTelemetryEntry {
 
 const STORAGE_KEY = 'miden_prove_telemetry';
 
-/** Mirrors `proveMarkerStorageKey` in `src/lib/miden/sdk/prove-telemetry.ts`. */
-const MARKER_KEYS = ['miden_prove_markers_offscreen', 'miden_prove_markers_inline'] as const;
+/** The realms `proveMarkerStorageKey` in `src/lib/miden/sdk/prove-telemetry.ts` keys by. */
+const MARKER_REALMS: ReadonlyArray<'offscreen' | 'inline'> = ['offscreen', 'inline'];
+
+/** One `[prove-timing]` marker with its recording time, as `readRealmMarkers` returns them. */
+export interface ProveMarker {
+  ts: number;
+  line: string;
+}
 
 /**
- * Read one realm's `[prove-timing]` marker trail via the service worker.
+ * Read one realm's `[prove-timing]` marker trail via the service worker, each line
+ * split from the `Date.now()` stamp it was recorded with.
  *
  * These are written AS THEY HAPPEN (unlike the settle-time telemetry above), so on a
  * write that never returns the last marker names the call the realm is still inside —
- * the one thing the artifacts could not previously answer.
+ * the one thing the artifacts could not previously answer. The stamps also let a spec
+ * line markers up against the page's own clock (#945).
  */
-async function readRealmMarkers(page: Page, key: string): Promise<string[]> {
-  const raw = await readStorageKey(page, key);
-  return raw.filter((line): line is string => typeof line === 'string');
+export async function readRealmMarkers(page: Page, realm: 'offscreen' | 'inline'): Promise<ProveMarker[]> {
+  const raw = await readStorageKey(page, `miden_prove_markers_${realm}`);
+  return raw.flatMap(entry => {
+    if (typeof entry !== 'string') return [];
+    const split = entry.indexOf('|');
+    return split < 0 ? [] : [{ ts: Number(entry.slice(0, split)), line: entry.slice(split + 1) }];
+  });
 }
 
 /**
@@ -69,18 +81,16 @@ async function readRealmMarkers(page: Page, key: string): Promise<string[]> {
  * and the only realm with no console the harness can attach to.
  */
 async function dumpProveMarkers(page: Page, context: string): Promise<void> {
-  for (const key of MARKER_KEYS) {
-    const realm = key.endsWith('offscreen') ? 'offscreen' : 'inline';
-    const lines = await readRealmMarkers(page, key);
-    if (lines.length === 0) continue;
-    const tail = lines.slice(-12);
+  for (const realm of MARKER_REALMS) {
+    const markers = await readRealmMarkers(page, realm);
+    if (markers.length === 0) continue;
+    const tail = markers.slice(-12);
     // eslint-disable-next-line no-console
-    console.log(`[prove-timing] ${context}: realm=${realm}, last ${tail.length} of ${lines.length} marker(s):`);
-    for (const line of tail) {
-      const [ts, ...rest] = line.split('|');
-      const at = Number.isFinite(Number(ts)) ? new Date(Number(ts)).toISOString().slice(11, 23) : String(ts);
+    console.log(`[prove-timing] ${context}: realm=${realm}, last ${tail.length} of ${markers.length} marker(s):`);
+    for (const { ts, line } of tail) {
+      const at = Number.isFinite(ts) ? new Date(ts).toISOString().slice(11, 23) : String(ts);
       // eslint-disable-next-line no-console
-      console.log(`[prove-timing]   ${at} ${rest.join('|')}`);
+      console.log(`[prove-timing]   ${at} ${line}`);
     }
   }
 }

@@ -47,9 +47,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       constructor() {
         g.__off.webClientCtorCount++;
       }
-      proveTransaction(...a: any[]) {
-        return g.__off.proveTransaction(...a);
-      }
     },
     TransactionResult: {
       deserialize: (...a: any[]) => g.__off.deserializeTxResult(...a)
@@ -72,6 +69,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
+    },
+    // #945: a worker proof comes back as bytes and is rebuilt here for submitProven.
+    ProvenTransaction: {
+      deserialize: (bytes: Uint8Array) => g.__off.deserializeProof(bytes)
     }
   };
   // Single-threaded SDK builds simply don't export initThreadPool; model that
@@ -115,6 +116,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // corpse must not get) are reachable from a test. Exported off the mock module
   // rather than the `__off` control object, whose contents are replaced per test.
   let evictCurrent: (() => void) | null = null;
+  // The newest hold's own operation, which an eviction abandons rather than settles:
+  // what it rejects with is the abandoned flow's outcome, not the waiter's (#945).
+  let lastRunning: Promise<unknown> | null = null;
   // Issue #775: each hold gets an IDENTITY, mirroring the real module, because the
   // behaviours under test turn on whether a yielding flow still owns the mutex.
   // A single shared token cannot express that — with one, an evicted flow's yield
@@ -132,8 +136,6 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
     lockOptionsSeen.push(options);
     await acquire();
-    const hold = { mock: 'wasm-lock-hold' };
-    currentHold = hold;
     let settled = false;
     const releaseOnce = (): void => {
       if (settled) return;
@@ -154,8 +156,14 @@ jest.mock('lib/miden/sdk/miden-client', () => {
         reject(new PoisonError('realm-error', new Error('evicted by the test harness')));
       };
     });
+    // `aborted` is the real hold's eviction signal, which `proveInWorker` hands the
+    // transport as its cancel (#945).
+    const hold = { mock: 'wasm-lock-hold', aborted: evicted };
+    currentHold = hold;
     try {
-      return await Promise.race([op(hold), evicted]);
+      const running = op(hold);
+      lastRunning = running;
+      return await Promise.race([running, evicted]);
     } finally {
       releaseOnce();
     }
@@ -200,6 +208,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     yieldWasmClientLock,
     isWasmClientBusy,
     __evictHolder,
+    __lastRunning: () => lastRunning,
     getCurrentWasmLockHold: () => currentHold,
     // #788 follow-up: the shared post-await ownership re-check the dispatches run.
     // Re-implements the REAL comparison against this mock's own `currentHold` —
@@ -216,6 +225,12 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     }
   };
 });
+
+// `local-prove-transport` imports the lock module by its RELATIVE path, which jest
+// keys apart from the `lib/...` alias above (the root `__mocks__/lib/...` manual mock
+// is bound to the alias). Point the relative id at the same mock instance, so the
+// worker-prove helper sees this file's holds (#945).
+jest.mock('../lib/miden/sdk/miden-client', () => jest.requireMock('lib/miden/sdk/miden-client'));
 
 // The endpoint-override cache is module-scoped, i.e. PER REALM, so the offscreen
 // doc hydrates it itself at init and re-hydrates it on the SW's
@@ -262,6 +277,34 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
   };
 });
 
+// #945: every local prove in this document goes to the prove worker client, which
+// is replaced here by a fake transport. The default proof bytes are [1, 2, 3].
+const mockProveTransport = {
+  prove: jest.fn(async (_request: { txResult: Uint8Array }, _options?: object) => ({
+    proven: new Uint8Array([1, 2, 3]),
+    durationMs: 42
+  })),
+  prewarm: jest.fn(),
+  // How many `ProveWorkerClient` instances main.ts constructed. main.ts builds exactly
+  // one at module top and reuses it for every OFFSCREEN_PROVE, so this stays 1 per
+  // `loadModule()` regardless of how many prove requests a test sends.
+  ctorCount: 0
+};
+
+jest.mock('./prove-worker-client', () => ({
+  ProveWorkerClient: class {
+    constructor() {
+      mockProveTransport.ctorCount++;
+    }
+    prove(request: { txResult: Uint8Array }, options?: object) {
+      return mockProveTransport.prove(request, options);
+    }
+    prewarm() {
+      mockProveTransport.prewarm();
+    }
+  }
+}));
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -282,7 +325,6 @@ function resetControl() {
     hasInitThreadPool: true,
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
-    proveTransaction: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) })),
     deserializeTxResult: jest.fn(() => ({ __txResult: true })),
     // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
@@ -388,6 +430,16 @@ function resetControl() {
     guardianProveFailureMessage: 'remote prover deadline expired',
     guardianSubmitted: false,
     guardianApplied: false,
+    deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
+    // #945: a worker proof is submitted through submitProven with the result it proves.
+    guardianSubmitProven: jest.fn(async (_proof: unknown, _result: unknown) => {
+      G.__off.guardianSubmitted = true;
+      return {
+        apply: jest.fn(async () => {
+          G.__off.guardianApplied = true;
+        })
+      };
+    }),
     guardianExecuteRequest: jest.fn(async (_accountId: string, _tr: unknown) => {
       const g2 = globalThis as any;
       return {
@@ -395,6 +447,8 @@ function resetControl() {
         id: { toHex: () => 'guardian-exec-hash' },
         prove: jest.fn(async (options?: any) => {
           g2.__off.guardianProveCalls.push(options);
+          // #945: no local prove may run on this document's thread.
+          if (options?.prover?.__local) throw new Error('in-realm prove reached');
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
             throw new Error(g2.__off.guardianProveFailureMessage);
@@ -464,6 +518,7 @@ function resetControl() {
         client: {
           transactions: {
             executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
+            submitProven: (proof: unknown, result: unknown) => G.__off.guardianSubmitProven(proof, result),
             // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
             list: (...a: any[]) => {
               (globalThis as any).__off.listBuilds.push(build);
@@ -538,6 +593,9 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  mockProveTransport.prove.mockClear();
+  mockProveTransport.prewarm.mockClear();
+  mockProveTransport.ctorCount = 0;
   G.__off.clientIsDisposed = false;
   G.__off.disposedBuilds = new Set<number>();
   G.__off.listBuilds = [];
@@ -567,6 +625,22 @@ describe('offscreen/main — startup / init()', () => {
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
     // Message listener registered.
     expect(typeof capturedListener).toBe('function');
+  });
+
+  it('installs the prove worker as the local prove transport without starting it (#945)', async () => {
+    await loadModule();
+    const { getLocalProveTransport } = await import('lib/miden/sdk/local-prove-transport');
+    const transport = getLocalProveTransport();
+    expect(transport).not.toBeNull();
+    expect(mockProveTransport.prewarm).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+
+    // Not just "an object with a function named prove" - any stub would pass that.
+    // Calling it must reach the mocked ProveWorkerClient instance main.ts actually
+    // constructed and installed, not a look-alike.
+    const request = { txResult: new Uint8Array([7]) };
+    await transport?.prove(request);
+    expect(mockProveTransport.prove).toHaveBeenCalledWith(request, undefined);
   });
 
   // The endpoint-override cache lives in module scope, so it is PER REALM: the SW's
@@ -738,40 +812,47 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
     ...extra
   });
 
-  it('proves with a local prover when no descriptor is supplied (ok:true)', async () => {
+  it.each([
+    ['a null', null],
+    ["a 'local'", 'local'],
+    ['a non-string', 42]
+  ])(
+    'forwards the decoded bytes to the prove worker as a local prove for %s descriptor (#945)',
+    async (_label, proverDescriptor) => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      const ret = capturedListener!(provReq({ proverDescriptor }), {}, sendResponse);
+      expect(ret).toBe(true);
+      await flush();
+
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([9, 8, 7]) });
+      // No WASM call in this realm at all: nothing deserialized, no prover, no client.
+      expect(G.__off.deserializeTxResult).not.toHaveBeenCalled();
+      expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+      expect(G.__off.webClientCtorCount).toBe(0);
+
+      expect(sendResponse).toHaveBeenCalledTimes(1);
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(resp.durationMs).toBe(42);
+      expect(Array.from(Buffer.from(resp.provenB64, 'base64'))).toEqual([1, 2, 3]);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('prove duration_ms='));
+    }
+  );
+
+  it('answers ok:false for a string descriptor other than local without reaching the prove worker (#945)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
-    const ret = capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
-    expect(ret).toBe(true);
+    capturedListener!(provReq({ proverDescriptor: 'remote|http://x|5000' }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.deserializeTxResult).toHaveBeenCalledTimes(1);
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
     expect(G.__off.deserializeProver).not.toHaveBeenCalled();
-    expect(G.__off.webClientCtorCount).toBe(1);
-
-    expect(sendResponse).toHaveBeenCalledTimes(1);
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(typeof resp.durationMs).toBe('number');
-    // provenB64 round-trips the serialized [1,2,3] bytes.
-    expect(Array.from(Buffer.from(resp.provenB64, 'base64'))).toEqual([1, 2, 3]);
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('prove duration_ms='));
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'unsupported prover descriptor' });
   });
 
-  it('deserializes the prover from the descriptor when one is supplied (ok:true)', async () => {
-    await loadModule();
-    const sendResponse = jest.fn();
-    const ret = capturedListener!(provReq({ proverDescriptor: 'remote|http://x|5000' }), {}, sendResponse);
-    expect(ret).toBe(true);
-    await flush();
-
-    expect(G.__off.deserializeProver).toHaveBeenCalledWith('remote|http://x|5000');
-    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
-  });
-
-  it('reuses a single WebClient instance across successive prove calls', async () => {
+  it('proves successive requests through the one worker client, constructing no WebClient here', async () => {
     await loadModule();
     const r1 = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, r1);
@@ -782,15 +863,15 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
 
     expect(r1.mock.calls[0][0].ok).toBe(true);
     expect(r2.mock.calls[0][0].ok).toBe(true);
-    // getProver() cached the client → constructor ran exactly once.
-    expect(G.__off.webClientCtorCount).toBe(1);
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    // The one worker client: both proves went through the same construction, not one each.
+    expect(mockProveTransport.ctorCount).toBe(1);
+    expect(G.__off.webClientCtorCount).toBe(0);
   });
 
-  it('responds ok:false with the Error message when proving throws an Error', async () => {
+  it('responds ok:false with the Error message when the worker prove fails', async () => {
     await loadModule();
-    G.__off.proveTransaction = jest.fn(async () => {
-      throw new Error('WASM exploded');
-    });
+    mockProveTransport.prove.mockRejectedValueOnce(new Error('WASM exploded'));
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -801,11 +882,7 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
 
   it('responds ok:false with String(err) when the thrown value has no message', async () => {
     await loadModule();
-    // Throw a plain string — no `.message` property → falls back to String(err).
-    G.__off.proveTransaction = jest.fn(async () => {
-      // eslint-disable-next-line no-throw-literal
-      throw 'raw failure string';
-    });
+    mockProveTransport.prove.mockRejectedValueOnce('raw failure string');
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -816,7 +893,7 @@ describe('offscreen/main — OFFSCREEN_PROVE handling', () => {
   it('chunk-encodes proven output larger than 0x8000 bytes', async () => {
     await loadModule();
     const big = new Uint8Array(0x9000).fill(0x42);
-    G.__off.proveTransaction = jest.fn(async () => ({ serialize: () => big }));
+    mockProveTransport.prove.mockResolvedValueOnce({ proven: big, durationMs: 1 });
     const sendResponse = jest.fn();
     capturedListener!(provReq({ proverDescriptor: null }), {}, sendResponse);
     await flush();
@@ -3036,7 +3113,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
-  it('guardianPipeline: deserializes the co-signed request, runs execute→prove(local)→submit→apply, ships the serialized result', async () => {
+  it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     const trBytes = new Uint8Array([1, 2, 3, 4]);
@@ -3061,9 +3138,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const [acct, tr] = G.__off.guardianExecuteRequest.mock.calls[0];
     expect(acct).toBe('mtst1qguardian');
     expect(tr).toEqual({ __trFromBytes: [1, 2, 3, 4] });
-    // Non-delegated → proved with an explicit newLocalProver (no mobile branch).
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
-    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __local: true } }]);
+    // Non-delegated: prewarmed at entry, proved once in the worker from the exact
+    // serialized result, and never proved on this document's thread (#945).
+    expect(mockProveTransport.prewarm).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([55, 66, 77]) });
+    expect(G.__off.guardianProveCalls).toEqual([]);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
+    expect(G.__off.guardianSubmitProven).toHaveBeenCalledWith({ __proofFromBytes: [1, 2, 3] }, executed.result);
     // submit + apply both ran in-realm.
     expect(G.__off.guardianSubmitted).toBe(true);
     expect(G.__off.guardianApplied).toBe(true);
@@ -3111,18 +3194,96 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     // Nothing proved, nothing submitted, nothing applied.
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
     expect(G.__off.guardianSubmitted).toBe(false);
     expect(G.__off.guardianApplied).toBe(false);
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
-  it('guardianPipeline: stops before SUBMIT when the hold is evicted during the prove (#777)', async () => {
-    // The prove is the longest await in the pipeline — delegated over the network, or
-    // local under the relaxed ceiling — and the check after it is the last thing
-    // between an abandoned pipeline and an irreversible broadcast. Covered separately
-    // from the pre-prove check because each guard only answers for its own await.
+  it('guardianPipeline: stops before SUBMIT when the hold is evicted during the worker prove (#777, #945)', async () => {
+    // The prove is the longest await in the pipeline, and with the worker the
+    // watchdog can fire while it runs, so the check after it is the last thing
+    // between an abandoned pipeline and an irreversible broadcast.
     await loadModule();
     const miden: any = await import('lib/miden/sdk/miden-client');
+    let releaseProve!: () => void;
+    mockProveTransport.prove.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          releaseProve = () => resolve({ proven: new Uint8Array([1]), durationMs: 1 });
+        })
+    );
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-evicted-prove',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+
+    miden.__evictHolder();
+    releaseProve();
+    await flush();
+
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(G.__off.guardianApplied).toBe(false);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
+  it('guardianPipeline: an eviction cancels the worker prove, and the abandoned dispatch fails as poisoned (#945)', async () => {
+    // The reply is the waiter's, which the eviction settles first, so only the
+    // abandoned dispatch itself can say the cancel reached it as poison.
+    await loadModule();
+    const miden = jest.requireMock<
+      typeof import('lib/miden/sdk/miden-client') & {
+        __evictHolder: () => void;
+        __lastRunning: () => Promise<unknown> | null;
+      }
+    >('lib/miden/sdk/miden-client');
+    // A worker that answers only through the cancel, as the real client does on an eviction.
+    mockProveTransport.prove.mockImplementationOnce(async (_request, options) => {
+      const cancel: unknown = options && Reflect.get(options, 'cancel');
+      if (cancel instanceof Promise) await cancel;
+      throw new Error('no cancel reached the transport');
+    });
+
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-cancelled-prove',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      jest.fn()
+    );
+    await flush();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    const dispatch = miden.__lastRunning();
+
+    miden.__evictHolder();
+    const abandoned = await dispatch?.catch((caught: unknown) => caught);
+
+    expect(abandoned).toHaveProperty('name', 'WasmClientPoisonedError');
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+  });
+
+  it('guardianPipeline (delegated): stops before SUBMIT when the hold is evicted during the delegated prove (#777, #945)', async () => {
+    // The delegated leg never touches the prove worker, so the helper's own
+    // post-prove check cannot cover it: the pipeline's own
+    // `assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit')` is
+    // the ONLY guard standing between an eviction during this leg's longest
+    // await and an irreversible broadcast.
+    await loadModule();
+    const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client') & { __evictHolder: () => void }>(
+      'lib/miden/sdk/miden-client'
+    );
     let releaseProve!: () => void;
     const parkedProve = new Promise<void>(resolve => {
       releaseProve = resolve;
@@ -3146,9 +3307,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const sendResponse = jest.fn();
     capturedListener!(
       callReq({
-        op_id: 'op-g-evicted-prove',
+        op_id: 'op-g-evicted-prove-delegated',
         method: 'guardianPipeline',
-        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([1])), encodeArg(true)]
       }),
       {},
       sendResponse
@@ -3162,6 +3323,31 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.guardianSubmitted).toBe(false);
     expect(G.__off.guardianApplied).toBe(false);
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
+  it('guardianPipeline: a worker failure fails the write before submit, as ProveWorkerError (#945)', async () => {
+    await loadModule();
+    const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
+    mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('crashed', 'RuntimeError: unreachable'));
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianProveCalls).toEqual([]);
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'ProveWorkerError',
+      error: 'Local prove failed in the prove worker (crashed)'
+    });
   });
 
   // #784: the co-signatures in the crossed request were bound to a summary that
@@ -3333,6 +3519,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // rejection the local fallback needs.
     expect(G.__off.guardianProveBounded).toBe(true);
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    // A delegated write neither starts nor uses the prove worker (#945).
+    expect(mockProveTransport.prewarm).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
     expect(G.__off.guardianApplied).toBe(true);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
@@ -3361,7 +3551,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('guardianPipeline (delegated): a remote prove failure re-proves locally with newLocalProver (matches inline fallback)', async () => {
+  it('guardianPipeline (delegated): a remote prove failure re-proves the same result in the prove worker', async () => {
     await loadModule();
     G.__off.guardianProveShouldFailOnce = true;
     const sendResponse = jest.fn();
@@ -3375,13 +3565,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    // First attempt: the explicit remote prover threw. Second: local newLocalProver.
-    expect(G.__off.guardianProveCalls[0]).toEqual({ prover: { __remote: true } });
-    expect(G.__off.guardianProveCalls[1]).toEqual({ prover: { __local: true } });
-    expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
+    // First attempt: the explicit remote prover threw. Second: the worker, on the
+    // same executed result, submitted through submitProven (#945).
+    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __remote: true } }]);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(mockProveTransport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([55, 66, 77]) });
+    const executed = await G.__off.guardianExecuteRequest.mock.results[0].value;
+    expect(G.__off.guardianSubmitProven).toHaveBeenCalledWith({ __proofFromBytes: [1, 2, 3] }, executed.result);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
     expect(G.__off.guardianApplied).toBe(true);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a worker failure on the fallback leg fails the write before submit (#945)', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    mockProveTransport.prove.mockRejectedValueOnce(new Error('worker gone'));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'worker gone' });
   });
 
   it('guardianPipeline (delegated): a transport-shaped prove failure reports a prover outage from THIS realm', async () => {
@@ -3536,19 +3751,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
     G.__off.guardianExecuteRequest = jest.fn(async () => {
       timeline.push('executeRequest');
-      return {
-        result: { serialize: () => new Uint8Array([55, 66, 77]) },
-        id: { toHex: () => 'h' },
-        prove: async () => {
-          timeline.push('prove');
-          return {
-            submit: async () => {
-              timeline.push('submit');
-              return { apply: async () => timeline.push('apply') };
-            }
-          };
-        }
-      };
+      return { result: { serialize: () => new Uint8Array([55, 66, 77]) }, id: { toHex: () => 'h' } };
+    });
+    mockProveTransport.prove.mockImplementationOnce(async () => {
+      timeline.push('worker prove');
+      return { proven: new Uint8Array([1]), durationMs: 1 };
+    });
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      timeline.push('submitProven');
+      return { apply: async () => timeline.push('apply') };
     });
 
     const sendResponse = jest.fn();
@@ -3570,9 +3781,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       'stage:executing|sw|op-gstage',
       'executeRequest',
       'stage:proving|sw|op-gstage',
-      'prove',
+      'worker prove',
       'stage:submitting|sw|op-gstage',
-      'submit',
+      'submitProven',
       'apply'
     ]);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
@@ -3910,33 +4121,29 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     expect(G.__off.createOptions[1].useWorker).toBe(false);
   });
 
-  it('drops the memoized PROVE client too — it shares the WASM instance that trapped', async () => {
+  it('leaves the prove worker alone: an OFFSCREEN_PROVE after a poisoning still proves through it (#945)', async () => {
     await loadModule();
+    const request = { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') };
     const p1 = jest.fn();
-    capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
-      {},
-      p1
-    );
+    capturedListener!(request, {}, p1);
     await flush();
     expect(p1.mock.calls[0][0].ok).toBe(true);
-    expect(G.__off.webClientCtorCount).toBe(1);
 
     firePoisoned();
     await flush();
 
     const p2 = jest.fn();
-    capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
-      {},
-      p2
-    );
+    capturedListener!(request, {}, p2);
     await flush();
     expect(p2.mock.calls[0][0].ok).toBe(true);
-    // A second construction: the trapped prover was not handed out again. It has
-    // no other reset path — `OFFSCREEN_PROVE` runs outside the mutex, so it gets
-    // neither the watchdog nor the eviction that a CALL gets.
-    expect(G.__off.webClientCtorCount).toBe(2);
+    // The worker's WASM instance is separate, so a trap here does not abort it and
+    // this realm builds no prover of its own.
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    expect(mockProveTransport.prove.mock.calls.map(call => call[0])).toEqual([
+      { txResult: new Uint8Array([9]) },
+      { txResult: new Uint8Array([9]) }
+    ]);
+    expect(G.__off.webClientCtorCount).toBe(0);
   });
 
   it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {
@@ -4493,6 +4700,32 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       await flush();
 
       expect(markerLines(posted)).toEqual([]);
+    });
+  });
+
+  // #945: `ProveWorkerError.detail` carries the prover's real failure text, which
+  // this realm's own `.message` never does (it is closed wallet text - see the
+  // class doc). Without it on the FAILED marker too, a worker crash during a
+  // guardian write leaves this trail saying only "crashed", the one thing a
+  // developer already knew.
+  it('carries a ProveWorkerError’s detail on the FAILED marker (#945)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      const { ProveWorkerError } = await import('lib/miden/sdk/local-prove-transport');
+      mockProveTransport.prove.mockRejectedValueOnce(new ProveWorkerError('crashed', 'RuntimeError: unreachable'));
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const lines = markerLines(posted);
+      expect(lines.some(l => /call 'guardianPipeline' FAILED .*detail=RuntimeError: unreachable$/.test(l))).toBe(true);
     });
   });
 });
