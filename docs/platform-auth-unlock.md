@@ -497,7 +497,7 @@ A CDP virtual authenticator (`ctap2`, `internal`, resident keys, user
 verification) in Chrome for Testing 149.0.7827.55, driving a minimal MV3
 extension page with the wallet's CSP and isolation headers
 (`public/manifest.json:33-41`), headed on macOS, in a tab rather than the
-action popup. The method is in the appendix. Excerpt of `probe-results.json`:
+action popup. The method is in the appendix. Excerpt of the recorded results:
 
 ```json
 {
@@ -903,18 +903,21 @@ against it.
    25H2), with Chrome 155 and again with Chrome 156 when it ships, using the
    extension RP ID: each provider Chrome offers (its profile store, iCloud
    Keychain, GPM, Windows Hello), from each surface (popup, side panel,
-   full-page tab, a `windows.create` popup window). Record PRF at create and
-   get, the UV and BE flags, the verification methods the sheet accepts, and
-   what the provider lists afterwards. A Linux machine with GPM and a Windows
-   10 machine answer the Linux part of question 4 and question 8. The harness
-   is the appendix's probe extension with no virtual authenticator, extended
-   with a popup, a side panel and a window. Loaded unpacked, its id comes from
-   its path, which serves every question here; the Web Store listing's public
-   key in its manifest `key` ([manifest `key`][chrome-manifest-key]) gives it
-   the store id, needed only to re-check on a device that a Web Store
-   reinstall reaches the same credential (Lifecycle, uninstall row). It
-   settles Open questions 1 to 11 and decides, per OS, whether to continue and
-   which surface runs the ceremony.
+   full-page tab, a `windows.create` popup window), with and without a Google
+   account signed in to Chrome (question 3). Record PRF at create and get, the
+   UV and BE flags, the verification methods the sheet accepts, what the
+   provider lists afterwards, and `WebAuthNGetApiVersionNumber` on each Windows
+   build (question 7). An assertion with the same salt from a second Mac or an
+   iPhone over hybrid checks a synced iCloud Keychain passkey (question 5). A
+   Linux machine with GPM and a Windows 10 machine answer the Linux part of
+   question 4 and question 8. The harness is an extension built from the
+   appendix's Method, with no virtual authenticator, extended with a popup, a
+   side panel and a window. Loaded unpacked, its id comes from its path, which
+   serves every question here; the Web Store listing's public key in its
+   manifest `key` ([manifest `key`][chrome-manifest-key]) gives it the store id,
+   needed only to re-check on a device that a Web Store reinstall reaches the
+   same credential (Lifecycle, uninstall row). It settles Open questions 1 to 11
+   and decides, per OS, whether to continue and which surface runs the ceremony.
 2. **Enrollment in Settings, behind the password.** A row in Settings'
    Security group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment
    flow in Mechanism, offered only when `vault_key_password` exists. The row
@@ -984,7 +987,7 @@ relied on.
 | 2 | Does GPM return PRF for that RP ID? The only evidence is secondary ([MetaMask #46400][metamask-46400]) | Support matrix; Recommendation | The same device test, on macOS and Windows |
 | 3 | Which store does Chrome on macOS offer first for a new platform credential, now that GPM also saves desktop passkeys? | Support matrix; Lifecycle (Enrollment) | Device test, with and without a Google account signed in to Chrome |
 | 4 | Which user verification methods satisfy each provider: the macOS passkey sheet besides Touch ID (the login password), and GPM on macOS, Windows and Linux (the GPM PIN or the OS prompt)? | Security comparison; Recommendation (decision 2) | Device tests on macOS, Windows and Linux, declining the biometric prompt |
-| 5 | Does a synced iCloud Keychain passkey give the same PRF output on a second device? Apple wrote a hybrid mismatch "should be fixed in the current iOS 18.4 and macOS 15.4 betas" ([Apple developer forums][apple-forum-prf]) | Lifecycle (synced passkey) | Device test: enroll on one Mac, assert with the same salt from a second Mac or an iPhone over hybrid |
+| 5 | Does a synced iCloud Keychain passkey give the same PRF output on a second device? Apple wrote a hybrid mismatch "should be fixed in the current iOS 18.4 and macOS 15.4 betas" ([Apple developer forums][apple-forum-prf]) | Security comparison (synced passkeys); Lifecycle (synced passkey) | Device test: enroll on one Mac, assert with the same salt from a second Mac or an iPhone over hybrid |
 | 6 | Does Windows Hello evaluate PRF at create and get in Chrome 147+ on a current Windows 11, with the extension RP ID, and why does MetaMask report that it fails? | Support matrix; Recommendation (the bar on Windows) | Device test on Windows 11 24H2 or 25H2 after KB5077181, with Chrome 155 |
 | 7 | Which Windows build first ships WebAuthn API version 8, which Chrome needs for PRF at create? | Support matrix | Calling `WebAuthNGetApiVersionNumber` ([`webauthn.h`][ms-webauthn-v8]) on each Windows build tested, or a Microsoft statement |
 | 8 | Is there no Hello PRF on Windows 10, as secondary sources say? | Support matrix; Recommendation | Device test on Windows 10 22H2 |
@@ -1004,7 +1007,7 @@ relied on.
 | 22 | Which Chrome version first accepted `chrome-extension://<id>` as an RP ID (only "before 122" is established)? Not relied on: support is detected by a PRF result, not a version | None | The Chromium history of `MaybeGetRelyingPartyIdOverride` |
 | 23 | Which attestation does Windows Hello return for `attestation: 'direct'`? Not relied on: the design reads the BE flag, not attestation | None | Device test, only if attestation is ever needed |
 | 24 | Does the iOS Secure Enclave key, created with only `.privateKeyUsage`, prompt at each use? The repo's comments conflict | Today's vault | Device test on an iPhone: a hardware unlock, watching for Face ID |
-| 25 | Do other Chromium browsers (Edge, Brave, Opera) return PRF for the extension RP ID? Ambire's code says Brave's profile passkeys return none (secondary). Not relied on: PRF is detected from a real result, and the password stays | Support matrix | A device test in each browser, if one comes into scope |
+| 25 | Do other Chromium browsers (Edge, Brave, Opera) return PRF for the extension RP ID? Ambire's code says Brave's profile passkeys return none (secondary). Not relied on: PRF is detected from a real result, and the password stays | None | A device test in each browser, if one comes into scope |
 
 ## Appendix: probe
 
