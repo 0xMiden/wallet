@@ -376,8 +376,10 @@ describe('ProveWorkerClient retirement', () => {
     const result = await outcome(client.prove(request(), { cancel }));
     expect(result.value).toBe(eviction);
     expect(worker(0).posted).toEqual([]);
-    // The cancelled call was the FIFO head (unposted, still waiting on the prewarmed
-    // worker's `ready`), so it retires that worker too, not just the call itself.
+    // The cancelled call was the FIFO head, unposted - not because the prewarmed
+    // worker's `ready` hadn't fired yet (it already had, above), but because the
+    // cancel handler is registered before `schedulePump()`, so its microtask runs
+    // first and retires the worker before `pump()` ever gets a turn to post.
     expect(worker(0).terminated).toBe(1);
   });
 
