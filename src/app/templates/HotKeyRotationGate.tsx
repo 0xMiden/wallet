@@ -67,8 +67,9 @@ const HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/hel
  * wallet usable, and switching to it raises the overlay.
  *
  * The onboarding tab's two side-panel handoff screens stay ungated: the panel's
- * own gate adopts a rotation already in flight, so blocking the tab here would
- * only hold the one tap that opens the panel until the rotation lands (#1097).
+ * own gate starts the rotation, or adopts it if one is in flight, so blocking the
+ * tab here would only hold the one tap that opens the panel until the rotation
+ * lands (#1097).
  */
 export const HotKeyRotationGate: FC = () => {
   const currentAccount = useWalletStore(s => s.currentAccount);
@@ -76,8 +77,9 @@ export const HotKeyRotationGate: FC = () => {
   const { pathname } = Woozie.useLocation();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
-  // The onboarding tab only hands off to the side panel, whose own gate adopts the rotation: covering the
-  // handoff screens here would hold the one tap that opens the panel until the rotation lands (#1097).
+  // The onboarding tab only hands off to the side panel, whose own gate starts the rotation, or adopts it if one is
+  // in flight: covering the handoff screens here would hold the one tap that opens the panel until the rotation
+  // lands (#1097).
   if (fullPage && HANDOFF_ROUTES.has(pathname) && canHandoffToSidePanel()) return null;
 
   // Keyed by account so switching between flagged accounts resets all
