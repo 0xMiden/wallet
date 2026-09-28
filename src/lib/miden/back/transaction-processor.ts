@@ -8,6 +8,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
@@ -48,6 +49,10 @@ const ALARM_NAME = 'miden-tx-processor';
 // and never observes the orphan via that startup hook.
 const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
 const STUCK_TX_HEAL_PERIOD_MIN = 5;
+// One-shot wake for a run that ends with rows still Queued (#1223). A run stops after a fixed number of passes, a row
+// its guardian backed off can come due after that, and with the popup closed nothing else restarts processing.
+// Chrome fires a one-shot alarm no sooner than about 30 s out, which only delays such a row.
+const QUEUED_ROW_WAKE_ALARM = 'miden-tx-queued-wake';
 let isProcessing = false;
 // Set when a kick arrives while a run is already in flight. A kick that lands
 // after the loop's last pass but before this run clears `isProcessing` would
@@ -177,6 +182,8 @@ export async function startTransactionProcessing(): Promise<void> {
 
     try {
       browser = await getBrowser();
+      // This run is the drive a pending wake was waiting for.
+      browser.alarms.clear(QUEUED_ROW_WAKE_ALARM);
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
     } catch {
       // Non-extension context (mobile / desktop) — no alarms API.
@@ -214,16 +221,29 @@ export async function startTransactionProcessing(): Promise<void> {
   } catch (e) {
     console.error('[TransactionProcessor] Error:', e);
   } finally {
-    isProcessing = false;
     try {
       browser?.alarms.clear(ALARM_NAME);
     } catch {
       // Best effort.
     }
+    // Armed before `isProcessing` drops, so a kick landing during the read is honoured by the restart below, which
+    // clears the wake, rather than starting a run this create would land behind.
+    if (browser && !processingRequested) await armQueuedRowWake(browser);
+    isProcessing = false;
     if (processingRequested) {
       processingRequested = false;
       void startTransactionProcessing();
     }
+  }
+}
+
+/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
+async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+  try {
+    const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
+    if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
+  } catch (e) {
+    console.warn('[TransactionProcessor] Could not arm the queued-row wake:', e);
   }
 }
 
@@ -341,6 +361,8 @@ export function setupTransactionProcessor(): void {
           // independent of `startTransactionProcessing` so we don't depend
           // on the SW being mid-loop when an orphan ages out.
           void healStuckTransactions();
+        } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
+          void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to

@@ -503,11 +503,30 @@ const requeueWakeDelayMs = (
 };
 
 /**
+ * How long until the soonest of `rows` that is Queued next needs a drive, by the same rule as a requeue wake, or
+ * `undefined` when none does. The extension's service worker arms a one-shot alarm from it when a processing run ends,
+ * because the run stops after a fixed number of passes and a backed-off row can come due after it has (#1223).
+ *
+ * A row paused for its recovery seed is left out: the loop never picks it and the reaper never expires it, so a wake
+ * for it would re-arm after every run for as long as it waits for the seed.
+ */
+export const nextQueuedWakeDelayMs = (
+  rows: readonly Pick<ITransaction, 'status' | 'initiatedAt' | 'nextEligibleAt' | 'awaitingRecoverySeed'>[]
+): number | undefined => {
+  const fallbackReapsAt = Date.now() + MAX_REQUEUE_WAKE_LIFETIME_MS;
+  const delays = rows
+    .filter(row => row.status === ITransactionStatus.Queued && !row.awaitingRecoverySeed)
+    .map(row => requeueWakeDelayMs(row, fallbackReapsAt));
+  return delays.length > 0 ? Math.min(...delays) : undefined;
+};
+
+/**
  * Keep a requeued row moving, OFF-extension only.
  *
  * The extension's service worker drives the queue itself: each kick runs the loop
  * for at most sixty passes, 5 s apart, and a later kick (a new transaction, the
- * guardian-sync kick when an outage clears) starts it again. Mobile and desktop
+ * guardian-sync kick when an outage clears, the one-shot alarm a run arms for
+ * the soonest row it leaves Queued) starts it again. Mobile and desktop
  * have none: the only driver for a send is the generating-transaction screen's
  * interval, cleared on unmount, and the screen's own copy invites the user to
  * leave. Before this arm existed a failure here ended the row terminally inside
