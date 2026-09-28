@@ -318,9 +318,13 @@ describe('EarnDepositReview', () => {
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
     });
 
-    it('shows a non-numeric amount as 0', () => {
+    // The typed hero reads it as 0 by itself; the parsed amount must too, or the CTA offers to
+    // deposit NaN and the projection reads $NaN.
+    it('reads a non-numeric amount as 0 in the hero, the CTA and the projection', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=not-a-number');
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
+      expect(screen.getByTestId('open-position-btn')).toBeDisabled();
+      expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
   });
 
