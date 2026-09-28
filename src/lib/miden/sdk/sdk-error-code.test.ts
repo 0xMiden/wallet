@@ -1,5 +1,6 @@
 import {
   ApplyAfterSubmitError,
+  applySubmitted,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -164,6 +165,45 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+});
+
+describe('applySubmitted', () => {
+  const rejecting = (error: unknown) => ({
+    apply: async () => {
+      throw error;
+    }
+  });
+
+  it('resolves once apply resolves', async () => {
+    const apply = jest.fn(async () => undefined);
+    await expect(applySubmitted({ apply })).resolves.toBeUndefined();
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('wraps a raw apply failure, keeping it as the cause', async () => {
+    const storeQuota = new Error('store quota');
+    const error = await applySubmitted(rejecting(storeQuota)).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApplyAfterSubmitError);
+    expect(error).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed', name: 'ApplyAfterSubmitError' });
+    expect(error).toHaveProperty('cause', storeQuota);
+  });
+
+  it('rethrows an apply failure that already classifies by identity', async () => {
+    const classified = Object.assign(new Error('opaque'), { errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    await expect(applySubmitted(rejecting(classified))).rejects.toBe(classified);
+  });
+
+  it('wraps a failure whose classification throws, rather than letting the check escape', async () => {
+    const hostile = {};
+    Object.defineProperty(hostile, 'errorCode', {
+      get() {
+        throw new Error('errorCode getter');
+      }
+    });
+    const error = await applySubmitted(rejecting(hostile)).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed' });
+    expect(error).toHaveProperty('cause', hostile);
   });
 });
 

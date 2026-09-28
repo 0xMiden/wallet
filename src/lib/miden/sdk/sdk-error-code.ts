@@ -189,6 +189,31 @@ export class ApplyAfterSubmitError extends Error {
 }
 
 /**
+ * Applies a submission whose submit already resolved, so the node has the
+ * transaction and any rejection from here on classifies as submitted (#945).
+ *
+ * A rejection that already reads as apply-after-submit is rethrown as it is; every
+ * other one, a canonicalization-shaped refusal included, is wrapped in
+ * `ApplyAfterSubmitError`. The submit itself is never covered: a rejected submit
+ * may not have reached the node.
+ */
+export async function applySubmitted(submitted: { apply(): Promise<unknown> }): Promise<void> {
+  try {
+    await submitted.apply();
+  } catch (error) {
+    let classified = false;
+    try {
+      classified = isApplyAfterSubmitError(error);
+    } catch {
+      // A throwing `code` or `errorCode` getter says nothing about the submit, and
+      // a check that escaped here would throw away the one verdict that is known.
+    }
+    if (classified) throw error;
+    throw new ApplyAfterSubmitError(error);
+  }
+}
+
+/**
  * True when a commit wait ended because the node DISCARDED the transaction —
  * a definitive "this will never land", as opposed to the indeterminate
  * timeout the same call throws when the poll window simply expires.
