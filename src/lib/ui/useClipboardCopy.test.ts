@@ -304,3 +304,20 @@ it('keeps the newer write as Copied when the older write settles after it (#1086
   });
   expect(result.current.status).toBe('success');
 });
+
+it('stops reporting Copied once the text on screen moves on, without writing again', async () => {
+  const { result, rerender } = renderHook(({ text }) => useClipboardCopy(text), { initialProps: { text: 'old' } });
+
+  await act(async () => {
+    const p = result.current.copy();
+    resolveWrite?.();
+    await p;
+  });
+  expect(result.current.copied).toBe(true);
+
+  rerender({ text: 'new' });
+
+  expect(result.current.status).toBe('idle');
+  expect(result.current.copied).toBe(false);
+  expect(mockWrite).toHaveBeenCalledTimes(1);
+});
