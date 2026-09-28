@@ -39,11 +39,13 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 let storage: ReturnType<typeof memoryStorage>;
 let fetchMock: jest.Mock;
+let clock: number;
 
-const setup = (initial: Record<string, unknown> = {}, now = NOW) => {
+const setup = (initial: Record<string, unknown> = {}) => {
   storage = memoryStorage(initial);
   fetchMock = jest.fn();
-  _resetTokenListForTest({ storage, fetch: fetchMock, now: () => now });
+  clock = NOW;
+  _resetTokenListForTest({ storage, fetch: fetchMock, now: () => clock });
 };
 
 it('builds the raw GitHub URL per network', () => {
@@ -170,4 +172,41 @@ it('stops notifying an unsubscribed listener', async () => {
   await loadVerifiedFaucetIds('testnet');
   await flush();
   expect(listener).not.toHaveBeenCalled();
+});
+
+describe('the per-realm memo', () => {
+  it('reads storage once for concurrent and repeated loads', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: doc(['a']) } });
+    const loads = await Promise.all([1, 2, 3].map(() => loadVerifiedFaucetIds('testnet')));
+    loads.push(await loadVerifiedFaucetIds('testnet'));
+    loads.forEach(ids => expect(ids).toEqual(new Set(['a'])));
+    expect(storage.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('still starts a refresh once a memoized list goes stale', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: doc(['a']) } });
+    fetchMock.mockResolvedValue(response(doc(['a', 'b'])));
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    clock = NOW - 1_000 + TOKEN_LIST_TTL_MS;
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['a', 'b']));
+  });
+
+  it('forgets the memoized list before announcing a refresh, so a listener that loads reads the new one', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - TOKEN_LIST_TTL_MS - 1, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(doc(['new'])));
+    let reloaded: Promise<Set<string> | null> | undefined;
+    onTokenListUpdated(network => {
+      reloaded = loadVerifiedFaucetIds(network);
+    });
+    await loadVerifiedFaucetIds('testnet');
+    await flush();
+    await expect(reloaded).resolves.toEqual(new Set(['new']));
+    expect(storage.get).toHaveBeenCalledTimes(2);
+  });
 });

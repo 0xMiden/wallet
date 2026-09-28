@@ -17,12 +17,21 @@ interface Dependencies {
   now: () => number;
 }
 
+interface LoadedList {
+  ids: Set<string> | null;
+  fetchedAt: number | null;
+}
+
 const defaults = (): Dependencies => ({
   storage: getStorageProvider,
   fetch: (...args) => fetch(...args),
   now: Date.now
 });
 let deps = defaults();
+// One read and parse per network per realm, shared by every row's hook until a refresh lands. The
+// parse is final: the app tree mounts only once the SDK's WASM is ready (MidenProvider), so the ids
+// normalize.
+const loaded = new Map<string, Promise<LoadedList>>();
 // One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
 // not this map, is what keeps a reopened popup from refetching.
 const refreshing = new Map<string, Promise<void>>();
@@ -39,6 +48,7 @@ export function _resetTokenListForTest(
     fetch: overrides.fetch ?? base.fetch,
     now: overrides.now ?? base.now
   };
+  loaded.clear();
   refreshing.clear();
   listeners.clear();
 }
@@ -61,6 +71,15 @@ async function readCache(network: string): Promise<{ fetchedAt: number; body: un
   }
 }
 
+async function readList(network: string): Promise<LoadedList> {
+  const cached = await readCache(network);
+  const fromCache = cached ? parseTokenList(cached.body, network) : null;
+  return {
+    ids: fromCache ?? parseTokenList(bundledTokenList(network), network),
+    fetchedAt: cached?.fetchedAt ?? null
+  };
+}
+
 async function refresh(network: string): Promise<void> {
   const response = await deps.fetch(tokenListUrl(network), {
     cache: 'no-store',
@@ -75,6 +94,8 @@ async function refresh(network: string): Promise<void> {
   // Validated before storing: every realm trusts this entry for a day.
   if (parseTokenList(body, network) === null) return;
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
+  // Forgotten before the notice, so the loads it sets off read what was just stored.
+  loaded.delete(network);
   listeners.forEach(listener => listener(network));
 }
 
@@ -93,10 +114,15 @@ function startRefresh(network: string): void {
  * older than a day starts one background refresh; subscribers hear when it lands.
  */
 export async function loadVerifiedFaucetIds(network: string): Promise<Set<string> | null> {
-  const cached = await readCache(network);
-  if (!cached || deps.now() - cached.fetchedAt >= TOKEN_LIST_TTL_MS || deps.now() < cached.fetchedAt) {
+  let pending = loaded.get(network);
+  if (!pending) {
+    pending = readList(network);
+    loaded.set(network, pending);
+  }
+  const { ids, fetchedAt } = await pending;
+  // Checked on every load, not once per read: a long-lived realm must still refresh a day-old list.
+  if (fetchedAt === null || deps.now() - fetchedAt >= TOKEN_LIST_TTL_MS || deps.now() < fetchedAt) {
     startRefresh(network);
   }
-  const fromCache = cached ? parseTokenList(cached.body, network) : null;
-  return fromCache ?? parseTokenList(bundledTokenList(network), network);
+  return ids;
 }
