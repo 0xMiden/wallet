@@ -117,15 +117,48 @@ describe('runLockUpChecks', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('resolves and does not lock when the closure time cannot be read', async () => {
+  it('resolves and locks when the closure time cannot be read, and reads nothing with another page open', async () => {
     mockGet.mockRejectedValue(new Error('get failed'));
 
     await expect(runLockUpChecks()).resolves.toBeUndefined();
+    expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.LockRequest });
+    expect(warnSpy).toHaveBeenCalledWith('[lock-up] Could not read the closure time; locking:', expect.any(Error));
+
+    mockGet.mockClear();
+    mockRequest.mockClear();
+    warnSpy.mockClear();
+    mockGetViews.mockReturnValue([window, window]);
+    await expect(runLockUpChecks()).resolves.toBeUndefined();
+    expect(mockGet).not.toHaveBeenCalled();
     expect(mockRequest).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[lock-up] Could not read the closure time; skipping the auto-lock check:',
-      expect.any(Error)
-    );
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('locks when the stored closure time is not a number, unless another page is open', async () => {
+    mockGet.mockResolvedValue({ [CLOSURE_STORAGE_KEY]: 'garbage' });
+
+    await runLockUpChecks();
+    expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.LockRequest });
+    expect(warnSpy).toHaveBeenCalledWith('[lock-up] The closure time is not a number; locking:', 'garbage');
+
+    mockRequest.mockClear();
+    warnSpy.mockClear();
+    mockGetViews.mockReturnValue([window, window]);
+    await runLockUpChecks();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not lock when no closure time is stored', async () => {
+    mockGet.mockResolvedValue({});
+    await runLockUpChecks();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    mockGet.mockResolvedValue({ [CLOSURE_STORAGE_KEY]: null });
+    await runLockUpChecks();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('warns when the lock request fails', async () => {

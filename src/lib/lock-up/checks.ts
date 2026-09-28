@@ -11,25 +11,23 @@ const CLOSURE_STORAGE_KEY = 'last-page-closure-timestamp';
 const isSinglePageOpened = () => getOpenedMidenPagesN() === 1;
 
 export const needsLocking = async () => {
-  return (
-    getIsLockUpEnabled() &&
-    isSinglePageOpened() &&
-    Date.now() - (await getLastClosedTimeOrNow()) >= WALLET_AUTOLOCK_TIME
-  );
+  if (!getIsLockUpEnabled() || !isSinglePageOpened()) return false;
+  // This check is the wallet's only idle lock, so a closure time it cannot read counts as expired.
+  const lastClosedTime = await getLastClosedTimeOrNow().catch(err => {
+    console.warn('[lock-up] Could not read the closure time; locking:', err);
+    return -Infinity;
+  });
+  return Date.now() - lastClosedTime >= WALLET_AUTOLOCK_TIME;
 };
 
 /**
- * Locks the wallet when this page is the first to open after the auto-lock time, then keeps the closure timestamp
- * fresh while any wallet page is open. A failed storage read or write, or a failed lock request, never rejects it:
- * the popup, side panel and options pages await it before they render.
+ * Locks the wallet when this page is the first to open after the auto-lock time, or when the closure time cannot be
+ * read or is not a number, then keeps the closure timestamp fresh while any wallet page is open. A failed storage
+ * read or write, or a failed lock request, never rejects it: the popup, side panel and options pages await it before
+ * they render.
  */
 export async function runLockUpChecks(): Promise<void> {
-  // An unreadable closure time counts as none, which never locks.
-  const needsLock = await needsLocking().catch(err => {
-    console.warn('[lock-up] Could not read the closure time; skipping the auto-lock check:', err);
-    return false;
-  });
-  if (needsLock) {
+  if (await needsLocking()) {
     lock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
   }
 
@@ -70,7 +68,15 @@ function getOpenedMidenPagesN() {
 }
 
 async function getLastClosedTimeOrNow(): Promise<number> {
-  return Number((await browser.storage.local.get(CLOSURE_STORAGE_KEY))[CLOSURE_STORAGE_KEY] ?? Date.now());
+  const stored: unknown = (await browser.storage.local.get(CLOSURE_STORAGE_KEY))[CLOSURE_STORAGE_KEY];
+  // A missing key is a fresh install, which never locks.
+  if (stored === undefined || stored === null) return Date.now();
+  const lastClosedTime = Number(stored);
+  if (!Number.isFinite(lastClosedTime)) {
+    console.warn('[lock-up] The closure time is not a number; locking:', stored);
+    return -Infinity;
+  }
+  return lastClosedTime;
 }
 
 async function updateClosureTimestamp() {
