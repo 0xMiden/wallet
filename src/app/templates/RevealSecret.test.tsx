@@ -350,6 +350,21 @@ describe('RevealSecret', () => {
     expect(buttonWithText(container, 'unlock')).toBeFalsy();
   });
 
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    const container = await renderReveal('seed-phrase');
+    await settleProbe();
+
+    expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
+      'couldNotCheckUnlockMethodReopen'
+    );
+    expect(container.querySelector('[data-testid="passcode-submit"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeFalsy();
+    expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {
     const container = await renderReveal('seed-phrase');
     expect(container.textContent).not.toContain('My Test Account');

@@ -801,6 +801,19 @@ it('fails closed when both protector reads fail', async () => {
   expect(mockGoBack).toHaveBeenCalledTimes(1);
 });
 
+it('fails closed with no passcode entry on mobile when both protector reads fail', async () => {
+  mockIsMobile.mockReturnValue(true);
+  mockHasHardwareProtector.mockRejectedValue(new Error('storage failed'));
+  mockHasPasswordProtector.mockRejectedValue(new Error('storage failed'));
+  render(<RotateGuardianReview />);
+
+  expect(await screen.findByText('couldNotCheckUnlockMethodReopen')).toBeInTheDocument();
+  expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
+  expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
 it('drives the queue itself when the user abandons on mobile, so the switch is not stranded', async () => {
   // The duplicate guard refuses while a switch-guardian row is pending, and this
   // screen cannot clear one. On extension that is fine — the service worker owns

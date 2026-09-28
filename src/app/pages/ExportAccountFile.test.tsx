@@ -301,6 +301,18 @@ it('shows an error and offers no credential step when both protector reads fail'
   expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
 });
 
+it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+  mockMobile = true;
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockRejectedValueOnce(new Error('pw-boom'));
+  render(<ExportAccountFile />);
+
+  expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+  expect(screen.queryByRole('button', { name: 'Enter passcode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+});
+
 it('keeps its header while the hardware probe is pending, with an empty body and no footer', async () => {
   mockHasHardwareProtector.mockReturnValue(new Promise(() => undefined));
   const onBack = jest.fn();

@@ -370,6 +370,18 @@ describe('VerifySeedPhraseFlow', () => {
     }
   );
 
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<VerifySeedPhraseFlow />);
+
+    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    expect(screen.getByText('continue')).toBeDisabled();
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
   it('renders each step through SubPageLayout, its actions in the footer', async () => {
     await renderFlow();
 
