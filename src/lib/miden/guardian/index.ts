@@ -24,7 +24,7 @@ import {
 } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
-import { guardianRegisterBackoffMs } from './serialize';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
@@ -58,7 +58,6 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // sooner than the ceiling" property is gone. If that property is still wanted,
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
-const MAX_GUARDIAN_REGISTER_RETRIES = 8;
 
 /**
  * Per-attempt ceiling on the two POST-COMMIT round-trips to the NEW guardian in
@@ -718,7 +717,7 @@ export class MultisigService {
 
   private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
     let lastError: unknown;
-    for (let attempt = 1; attempt <= MAX_GUARDIAN_REGISTER_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
       try {
         await withTimeout(
           this.multisig.registerOnGuardian(stateBase64),
@@ -739,8 +738,8 @@ export class MultisigService {
           return;
         }
         lastError = error;
-        console.warn(`registerOnGuardian failed (attempt ${attempt}/${MAX_GUARDIAN_REGISTER_RETRIES})`, error);
-        if (attempt < MAX_GUARDIAN_REGISTER_RETRIES) {
+        console.warn(`registerOnGuardian failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+        if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
           // #619 — on a 429 this honours the guardian's own Retry-After instead
           // of the blind exponential backoff (which just earns another 429).
           await delay(guardianRegisterBackoffMs(error, attempt));

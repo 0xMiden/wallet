@@ -2,7 +2,7 @@
 
 const _g = globalThis as any;
 _g.__resetTest = {
-  prefStub: { clear: jest.fn() }
+  prefStub: { keys: jest.fn(), remove: jest.fn(), clear: jest.fn(), set: jest.fn() }
 };
 
 const mockDbDelete = jest.fn();
@@ -37,20 +37,19 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
 }));
 
-const mockFetchFromStorage = jest.fn();
-const mockPutToStorage = jest.fn();
-jest.mock('lib/miden/front/storage', () => ({
-  fetchFromStorage: (...a: unknown[]) => mockFetchFromStorage(...a),
-  putToStorage: (...a: unknown[]) => mockPutToStorage(...a)
-}));
-
+const mockBrowserStorageGet = jest.fn();
+const mockBrowserStorageRemove = jest.fn();
 const mockBrowserStorageClear = jest.fn();
+const mockBrowserStorageSet = jest.fn();
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: {
     storage: {
       local: {
-        clear: (...args: unknown[]) => mockBrowserStorageClear(...args)
+        get: (...args: unknown[]) => mockBrowserStorageGet(...args),
+        remove: (...args: unknown[]) => mockBrowserStorageRemove(...args),
+        clear: (...args: unknown[]) => mockBrowserStorageClear(...args),
+        set: (...args: unknown[]) => mockBrowserStorageSet(...args)
       }
     }
   }
@@ -67,15 +66,25 @@ jest.mock(
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
-import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
+import {
+  clearClientStorage,
+  clearStorage,
+  dropLegacyGuardianUrl,
+  PRESERVED_STORAGE_KEYS,
+  resetStorageDestructive
+} from './reset';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
   (isMobile as jest.Mock).mockReturnValue(false);
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isExtension as jest.Mock).mockReturnValue(false);
-  mockFetchFromStorage.mockResolvedValue(null);
-  mockPutToStorage.mockResolvedValue(undefined);
+  _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: [] });
+  _g.__resetTest.prefStub.remove.mockResolvedValue(undefined);
+  mockBrowserStorageGet.mockResolvedValue({});
+  mockBrowserStorageRemove.mockResolvedValue(undefined);
 });
 
 describe('clearStorage', () => {
@@ -99,51 +108,119 @@ describe('clearStorage', () => {
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
-  it('clears Capacitor Preferences on mobile', async () => {
+  const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+  const LEGACY_GUARDIAN = 'https://my-guardian.example';
+
+  it('removes every Preferences key but the setup-kept ones on mobile, and never clears or writes', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
-    _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
+    _g.__resetTest.prefStub.keys.mockResolvedValue({
+      keys: ['endpoint_overrides', 'guardian_url_setting', 'vault_key', 'accounts']
+    });
+
     await clearStorage();
-    expect(_g.__resetTest.prefStub.clear).toHaveBeenCalled();
+
+    expect(_g.__resetTest.prefStub.remove.mock.calls).toEqual([[{ key: 'vault_key' }], [{ key: 'accounts' }]]);
+    expect(_g.__resetTest.prefStub.clear).not.toHaveBeenCalled();
+    expect(_g.__resetTest.prefStub.set).not.toHaveBeenCalled();
   });
 
-  it('clears localStorage on desktop', async () => {
+  it('rejects when listing the Preferences keys fails, and removes nothing', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockRejectedValue(new Error('bridge down'));
+
+    await expect(clearStorage()).rejects.toThrow('bridge down');
+    expect(_g.__resetTest.prefStub.remove).not.toHaveBeenCalled();
+  });
+
+  it('rejects when a Preferences removal fails, having never offered a kept key for removal', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['endpoint_overrides', 'vault_key', 'accounts'] });
+    _g.__resetTest.prefStub.remove.mockRejectedValueOnce(new Error('write refused'));
+
+    await expect(clearStorage()).rejects.toThrow('write refused');
+    const removed = _g.__resetTest.prefStub.remove.mock.calls.map((c: [{ key: string }]) => c[0].key);
+    expect(removed).not.toContain('endpoint_overrides');
+  });
+
+  it('removes every localStorage key but the setup-kept ones in their desktop form, and never clears or writes', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
-    const setSpy = jest.spyOn(Storage.prototype, 'clear');
-    await clearStorage();
-    expect(setSpy).toHaveBeenCalled();
-    setSpy.mockRestore();
+    localStorage.setItem('miden_wallet_endpoint_overrides', JSON.stringify(OVERRIDE));
+    localStorage.setItem('miden_wallet_guardian_url_setting', LEGACY_GUARDIAN);
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    localStorage.setItem('ui_cache', 'u');
+    const clearSpy = jest.spyOn(Storage.prototype, 'clear');
+    const setSpy = jest.spyOn(Storage.prototype, 'setItem');
+
+    try {
+      await clearStorage();
+
+      expect(Object.keys(localStorage).sort()).toEqual([
+        'miden_wallet_endpoint_overrides',
+        'miden_wallet_guardian_url_setting'
+      ]);
+      expect(localStorage.getItem('miden_wallet_endpoint_overrides')).toBe(JSON.stringify(OVERRIDE));
+      expect(localStorage.getItem('miden_wallet_guardian_url_setting')).toBe(LEGACY_GUARDIAN);
+      expect(clearSpy).not.toHaveBeenCalled();
+      expect(setSpy).not.toHaveBeenCalled();
+    } finally {
+      clearSpy.mockRestore();
+      setSpy.mockRestore();
+    }
   });
 
-  it('clears browser.storage.local on extension', async () => {
+  it('removes every extension key but the setup-kept ones in one call, and never clears or writes', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: OVERRIDE,
+      guardian_url_setting: LEGACY_GUARDIAN,
+      vault_key: 'v',
+      accounts: []
+    });
+
     await clearStorage();
-    expect(mockBrowserStorageClear).toHaveBeenCalled();
+
+    expect(mockBrowserStorageGet).toHaveBeenCalledWith(null);
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key', 'accounts']]]);
+    expect(mockBrowserStorageClear).not.toHaveBeenCalled();
+    expect(mockBrowserStorageSet).not.toHaveBeenCalled();
   });
 
-  it('preserves the endpoint override across the wipe (snapshot → clear → restore)', async () => {
+  it('makes no removal call on the extension when only kept keys exist', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
-    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
-    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+    mockBrowserStorageGet.mockResolvedValue({ endpoint_overrides: OVERRIDE });
 
     await clearStorage();
 
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
-    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', OVERRIDE);
-    // Order is load-bearing: the override must be READ before the wipe and
-    // RESTORED after it, or the blanket clear() would erase it.
-    expect(mockFetchFromStorage.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockBrowserStorageClear.mock.invocationCallOrder[0]!
-    );
-    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockPutToStorage.mock.invocationCallOrder[0]!
-    );
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
   });
 
-  it('does not restore an endpoint override that was never set', async () => {
+  it('rejects when the extension removal fails', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
-    mockFetchFromStorage.mockResolvedValue(null);
-    await clearStorage();
-    expect(mockPutToStorage).not.toHaveBeenCalled();
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    mockBrowserStorageRemove.mockRejectedValue(new Error('quota'));
+
+    await expect(clearStorage()).rejects.toThrow('quota');
+  });
+
+  it("keeps only the list its caller passes: the full reset's list drops the legacy guardian URL (#1174)", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: OVERRIDE,
+      guardian_url_setting: LEGACY_GUARDIAN,
+      vault_key: 'v'
+    });
+
+    await clearStorage(false, PRESERVED_STORAGE_KEYS);
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['guardian_url_setting', 'vault_key']]]);
+  });
+
+  it('rejects when listing the extension keys fails, and removes nothing', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockRejectedValue(new Error('storage down'));
+
+    await expect(clearStorage()).rejects.toThrow('storage down');
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
   });
 
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
@@ -163,21 +240,59 @@ describe('clearStorage', () => {
 });
 
 describe('resetStorageDestructive', () => {
-  it('drops and reopens the IndexedDB and clears platform storage', async () => {
+  it('drops and reopens the IndexedDB and keeps only the endpoint override, not the legacy guardian URL', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: { rpcUrl: 'https://rpc.custom' },
+      guardian_url_setting: 'https://my-guardian.example',
+      vault_key: 'v'
+    });
+
     await resetStorageDestructive();
+
     expect(mockDbDelete).toHaveBeenCalled();
     expect(mockDbOpen).toHaveBeenCalled();
-    expect(mockBrowserStorageClear).toHaveBeenCalled();
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['guardian_url_setting', 'vault_key']]]);
+    expect(mockBrowserStorageClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('dropLegacyGuardianUrl', () => {
+  it('removes the legacy guardian URL and nothing else', async () => {
+    localStorage.setItem('miden_wallet_guardian_url_setting', 'https://my-guardian.example');
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+
+    await dropLegacyGuardianUrl();
+
+    expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
+  });
+
+  it('rejects when the removal fails, leaving the caller to choose how to degrade', async () => {
+    const removeSpy = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('storage down');
+    });
+    try {
+      await expect(dropLegacyGuardianUrl()).rejects.toThrow('storage down');
+    } finally {
+      removeSpy.mockRestore();
+    }
   });
 });
 
 describe('clearClientStorage', () => {
-  it('clears both localStorage and sessionStorage', () => {
-    const localSpy = jest.spyOn(Storage.prototype, 'clear');
+  it('keeps the setup-kept keys in their desktop form, removes every other localStorage key, and clears sessionStorage', () => {
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+    localStorage.setItem('miden_wallet_guardian_url_setting', 'https://my-guardian.example');
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    localStorage.setItem('ui_cache', 'u');
+    sessionStorage.setItem('draft', 'd');
+
     clearClientStorage();
-    // Both localStorage.clear() and sessionStorage.clear() share the prototype
-    expect(localSpy).toHaveBeenCalledTimes(2);
-    localSpy.mockRestore();
+
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'miden_wallet_endpoint_overrides',
+      'miden_wallet_guardian_url_setting'
+    ]);
+    expect(sessionStorage.length).toBe(0);
   });
 });
