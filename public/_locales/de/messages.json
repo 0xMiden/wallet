@@ -503,6 +503,10 @@
     "message": "z. B. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ihr privater Schlüssel konnte nicht aus der Zwischenablage gelöscht werden. Löschen Sie ihn selbst, bevor Sie fortfahren.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Einstellungen",
     "englishSource": "Settings"

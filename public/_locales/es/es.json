@@ -94,6 +94,7 @@
   "accountNameInputInvalid": "Usa entre 1 y 16 caracteres y no empieces con un espacio en blanco ni un guion.",
   "privateKeyInputDescription": "La clave privada de la cuenta que quieres importar.",
   "privateKeyInputPlaceholder": "p. ej., APrivateKey1zkp...",
+  "privateKeyClipboardNotCleared": "No se ha podido eliminar tu clave privada del portapapeles. Bórrala tú mismo antes de continuar.",
   "settings": "Configuración",
   "authorizedDApps": "DApps autorizadas",
   "versionLabel": "versión: $version$",

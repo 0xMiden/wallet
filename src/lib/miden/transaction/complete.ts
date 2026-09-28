@@ -436,7 +436,7 @@ export const completeReplaceHotKeyTransaction = async (
     // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
     // Best-effort: an on-chain-successful rotation must not be failed by a
     // guardian blip (`registerOnGuardianWithRetry` retries up to
-    // MAX_GUARDIAN_REGISTER_RETRIES times, honouring Retry-After); a miss is
+    // GUARDIAN_RETRY_MAX_ATTEMPTS times, honouring Retry-After); a miss is
     // recorded as `reRegisterFailed` for observability and healed by the
     // guardian-sync 401 self-heal.
     // Retried as a WHOLE, not just at its last call. `registerOnGuardianWithRetry`

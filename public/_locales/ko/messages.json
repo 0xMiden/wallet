@@ -503,6 +503,10 @@
     "message": "예: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "클립보드에서 개인 키를 제거할 수 없습니다. 계속하기 전에 직접 지워 주십시오.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "설정",
     "englishSource": "Settings"

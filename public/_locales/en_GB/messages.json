@@ -503,6 +503,10 @@
     "message": "e.g. APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "Your private key could not be removed from the clipboard. Clear it yourself before you continue.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "Settings",
     "englishSource": "Settings"

@@ -25,7 +25,7 @@ import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSigne
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment } from './operator-map';
-import { guardianRegisterBackoffMs } from './serialize';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
@@ -58,8 +58,6 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
  * `buildUpdateGuardianTransactionRequest` / `executeForSummary`. If upstream
  * ever exports the advice helper, the local copy below should be replaced.
  */
-
-const MAX_DIRECT_REGISTER_RETRIES = 8;
 
 /**
  * Per-attempt ceiling on the `/configure` round-trip to the NEW guardian.
@@ -757,7 +755,7 @@ export const finalizeDirectGuardianSwitch = async (
   );
 
   let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_DIRECT_REGISTER_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
     try {
       // Bounded, for the same reason every call to the OUTGOING guardian is
       // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` calls bare `fetch`
@@ -812,8 +810,8 @@ export const finalizeDirectGuardianSwitch = async (
         return;
       }
       lastError = error;
-      console.warn(`Direct guardian registration failed (attempt ${attempt}/${MAX_DIRECT_REGISTER_RETRIES})`, error);
-      if (attempt < MAX_DIRECT_REGISTER_RETRIES) {
+      console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+      if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }
     }
