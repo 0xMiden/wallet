@@ -288,12 +288,8 @@ A third plain-storage key, `vault_key_platform`, next to the other two
 | `credentialId` | The credential's raw id, stored as base64url; passed in `allowCredentials` at unlock, and its raw bytes are the HKDF salt |
 | `prfSalt` | 32 random bytes, the PRF input, one per credential |
 | `wrappedKey` | 12-byte IV, then AES-GCM ciphertext and tag of the 32 vault-key bytes |
-| `backupEligible` | The BE flag read at enrollment; the Settings row (milestone 2) shows from it whether the credential syncs |
-| `lastPasswordUnlockAt` | When the password last unlocked the wallet or enrolled this record; the periodic password check (milestone 3) reads it |
 
-The salt is not secret: it is stored next to the wrapped key. Neither
-`backupEligible` nor `lastPasswordUnlockAt` is part of the key derivation: both
-steer the interface, not the unwrap.
+The salt is not secret: it is stored next to the wrapped key.
 
 Rotating the salt with `eval.second` on each unlock, as WebAuthn Level 3
 suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope:
@@ -318,16 +314,15 @@ opens the old record.
 
 Unlock, as proposed:
 
-1. The page gets the record's credential id, salt and `lastPasswordUnlockAt`,
-   none of them secret.
+1. The page gets the record's credential id and salt, both public.
 2. It runs `navigator.credentials.get()` with that id in `allowCredentials`,
    `userVerification: 'required'`, a random challenge and
    `prf: { eval: { first: prfSalt } }`.
 3. It sends the 32-byte PRF output to the service worker in an unlock request
    over the same `INTERCOM` port the password travels on today
-   (`src/lib/store/index.ts:179-185`, `src/lib/intercom/client.ts:271`), under a
-   field name the crash-report redaction treats as secret (First implementation
-   scope, milestone 2).
+   (`src/lib/store/index.ts:179-185`, `src/lib/intercom/client.ts:271`), under
+   a field name the crash-report redaction treats as secret (First
+   implementation scope, milestone 3).
 4. The service worker derives the wrapping key, unwraps the vault-key bytes,
    imports them with `importVaultKey` and continues exactly as `Vault.setup`
    does after `unlockWithPassword` (`src/lib/miden/back/vault.ts:647-662`).
@@ -387,13 +382,11 @@ Enrollment, as proposed:
    such an entry and is known to hide only GPM entries
    ([delegate][cr-delegate]); its effect on iCloud Keychain is
    **Unconfirmed** (Open question 12).
-3. The page sends the password, credential id, salt, PRF output and BE flag to
-   the service worker, the PRF output under a field name the crash-report
-   redaction treats as secret (First implementation scope, milestone 2).
-4. The service worker unwraps the vault-key bytes with the password, wraps them
-   under the PRF-derived key, unwraps the result once to check it, and only then
-   saves `vault_key_platform`, with `lastPasswordUnlockAt` set to the enrollment
-   time, since the password has just been checked.
+3. The page sends the password, credential id, salt and PRF output to the
+   service worker.
+4. The service worker unwraps the vault-key bytes with the password, wraps
+   them under the PRF-derived key, unwraps the result once to check it, and
+   only then saves `vault_key_platform`.
 
 A legacy wallet has no `vault_key_password` to unwrap, so this path does not
 apply to it as written.
@@ -658,7 +651,7 @@ bar is weighed at the end of the section.
 - The record adds a second ciphertext of the same 32 bytes under a key derived
   from a PRF output. PRF outputs are 32 bytes
   ([WebAuthn Level 3 section 10.1.4][webauthn-l3]) computed from a secret the
-  authenticator holds; the credential id and salt stored in the record are
+  authenticator holds; the credential id and salt stored beside the record are
   inputs, not secrets. The record gives an offline attacker nothing to guess,
   so the password stays the cheapest target, as it is today.
 - That holds while the PRF secret stays out of reach: on one device for a
@@ -720,11 +713,11 @@ bar is weighed at the end of the section.
 - Today the password is typed into the page and sent in `UnlockRequest`
   (`src/lib/store/index.ts:179-185`): code running in an extension page sees
   it, and code in the service worker holds the vault key after any unlock.
-- The PRF output takes the same path (Mechanism, unlock step 3 and enrollment
-  step 3), so the exposure is the same, provided it is kept out of crash reports
-  as the password is (milestone 2). Code in a page can also start its own
-  `get()` with the stored salt; the provider then shows its sheet and asks for
-  the user's verification, which a user expecting an unlock may give.
+- The PRF output takes the same path (Mechanism, unlock step 3), so the exposure
+  is the same, provided it is kept out of crash reports as the password is
+  (milestone 3). Code in a page can also start its own `get()` with the stored
+  salt; the provider then shows its sheet and asks for the user's verification,
+  which a user expecting an unlock may give.
 - One difference: a captured PRF output opens only this record, while a
   captured password also works wherever the user reused it.
 - Malware running as the user can read the profile's storage and wait for
@@ -910,37 +903,32 @@ against it.
    needed only to re-check on a device that a Web Store reinstall reaches the
    same credential (Lifecycle, uninstall row). It settles Open questions 1 to 11
    and decides, per OS, whether to continue and which surface runs the ceremony.
-2. **Enrollment in Settings, behind the password.** A row in Settings' Security
-   group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment flow in
-   Mechanism, offered only when `vault_key_password` exists. The row shows
-   whether the credential syncs, from the record's `backupEligible`.
-   One more part:
-   - Crash-report redaction, in place before the first PRF output crosses the
-     port: crash reports are scrubbed by key name
+2. **Enrollment in Settings, behind the password.** A row in Settings'
+   Security group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment
+   flow in Mechanism, offered only when `vault_key_password` exists. The row
+   shows whether the credential syncs, from the BE flag read at enrollment.
+3. **Unlock with PRF, and the password on every failure.** On the Unlock page
+   (`src/app/pages/Unlock.tsx:330`) and in the confirm window
+   (`src/app/ConfirmPage.tsx:67-68`). A cancel, a `NotAllowedError`, a missing
+   credential or PRF result, a clear UV flag or a failed AES-GCM tag each
+   leaves the password form in place.
+   Two more parts:
+   - A periodic password check: the Unlock page asks for the password instead
+     of the passkey when the password has not been entered for 7 days, so the
+     fallback stays in the user's memory (Lifecycle, forgotten password).
+     Apple asks for the Mac password when it has not been used to unlock for
+     156 hours and biometrics have not been used for 4
+     ([Apple Platform Security][apple-pwd-rules], 2024-12-19). The 7 days are
+     the doc's recommendation, a product setting the owner can change; the
+     time of the last password unlock is stored beside the record.
+   - Crash-report redaction: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
      `src/lib/telemetry/redact.ts:350-355`), matching the parts of each key
      against a list (`src/lib/telemetry/redact.ts:242-288`,
      `src/lib/telemetry/redact.ts:313-325`). `password` is caught; a field named
-     `prfOutput` would not be. The PRF output in both the enrollment and the
-     unlock request therefore travels under a key with a listed part, such as
-     `prfSecret`, or `prf` joins the list, and a redaction test covers both
-     request shapes.
-3. **Unlock with PRF, and the password on every failure.** On the Unlock page
-   (`src/app/pages/Unlock.tsx:330`) and in the confirm window
-   (`src/app/ConfirmPage.tsx:67-68`). A cancel, a `NotAllowedError`, a missing
-   credential or PRF result, a clear UV flag or a failed AES-GCM tag each leaves
-   the password form in place.
-   One more part:
-   - A periodic password check: the Unlock page asks for the password instead of
-     the passkey when the password has not unlocked the wallet for 7 days, so
-     the fallback stays in the user's memory (Lifecycle, forgotten password).
-     Apple asks for the Mac password when it has not been used to unlock for 156
-     hours and biometrics have not been used for 4 ([Apple Platform
-     Security][apple-pwd-rules], 2024-12-19). The 7 days are the doc's
-     recommendation, a product setting the owner can change; the time the
-     password last unlocked the wallet is the record's `lastPasswordUnlockAt`,
-     which the service worker rewrites on every password unlock and which only
-     password unlocks and enrollment refresh.
+     `prfOutput` would not be. The PRF output therefore travels under a key with
+     a listed part, such as `prfSecret`, or `prf` joins the list, and a
+     redaction test covers it.
 4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and calls
    `signalUnknownCredential` (Mechanism, enrollment step 2; Open question 12);
    re-enrollment replaces the record. A wallet setup already wipes every storage
