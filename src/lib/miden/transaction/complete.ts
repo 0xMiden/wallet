@@ -601,8 +601,9 @@ export const completeSwitchGuardianTransaction = async (
   // confirmation the code never obtained.
   //
   // Two callers pass it: the direct path when `didDirectSwitchLand` answers
-  // `undefined`, and `reconcileStructuralApplyFailure` always — an
-  // apply-after-submit failure proves the node accepted the transaction and
+  // `undefined`, and `reconcileStructuralApplyFailure` always. It runs on an
+  // apply-after-submit failure or a canonicalization refusal, neither of which a
+  // pre-submit step produces, so it knows the node accepted the transaction and
   // nothing beyond that.
   //
   // The default is `false` for the paths that WAITED for the commit and got it.

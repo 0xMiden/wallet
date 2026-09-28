@@ -104,10 +104,11 @@ export function errorMessageParts(err: unknown): string[] {
  * The second pattern below, "is not greater than local nonce", is the wording older
  * clients used; 0.17.0 returns false for a lower nonce instead of throwing.
  *
- * The client raises this when asked to import a guardian's view of an account that
- * is NOT ahead of the local one: a nonce no greater than local, or a commitment
- * that does not match the chain. It says something specific: the guardian is
- * behind or holding a diverged blob. It does NOT say the read failed.
+ * The client raises this when asked to import a guardian's view it will not take
+ * over the local one: the local nonce with another commitment, or a commitment
+ * that does not match the chain (a guardian behind local is kept quietly). It
+ * says something specific: the guardian's state diverges from the local one or
+ * from the chain. It does NOT say the read failed.
  *
  * Two callers depend on that distinction. The transaction loop treats it as
  * success (the on-chain tx landed; only the local sync refused, and the next

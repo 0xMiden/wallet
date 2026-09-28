@@ -30,8 +30,8 @@ export type { SignCallbackReason };
 
 /**
  * Detect the Guardian canonicalization refusal, which the pinned multisig client
- * (0.17.0) throws from `syncState` when the guardian's view of an account is not
- * ahead of the local one:
+ * (0.17.0) throws from `syncState` when the guardian's view of an account has the
+ * local nonce with another commitment, or does not match the chain:
  *
  *   "Refusing to overwrite local state: incoming nonce N equals local nonce N
  *    but commitments differ for account X"
