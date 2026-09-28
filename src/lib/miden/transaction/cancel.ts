@@ -462,9 +462,10 @@ export const cancelStaleQueuedTransactions = async () => {
  * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
  * `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer of the
  * Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write, so every
- * row this session starts is stamped at or after it, and every row an earlier process or browser
- * session started is stamped at or before it. An earlier row stamped in that same second is spared
- * by `failInterruptedTransactions` and falls to the age-gated reaper.
+ * row this session starts is stamped at or after it. A row an earlier process or browser session
+ * started is stamped before it unless it was stamped in that same second or the clock stepped back
+ * across the restart; such a row is spared by `failInterruptedTransactions` and falls to the
+ * age-gated reaper.
  */
 export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
 

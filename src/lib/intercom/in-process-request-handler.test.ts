@@ -65,6 +65,27 @@ describe('processInProcessRequest', () => {
     expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
   });
 
+  it('UnlockRequest answers without waiting for the processing it kicks', async () => {
+    mockStartTransactionProcessing.mockImplementationOnce(() => new Promise<undefined>(() => {}));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<'timed out'>(resolve => {
+      timer = setTimeout(() => resolve('timed out'), 1000);
+    });
+    try {
+      const res = await Promise.race([
+        processInProcessRequest(
+          { type: WalletMessageType.UnlockRequest, password: 'pw' } as WalletRequest,
+          'test-adapter'
+        ),
+        timedOut
+      ]);
+      expect(res).toEqual({ type: WalletMessageType.UnlockResponse });
+    } finally {
+      clearTimeout(timer);
+    }
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
   it('a failed unlock does not kick transaction processing', async () => {
     mockUnlock.mockRejectedValueOnce(new Error('Invalid password'));
     await expect(

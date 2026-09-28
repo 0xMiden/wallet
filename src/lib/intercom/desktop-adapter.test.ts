@@ -7,11 +7,11 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { DesktopIntercomAdapter } from './desktop-adapter';
 
-// Mock the backend action handlers. Only the actions the desktop adapter
-// actually calls need to be present; each resolves a representative value.
 jest.mock('lib/miden/back/transaction-processor', () => ({
   startTransactionProcessing: jest.fn().mockResolvedValue(undefined)
 }));
+// Mock the backend action handlers. Only the actions the desktop adapter
+// actually calls need to be present; each resolves a representative value.
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ status: 'ready', accounts: [], settings: {} }),
