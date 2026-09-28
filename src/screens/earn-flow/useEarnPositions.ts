@@ -30,7 +30,8 @@ export function earnItemLoadState(
  * summary with no figures yet. A failed refresh keeps the last data this key loaded (SWR
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
- * account's positions after a switch. The 30s refresh pauses while the page is off screen.
+ * account's positions after a switch. The 30s refresh stops while the page is hidden in another tab or covered
+ * by another page.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
