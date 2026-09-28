@@ -157,8 +157,9 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
- * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
- * item is kept on screen.
+ * tab patterns do; only the selected item is in the tab order. A disabled item is never reported
+ * as selected (no bubble, no aria-checked, not the tab stop) unless every item is disabled, which
+ * keeps the read-only look. In the `scroll` layout the selected item is kept on screen.
  */
 export function SegmentedControl<T extends string>({
   items,
