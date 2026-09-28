@@ -470,10 +470,9 @@ describe('onAvailabilityChange', () => {
   });
 });
 
-// ── onPermissionChange (also covers permissionsAreEqual) ───────────
+// ── onPermissionChange (also covers sameAccount) ────────────────────
 describe('onPermissionChange', () => {
   const permA = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
-  const permAcopy = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
   const permArpc = { address: 'a', rpc: 'r2', privateDataPermission: 'None', allowedPrivateData: {} };
   const permB = { address: 'b', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
   // The permission a provider connected with names the network by chain id; the poll names it by RPC URL (#1227).
@@ -504,31 +503,25 @@ describe('onPermissionChange', () => {
     await flush();
     expect(cb).toHaveBeenNthCalledWith(1, permA);
 
-    // check #3: permA -> identical fields -> equal -> no callback.
-    await jest.advanceTimersByTimeAsync(10_000);
-    resolveWith(permAcopy);
-    await flush();
-    expect(cb).toHaveBeenCalledTimes(1);
-
-    // check #4: same address, different rpc -> the same account -> no callback (#1227).
+    // check #3: same address, different rpc -> the same account -> no callback (#1227).
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(permArpc);
     await flush();
     expect(cb).toHaveBeenCalledTimes(1);
 
-    // check #5: different address -> changed -> callback.
+    // check #4: different address -> changed -> callback.
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(permB);
     await flush();
     expect(cb).toHaveBeenNthCalledWith(2, permB);
 
-    // check #6: back to null -> changed -> callback(null).
+    // check #5: back to null -> changed -> callback(null).
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(null);
     await flush();
     expect(cb).toHaveBeenNthCalledWith(3, null);
 
-    // check #7: error is swallowed by the try/catch -> no callback, keeps polling.
+    // check #6: error is swallowed by the try/catch -> no callback, keeps polling.
     await jest.advanceTimersByTimeAsync(10_000);
     deliverPageError('boom');
     await flush();
