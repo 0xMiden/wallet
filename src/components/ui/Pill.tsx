@@ -188,8 +188,14 @@ export const Pill: React.FC<PillProps> = ({
   const content = (
     <>
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
-      <span className="min-w-0 truncate">{children}</span>
-      {trailingIcon && <span className={pillTrailingIconVariants({ size })}>{trailingIcon}</span>}
+      <span data-slot="pill-label" className="min-w-0 truncate">
+        {children}
+      </span>
+      {trailingIcon && (
+        <span data-slot="pill-trailing" className={pillTrailingIconVariants({ size })}>
+          {trailingIcon}
+        </span>
+      )}
     </>
   );
 

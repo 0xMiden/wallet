@@ -18,42 +18,52 @@ const TEXT_MIN_PX = 8;
 
 /**
  * Shrinks the pill's line below `maxPx` only when the whole sentence would not fit on one line at
- * it (a 320pt screen leaves 226px). Text width scales linearly with font size, so one measurement
- * gives the exact fit.
+ * it (a 320pt screen leaves 226px). The glyphs scale linearly with font size and the separator's
+ * padding does not, so one measurement gives the exact fit.
  *
  * The room the line has is measured up to the trailing glyph: `Pill` pushes it to the far end with
- * `ml-auto`, so the space between the line's box and the glyph is room the line may grow into.
+ * `ml-auto`, so the space between the label's box and the glyph is room the line may grow into. The
+ * fit re-runs when the sentence changes (its network or language), once web fonts load, and when the
+ * pill resizes. The line itself is inline, a box ResizeObserver never reports.
  */
-function useFitText(active: boolean, maxPx: number) {
+function useFitText(active: boolean, maxPx: number, network: string, language: string) {
   const textRef = useRef<HTMLSpanElement | null>(null);
+  const separatorRef = useRef<HTMLSpanElement | null>(null);
   const [fontPx, setFontPx] = useState(maxPx);
 
   useLayoutEffect(() => {
     const text = textRef.current;
-    // The text's own box, Pill's truncating label span, then the trailing glyph's box after it.
-    const label = text?.parentElement;
-    const trailing = label?.nextElementSibling;
-    if (!active || !text || !label || !(trailing instanceof HTMLElement)) return;
+    const label = text?.closest('[data-slot="pill-label"]');
+    const pill = label?.parentElement;
+    const trailing = pill?.querySelector('[data-slot="pill-trailing"]');
+    if (!active || !text || !(label instanceof HTMLElement) || !pill || !(trailing instanceof HTMLElement)) return;
 
     const fit = () => {
       const currentPx = parseFloat(getComputedStyle(text).fontSize);
-      const gapPx = parseFloat(getComputedStyle(label.parentElement ?? label).columnGap) || 0;
+      const gapPx = parseFloat(getComputedStyle(pill).columnGap) || 0;
+      const separator = separatorRef.current && getComputedStyle(separatorRef.current);
+      const fixedPx = separator
+        ? (parseFloat(separator.paddingLeft) || 0) + (parseFloat(separator.paddingRight) || 0)
+        : 0;
       const available = trailing.offsetLeft - gapPx - label.offsetLeft;
-      if (!currentPx || text.offsetWidth === 0 || available <= 0) return;
-      const widthAtMax = (text.offsetWidth / currentPx) * maxPx;
-      const next = Math.min(maxPx, Math.max(TEXT_MIN_PX, (maxPx * available) / widthAtMax));
+      const scalablePx = text.offsetWidth - fixedPx;
+      if (!currentPx || scalablePx <= 0 || available <= fixedPx) return;
+      const next = Math.min(maxPx, Math.max(TEXT_MIN_PX, ((available - fixedPx) * currentPx) / scalablePx));
       setFontPx(Math.floor(next * 10) / 10);
     };
 
     fit();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(fit);
-    observer.observe(label.parentElement ?? label);
-    observer.observe(text);
-    return () => observer.disconnect();
-  }, [active, maxPx]);
+    const fonts: FontFaceSet | undefined = document.fonts;
+    fonts?.addEventListener('loadingdone', fit);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    observer?.observe(pill);
+    return () => {
+      fonts?.removeEventListener('loadingdone', fit);
+      observer?.disconnect();
+    };
+  }, [active, maxPx, network, language]);
 
-  return { textRef, fontPx };
+  return { textRef, separatorRef, fontPx };
 }
 
 /**
@@ -68,10 +78,11 @@ export const NetworkModePill: FC = () => {
   const [open, setOpen] = useState(false);
 
   const networkKey = getTestNetworkNameKey();
-  const isEnglish = (i18n.resolvedLanguage ?? i18n.language ?? 'en').startsWith('en');
-  const { textRef, fontPx } = useFitText(networkKey !== null, isEnglish ? TEXT_ENGLISH_PX : TEXT_OTHER_PX);
+  const network = networkKey ? t(networkKey) : '';
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  const maxPx = language.startsWith('en') ? TEXT_ENGLISH_PX : TEXT_OTHER_PX;
+  const { textRef, separatorRef, fontPx } = useFitText(networkKey !== null, maxPx, network, language);
   if (!networkKey) return null;
-  const network = t(networkKey);
 
   return (
     <>
@@ -87,8 +98,10 @@ export const NetworkModePill: FC = () => {
       >
         <span ref={textRef} style={{ fontSize: `${fontPx}px` }} data-testid="network-mode-pill-text">
           {network}
-          {/* eslint-disable-next-line i18next/no-literal-string -- separator glyph, not translatable copy */}
-          <span className="px-1.5 text-muted">·</span>
+          <span ref={separatorRef} className="px-1.5 text-muted">
+            {/* eslint-disable-next-line i18next/no-literal-string -- separator glyph, not translatable copy */}
+            {'·'}
+          </span>
           <span className="text-muted">{t('networkModePillNoValue')}</span>
         </span>
       </Pill>

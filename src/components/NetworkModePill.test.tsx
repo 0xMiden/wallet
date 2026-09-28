@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -155,5 +155,129 @@ describe('NetworkModePill', () => {
     fireEvent.click(screen.getByTestId('network-mode-sheet-cta'));
 
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
+  });
+});
+
+describe('NetworkModePill: fitting the line', () => {
+  // The layout jsdom does not do. The sentence is `mockPerPx` wide per pixel of font plus the
+  // separator's 12px of padding, which does not scale; the label starts 28px in, and the trailing
+  // glyph sits `slot` plus the 6px gap after it. The boxes are found by the pill's structure, not by
+  // the slots the fit reads, so the geometry is the same whichever way the fit finds them.
+  const SEPARATOR_PAD_PX = 6;
+  const GAP_PX = 6;
+  const LABEL_LEFT_PX = 28;
+  let slot = 300;
+  let mockPerPx = 30;
+
+  const text = () => screen.getByTestId('network-mode-pill-text');
+  const fontPx = () => parseFloat(text().style.fontSize);
+  const isPillChild = (el: HTMLElement) => el.parentElement?.dataset.testid === 'network-mode-pill';
+  const isLabel = (el: HTMLElement) => isPillChild(el) && el.querySelector('[data-testid="network-mode-pill-text"]');
+  const isTrailing = (el: HTMLElement) => isPillChild(el) && el.parentElement?.lastElementChild === el;
+
+  let resize: () => void = () => {};
+  const observed: Element[] = [];
+  class MockResizeObserver {
+    constructor(callback: () => void) {
+      resize = callback;
+    }
+    observe(target: Element) {
+      observed.push(target);
+    }
+    unobserve() {}
+    disconnect() {}
+  }
+
+  beforeEach(() => {
+    mockNetworkKey = 'testnet';
+    mockLanguage = 'en';
+    slot = 300;
+    mockPerPx = 30;
+    observed.length = 0;
+    jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === 'network-mode-pill-text'
+        ? mockPerPx * parseFloat(this.style.fontSize) + 2 * SEPARATOR_PAD_PX
+        : 0;
+    });
+    jest.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
+      if (isLabel(this)) return LABEL_LEFT_PX;
+      if (isTrailing(this)) return LABEL_LEFT_PX + slot + GAP_PX;
+      return 0;
+    });
+    // What Tailwind's stylesheet gives the classes the fit reads, and the line's own inline size.
+    jest.spyOn(window, 'getComputedStyle').mockImplementation((el: Element) => {
+      const style = document.createElement('span').style;
+      if (el instanceof HTMLElement) style.fontSize = el.style.fontSize;
+      if (el.classList.contains('gap-1.5')) style.columnGap = `${GAP_PX}px`;
+      if (el.classList.contains('px-1.5')) {
+        style.paddingLeft = `${SEPARATOR_PAD_PX}px`;
+        style.paddingRight = `${SEPARATOR_PAD_PX}px`;
+      }
+      return style;
+    });
+    Object.defineProperty(window, 'ResizeObserver', { value: MockResizeObserver, configurable: true, writable: true });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    Reflect.deleteProperty(window, 'ResizeObserver');
+    Reflect.deleteProperty(document, 'fonts');
+  });
+
+  it('shrinks a line wider than its slot until it fits, the fixed separator padding included', () => {
+    render(<NetworkModePill />);
+
+    expect(fontPx()).toBeLessThan(14);
+    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    // Exact, not merely small enough: within one 0.1px step of the slot.
+    expect(text().offsetWidth).toBeGreaterThan(slot - 0.1 * mockPerPx);
+  });
+
+  it.each([
+    ['the language', () => (mockLanguage = 'ru')],
+    ['the network name', () => (mockNetworkKey = 'localnet')]
+  ])('re-fits when %s changes the sentence under the same ceiling', (_what, change) => {
+    mockLanguage = 'es';
+    mockPerPx = 20;
+    const { rerender } = render(<NetworkModePill />);
+    expect(fontPx()).toBe(11);
+
+    change();
+    mockPerPx = 30;
+    rerender(<NetworkModePill />);
+
+    expect(fontPx()).toBe(9.6);
+    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+  });
+
+  it('re-fits when the pill resizes, observing its box rather than the inline line', () => {
+    render(<NetworkModePill />);
+    expect(observed).toEqual([pill()]);
+
+    slot = 270;
+    act(() => resize());
+
+    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    expect(text().offsetWidth).toBeGreaterThan(slot - 0.1 * mockPerPx);
+  });
+
+  it('re-fits once web fonts load, and stops listening when it unmounts', () => {
+    const fonts = new EventTarget();
+    Object.defineProperty(document, 'fonts', { value: fonts, configurable: true });
+    const removeListener = jest.spyOn(fonts, 'removeEventListener');
+    mockPerPx = 20;
+    const { unmount } = render(<NetworkModePill />);
+    expect(fontPx()).toBe(14);
+
+    // The web face is wider than the fallback the first fit measured.
+    mockPerPx = 30;
+    act(() => {
+      fonts.dispatchEvent(new Event('loadingdone'));
+    });
+    expect(text().offsetWidth).toBeLessThanOrEqual(slot);
+    expect(fontPx()).toBeLessThan(14);
+
+    unmount();
+    expect(removeListener).toHaveBeenCalledWith('loadingdone', expect.any(Function));
   });
 });
