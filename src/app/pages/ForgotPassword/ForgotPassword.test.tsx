@@ -589,9 +589,7 @@ describe('ForgotPassword', () => {
   });
 
   it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
-    mockClearClientStorage.mockImplementationOnce(() => {
-      throw new Error('storage unavailable');
-    });
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });

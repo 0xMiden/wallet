@@ -7,6 +7,7 @@ export * from '../transaction';
 export * from './notes';
 export * from './bridge-in';
 export * from './bridge-receive';
+export * from './superseded-consumes';
 
 /**
  * Tell the service worker to start processing queued transactions.

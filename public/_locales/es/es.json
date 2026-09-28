@@ -1199,6 +1199,7 @@
   "guardianCardMeta": "Operado por $operator$ · $location$",
   "couldNotCheckUnlockMethod": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
   "checkingUnlockMethodSlow": "Comprobar el método de desbloqueo de este monedero está tardando más de lo habitual. Para volver a intentarlo, retrocede y vuelve a abrir esta página.",
+  "couldNotCheckUnlockMethodReopen": "No se ha podido comprobar el método de desbloqueo de este monedero. Para volver a intentarlo, vuelve atrás y vuelve a abrir esta página.",
   "receiveQrColorAction": "Cambiar el color del código QR",
   "receiveAt": "Recibir en",
   "earnTitle": "Tus ganancias",

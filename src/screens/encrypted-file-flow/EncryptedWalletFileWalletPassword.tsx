@@ -1,18 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { getCurrentLocale } from 'lib/i18n/core';
-import { Vault } from 'lib/miden/back/vault';
 import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
@@ -68,7 +69,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // so the guard, the loading spinner, and PasscodeEntry's auto-submit all work.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
   const [timelock, setTimeLock] = useLocalStorage<number>('TridentSharedStorageKey.TimeLock', 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
@@ -79,14 +80,6 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
-
-  useEffect(() => {
-    // This step draws the flow's only header and its body waits for the probe, so a rejection
-    // falls back to the password step-up rather than leaving an empty page for good.
-    Vault.hasHardwareProtector()
-      .then(setHasHardwareProtector)
-      .catch(() => setHasHardwareProtector(false));
-  }, []);
 
   const onSubmit = useCallback(
     async (passcode?: string) => {
@@ -149,6 +142,15 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // passcode, so unlock with the numpad (auto-submits once six digits are
   // entered); extension/desktop use a typed password.
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
+
+  // Still this step's frame, so the flow's title and back stay: it draws the flow's only header.
+  if (probeFailed) {
+    return (
+      <SubPageLayout data-testid="encrypted-file-wallet-password">
+        <ProtectorProbeErrorNotice />
+      </SubPageLayout>
+    );
+  }
 
   // The frame renders while the protector check runs, so the flow's title and back are there from
   // the first frame; the body waits.

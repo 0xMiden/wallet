@@ -1199,6 +1199,7 @@
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
   "checkingUnlockMethodSlow": "Sprawdzanie metody odblokowania tego portfela trwa dłużej niż zwykle. Aby spróbować ponownie, wróć i ponownie otwórz tę stronę.",
+  "couldNotCheckUnlockMethodReopen": "Nie udało się sprawdzić metody odblokowania tego portfela. Aby spróbować ponownie, wróć i otwórz tę stronę ponownie.",
   "receiveQrColorAction": "Zmień kolor kodu QR",
   "receiveAt": "Odbierz na",
   "earnTitle": "Twoje zarobki",

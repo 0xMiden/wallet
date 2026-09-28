@@ -378,7 +378,7 @@ describe('Unlock — extension password form', () => {
   it("counts a wrong guess from the stored attempt, not this window's (#1192)", async () => {
     mockUnlock.mockRejectedValue(new Error('bad'));
     const { container } = await renderUnlock();
-    // Another window has failed four times; this one still holds 1.
+    // Another window's fourth failure left 5, and that lockout has run out and been cleared; this one holds 1.
     mockLsStore.PasswordAttempts = 5;
 
     fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
@@ -413,7 +413,7 @@ describe('Unlock — extension password form', () => {
     mockLsStore.TimeLock = BASE;
     fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
-    await advance(3100); // outlast the post-lockout sleep so a refused guess never reaches unlock()
+    await advance(3100); // the fast path adopted at once; the ticks at 1s, 2s and 3s judge the adopted stamp
 
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
     expect(container.querySelector('#unlock-password')).toBeDisabled();
@@ -436,9 +436,11 @@ describe('Unlock — extension password form', () => {
     await advance(3100);
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
 
-    // Another window's own failure re-arms a fresh, later stamp before this window's adopted one
-    // (attempt stays 6, so the two-minute level is unchanged) expires.
-    const NEW_STAMP = BASE + 90_000;
+    // The stamp this window adopted is another window's provisional one, for a guess still in flight
+    // (a guess once the count reaches 3 records it before unlock()). That guess's rejection re-stamps it
+    // later and leaves the count at 6, so storage has moved on before this window's tick finds its own
+    // stamp expired.
+    const NEW_STAMP = Date.now();
     mockLsStore.TimeLock = NEW_STAMP;
 
     // To just after the tick at BASE + 121s, the first past the ORIGINAL stamp's two-minute level:
@@ -446,10 +448,11 @@ describe('Unlock — extension password form', () => {
     await advance(118_000);
 
     expect(mockLsStore.TimeLock).toBe(NEW_STAMP); // adopted, not erased
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(mockLsStore.PasswordAttempts).toBe(6);
     expect(container.querySelector('#unlock-password')).toBeDisabled();
-    // The adopting tick counts down from the stamp it adopted, not the expired one it replaced.
-    expect(screen.getByTestId('unlock-error')).not.toHaveTextContent('00:00');
+    // The adopting tick counts down from the stamp it adopted (NEW_STAMP + 120000 - the tick's own
+    // BASE + 121000), not the expired one it replaced.
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay 00:02');
   });
 
   // submitPasscode reads storage once, before the 1-3s post-lockout sleep; without a re-check just
@@ -461,11 +464,11 @@ describe('Unlock — extension password form', () => {
 
     fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, { target: { value: 'guess' } });
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
-    await advance(1200); // past the interval's own 1s tick, still inside this window's 1500ms sleep
+    await advance(1200); // inside this window's 1500ms sleep, so the lockout below reaches only the re-check at its end
 
-    // Another window fails independently and arms a lockout while this one is still sleeping.
+    // Another window's failure at count 4 records 5 and a stamp while this one is still sleeping.
     const otherWindowStamp = Date.now();
-    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.PasswordAttempts = 5;
     mockLsStore.TimeLock = otherWindowStamp;
 
     await advance(400); // the remaining sleep, then the post-sleep re-check
@@ -474,22 +477,22 @@ describe('Unlock — extension password form', () => {
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
     // The refused guess recorded nothing: no count above the other window's was ever written, even one an
     // adoption then wrote back over, and the count and stamp are still the other window's.
-    expect(mockLsWrites.filter(([key, value]) => key === 'PasswordAttempts' && Number(value) > 6)).toEqual([]);
-    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(mockLsWrites.filter(([key, value]) => key === 'PasswordAttempts' && Number(value) > 5)).toEqual([]);
+    expect(mockLsStore.PasswordAttempts).toBe(5);
     expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
 
-    // Once the adopted lockout (the other window's stamp plus two minutes at attempt 6) runs out, the
+    // Once the adopted lockout (the other window's stamp plus one minute at attempt 5) runs out, the
     // window guesses again: the refusal released the form, not only the in-flight guard.
-    await advance(121_000);
+    await advance(61_000);
     expect(passwordField(container)).not.toBeDisabled();
     submitPassword(container, 'guess');
     await advance(1600);
     expect(mockUnlock).toHaveBeenCalledTimes(1);
   });
 
-  // A guess must be counted from the live stored total, not the value read before the sleep, or a
-  // failure another window recorded meanwhile is overwritten back to the stale count (#1192).
-  it('does not lose a failure another window recorded during the post-lockout sleep (#1192)', async () => {
+  // A guess is counted from the stored record it reads after the sleep, so a reset another window wrote
+  // meanwhile stands: counted from it, the guess records 2 and no stamp (#1192).
+  it('counts a guess from a reset another window wrote during the post-lockout sleep (#1192)', async () => {
     mockLsStore = { PasswordAttempts: 4, TimeLock: BASE - 10 * 60_000 };
     jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
     mockUnlock.mockRejectedValue(new Error('bad'));
@@ -499,12 +502,12 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await advance(200);
 
-    // Window B fails independently while this window is still sleeping.
-    mockLsStore.PasswordAttempts = 5;
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 }; // as another window's success writes it
 
     await advance(1200); // the remaining sleep, this window's own rejection, and the 300ms error delay
 
-    expect(mockLsStore.PasswordAttempts).toBe(6);
+    expect(mockLsStore.PasswordAttempts).toBe(2);
+    expect(mockLsStore.TimeLock).toBe(0);
   });
 
   // A guess counted only once unlock() rejects leaves the count and stamp untouched while it is in
@@ -827,23 +830,30 @@ describe('Unlock — mobile passcode numpad', () => {
   });
 
   it('applies the random back-off delay and time-lock past the last attempt', async () => {
-    // attempt 5 (> LAST_ATTEMPT) triggers the randomized pre-unlock delay and,
-    // on failure, sets the time-lock (attempt >= LAST_ATTEMPT).
+    // attempt 5 (> LAST_ATTEMPT) sleeps the randomized delay before unlock(), and the guess in flight
+    // holds the count and the provisional stamp it recorded. The rejection's re-stamp is pinned by
+    // 'opens the countdown at a full tier measured from the failure'.
     jest.spyOn(Math, 'random').mockReturnValue(0); // delay -> 1000ms
-    mockUnlock.mockRejectedValue(new Error('nope'));
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
     mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
     const { container } = await renderUnlock();
 
     type(container, '222222');
-    // 150 auto-submit + 1000 back-off + 300 error = ~1450ms. Stay under 2000ms
-    // so the once-per-second interval (which resets an *expired* time-lock)
-    // can't fire again after the failure sets it.
-    await advance(1700);
+    await advance(1149); // 150ms auto-submit + 1000ms back-off: unlock() is due at 1150ms
+    expect(mockUnlock).not.toHaveBeenCalled();
 
+    await advance(1);
     expect(mockUnlock).toHaveBeenCalledWith('222222');
     expect(mockLsStore.PasswordAttempts).toBe(6);
-    expect(typeof mockLsStore.TimeLock).toBe('number');
-    expect(mockLsStore.TimeLock).not.toBe(0); // setTimeLock(Date.now()) ran
+    expect(mockLsStore.TimeLock).toBe(BASE + 1150);
+
+    await act(async () => rejectUnlock(new Error('nope')));
   });
 
   it('clears the incorrect-passcode error when a digit is deleted', async () => {
@@ -949,14 +959,12 @@ describe('Unlock — mobile passcode numpad', () => {
     (spy.mock.calls as unknown as Array<[() => void, number]>).filter(([, ms]) => ms === 1_000).map(([cb]) => cb);
 
   // The stub's setter is stable, so the interval is not re-created on every render as it is in the
-  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run
-  // by hand, after the catch arms and before React commits (#1079). The stored stamp is 0, or an
-  // expired one from an earlier lockout, which only reading the live stamp survives.
-  it.each([
-    ['0', 0],
-    ['an expired stamp', BASE - 10 * 60_000]
-  ])('keeps a lockout armed against a tick from before it (stored TimeLock %s)', async (_label, stored) => {
-    mockLsStore = { PasswordAttempts: 3, TimeLock: stored };
+  // product (see `timelockRef` in Unlock.tsx): the tick from before the lockout is captured and run by
+  // hand once the rejection has re-stamped the lockout, before React commits (#1079). The tick fires
+  // while the guess still holds its guard, so what it controls is the countdown: 01:00 formatted from
+  // the live stamp, not 00:00 from the 0 in its closure.
+  it('keeps a lockout armed against a tick from before it', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
     mockUnlock.mockRejectedValueOnce(new Error('nope'));
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     const { container } = await renderUnlock();
@@ -965,8 +973,6 @@ describe('Unlock — mobile passcode numpad', () => {
     type(container, '111111');
     await act(async () => {
       await jest.advanceTimersByTimeAsync(150); // auto-submit fires, unlock rejects
-      await Promise.resolve();
-      await Promise.resolve(); // the catch has armed; React has not committed
       staleTick();
     });
     await advance(450);
@@ -976,9 +982,10 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByTestId('digit-2')).toBeDisabled();
   });
 
-  // Cross-window form of the #1079 race above: this window's own lockLevel is stale not because of an
-  // earlier lockout, but because its own attempt count never left 1 while another window pushed the
-  // stored count to 5 after mount, and this window arms its lockout from that stored count (#1192).
+  // Cross-window form of the #1079 race above: this window's attempt count never left 1 while another
+  // window pushed the stored count to 5 after mount, so the guess arms the two-minute tier while the
+  // tick's closure holds level 0 (#1192). The guess holds its guard through the catch, so the tick only
+  // sets the countdown: 02:00 at the re-stamp instant, 00:00 from its closure's stamp or level.
   it("keeps a lockout armed against a tick from before it, armed from another window's stored attempt (#1192)", async () => {
     mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
     jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
@@ -986,23 +993,75 @@ describe('Unlock — mobile passcode numpad', () => {
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     const { container } = await renderUnlock();
     const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
-    // Another window has already failed four times, after this window mounted.
+    // Another window's fourth failure left 5 after this window mounted; that lockout has run out and been cleared.
     mockLsStore.PasswordAttempts = 5;
 
     type(container, '111111');
     await act(async () => {
       await jest.advanceTimersByTimeAsync(150); // auto-submit fires
       await jest.advanceTimersByTimeAsync(1000); // storedAttempt(5) > LAST_ATTEMPT sleep, then unlock rejects
-      await Promise.resolve();
-      await Promise.resolve(); // the catch has armed; React has not committed
-      await jest.advanceTimersByTimeAsync(1); // a sliver of real time, so a stale lockLevel-0 tick reads it as expired
       staleTick();
     });
     await advance(450);
 
     expect(mockLsStore.TimeLock).toBe(BASE + 1150);
     expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 02:00');
     expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  // The fast path adopts another window's lockout without taking the guard, so the tick from before it
+  // judges the adopted stamp there: by its closure's level (0) it would clear that stamp, and from its
+  // closure's stamp (0) or level it would count down 00:00 (#1192).
+  it("keeps another window's lockout the fast path adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fifth failure, after this window mounted, armed the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+
+    type(container, '111111');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(150); // auto-submit fires and the fast path adopts; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
+  });
+
+  // The re-check after the post-lockout sleep refuses without a rejection, so its finally releases the
+  // guard at once, before React commits the lockout it adopted: the same tick judges there (#1192).
+  it("keeps another window's lockout the post-sleep re-check adopted against a tick from before it (#1192)", async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    jest.spyOn(Math, 'random').mockReturnValue(0); // the post-lockout sleep -> exactly 1000ms
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const { container } = await renderUnlock();
+    const staleTick = intervalTicks(setIntervalSpy).at(-1)!;
+    // Another window's fourth failure left 5 after this window mounted, and that lockout has run out and
+    // been cleared, so this guess passes the fast path and sleeps.
+    mockLsStore.PasswordAttempts = 5;
+
+    type(container, '111111');
+    await advance(700); // the auto-submit fired at 150ms and the sleep runs to 1150ms, so what follows lands in it
+    // That window's fifth failure lands during the sleep and arms the two-minute tier.
+    const otherWindowStamp = Date.now();
+    mockLsStore.PasswordAttempts = 6;
+    mockLsStore.TimeLock = otherWindowStamp;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(450); // the sleep ends and the re-check refuses; React has not committed
+      staleTick();
+    });
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockLsStore.TimeLock).toBe(otherWindowStamp);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+    expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay 01:59');
   });
 
   it('writes nothing to storage while no lockout is armed', async () => {
@@ -1102,7 +1161,8 @@ describe('Unlock — mobile passcode numpad', () => {
 
     type(container, '123456');
     await advance(700); // the auto-submit fired at 150ms; the sleep runs to 1150ms
-    mockLsStore.PasswordAttempts = 6;
+    // Another window's failure at count 4 records 5 and a stamp.
+    mockLsStore.PasswordAttempts = 5;
     mockLsStore.TimeLock = Date.now();
     // Past the re-check at 1150ms, and before a code left in place would auto-submit again at 1300ms.
     await advance(460);
