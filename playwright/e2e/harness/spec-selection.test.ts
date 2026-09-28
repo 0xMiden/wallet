@@ -183,6 +183,8 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     ['pull_request', 'main', 'skipped', 1],
     ['pull_request', 'main', 'failure', 1],
     ['pull_request', 'main', 'success', 0],
+    ['pull_request', 'feature', 'failure', 1],
+    ['pull_request', 'feature', 'success', 1],
     ['push', '', 'skipped', 1],
     ['push', '', 'success', 0],
     ['workflow_dispatch', '', 'success', 0]
