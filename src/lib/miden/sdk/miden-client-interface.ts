@@ -68,11 +68,11 @@ import { beginProveAttempt, recordProveMarker } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
 import { wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
-// Guardian helpers are dynamic-imported inside the methods that use them to avoid
-// a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
-// miden-client-interface. Static imports here deadlock init_guardian_manager in the
-// SW bundle (both sides' __esmMin wrappers await each other).
-// guardian/native-http is cycle-safe (it only pulls constants + platform).
+// guardian/index is dynamic-imported inside the methods that use it and is never imported
+// statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
+// is a module init cycle, and a static import deadlocks init_guardian_manager in the SW bundle
+// (both sides' __esmMin wrappers await each other). guardian/account and guardian/native-http
+// are statically imported and cycle-safe.
 import {
   createGuardianAccount,
   getSignerDetailsFromAccount,

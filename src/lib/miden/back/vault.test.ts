@@ -3242,9 +3242,9 @@ describe('Vault hardware branches', () => {
     expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ publicKey: 'guardian-acc-1', guardianEndpoint: 'https://first-guardian.example' })
     );
-    // …and threaded into the second account's creation. Previously this 2nd arg
-    // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
-    // global key — the regression stage 1 would otherwise introduce.
+    // …and threaded into the second account's creation as fetchGuardianCreateKey's
+    // endpoint override: without it the fetch binds to the network default instead
+    // of the sibling's operator, the regression stage 1 guards against.
     const [fetchEndpoint, fetchAssertLive] = mockFetchGuardianCreateKey.mock.lastCall ?? [];
     expect(fetchEndpoint).toBe('https://resolved-from-sibling.example');
     // The second argument is the vault's own sink check: silent while the vault is live,
