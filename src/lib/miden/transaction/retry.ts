@@ -46,13 +46,15 @@ import {
  *    Nothing was abandoned there: `openEarnPosition` is still awaiting this row
  *    via `waitForTransactionCompletion`, and the quote/mandate are still live -
  *    so `earn-deposit` SHOULD keep participating, and it does.
- *  - `ApplyTransactionAfterSubmitFailed` marks the row `Completed` rather than
- *    Failed: the note IS on chain, so the correct move is to let the awaiting
- *    `createEarnP2IDENote` read it back, not to re-send. `earn-deposit` belongs
- *    in that type-agnostic path too, and stays there.
+ *  - `ApplyTransactionAfterSubmitFailed` marks the row `Failed`, not `Completed`,
+ *    in both the Guardian catch and the loop catch: the note IS on chain, but no
+ *    `TransactionResult` survives, and a Completed row without one would leave the
+ *    awaiting `createEarnP2IDENote` waiting forever. The caller resolves through
+ *    its error branch; the collateral note reclaims itself at its recall height.
  *
- * Both of those cover cases where the intent is still valid; only the terminal
- * FIFO requeue, which reruns a send whose intent is gone, has to exclude it.
+ * The first keeps a live intent's row queued and the second ends the row without
+ * sending it again; only the terminal FIFO requeue, which reruns a send whose
+ * intent is gone, has to exclude it.
  *
  * An Epoch (Fast) `bridged-send` is excluded for EXACTLY the earn-deposit reason,
  * and is gated separately below because the type alone doesn't say which route the

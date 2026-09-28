@@ -967,11 +967,10 @@ async function reconcileStructuralApplyFailure(
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
   // submit SUCCEEDED (an apply-after-submit error or a canonicalization refusal, neither
   // of which any pre-submit step produces), which establishes that the node accepted the
-  // transaction, and
-  // nothing more. No commit wait ran here and `didDirectSwitchLand` was never
-  // called, so this path has strictly LESS evidence of a commit than the direct
-  // path's `landed === undefined` case that the flag was introduced for.
-  // Defaulting it to false let this exit render the full-confidence receipt.
+  // transaction, and nothing more. No commit wait ran here and `didDirectSwitchLand` was
+  // never called, so this path has strictly LESS evidence of a commit than the direct
+  // path's `landed === undefined` case that the flag was introduced for. Defaulting it
+  // to false let this exit render the full-confidence receipt.
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider, true);
 }
 
@@ -1208,8 +1207,8 @@ const generateTransactionWithProvider = async (
       // its completion handler, so the vault hot pointer, the guardian registration or the
       // cached threshold map is un-reconciled. Cancelling would strand the account. Run the
       // finalization the happy path would. A reconcile that throws fails the row HERE: falling
-      // through would reach the canonicalization-refusal arm below, which marks the row
-      // Completed with no finalization.
+      // through, a refusal would reach the canonicalization-refusal arm below, which would mark
+      // it Completed with no finalization.
       if (
         STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) &&
         (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
@@ -1217,7 +1216,10 @@ const generateTransactionWithProvider = async (
         try {
           await reconcileStructuralApplyFailure(transaction, guardianProvider);
         } catch (reconcileError) {
-          console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
+          console.error(
+            'Structural-op landed reconcile failed; cancelling (apply-after-submit or refusal)',
+            reconcileError
+          );
           await cancelTransactionAfterPipelineStopped(transaction, error);
         }
         return;
@@ -1287,11 +1289,11 @@ const generateTransactionWithProvider = async (
         }
         return;
       }
-      // Guardian canonicalization is eventually-consistent: the SDK can throw
-      // "Refusing to overwrite local state: incoming nonce N is not greater
-      // than local nonce M" when the guardian's view lags the local client.
-      // The on-chain tx is fine — only the local sync refused. Mark Completed
-      // so the user sees the success state; the next sync tick will reconcile.
+      // A canonicalization refusal after submit ("Refusing to overwrite local state: ...", which
+      // the multisig client's syncState throws when the guardian's view is not ahead of the
+      // local one): the on-chain tx is fine, only the local sync refused. Mark Completed so the
+      // user sees the success state; the next sync tick reconciles. Only value-moving rows get
+      // here: the structural reconcile arm above reconciles or fails every structural row first.
       if (isGuardianCanonicalizationError(error)) {
         console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
@@ -3545,14 +3547,12 @@ export const generateTransactionsLoop = async (
       // apply-after-submit into a throw out of the catch block. Nothing is lost
       // by skipping — the row already has a terminal state.
       if (tx && tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
-        // Guardian ops never reach here — they're routed through the guardian branch
-        // of `generateTransaction`, whose own catch handles apply-after-submit-failed
-        // for value-moving ops (send/consume/swap/execute) by marking Completed, and
-        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
-        // (update-procedure-threshold is currently handled by neither and still falls
-        // through to cancel there — a separate, pre-existing gap.) This generic path
-        // covers non-guardian send/consume, whose note states the next sync reconciles
-        // via ConsumedExternal.
+        // Guardian ops never reach here: they route through the guardian branch of
+        // `generateTransaction`, whose own catch handles apply-after-submit: Completed for the
+        // value-moving ops, Failed for the result-awaiting ones, and
+        // `reconcileStructuralApplyFailure` for the three structural ops. This generic path
+        // covers non-guardian send/consume, whose note states the next sync reconciles via
+        // ConsumedExternal.
         //
         // A PRIVATE send reaching here has strictly worse consequences than "the next
         // sync reconciles it", and they are invisible from the row alone. The apply

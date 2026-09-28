@@ -1049,7 +1049,8 @@ const DISPATCH: Record<string, DispatchFn> = {
       await submittedTx.apply();
     } catch (error) {
       // The wrapper's text replaces this error on handleCall's FAILED marker, so this is the one
-      // record of the store's reason. Guarded: an unreadable error must not cost the verdict.
+      // record of the store's reason the harness can read. Guarded: an unreadable error must not
+      // cost the verdict.
       try {
         recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`);
       } catch {

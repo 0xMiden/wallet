@@ -29,17 +29,16 @@ export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } 
 export type { SignCallbackReason };
 
 /**
- * Detect the eventually-consistent Guardian canonicalization error:
+ * Detect the Guardian canonicalization refusal, which the pinned multisig client
+ * (0.17.0) throws from `syncState` when the guardian's view of an account is not
+ * ahead of the local one:
  *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
+ *   "Refusing to overwrite local state: incoming nonce N equals local nonce N
+ *    but commitments differ for account X"
+ *   "Refusing to overwrite local state: incoming commitment does not match
+ *    on-chain commitment for account X"
  *
- * Thrown by the WASM SDK when it's asked to sync a stale view of an account
- * the local client has already advanced past. For Guardian accounts this
- * happens because guardian canonicalization runs asynchronously after the
- * tx is accepted on-chain — by the time we try to sync, the local nonce has
- * already moved forward and the guardian's reply looks stale. The transaction
- * itself is fine; the next sync tick will reconcile. Treat as success.
+ * The transaction is fine; the next sync tick reconciles. See `sdk/sdk-error-code.ts`.
  */
 export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 

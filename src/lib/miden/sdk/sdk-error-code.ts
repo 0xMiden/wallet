@@ -93,13 +93,19 @@ export function errorMessageParts(err: unknown): string[] {
 }
 
 /**
- * Detect the eventually-consistent guardian canonicalization refusal:
+ * Detect the eventually-consistent guardian canonicalization refusal. The pinned
+ * multisig client (0.17.0) throws it from `syncState` in two forms:
  *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
+ *   "Refusing to overwrite local state: incoming nonce N equals local nonce N but
+ *    commitments differ for account X"
+ *   "Refusing to overwrite local state: incoming commitment does not match
+ *    on-chain commitment for account X"
  *
- * The SDK raises this when asked to import a guardian's view of an account that
- * is NOT ahead of the local one — a nonce no greater than local, or a commitment
+ * The second pattern below, "is not greater than local nonce", is the wording older
+ * clients used; 0.17.0 returns false for a lower nonce instead of throwing.
+ *
+ * The client raises this when asked to import a guardian's view of an account that
+ * is NOT ahead of the local one: a nonce no greater than local, or a commitment
  * that does not match the chain. It says something specific: the guardian is
  * behind or holding a diverged blob. It does NOT say the read failed.
  *

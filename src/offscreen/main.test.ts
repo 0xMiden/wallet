@@ -4817,7 +4817,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
 
   // #1233: a failed apply after submit crosses back as `ApplyAfterSubmitError`, whose text
   // replaces the store's on the FAILED marker while its cause stays in this realm, so the
-  // pipeline's own marker is the only record of why the local write failed.
+  // pipeline's own marker is the only record the harness can read of why the local write failed.
   it('names the store error when an apply fails after submit (#1233)', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
