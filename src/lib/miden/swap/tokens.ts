@@ -179,8 +179,8 @@ export function priceSymbolFor(faucetId: string, symbol: string): string | undef
 
 /**
  * The distinct price symbols the allowlist matches faucets against - read by a test to catch a
- * registry token whose `priceSymbol` the feed does not quote before it ships, which would
- * otherwise drift the spending cap into refusing every spend of that faucet (#1131).
+ * registry token whose `priceSymbol` the feed does not quote before it ships; the spending cap
+ * would otherwise count every spend of that faucet as uncovered ($0) (#1131).
  */
 export function allowlistedPriceSymbols(): string[] {
   return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];

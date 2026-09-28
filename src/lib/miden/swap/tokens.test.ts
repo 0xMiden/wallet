@@ -122,7 +122,7 @@ describe('swap token price symbols', () => {
   });
 
   // #1131: a registry token whose priceSymbol the feed does not quote would drift the spending
-  // cap into refusing every spend of that faucet; this catches the drift at CI time instead.
+  // cap into counting every spend of that faucet as uncovered ($0); this catches it at CI time.
   it('quotes every allowlisted price symbol, including ETH, BTC and USDC', () => {
     mockGetNativeAssetIdSync.mockReturnValue(null);
 
