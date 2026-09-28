@@ -661,11 +661,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // The bypass skips the ChooseGuardian / ImportRecoveryMethod screens that
     // would normally set the onboarding guardian endpoint, so thread it in via
     // the `guardianUrl` query param instead. Welcome.tsx reads it into its
-    // guardianEndpoint state and register() forwards it as the OVERRIDE — the
-    // same path production uses — so createGuardianAccount (create) and
+    // guardianEndpoint state and register() forwards it as the OVERRIDE, the
+    // same path production uses, so fetchGuardianCreateKey (create) and
     // Vault.spawn's recovery scan (import) both bind to it. Decoupled from the
-    // retired global GUARDIAN_URL_STORAGE_KEY: stage-3 create no longer reads
-    // that key, and recovery only consults it as a frozen last-resort fallback.
+    // retired global GUARDIAN_URL_STORAGE_KEY: create never reads that key,
+    // and recovery only consults it as a frozen last-resort fallback.
     // `createGuardianWallet` / `createNewWallet` always pass a URL (required by
     // their signatures); `recoverGuardianFromSeed(..., { viaUI: false })` passes
     // one whenever it needs a specific operator.
