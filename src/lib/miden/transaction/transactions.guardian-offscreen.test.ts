@@ -3081,4 +3081,24 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
     expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
   });
+
+  it('earn-deposit: an unwrapped canonicalization refusal marks the row Failed, not Completed (#1233)', async () => {
+    // The inline tests throw the refusal from apply(), which the pipeline wraps, so this unwrapped
+    // shape is what pins the result-awaiting row's refusal check. Completed would leave no
+    // resultBytes for the caller.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const id = 's-refusal-earn';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
+    );
+    const { row, complete } = bridgeEarnCases()[1]!;
+    arrange(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Sent');
+    expect(complete).not.toHaveBeenCalled();
+  });
 });

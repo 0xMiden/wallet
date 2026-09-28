@@ -2633,10 +2633,11 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row?.displayMessage).not.toBe('Sent');
   });
 
-  it('Guardian earn-deposit: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
-    // The other arm of the same guard: a canonicalization nonce-lag error would mark
-    // any other guardian tx Completed, but for earn-deposit that Completed-without-
-    // resultBytes state hangs the caller, so it must Fail here too.
+  it('Guardian earn-deposit: a canonicalization refusal at apply arrives wrapped and still marks the row Failed', async () => {
+    // The pipeline wraps a refusal thrown from apply() as an apply-after-submit failure, which
+    // marks a landed send Completed, but for earn-deposit that Completed-without-resultBytes
+    // state hangs the caller, so it must Fail here too. The offscreen suite pins the unwrapped
+    // refusal.
     const txId = 'earn-guardian-canon';
     const requestBytes = new Uint8Array([41, 42, 43]);
     const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
@@ -2819,10 +2820,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row?.displayMessage).toBe('Bridged to EVM');
   });
 
-  it('Guardian bridged-send: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
-    // The canonicalization arm has no type filter at all, so before the fix a
-    // guardian bridged-send — the wallet's default account type — took the
-    // type-agnostic Completed path and hung `createBridgeP2IDNote`.
+  it('Guardian bridged-send: a canonicalization refusal at apply arrives wrapped and still marks the row Failed', async () => {
+    // The pipeline wraps a refusal thrown from apply() as an apply-after-submit failure, whose
+    // value-moving check marks a bridged-send Completed; for an Epoch row that hangs
+    // `createBridgeP2IDNote`, so it must Fail here too.
     const txId = 'bridge-guardian-canon';
     const requestBytes = new Uint8Array([61, 62, 63]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
@@ -6923,7 +6924,13 @@ describe('generateTransaction — Guardian routing', () => {
   it('update-procedure-threshold: a raw store failure at apply completes with its finalization (#1233)', async () => {
     const apply = jest.fn(async () => {});
     apply.mockRejectedValue(new Error(STORE_APPLY_ERROR_MESSAGE));
-    const { tx, row, provider } = arrangeLandedThreshold(apply);
+    const { tx, row, coldService, provider } = arrangeLandedThreshold(apply);
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    Object.assign(coldService, { reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian
+    });
 
     await generateTransaction(
       tx,
@@ -6935,6 +6942,8 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row()?.status).toBe(ITransactionStatus.Completed);
     expect(row()?.displayMessage).toBe('Account secured');
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
   });
 
   it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {
