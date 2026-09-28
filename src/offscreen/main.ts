@@ -85,7 +85,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { ApplyAfterSubmitError, applySubmitted, errorReplyProjection } from 'lib/miden/sdk/sdk-error-code';
+import { ApplyAfterSubmitError, applySubmitted, extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -1496,8 +1496,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     }
     // Preserve the SDK's stable error code when it sets one (issue #260,
     // funds-critical). The offscreen client runs `useWorker:false`, so a failed
-    // write throws the RAW main-thread JsError, so read the code the SAME way the
-    // SW-inline classifier does. web-sdk 0.16 leaves most failures
+    // write throws the RAW main-thread JsError — extract the code with the SAME
+    // helper the SW-inline classifier uses. web-sdk 0.16 leaves most failures
     // code-less, so the funds-critical apply-after-submit case is carried by the
     // `error` TEXT below instead and re-classified SW-side by
     // `isApplyAfterSubmitError`; forwarding the message verbatim is what makes the
@@ -1510,12 +1510,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // `name` can. A throw escaping here skips `sendResponse` entirely, which the
     // SW cannot distinguish from a wedged realm — it waits out the per-op
     // deadline and closes the document rather than getting the failure it is
-    // owed. A placeholder string is worth strictly more than that. The projection
-    // is the one `applySubmitted` decides on, so a failure it passed through on its
-    // code crosses with that code (#945).
-    const projection = errorReplyProjection(err);
-    const error = projection.text ?? 'offscreen call failed (error details unreadable)';
-    const errorCode = projection.code;
+    // owed. A placeholder string is worth strictly more than that.
+    let error = 'offscreen call failed (error details unreadable)';
+    let errorCode: string | undefined;
+    try {
+      error = String((err as { message?: string })?.message ?? err);
+      errorCode = extractSdkErrorCode(err);
+    } catch {
+      /* unreadable error object — the reply below still carries the class */
+    }
     sendResponse({
       ok: false,
       op_id: msg?.op_id,

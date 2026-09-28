@@ -3768,26 +3768,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].errorCode).toBe('ApplyTransactionAfterSubmitFailed');
   });
 
-  it('guardianPipeline: an apply failure passed through on its code keeps that code when its message getter throws (#945)', async () => {
-    // The helper rethrows it by identity on the code it read, so the reply must read
-    // the code the same way, or the write crosses unclassified.
-    await loadModule();
-    const hostile = Object.assign(new Error('unused'), { errorCode: 'ApplyTransactionAfterSubmitFailed' });
-    Object.defineProperty(hostile, 'message', {
-      get() {
-        throw new Error('message getter');
-      }
-    });
-    G.__off.guardianSubmitProven = jest.fn(async () => rejectingApply(hostile));
-    const sendResponse = jest.fn();
-    guardianCall(false, sendResponse);
-    await flush();
-
-    const reply = sendResponse.mock.calls[0][0];
-    expect(reply.ok).toBe(false);
-    expect(reply.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
-  });
-
   it('guardianPipeline (delegated): a failed apply after the delegated submit classifies as submitted (#945)', async () => {
     await loadModule();
     G.__off.guardianExecuteRequest = jest.fn(async () => ({

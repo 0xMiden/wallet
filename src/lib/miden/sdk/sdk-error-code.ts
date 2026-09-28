@@ -196,8 +196,8 @@ export class ApplyAfterSubmitError extends Error {
 
 /**
  * One property of a thrown value, or `undefined` when it has none or reading it
- * throws: a getter's throw must not hide the other reads, nor escape a catch that
- * owes its caller an answer.
+ * throws: a getter's throw says nothing about the submit, and escaping here would
+ * lose the one verdict that is known.
  */
 function readThrownProperty(error: unknown, key: 'message' | 'code' | 'errorCode'): unknown {
   if (typeof error !== 'object' || error === null) return undefined;
@@ -209,41 +209,19 @@ function readThrownProperty(error: unknown, key: 'message' | 'code' | 'errorCode
 }
 
 /**
- * What the offscreen failure reply carries for a thrown value: its text,
- * `String(message ?? error)`, and its code, `errorCode` then `code` as
- * `extractSdkErrorCode` reads them. Each read is guarded on its own (#945).
- * `applySubmitted` decides on this same projection, so an error it rethrows as
- * already classified always crosses with the code and text it was judged on.
- * `text` is `undefined` only when even the conversion throws.
- */
-export function errorReplyProjection(error: unknown): { text: string | undefined; code: string | undefined } {
-  const message = readThrownProperty(error, 'message');
-  let text: string | undefined;
-  try {
-    text = String(message ?? error);
-  } catch {
-    // An Error's own toString reads the same throwing `message` getter.
-    text = undefined;
-  }
-  const errorCode = readThrownProperty(error, 'errorCode');
-  const code = typeof errorCode === 'string' ? errorCode : readThrownProperty(error, 'code');
-  return { text, code: typeof code === 'string' ? code : undefined };
-}
-
-/**
  * Applies a submission whose submit already resolved, so the node has the
  * transaction and any rejection from here on classifies as submitted (#945).
  *
- * The verdict is read off what the offscreen reply carries, `errorReplyProjection`,
- * never a `cause` link, which does not cross. A rejection that projection already
- * routes at the receiver is rethrown as it is: the apply-after-submit code, or text
- * carrying the SDK's mempool phrase. With `passCanonicalization` so is text
- * carrying the canonicalization refusal. That arm is opt-in because only the
- * service worker's guardian catch routes the text (to Completed, the one landed
- * verdict an update-procedure-threshold row has); the generic loop never does, so
- * there a refusal must be wrapped to read as submitted. Every other rejection is
- * wrapped in `ApplyAfterSubmitError`. The submit itself is never covered: a
- * rejected submit may not have reached the node.
+ * The verdict is read off what the offscreen reply carries, the text
+ * `String(message ?? error)` and the code, never a `cause` link, which does not
+ * cross. A rejection those already route at the receiver is rethrown as it is: the
+ * apply-after-submit code, or text carrying the SDK's mempool phrase. With
+ * `passCanonicalization` so is text carrying the canonicalization refusal. That
+ * arm is opt-in because only the service worker's guardian catch routes the text
+ * (to Completed, the one landed verdict an update-procedure-threshold row has);
+ * the generic loop never does, so there a refusal must be wrapped to read as
+ * submitted. Every other rejection is wrapped in `ApplyAfterSubmitError`. The
+ * submit itself is never covered: a rejected submit may not have reached the node.
  */
 export async function applySubmitted(
   submitted: { apply(): Promise<unknown> },
@@ -252,7 +230,16 @@ export async function applySubmitted(
   try {
     await submitted.apply();
   } catch (error) {
-    const { text, code } = errorReplyProjection(error);
+    const message = readThrownProperty(error, 'message');
+    let text: string | undefined;
+    try {
+      text = String(message ?? error);
+    } catch {
+      // An Error's own toString reads the same throwing `message` getter.
+      text = undefined;
+    }
+    const errorCode = readThrownProperty(error, 'errorCode');
+    const code = typeof errorCode === 'string' ? errorCode : readThrownProperty(error, 'code');
     if (code === 'ApplyTransactionAfterSubmitFailed') throw error;
     if (text !== undefined && APPLY_AFTER_SUBMIT_TEXT.test(text)) throw error;
     if (options.passCanonicalization && text !== undefined && isCanonicalizationRefusalText(text)) throw error;

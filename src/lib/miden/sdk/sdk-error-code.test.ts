@@ -1,7 +1,6 @@
 import {
   ApplyAfterSubmitError,
   applySubmitted,
-  errorReplyProjection,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -261,18 +260,6 @@ describe('applySubmitted', () => {
 
   it('with passCanonicalization, rethrows by identity a thrown string carrying the refusal', async () => {
     await expect(applySubmitted(rejecting(REFUSAL), { passCanonicalization: true })).rejects.toBe(REFUSAL);
-  });
-});
-
-describe('errorReplyProjection', () => {
-  it('reads `code` when the `errorCode` getter throws, and the text beside it', () => {
-    const hostile = Object.assign(new Error('opaque'), { code: 'ApplyTransactionAfterSubmitFailed' });
-    Object.defineProperty(hostile, 'errorCode', {
-      get() {
-        throw new Error('errorCode getter');
-      }
-    });
-    expect(errorReplyProjection(hostile)).toEqual({ text: 'opaque', code: 'ApplyTransactionAfterSubmitFailed' });
   });
 });
 
