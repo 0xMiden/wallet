@@ -890,6 +890,23 @@ describe('HotKeyRotationGate', () => {
       );
     });
 
+    it('keeps a long claim error inside the screen width', async () => {
+      const error = '0x' + 'ab'.repeat(64);
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere');
+    });
+
     it('gives Try again and Check again a light haptic', async () => {
       trackShortfall();
       mockTable = [shortfallRow(), fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'] })];

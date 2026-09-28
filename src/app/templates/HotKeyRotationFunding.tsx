@@ -234,7 +234,7 @@ export const RotationFundingPanel: FC<PanelProps> = ({
       </p>
       {status === 'claim-failed' && (
         <>
-          {claimError && <p className="text-sm text-ink break-words select-text">{claimError}</p>}
+          {claimError && <p className="w-full text-sm text-ink wrap-anywhere select-text">{claimError}</p>}
           <Button
             data-testid="hot-key-rotation-funding-claim-retry"
             onClick={() => {
