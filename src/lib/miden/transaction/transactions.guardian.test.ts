@@ -3955,6 +3955,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Each 409 requeue follows ~55 s of in-process retries, so two rows on one stalled account would otherwise take
     // turns at the front of the queue.
     jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const txId = 'send-conflict-backoff';
       txStore.push({
@@ -4004,7 +4005,12 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.status).toBe(ITransactionStatus.Queued);
       expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
       expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: 2 });
+      // The log states the wait the row got, as the 429 and unreachable arms' do.
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[Guardian] proposal still conflicting after retry budget, requeueing in 30s'
+      );
     } finally {
+      warnSpy.mockRestore();
       jest.useRealTimers();
     }
   });

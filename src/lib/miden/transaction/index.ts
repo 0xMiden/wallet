@@ -1329,14 +1329,11 @@ const generateTransactionWithProvider = async (
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
-        console.warn('[Guardian] proposal still conflicting after retry budget — requeueing for a later cycle');
-        await requeueTransactionForRetry(
-          transaction.id,
-          transaction.type,
-          'creating-proposal',
-          guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count),
-          { requeueStreak }
-        );
+        const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] proposal still conflicting after retry budget, requeueing in ${cooldown}s`);
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
+          requeueStreak
+        });
         return;
       }
       // A DELEGATED prove step that failed at the 'proving' stage is a PRE-submit
