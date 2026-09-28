@@ -254,4 +254,26 @@ describe('withGuardianProbe', () => {
     expect(duringCheck).toBe('native');
     expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('web');
   });
+
+  it('returns the result and releases the origin when the verdict on it is false', async () => {
+    const result = await nativeHttp.withGuardianProbe(
+      CUSTOM,
+      async () => '',
+      commitment => commitment !== ''
+    );
+
+    expect(result).toBe('');
+    expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('web');
+  });
+
+  it('keeps the origin routed when the verdict on the result is true', async () => {
+    const result = await nativeHttp.withGuardianProbe(
+      CUSTOM,
+      async () => 'commitment',
+      commitment => commitment === 'commitment'
+    );
+
+    expect(result).toBe('commitment');
+    expect(await transportFor(`${CUSTOM}/pubkey`)).toBe('native');
+  });
 });

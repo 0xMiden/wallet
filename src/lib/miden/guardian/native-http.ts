@@ -101,18 +101,23 @@ export function probeGuardianOrigin(endpoint: string): (isGuardian: boolean) => 
 }
 
 /**
- * Run `check` under a probe of `endpoint` (`probeGuardianOrigin`): the origin
- * stays routed once `check` resolves, and is released when it rejects, with the
- * rejection passed on.
+ * Run `check` under a probe of `endpoint` (`probeGuardianOrigin`) and return its
+ * result. The probe settles with the verdict `isGuardian(result)` once `check`
+ * resolves, so the origin stays routed only for a result that shows a Guardian,
+ * and with `false` when `check` rejects, with the rejection passed on.
  */
-export async function withGuardianProbe<T>(endpoint: string, check: () => Promise<T>): Promise<T> {
+export async function withGuardianProbe<T>(
+  endpoint: string,
+  check: () => Promise<T>,
+  isGuardian: (result: T) => boolean = () => true
+): Promise<T> {
   const settle = probeGuardianOrigin(endpoint);
   try {
     const result = await check();
-    settle(true);
+    settle(isGuardian(result));
     return result;
   } finally {
-    // A no-op after the `true` above: only the first settle counts.
+    // A no-op after the verdict above: only the first settle counts.
     settle(false);
   }
 }

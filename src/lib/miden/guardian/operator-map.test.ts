@@ -68,21 +68,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveGuardianUrl: () => mockGuardianUrlOverride
 }));
 
-// The native-HTTP probe each `GET /pubkey` takes: the endpoints probed, and each probe's verdict.
-// The first settle decides, as in native-http.
-const mockProbedEndpoints: string[] = [];
-const mockProbeVerdicts: [string, boolean][] = [];
-jest.mock('lib/miden/guardian/native-http', () => ({
-  probeGuardianOrigin: (endpoint: string) => {
-    mockProbedEndpoints.push(endpoint);
-    let settled = false;
-    return (isGuardian: boolean) => {
-      if (settled) return;
-      settled = true;
-      mockProbeVerdicts.push([endpoint, isGuardian]);
-    };
-  }
-}));
+// The shared native-HTTP double records the probe each `GET /pubkey` takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -415,8 +405,7 @@ describe('verifyEndpointMatchesCommitment', () => {
 // routes its origin while it is out, and keeps it routed only for an endpoint that answers with a key.
 describe('mobile native-HTTP probe', () => {
   beforeEach(() => {
-    mockProbedEndpoints.length = 0;
-    mockProbeVerdicts.length = 0;
+    resetMockProbes();
   });
 
   it('takes a probe of the endpoint from checkEndpointCommitment', async () => {

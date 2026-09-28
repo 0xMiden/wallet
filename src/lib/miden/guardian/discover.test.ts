@@ -69,21 +69,11 @@ const mockSeedsRequested: string[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
 
-// The native-HTTP probe each endpoint takes: the endpoints probed, and each probe's verdict. The
-// first settle decides, as in native-http.
-const mockProbedEndpoints: string[] = [];
-const mockProbeVerdicts: [string, boolean][] = [];
-jest.mock('lib/miden/guardian/native-http', () => ({
-  probeGuardianOrigin: (endpoint: string) => {
-    mockProbedEndpoints.push(endpoint);
-    let settled = false;
-    return (isGuardian: boolean) => {
-      if (settled) return;
-      settled = true;
-      mockProbeVerdicts.push([endpoint, isGuardian]);
-    };
-  }
-}));
+// The shared native-HTTP double records the probe each endpoint takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   EcdsaSigner: class {
@@ -186,8 +176,7 @@ beforeEach(() => {
   mockSecretKeys.length = 0;
   mockSigners.length = 0;
   mockSeedsRequested.length = 0;
-  mockProbedEndpoints.length = 0;
-  mockProbeVerdicts.length = 0;
+  resetMockProbes();
   jest.clearAllMocks();
   scriptNonces();
   jest.spyOn(console, 'warn').mockImplementation(() => {});

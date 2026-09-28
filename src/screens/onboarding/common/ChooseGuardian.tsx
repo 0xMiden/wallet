@@ -200,8 +200,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         }
         onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
       };
-      // A rejection is no Guardian answering, as in useGuardianAvailability: the ping's
-      // never-throws contract rests on a helper outside its own try.
+      // Defensive, as in useGuardianAvailability: the ping cannot reject, but should it ever,
+      // the rejection reads as no Guardian answering rather than leaving Continue busy.
       void pingGuardianEndpointLatency(sanitized, USER_ENDPOINT_CHECK_TIMEOUT_MS).then(settle, () => settle(null));
       return;
     }

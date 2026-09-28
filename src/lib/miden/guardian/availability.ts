@@ -13,9 +13,7 @@
  * response) reports offline: the picker disables that operator's card until a
  * later round reports it online, and onboarding never picks it.
  */
-import { GuardianHttpClient } from '@openzeppelin/guardian-client';
-
-import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { fetchOperatorCommitment } from 'lib/miden/guardian/operator-map';
 
 /**
  * Per-ping deadline. Short on purpose: this verdict disables an operator's card
@@ -35,36 +33,14 @@ export async function pingGuardianEndpointLatency(
   endpoint: string,
   timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
 ): Promise<number | null> {
-  // On mobile the origin routes through native HTTP while the ping is out, and stays routed if a Guardian answers.
-  const settleProbe = probeGuardianOrigin(endpoint);
-  let latency: number | null = null;
-  const startedAt = performance.now();
+  // One try around everything, so the ping cannot reject whatever the helper below does.
   try {
-    const result = await new Promise<{ commitment?: string }>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`guardian ping to ${endpoint} timed out`)), timeoutMs);
-      new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
-        value => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        error => {
-          clearTimeout(timer);
-          reject(error);
-        }
-      );
-    });
-    // A STRING commitment, not merely a truthy one. The body is an unchecked
-    // `response.json()` cast, so `{"commitment": 1234}` reaches here as a number
-    // and `Boolean(1234)` reported a host serving nonsense as a live guardian —
-    // the same unvalidated value `fetchOperatorCommitment` refuses, on the same
-    // endpoint, for the same reason. Fails toward "offline", which is what every
-    // other non-guardian response already reports.
-    const isGuardian = typeof result?.commitment === 'string' && result.commitment.length > 0;
-    if (isGuardian) latency = Math.max(0, Math.round(performance.now() - startedAt));
+    const startedAt = performance.now();
+    // Probes the origin on mobile, and reads a non-string commitment as no answer.
+    const commitment = await fetchOperatorCommitment(endpoint, timeoutMs);
+    return commitment ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
   } catch {
-    // Offline, whatever the cause: `latency` stays null.
-  } finally {
-    settleProbe(latency !== null);
+    // Offline, whatever the cause.
+    return null;
   }
-  return latency;
 }

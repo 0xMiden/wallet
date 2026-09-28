@@ -19,27 +19,16 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 }));
 let lastConstructedUrl: string | undefined;
 
-// The native-HTTP probe each ping takes: the endpoints probed, and each probe's verdict. The first
-// settle decides, as in native-http.
-const mockProbedEndpoints: string[] = [];
-const mockProbeVerdicts: [string, boolean][] = [];
-jest.mock('lib/miden/guardian/native-http', () => ({
-  probeGuardianOrigin: (endpoint: string) => {
-    mockProbedEndpoints.push(endpoint);
-    let settled = false;
-    return (isGuardian: boolean) => {
-      if (settled) return;
-      settled = true;
-      mockProbeVerdicts.push([endpoint, isGuardian]);
-    };
-  }
-}));
+// The shared native-HTTP double records the probe each ping takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 beforeEach(() => {
   jest.clearAllMocks();
   lastConstructedUrl = undefined;
-  mockProbedEndpoints.length = 0;
-  mockProbeVerdicts.length = 0;
+  resetMockProbes();
 });
 
 describe('pingGuardianEndpointLatency', () => {
@@ -68,8 +57,14 @@ describe('pingGuardianEndpointLatency', () => {
   it.each([[1234], [true], [{ nested: 'object' }], [['a']], [null], [undefined]])(
     'reports offline when the commitment is not a string (%p)',
     async commitment => {
-      mockGetPubkey.mockResolvedValue({ commitment });
-      await expect(pingGuardianEndpointLatency('https://nonsense.example.com')).resolves.toBeNull();
+      // fetchOperatorCommitment warns about the nonsense type; keep the run's output clean.
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        mockGetPubkey.mockResolvedValue({ commitment });
+        await expect(pingGuardianEndpointLatency('https://nonsense.example.com')).resolves.toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
     }
   );
 
@@ -116,52 +111,8 @@ describe('pingGuardianEndpointLatency', () => {
     }
   });
 
-  // On mobile a custom endpoint reaches the network only through the native-HTTP bypass: its origin
-  // is routed before the request goes out, and stays routed only when a Guardian answers.
-  it('routes the origin before the request goes out, and keeps it once a Guardian answers', async () => {
-    let probedBeforeRequest = false;
-    mockGetPubkey.mockImplementationOnce(async () => {
-      probedBeforeRequest = mockProbedEndpoints.includes('https://g.example.com');
-      return { commitment: '0xAAA' };
-    });
-
-    await expect(pingGuardianEndpointLatency('https://g.example.com')).resolves.toEqual(expect.any(Number));
-
-    expect(probedBeforeRequest).toBe(true);
-    expect(mockProbeVerdicts).toEqual([['https://g.example.com', true]]);
-  });
-
-  it('releases the origin when the endpoint answers without a key', async () => {
-    mockGetPubkey.mockResolvedValueOnce({ commitment: '' });
-
-    await expect(pingGuardianEndpointLatency('https://weird.example.com')).resolves.toBeNull();
-
-    expect(mockProbeVerdicts).toEqual([['https://weird.example.com', false]]);
-  });
-
-  it('releases the origin when the request rejects', async () => {
-    mockGetPubkey.mockRejectedValueOnce(new Error('Failed to fetch'));
-
-    await expect(pingGuardianEndpointLatency('https://down.example.com')).resolves.toBeNull();
-
-    expect(mockProbeVerdicts).toEqual([['https://down.example.com', false]]);
-  });
-
-  it('releases the origin when the request outlives the deadline', async () => {
-    jest.useFakeTimers();
-    try {
-      mockGetPubkey.mockReturnValueOnce(new Promise(() => undefined));
-
-      const ping = pingGuardianEndpointLatency('https://slow.example.com', 1_000);
-      jest.advanceTimersByTime(1_001);
-      await expect(ping).resolves.toBeNull();
-
-      expect(mockProbeVerdicts).toEqual([['https://slow.example.com', false]]);
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
+  // The probe itself is pinned in operator-map.test.ts; what the ping adds is that a probed request
+  // that rejects still resolves null.
   it('releases the origin when the Guardian client throws before any request goes out', async () => {
     mockGetPubkey.mockImplementationOnce(() => {
       throw new TypeError('Invalid URL');

@@ -20,7 +20,7 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
-import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { withGuardianProbe } from 'lib/miden/guardian/native-http';
 import { getBuiltInGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 
@@ -41,14 +41,14 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
 /**
  * One operator's key commitment, or `undefined` if it did not answer in time.
  *
- * `probeGuardianOrigin` first: on mobile, guardian traffic reaches the network
+ * Run under `withGuardianProbe`: on mobile, guardian traffic reaches the network
  * only through the `CapacitorHttp` CORS bypass, and that interceptor routes only
  * origins registered for the session or held by an in-flight probe. The built-ins
  * are pre-seeded, so this matters for the custom / self-hosted endpoint the drift
- * reconciler and the manual-URL apply below hand to this function: without it
- * those two paths report every custom operator unreachable on mobile. The probe
- * keeps the origin routed only when the endpoint answers with a key, so a URL
- * that is not a Guardian is not left routed.
+ * reconciler, the manual-URL apply below and the picker's ping hand to this
+ * function: without it those paths report every custom operator unreachable on
+ * mobile. The probe keeps the origin routed only when the endpoint answers with a
+ * key, so a URL that is not a Guardian is not left routed.
  *
  * A non-string commitment is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
@@ -58,44 +58,38 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * threw a `TypeError` out of the whole fan-out and took drift reconciliation down
  * for every account on the device, including accounts pointed at other, healthy
  * operators — the opposite of the isolation this module is built to provide.
- * Rejecting it HERE rather than guarding the fold is what gives all four callers
+ * Rejecting it HERE rather than guarding the fold is what gives every caller
  * the same guarantee and keeps the `answered < asked` bookkeeping honest: an
  * endpoint serving a nonsense type is exactly as informative as one that is down,
  * so it must not complete a round that `'none'` requires to be complete.
  */
-async function fetchOperatorCommitment(
+export async function fetchOperatorCommitment(
   endpoint: string,
   timeoutMs: number = ENDPOINT_CHECK_TIMEOUT_MS
 ): Promise<string | undefined> {
-  const settleProbe = probeGuardianOrigin(endpoint);
-  const answer = new Promise<string | undefined>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)), timeoutMs);
-    new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
-      value => {
-        clearTimeout(timer);
-        const commitment: unknown = value?.commitment;
-        if (commitment !== undefined && typeof commitment !== 'string') {
-          console.warn(`[Guardian] ${endpoint} served a non-string key commitment; treating it as unanswered.`);
-          resolve(undefined);
-          return;
-        }
-        resolve(commitment);
-      },
-      error => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
-  });
-  return answer.then(
-    commitment => {
-      settleProbe(Boolean(commitment));
-      return commitment;
-    },
-    (error: unknown) => {
-      settleProbe(false);
-      throw error;
-    }
+  return withGuardianProbe(
+    endpoint,
+    () =>
+      new Promise<string | undefined>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)), timeoutMs);
+        new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
+          value => {
+            clearTimeout(timer);
+            const commitment: unknown = value?.commitment;
+            if (commitment !== undefined && typeof commitment !== 'string') {
+              console.warn(`[Guardian] ${endpoint} served a non-string key commitment; treating it as unanswered.`);
+              resolve(undefined);
+              return;
+            }
+            resolve(commitment);
+          },
+          error => {
+            clearTimeout(timer);
+            reject(error);
+          }
+        );
+      }),
+    commitment => Boolean(commitment)
   );
 }
 

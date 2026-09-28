@@ -117,12 +117,10 @@ export function useGuardianPings(endpoints: readonly string[]): Record<string, G
       roundInFlight.current = true;
       roundStartedAt.current = Date.now();
 
-      // The rejection arm is not dead code insurance for a documented
-      // never-throws contract: `pingGuardianEndpointLatency` calls
-      // `probeGuardianOrigin` OUTSIDE its own try, so the contract currently
-      // holds only because that helper swallows its own URL-parse failure. A
-      // hostile or malformed endpoint reads as offline rather than becoming an
-      // unhandled rejection per endpoint per round.
+      // The rejection arm is defensive: `pingGuardianEndpointLatency` cannot
+      // reject, its whole body sits in one try. Should that ever change, a
+      // hostile or malformed endpoint still reads as offline rather than becoming
+      // an unhandled rejection per endpoint per round.
       const settled = targets.map(endpoint =>
         pingGuardianEndpointLatency(endpoint).then(
           latencyMs => {
