@@ -26,9 +26,9 @@ export interface ConfirmationScreenProps {
    */
   recoveryError?: string | null;
   /**
-   * Side panel handoff (Chrome): the wallet is being created in the background
-   * before the user opens it. While true, show a spinner instead of the
-   * ready-state success message + button.
+   * Side panel handoff (Chrome): the wallet is being registered (created or
+   * restored) in the background before the user opens it. While true, show a
+   * spinner instead of the ready-state success message + button.
    */
   creating?: boolean;
   /**
@@ -58,9 +58,10 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const hasRecoveryError = !!recoveryError;
   const isRecovery = onboardingType === OnboardingType.Import;
 
-  // Side-panel handoff (Chrome): the wallet is still being created in the
-  // background. Show a spinner rather than the ready-state success message,
-  // otherwise the user sees "Your wallet is ready" before it actually is.
+  // Side-panel handoff (Chrome): the wallet is still being registered
+  // (created or restored) in the background. Show a spinner rather than the
+  // ready-state success message, otherwise the user sees "Your wallet is
+  // ready" before it actually is.
   if (creating) {
     return (
       <div

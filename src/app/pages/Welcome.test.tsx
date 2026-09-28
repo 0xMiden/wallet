@@ -3039,7 +3039,7 @@ describe('Welcome — back navigation', () => {
 });
 
 // ===========================================================================
-// Side-panel handoff auto-create effect
+// Side-panel handoff auto-register effect
 // ===========================================================================
 
 describe('Welcome — side-panel handoff', () => {

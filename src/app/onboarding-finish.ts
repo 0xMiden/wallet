@@ -27,7 +27,7 @@ const notify = () => listeners.forEach(listener => listener());
 
 /**
  * Held from before registration until the holder has navigated to its post-creation route: Welcome's tap-to-confirm
- * handler, Welcome's Chrome side-panel auto-create, and ForgotPassword's recover confirmation. While held and the
+ * handler, Welcome's Chrome side-panel auto-register, and ForgotPassword's recover confirmation. While held and the
  * wallet is ready, the root shows the loading view instead of Home.
  */
 export function markOnboardingFinishing(): OnboardingFinishMark {

@@ -220,7 +220,7 @@ const Welcome: FC = () => {
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
   // wiped the wallet.
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
-  // A confirmation attempt (a tap, or the side-panel auto-create) is in flight from its start to its outcome:
+  // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
   // as mobile back already does: another attempt could wipe the wallet this one commits, and a committed wallet
   // takes the tab into the app (resolveRootView) whatever the screens show, so nothing may change its inputs.
@@ -254,10 +254,10 @@ const Welcome: FC = () => {
   const guardianProbeState = seedPhrase || keyPairPayload ? probeState : undefined;
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
-  // Chrome side panel handoff: create the wallet while the confirmation screen
-  // spins, then the final "Open wallet" click opens the side panel onto the
-  // ready wallet (sidePanel.open() needs that click's live gesture). Disabled
-  // under E2E and on non-Chrome — those keep the classic click-to-create flow.
+  // Chrome side panel handoff: register a create or a recovery-phrase import while the confirmation screen
+  // spins, then the final "Open wallet" click opens the side panel onto the ready wallet (sidePanel.open()
+  // needs that click's live gesture). Off on non-Chrome and in builds with MIDEN_E2E_DISABLE_SIDEPANEL, which
+  // keep the classic tap flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
   // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with

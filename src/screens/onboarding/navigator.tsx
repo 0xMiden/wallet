@@ -61,7 +61,7 @@ export interface OnboardingFlowProps {
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
-  /** Side panel handoff (Chrome): wallet is being created in the background. */
+  /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
   /**
    * The import flow is running on a pasted hot key rather than a seed phrase:

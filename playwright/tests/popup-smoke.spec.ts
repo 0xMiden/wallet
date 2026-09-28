@@ -188,9 +188,10 @@ test.describe('Fullpage UI', () => {
     // first-run create (#428), and registers as soon as Confirmation appears, so
     // there is no tap (#1097): the wallet becomes Ready in the background and the
     // "Open wallet" handoff screen appears (rather than the classic in-tab
-    // Explore page). The in-tab path still applies to non-extension / E2E builds
-    // and is covered by the Welcome/ForgotPassword unit tests. The helper fails if
-    // a Confirmation button, or the Retry of a failed auto-register, shows instead.
+    // Explore page). The in-tab path still applies to non-extension builds and builds
+    // with MIDEN_E2E_DISABLE_SIDEPANEL, and is covered by the Welcome/ForgotPassword
+    // unit tests. The helper fails if a Confirmation button, or the Retry of a failed
+    // auto-register, shows instead.
     await passImportConfirmation(page, 30000);
 
     // …by way of the one-time telemetry consent prompt, which this profile has
