@@ -639,18 +639,20 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
 }
 
 /**
- * Suppress auto-consume rows that are the tail of another row's lifecycle
- * while that primary row still exists — it is the single trace: a swap
- * order's settlement consume (payback claim or expiry reclaim, linked via
- * `swapOrderTxId`). A dangling reference (primary row gone) falls through
- * to a normal receive row. Shared by the completed and pending fetches so the
- * two lists can't desynchronize. Token-scoped views stay complete because the
- * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
- * the swap row on its requested-token page too. The tab's unread mark
- * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
- * this feed hides. It also drops a Failed claim row whose every note this
- * account has claimed (`supersededFailedConsumeIds`, #771), so Token
- * Detail and the unread mark follow the feed.
+ * Suppress consume rows that are the tail of another row's lifecycle while
+ * that primary row still exists, so the primary is the single trace
+ * (`suppressedLinkedConsumeIds`): a swap order's settlement consume (payback
+ * claim or expiry reclaim, linked via `swapOrderTxId`), a bridge receive's
+ * consume, and an Earn withdraw's consume while the withdraw has not failed
+ * and matches the consume's intent attempt. A dangling reference (primary row
+ * gone) falls through to a normal receive row. It also drops a Failed claim
+ * row whose every note this account has claimed (`supersededFailedConsumeIds`,
+ * #771). Shared by the completed and pending fetches so the two lists can't
+ * desynchronize. Token-scoped views stay complete because the token filter
+ * (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces the swap row
+ * on its requested-token page too. Token Detail renders through these
+ * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
+ * this as well, so neither shows or counts a row this feed hides.
  */
 export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const [linked, superseded] = await Promise.all([
