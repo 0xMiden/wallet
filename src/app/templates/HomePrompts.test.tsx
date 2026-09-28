@@ -690,8 +690,6 @@ describe('HomePrompts', () => {
     // No tap happened this session — the hero resumes from the marker alone.
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
 
-    if (!hasWebLocks) return;
-
     expect(mockFaucet).not.toHaveBeenCalled();
 
     // Funds land → success beat plays and the marker is cleared.
