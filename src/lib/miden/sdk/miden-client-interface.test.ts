@@ -1333,7 +1333,9 @@ describe('MidenClientInterface', () => {
       };
       const createGuardianAccount = jest.fn(async () => ({
         account: { id: () => ({ toString: () => 'guardian-id' }) },
-        keys
+        keys,
+        guardianEndpoint: 'https://picked-guardian.example',
+        registration: { stateBase64: 'state' }
       }));
 
       jest.doMock('./helpers', () => ({
@@ -1357,26 +1359,30 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
+      const createKey = {
+        guardianEndpoint: 'https://picked-guardian.example',
+        guardianCommitment: 'c',
+        guardianPubkey: 'p',
+        rateLimitBudgetLeftMs: 90_000
+      };
       const assertLive = jest.fn();
-      const result = await client.createGuardianMidenWallet(
-        new Uint8Array([9]),
-        'https://picked-guardian.example',
-        assertLive
-      );
+      const result = await client.createGuardianMidenWallet(new Uint8Array([9]), createKey, assertLive);
 
-      // The picked endpoint is forwarded as createGuardianAccount's
-      // guardianEndpointOverride (4th arg) so the new account binds to it
-      // (stage 1 of #408). skipRegistration (3rd arg) stays false. The caller's
-      // hold re-check goes through as itself: any other function drops every
-      // re-check the vault's hold relies on.
+      // The caller fetched createKey before this hold (#1207) and forwards it
+      // straight through; the caller's hold re-check goes through as itself:
+      // any other function drops every re-check the vault's hold relies on.
       expect(createGuardianAccount).toHaveBeenCalledWith(
         fakeMidenClient,
+        createKey,
         expect.any(Uint8Array),
-        false,
-        'https://picked-guardian.example',
         assertLive
       );
-      expect(result).toEqual({ accountId: 'guardian-id', keys });
+      expect(result).toEqual({
+        accountId: 'guardian-id',
+        keys,
+        guardianEndpoint: 'https://picked-guardian.example',
+        registration: { stateBase64: 'state' }
+      });
     });
 
     // Shared by the two recovery cases below: two matches at HD index 0, then misses until the gap
