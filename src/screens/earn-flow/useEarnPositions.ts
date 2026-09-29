@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { useSWRConfig } from 'swr';
 
@@ -14,8 +14,23 @@ import type { EarnPosition, EarnSummary, EarnVault } from './types';
 // The poll, the spacing of the reads a page starts on its own, and the error retry: the Epoch positions service
 // allows 10 requests per minute, and each read sends one request for each owner.
 const READ_INTERVAL_MS = 30_000;
-// When each key's last read began, per SWR cache, so a test's fresh cache starts with none.
-const lastReadAt = new WeakMap<object, Map<string, number>>();
+
+interface KeyReads {
+  /** When the key's last read began, whoever started it. */
+  at?: number;
+  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read waits 30 s after it. */
+  rearms: Set<() => void>;
+}
+// Per SWR cache, so a test's fresh cache starts with none.
+const keyReads = new WeakMap<object, Map<string, KeyReads>>();
+
+function readsOf(cache: object, id: string): KeyReads {
+  const byKey = keyReads.get(cache) ?? new Map<string, KeyReads>();
+  keyReads.set(cache, byKey);
+  const reads = byKey.get(id) ?? { rearms: new Set<() => void>() };
+  byKey.set(id, reads);
+  return reads;
+}
 
 /**
  * What a detail screen for one earn item (a vault or a position) has: `loadFailed` when the last load
@@ -38,10 +53,12 @@ export function earnItemLoadState(
  * summary with no figures yet. A failed refresh keeps the last data this key loaded (SWR
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
- * account's positions after a switch. The 30s refresh stops while the page is off screen (another tab, a page
- * above it, or another Home page). Every read it starts on its own waits 30 s after the key's last one: a return or
- * a mount reads only then (a key with no data always reads), reconnect and focus never read, and a failed read
- * retries after 30 s at the soonest. A Retry is the one read outside that.
+ * account's positions after a switch. The hook, not SWR, times every read it starts on its own from when the key's
+ * last read began, whoever started it: the poll and the retry of a failed read fire 30 s after it, and a return or a
+ * mount reads only once it is 30 s old (a key with no data always reads). Nothing is read on a timer while the page
+ * is off screen (another tab, a page above it, or another Home page), the document is hidden or the device is
+ * offline, and reconnect and focus never read. A Retry is the one read outside that, and the next poll waits 30 s
+ * after it too.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -69,12 +86,12 @@ export function useEarnPositions(): {
   const onScreen = usePageActive();
   const { cache } = useSWRConfig();
 
-  // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and error retry to its first
+  // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
   // mounts, so a key with data reads again then only once its last read is 30 s old.
   const key = ['earn-positions', account.publicKey, account.evmAddress];
   const id = JSON.stringify(key);
-  const lastRead = lastReadAt.get(cache)?.get(id);
+  const lastRead = keyReads.get(cache)?.get(id)?.at;
   const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
   const {
     data: liveData,
@@ -84,7 +101,9 @@ export function useEarnPositions(): {
   } = useRetryableSWR(
     onScreen ? key : null,
     async () => {
-      lastReadAt.set(cache, (lastReadAt.get(cache) ?? new Map<string, number>()).set(id, Date.now()));
+      const reads = readsOf(cache, id);
+      reads.at = Date.now();
+      reads.rearms.forEach(rearm => rearm());
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
@@ -92,13 +111,42 @@ export function useEarnPositions(): {
     },
     {
       revalidateIfStale: due,
-      refreshInterval: READ_INTERVAL_MS,
+      // SWR's poll and error retry run on their own clocks, blind to a Retry or another page's read: the timer below
+      // starts those reads instead.
+      refreshInterval: 0,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       dedupingInterval: 3_000,
-      errorRetryInterval: READ_INTERVAL_MS
+      shouldRetryOnError: false
     }
   );
+
+  // One timer per on-screen hook, for its current key: it fires 30 s after the key's last read began, re-arming from
+  // every read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the
+  // key holds an error.
+  useEffect(() => {
+    if (!onScreen) return;
+    const reads = readsOf(cache, id);
+    const armedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fire = () => {
+      // Armed first: a read that begins re-arms from its own start, and one that does not leaves this in place.
+      timer = setTimeout(fire, READ_INTERVAL_MS);
+      if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
+      void mutate();
+    };
+    const rearm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fire, Math.max(0, (reads.at ?? armedAt) + READ_INTERVAL_MS - Date.now()));
+    };
+    reads.rearms.add(rearm);
+    rearm();
+    return () => {
+      clearTimeout(timer);
+      reads.rearms.delete(rearm);
+    };
+  }, [onScreen, cache, id, mutate]);
+
   const data = useLastData(key, onScreen, liveData);
   // No data (live or kept) and no error: a page mounted covered reads as loading, not empty.
   const isLoading = data === undefined && !swrError;

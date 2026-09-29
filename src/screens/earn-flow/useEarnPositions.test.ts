@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, render, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
@@ -182,11 +182,11 @@ describe('useEarnPositions', () => {
     // hook's record of it, so no later one may assume this key has none.
     expect(receivedConfig).toEqual({
       revalidateIfStale: true,
-      refreshInterval: 30_000,
+      refreshInterval: 0,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       dedupingInterval: 3_000,
-      errorRetryInterval: 30_000
+      shouldRetryOnError: false
     });
     if (!loadPositions) throw new Error('positions fetcher was not registered');
     await loadPositions();
@@ -432,6 +432,147 @@ describe('useEarnPositions', () => {
       const { result } = renderOnPage();
 
       expect(result.current.isLoading).toBe(true);
+    });
+
+    describe('on a fake clock', () => {
+      // Every read starts with the owner lookup, so its calls count the reads.
+      const reads = () => jest.mocked(getEarnDepositEvmAddresses).mock.calls.length;
+      // Moves the clock, and SWR's timers and the hook's with it, settling every read that starts on the way.
+      const advance = (ms: number) => act(() => jest.advanceTimersByTimeAsync(ms));
+
+      beforeEach(() => {
+        jest.useFakeTimers();
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      });
+
+      afterEach(() => {
+        cleanup();
+        jest.useRealTimers();
+      });
+
+      it('polls 30 s after the last read began, not sooner', async () => {
+        renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(1);
+
+        await advance(29_900);
+        expect(reads()).toBe(1);
+        await advance(200);
+        expect(reads()).toBe(2);
+      });
+
+      it('a Retry moves the next poll to 30 s after it', async () => {
+        const { result } = renderOnPage();
+        await advance(0);
+        expect(result.current.error).toBe('owner unavailable');
+
+        await advance(20_000);
+        act(() => result.current.refetch());
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        await advance(29_900);
+        expect(reads()).toBe(2);
+        await advance(200);
+        expect(reads()).toBe(3);
+      });
+
+      it('a failed read is retried 30 s after it began, and nothing sooner', async () => {
+        // SWR's first error retry, were it on, would wait a random share of its interval; this pins it at 2x.
+        jest.spyOn(Math, 'random').mockReturnValue(0.9);
+        jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+        const { result } = renderOnPage();
+        await advance(0);
+        expect(result.current.loadError).toBe('lookup down');
+
+        await advance(29_900);
+        expect(reads()).toBe(1);
+        await advance(200);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while the document is hidden', async () => {
+        const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        renderOnPage();
+        await advance(0);
+
+        await advance(90_000);
+        expect(reads()).toBe(1);
+
+        visibility.mockReturnValue('visible');
+        await advance(30_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while the device is offline', async () => {
+        const online = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        renderOnPage();
+        await advance(0);
+
+        await advance(90_000);
+        expect(reads()).toBe(1);
+
+        online.mockReturnValue(true);
+        await advance(30_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while its page is covered', async () => {
+        const { rerender } = renderOnPage();
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        onScreen = false;
+        rerender();
+        await advance(90_000);
+        expect(reads()).toBe(1);
+        // And no timer left waiting to start one.
+        expect(jest.getTimerCount()).toBe(0);
+      });
+
+      it('an unmounted page starts no read', async () => {
+        const cache = new Map();
+        let showing: Earn | undefined;
+        const pages = (both: boolean) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            both ? page(true, () => undefined) : null,
+            page(true, earn => (showing = earn))
+          );
+        const { rerender } = render(pages(true));
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        rerender(pages(false));
+        await advance(10_000);
+        act(() => showing?.refetch());
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        await advance(10_000);
+        expect(reads()).toBe(2);
+        await advance(20_100);
+        expect(reads()).toBe(3);
+      });
+
+      it('an account switch re-arms from the new key', async () => {
+        const { rerender } = renderOnPage();
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        mockAccount.publicKey = 'another-account';
+        mockAccount.evmAddress = '0x123456';
+        rerender();
+        await advance(0);
+        expect(reads()).toBe(2);
+        expect(getEarnDepositEvmAddresses).toHaveBeenLastCalledWith('another-account');
+
+        await advance(29_900);
+        expect(reads()).toBe(2);
+        await advance(200);
+        expect(reads()).toBe(3);
+      });
     });
   });
 
