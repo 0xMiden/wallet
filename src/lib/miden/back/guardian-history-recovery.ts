@@ -38,11 +38,13 @@ class HistoryInterrupted extends Error {}
 type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported' };
 
 /**
- * How old the history phase lets its live progress record get before it writes it again, checked before each getDelta,
- * decodeGuardianHistory and getGuardianResultCommitment. Between two writes a pass then does at most one history
- * request (15 s, one retry), one decode or commitment op, the merge and a checkpoint save, or a createClient, so the
- * record stays well inside GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS. A decode or commitment op has a 15 s deadline on
- * the offscreen path; inline, on mobile and desktop, it waits on the WASM lock with no deadline.
+ * How old the history phase lets its live progress record get before it writes it again, checked before each
+ * createClient, getDelta, decodeGuardianHistory and getGuardianResultCommitment; each page also writes it at its start.
+ * The record is then at most this old plus the longest stretch between two of those points: a history request (15 s,
+ * one retry), a decode or commitment op, the merge and a checkpoint save, or a createClient, which keeps it well inside
+ * GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS. A decode or commitment op has a 15 s deadline on the offscreen path;
+ * inline, on mobile and desktop, it waits on the WASM lock with no deadline, and createClient takes the lock of the
+ * realm the pass runs in for its account read, with no deadline on every path.
  */
 export const GUARDIAN_HISTORY_PROGRESS_REFRESH_MS = 30_000;
 
@@ -198,6 +200,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         if (checkpoint.cursor && checkpoint.cursor.length > MAX_HISTORY_CURSOR_LENGTH)
           throw new GuardianHistoryDataError('Saved Guardian history cursor exceeds the length limit');
         await check();
+        await refreshHistory(operator);
         const { guardian, guardianAccountId } = await context.createClient(account, operator);
         while (!checkpoint.completed) {
           await reportHistory(operator);

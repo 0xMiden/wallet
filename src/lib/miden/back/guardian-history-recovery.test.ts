@@ -647,6 +647,39 @@ it('rewrites the live history record after a slow decode, before the next delta 
   }
 });
 
+it('rewrites the live history record after an operator ends on a slow decode, before the next createClient', async () => {
+  const { clock, tick } = tickPerCall();
+  try {
+    const decode = jest.mocked(midenClientProxy.decodeGuardianHistory);
+    const decodeSummary = decode.getMockImplementation()!;
+    // Nonce 1 is the last entry operator one serves.
+    decode.mockImplementation(async encoded => {
+      if (encoded === '1') tick();
+      return decodeSummary(encoded);
+    });
+    const slowCreateClient = jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
+      if (endpoint === 'https://two') tick();
+      return createClient(walletAccount, endpoint);
+    });
+    await recoverGuardianHistory(account, {
+      createClient: slowCreateClient,
+      shouldYield,
+      generation: await storedGeneration()
+    });
+    const twoStarts = slowCreateClient.mock.invocationCallOrder[1]!;
+    const lastOneDecode = decode.mock.invocationCallOrder[decode.mock.calls.findIndex(([encoded]) => encoded === '1')]!;
+    const report = jest.mocked(reportGuardianNoteRecoveryProgress).mock;
+    const between = report.calls.filter((_call, index) => {
+      const order = report.invocationCallOrder[index]!;
+      return order > lastOneDecode && order < twoStarts;
+    });
+    expect(between.length).toBeGreaterThan(0);
+    for (const [progress] of between) expect(progress).toMatchObject({ step: 'history', operator: 'https://two' });
+  } finally {
+    clock.mockRestore();
+  }
+});
+
 it('defers a run whose generation was read before the key was removed', async () => {
   const generation = await storedGeneration();
   await putToStorage('guardian_history_generation_v1', null);
