@@ -286,6 +286,13 @@ printf '#!/bin/sh\ncase "$*" in *latest=*) exit 3 ;; esac\nexec %s "$@"\n' "$rea
 chmod +x "$shim/awk"
 expect 2 'a comparison that fails exits 2, not 0' "$r" PATH="$shim:$PATH"
 
+# An unchanged CHANGELOG: a cmp failure read as "the files differ" would find nothing added and pass.
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+shim=$(mktemp -d "$work/shim.XXXXXX")
+printf '#!/bin/sh\nexit 2\n' > "$shim/cmp"
+chmod +x "$shim/cmp"
+expect 2 'a cmp that fails exits 2' "$r" PATH="$shim:$PATH"
+
 # --- a released entry stays under its version, however it is moved ---
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 replace_line "$r" '## 1.15.13 (TBD)' '## 1.16.4 (TBD)'

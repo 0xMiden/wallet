@@ -81,12 +81,17 @@ if [ -z "${latest_release}" ]; then
 fi
 
 # Each labelled line carries its text, so equal labels are an unchanged file; a change to the final
-# newline alone changes no line.
-if cmp -s "${work}/base" "${work}/head"; then
+# newline alone changes no line. cmp exits 1 when they differ and above 1 when it fails.
+cmp -s "${work}/base" "${work}/head"
+unchanged_status=$?
+if [ "${unchanged_status}" -eq 0 ]; then
     >&2 echo "Changes should come with an entry in the \"CHANGELOG.md\" file. This behavior
 can be overridden by using the \"no changelog\" label, which is used for changes
 that are trivial / explicitly stated not to require a changelog entry."
     exit 1
+elif [ "${unchanged_status}" -ne 1 ]; then
+    >&2 echo "Could not compare the sections of ${CHANGELOG_FILE} with the merge base (cmp exit ${unchanged_status})."
+    exit 2
 fi
 echo "The \"CHANGELOG.md\" file has been updated."
 
