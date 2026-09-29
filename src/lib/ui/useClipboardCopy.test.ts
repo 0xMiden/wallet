@@ -236,3 +236,88 @@ it('drops a copy made while a write is in flight, and a later copy writes again 
     errorSpy.mockRestore();
   }
 });
+
+// `text` is a render argument, so a newer value can be rendered, and copied, while the older
+// value's write is still on the bridge (#1086).
+it('writes a value rendered while an older write is in flight, and confirms only the value on screen', async () => {
+  const { result, rerender } = renderHook(({ text }) => useClipboardCopy(text), { initialProps: { text: 'old' } });
+
+  let older: Promise<void>;
+  act(() => {
+    older = result.current.copy();
+  });
+  const settleOlder = resolveWrite;
+  rerender({ text: 'new' });
+  let newer: Promise<void>;
+  act(() => {
+    newer = result.current.copy();
+  });
+  const settleNewer = resolveWrite;
+
+  await act(async () => {
+    settleOlder?.();
+    await older;
+  });
+  // The clipboard may still hold "old": nothing beside "new" may say Copied yet.
+  expect(result.current.copied).toBe(false);
+  expect(mockWrite).toHaveBeenCalledTimes(2);
+  expect(mockWrite).toHaveBeenLastCalledWith({ string: 'new' });
+
+  // The older write settling does not release the newer one's latch.
+  act(() => {
+    void result.current.copy();
+  });
+  expect(mockWrite).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    settleNewer?.();
+    await newer;
+  });
+  expect(result.current.copied).toBe(true);
+});
+
+it('keeps the newer write as Copied when the older write settles after it (#1086)', async () => {
+  const { result, rerender } = renderHook(({ text }) => useClipboardCopy(text), { initialProps: { text: 'old' } });
+
+  let older: Promise<void>;
+  act(() => {
+    older = result.current.copy();
+  });
+  const settleOlder = resolveWrite;
+  rerender({ text: 'new' });
+  let newer: Promise<void>;
+  act(() => {
+    newer = result.current.copy();
+  });
+  const settleNewer = resolveWrite;
+
+  // Settle out of start order: the newer write first, then the older one.
+  await act(async () => {
+    settleNewer?.();
+    await newer;
+  });
+  expect(result.current.status).toBe('success');
+
+  await act(async () => {
+    settleOlder?.();
+    await older;
+  });
+  expect(result.current.status).toBe('success');
+});
+
+it('stops reporting Copied once the text on screen moves on, without writing again', async () => {
+  const { result, rerender } = renderHook(({ text }) => useClipboardCopy(text), { initialProps: { text: 'old' } });
+
+  await act(async () => {
+    const p = result.current.copy();
+    resolveWrite?.();
+    await p;
+  });
+  expect(result.current.copied).toBe(true);
+
+  rerender({ text: 'new' });
+
+  expect(result.current.status).toBe('idle');
+  expect(result.current.copied).toBe(false);
+  expect(mockWrite).toHaveBeenCalledTimes(1);
+});

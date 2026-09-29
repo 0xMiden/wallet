@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
@@ -164,14 +165,14 @@ describe('wallet prompts', () => {
 
   describe('getPendingNotesUsdTotal', () => {
     const prices = {
-      MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+      USDC: { price: 2, change24h: 0, percentageChange24h: 0 },
       ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
     };
-    const miden = {
+    const usdc = {
       id: 'note-1',
       amount: '1250000',
-      faucetId: '0xmiden',
-      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+      faucetId: MIDEN_USDC_FAUCET,
+      metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
     };
     // IETH is quoted under ETH (its swap token's priceSymbol), never under its own symbol.
     const ieth = {
@@ -182,7 +183,7 @@ describe('wallet prompts', () => {
     };
 
     it('sums every note at its quoted price, across decimals, reading IETH at the ETH price', () => {
-      expect(getPendingNotesUsdTotal([miden, ieth], prices)).toBe(6002.5);
+      expect(getPendingNotesUsdTotal([usdc, ieth], prices)).toBe(6002.5);
     });
 
     it('gives no total when any note has no quote, never a $1 figure for it', () => {
@@ -192,7 +193,7 @@ describe('wallet prompts', () => {
         faucetId: '0xother',
         metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
       };
-      expect(getPendingNotesUsdTotal([miden, unquoted], prices)).toBeNull();
+      expect(getPendingNotesUsdTotal([usdc, unquoted], prices)).toBeNull();
     });
 
     // A registry faucet is priced by its id, so a note still carrying the placeholder's guessed 6
@@ -204,7 +205,7 @@ describe('wallet prompts', () => {
         faucetId: TOKEN_IETH.faucetId,
         metadata: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
       };
-      expect(getPendingNotesUsdTotal([miden, unsized], prices)).toBeNull();
+      expect(getPendingNotesUsdTotal([usdc, unsized], prices)).toBeNull();
     });
 
     it('totals nothing as zero', () => {

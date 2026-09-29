@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
-import { markOnboardingFinishing } from 'app/onboarding-finish';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
@@ -247,7 +247,7 @@ const ForgotPassword: FC = () => {
             if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
             // Guardian recovery just completed — hand off to the side panel like
             // first-run onboarding rather than always entering in-tab (#428).
-            navigate(postOnboardingRoute());
+            navigateOnFromOnboarding(postOnboardingRoute());
           } finally {
             setIsLoading(false);
             finishMark.release();

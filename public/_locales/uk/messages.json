@@ -180,18 +180,6 @@
     "message": "Хліб",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Моя позиція щодо $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайті $network$",
     "englishSource": "$asset$ on $network$",
@@ -1878,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Перевірте свою фразу відновлення",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Створіть резервну копію вашого гаманця",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Запишіть свою фразу відновлення та переконайтеся, що знаєте її перше та останнє слова, щоб згодом мати змогу відновити цей гаманець.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Збережіть фразу відновлення, щоб відновити цей гаманець на новому пристрої.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Безпечне підписання недоступне",
@@ -2190,31 +2178,6 @@
     "message": "«Guardian» зберігає стан вашого рахунку та допомагає його відновити. Уявіть це як сервер, який створює резервну копію ваших даних, але він ніколи не має доступу до ваших коштів.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Наразі найшвидший оператор із $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Оператор цієї мережі",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian не може самостійно переміщувати ваші кошти",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian створює резервну копію стану вашого облікового запису",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "За допомогою фрази відновлення ви можете змінити Guardian",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Перевіряємо, який оператор відповідає найшвидше…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Я б краще створив повністю приватний обліковий запис",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Оберіть інший Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Незалежний оператор Guardian на Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "Компанія OpenZeppelin, що спеціалізується на безпеці blockchain, створила широко використовувані бібліотеки смарт-контрактів для Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm створює та підтримує інфраструктуру blockchain для мереж та рол-апів.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass — це інженерна компанія, що розробляє передові криптографічні рішення та інфраструктуру для блокчейнів (blockchain).",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) — це регульований зберігач цифрових активів у Південній Кореї.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Дізнайтеся більше про «Guardian»",
@@ -2294,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "Ваш Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Змінити",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ зберігає резервну копію вашого акаунта. Він ніколи не зможе перемістити ваші кошти, а змінити його можна будь-коли.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
@@ -2418,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "Створення вашого гаманця…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Відновлення вашого гаманця…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Налаштування гаманця…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Відкрийте свій гаманець, щоб завершити його відновлення.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Введіть пароль",
@@ -2794,6 +2758,55 @@
   "hotKeyRotationRetry": {
     "message": "Спробувати ще раз",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Додайте MIDEN, щоб активувати свій повсякденний ключ",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Активація вашого повсякденного ключа є транзакцією, і за кожну транзакцію сплачується невелика мережева комісія в MIDEN. Надішліть MIDEN на адресу цього облікового запису, вказану нижче. Гаманець отримає кошти та автоматично завершить активацію вашого ключа.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Надішліть щонайменше $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Адреса вашого облікового запису",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Чекаємо на прибуття MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Отримана вами сума MIDEN є занадто малою для сплати комісії мережі. Надішліть трохи більше.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN отримано. Забираю його…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Активація вашого повсякденного ключа…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "MIDEN, який ви отримали, не вдалося активувати.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Спробуйте ще раз",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Перевірте ще раз",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian змінено",
@@ -4254,6 +4267,10 @@
     "message": "Поділитися",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Надіслати адресу",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Копіювати",
     "englishSource": "Copy"
@@ -4485,6 +4502,14 @@
   "unverified": {
     "message": "неперевірений",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "Неперевірено",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Цей токен відсутній у списку перевірених токенів Miden. Будь-хто може створити токен з будь-якою назвою, тому перед тим, як довіряти йому, перевірте його ідентифікатор на сайті faucet.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "couldNotVerifyBySimulation": {
     "message": "Не вдалося перевірити за допомогою моделювання. Наведені нижче показники відповідають даним, опублікованим на сайті.",
@@ -4964,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — про цю мережу",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Токени не мають реальної цінності",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Відновити",
@@ -5284,16 +5313,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Перевірка способу розблокування цього гаманця займає більше часу, ніж зазвичай. Щоб спробувати ще раз, поверніться назад і знову відкрийте цю сторінку.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Щоб спробувати ще раз, поверніться назад і знову відкрийте цю сторінку.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Спробуйте ще раз.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Змінити колір QR-коду",

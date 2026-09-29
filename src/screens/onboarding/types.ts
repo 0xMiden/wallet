@@ -50,9 +50,13 @@ export enum OnboardingStep {
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
   /**
-   * The create flow's guardian step: three facts to acknowledge, then the
-   * fastest reachable operator, picked for the user. "Choose a different
-   * Guardian" pushes the full picker, `ChooseGuardian`.
+   * The create flow's guardian step: the fastest reachable operator, picked
+   * for the user, on a card whose Change action pushes the full picker,
+   * `ChooseGuardian`. Change shows from the first probe round unless the
+   * network has no operator; Continue opens once the three facts are
+   * ticked and the chosen operator has answered online. Change opens the
+   * picker on the card's operator, and the picker goes on only under the
+   * same two conditions; until the facts are ticked it returns here.
    */
   MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',
@@ -159,7 +163,11 @@ export type SelectRecoveryMethodAction = {
 export interface MeetGuardianProgress {
   checked: Readonly<Record<string, boolean>>;
   chosenId: string | null;
-  /** Picked in the full picker rather than locked in as the fastest, so the card does not call it that. */
+  /**
+   * Picked by the user in the full picker rather than locked in by Meet your Guardian as the fastest. The picker
+   * reopens on it as the user's own pick (`initialPicked`), so its fallback to the first online operator never
+   * substitutes a user's pick: while it is offline nothing is selected (#1083).
+   */
   pickedByUser: boolean;
 }
 

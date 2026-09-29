@@ -180,18 +180,6 @@
     "message": "Bread",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "My $protocol$ • $asset$ position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ on $network$",
     "englishSource": "$asset$ on $network$",
@@ -1878,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Verify your recovery phrase",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Back up your wallet",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Save your recovery phrase so you can restore this wallet on a new device.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Secure signing unavailable",
@@ -2190,31 +2178,6 @@
     "message": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Fastest operator right now, out of $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "The operator on this network",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "The Guardian can't move your funds on its own",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "The Guardian backs up your account state",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "You can switch Guardians with your recovery phrase",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Checking which operator answers fastest…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "I'd rather make a fully private account instead",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Choose a different Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "An independent Guardian operator on Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Learn more about the Guardian",
@@ -2294,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "Your Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Change",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
@@ -2418,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "Creating your wallet…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Restoring your wallet…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Setting up your wallet…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Open your wallet to finish restoring it.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Enter password",
@@ -2794,6 +2758,55 @@
   "hotKeyRotationRetry": {
     "message": "Retry",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Add MIDEN to activate your everyday key",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Send at least $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Your account address",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Waiting for MIDEN to arrive…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "The MIDEN you received is too little to pay the network fee. Send a little more.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN received. Claiming it…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Activating your everyday key…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "The MIDEN you received could not be claimed.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Try again",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Check again",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian changed",
@@ -4254,6 +4267,10 @@
     "message": "Share",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Send your address",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Copy",
     "englishSource": "Copy"
@@ -4485,6 +4502,14 @@
   "unverified": {
     "message": "unverified",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "Unverified",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "couldNotVerifyBySimulation": {
     "message": "Could not verify by simulation. Amounts below are as declared by the site.",
@@ -4964,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — about this network",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Tokens have no real value",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restore",
@@ -5284,16 +5313,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Couldn't check this wallet's unlock method. Try again.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Change the QR code color",

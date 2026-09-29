@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
-import { markOnboardingFinishing } from 'app/onboarding-finish';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
@@ -210,16 +210,17 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  // Whether a registration has landed for this attempt. Distinct from `registrationError`,
-  // which both outcomes set: the throw and the resolved-but-never-Ready path. Only this tells
-  // them apart, and only this can say whether a wallet may already exist.
-  const [registrationCommitted, setRegistrationCommitted] = useState(false);
+  // The identity of the file restore that has landed for the current attempt, or null. Bound to
+  // the SAME fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a
+  // plain "has anything landed" flag. Only resetFlowState clears it, so it survives a history
+  // round trip back to the same file within the attempt (see canLeaveConfirmation).
+  const [committedFileBinding, setCommittedFileBinding] = useState<string | null>(null);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
   // wiped the wallet.
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
-  // A confirmation attempt (a tap, or the side-panel auto-create) is in flight from its start to its outcome:
+  // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
   // as mobile back already does: another attempt could wipe the wallet this one commits, and a committed wallet
   // takes the tab into the app (resolveRootView) whatever the screens show, so nothing may change its inputs.
@@ -253,10 +254,10 @@ const Welcome: FC = () => {
   const guardianProbeState = seedPhrase || keyPairPayload ? probeState : undefined;
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
-  // Chrome side panel handoff: create the wallet while the confirmation screen
-  // spins, then the final "Open wallet" click opens the side panel onto the
-  // ready wallet (sidePanel.open() needs that click's live gesture). Disabled
-  // under E2E and on non-Chrome — those keep the classic click-to-create flow.
+  // Chrome side panel handoff: register a create or a recovery-phrase import while the confirmation screen
+  // spins, then the final "Open wallet" click opens the side panel onto the ready wallet (sidePanel.open()
+  // needs that click's live gesture). Off on non-Chrome and in builds with MIDEN_E2E_DISABLE_SIDEPANEL, which
+  // keep the classic tap flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
   // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with
@@ -271,6 +272,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
+    setCommittedFileBinding(null);
     setGuardianLookupFailure(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
@@ -478,9 +480,10 @@ const Welcome: FC = () => {
       }
       await registration.done;
       // From here a wallet may exist, whatever happens next: the escape back to the file picker is
-      // withdrawn, because it would show an empty picker implying the restore was abandoned while
-      // the databases are written and the registration has landed.
-      setRegistrationCommitted(true);
+      // withdrawn for THIS file, because it would show an empty picker implying the restore was
+      // abandoned while the databases are written and the registration has landed (canLeaveConfirmation
+      // covers what happens on a different file).
+      if (walletFilePayload) setCommittedFileBinding(JSON.stringify(fileRegistrationBinding(walletFilePayload)));
       if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
@@ -501,27 +504,63 @@ const Welcome: FC = () => {
     guardianEndpoint
   ]);
 
-  // Side panel handoff: kick off wallet creation as soon as the confirmation
-  // screen is reached (the screen shows a spinner), so the wallet is Ready by
-  // the time the user clicks "Open wallet". Scoped to the Create flow only:
+  // One failure path for the auto-register effect and the Confirmation tap, so they cannot drift. Returns whether
+  // it handed the failure to the recovery-method screen.
+  const routeRegistrationFailure = useCallback(
+    (error: unknown): boolean => {
+      settleOnboardingFlow(handle => handle.fail(classifyError(error)));
+      // Surface it for every path; most used to show nothing. The Guardian import
+      // branch below hands off to the recovery-method screen, which retires this
+      // message on arrival.
+      const failure = errorToMessage(error) ?? t('smthWentWrong');
+      setRegistrationError(failure);
+      if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
+        // The page change clears registrationError, so the screen gets its own copy of the reason.
+        let lookupFailure: string;
+        if (isGuardianNotFound(error)) {
+          // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
+          // copy suggests a public import, which a pasted key cannot use (the screen hides it).
+          lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
+        } else if (isLikelyNetworkError(error)) {
+          // A raw "Failed to fetch" / RPC timeout message is not translated; show the
+          // operator-unreachable notice instead.
+          lookupFailure = t('guardianUrlUnreachable');
+        } else {
+          lookupFailure = failure;
+        }
+        setGuardianLookupFailure(lookupFailure);
+        navigate('/#import-select-recovery-method');
+        return true;
+      }
+      return false;
+    },
+    [onboardingType, walletFilePayload, walletType, keyPairPayload, settleOnboardingFlow, t]
+  );
+
+  // Side panel handoff: register the wallet as soon as the confirmation screen
+  // is reached (the screen shows a spinner), so it is Ready by the time the
+  // user clicks "Open wallet". A create and a recovery-phrase import take this
+  // path; the rest keep the classic tap:
   //   - the hardware/biometric path must prompt biometrics on an explicit tap,
   //     not on arrival;
-  //   - import flows are excluded because guardian lookup can fail and needs
-  //     the in-tab retry UI — imports keep the classic in-tab flow.
-  // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
+  //   - a wallet-file restore and a key-pair import keep it too. A key-pair
+  //     import holds no recovery phrase, but a file restore carries the file's
+  //     own, so the seedPhrase guard alone would let it through.
+  // A Guardian recovery whose lookup fails is sent back to its recovery method,
+  // whose resubmit resets confirmPhase, so it registers here again.
+  // Decided during render rather than in the effect, so the screen shows its spinner from its first render: a render
+  // of the ready state would paint Open wallet, whose tap could land before the effect runs.
+  const autoRegisterDue =
+    sidePanelHandoff &&
+    step === OnboardingStep.Confirmation &&
+    !!password &&
+    password !== '__HARDWARE_ONLY__' &&
+    !!seedPhrase &&
+    !walletFilePayload;
+  // The `confirmPhase !== 'idle'` guard makes this fire at most once per visit even though
   // `register` is (correctly) in the dependency array.
   useEffect(() => {
-    if (!sidePanelHandoff) return;
-    if (step !== OnboardingStep.Confirmation) return;
-    if (confirmPhase !== 'idle') return;
-    if (onboardingType !== OnboardingType.Create) return;
-    if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
-    // A tap can start an attempt between this screen's commit and this effect: leave the visit to that attempt,
-    // which is the classic tap flow, rather than start a second one.
-    if (attemptInFlightRef.current) {
-      setConfirmPhase('failed');
-      return;
-    }
+    if (!autoRegisterDue || confirmPhase !== 'idle') return;
 
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
@@ -537,15 +576,14 @@ const Welcome: FC = () => {
         // transition and shows the "Open wallet" button. We do NOT
         // waitForReadyState here; a Ready broadcast that lands first is held
         // off screen by the finishing mark.
-        navigate(postCreationRoute('/finish-side-panel'));
+        navigateOnFromOnboarding(postCreationRoute('/finish-side-panel'));
       } catch (error) {
-        // Fall back to the classic click-to-create flow: the confirmation
-        // button reverts to running register() in-tab on the next tap. Say so —
-        // the spinner stops either way, and without this the screen goes quiet
-        // and the user has no reason to believe a second tap would help.
-        console.error('[Welcome] Side panel handoff auto-create failed:', error);
-        settleOnboardingFlow(handle => handle.fail(classifyError(error)));
-        setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
+        // A Guardian recovery goes back to its recovery method, which shows the failure, and its resubmit registers
+        // here again. A create or a public or private recovery stays on this screen and shows the failure, and its
+        // next tap retries in the tab. The spinner stops either way, so the failure is said: a quiet screen gives no
+        // reason to believe a second tap would help.
+        console.error('[Welcome] Side panel handoff auto-register failed:', error);
+        routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
         finishMark.release();
@@ -553,7 +591,7 @@ const Welcome: FC = () => {
         setIsLoading(false);
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow, t]);
+  }, [autoRegisterDue, confirmPhase, register, settleOnboardingFlow, routeRegistrationFailure]);
 
   const onAction = async (action: OnboardingAction) => {
     // A running confirmation attempt holds onboarding where it is (see attemptInFlightRef).
@@ -630,7 +668,7 @@ const Welcome: FC = () => {
         navigate('/#meet-guardian');
         break;
       case 'choose-guardian':
-        // "Choose a different Guardian" on the Meet your Guardian step: the full picker.
+        // The guardian card's Change action on the Meet your Guardian step: the full picker.
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
@@ -772,13 +810,19 @@ const Welcome: FC = () => {
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
         setGuardianLookupFailure(null);
+        // Arms the auto-register for this resubmit. A routed Guardian failure leaves confirmPhase failed rather than
+        // resetting it, since a reset there would re-fire the effect before the route leaves Confirmation.
+        setConfirmPhase('idle');
         navigate('/#confirmation');
         break;
       case 'confirmation': {
-        // Side panel handoff (Chrome) creates the wallet in the auto-create
-        // effect above and navigates to /finish-side-panel, so this click only
-        // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
-        // after a failed auto-create. It creates the wallet then enters in-tab.
+        // Side panel handoff (Chrome) registers a create or a recovery-phrase
+        // import in the auto-register effect above and navigates to
+        // /finish-side-panel, so this click only runs in the classic flow:
+        // non-Chrome or a MIDEN_E2E_DISABLE_SIDEPANEL build, hardware/biometric,
+        // a wallet-file or key-pair import, or a retry after a failed
+        // auto-register. It registers the wallet, then waits for Ready before
+        // moving on.
         attemptInFlightRef.current = true;
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
@@ -802,36 +846,14 @@ const Welcome: FC = () => {
             break;
           }
           settleOnboardingFlow(handle => handle.complete());
-          // Recovery/import completes in this classic handler (the Create flow
-          // takes the auto-create effect above). Hand off to the side panel just
-          // like Create does, instead of always entering in-tab (#428).
-          navigate(postCreationRoute(postOnboardingRoute()));
+          // A tapped import or retry hands off to the side panel just like the
+          // auto-register effect does, instead of always entering in-tab (#428).
+          navigateOnFromOnboarding(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          settleOnboardingFlow(handle => handle.fail(classifyError(error)));
-          // Surface it for every path; most used to show nothing. The Guardian import
-          // branch below hands off to the recovery-method screen, which retires this
-          // message on arrival, and the hardware-only branch adds its attempt count.
-          const failure = errorToMessage(error) ?? t('smthWentWrong');
-          setRegistrationError(failure);
-          if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
-            // The page change clears registrationError, so the screen gets its own copy of the reason.
-            let lookupFailure: string;
-            if (isGuardianNotFound(error)) {
-              // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
-              // copy suggests a public import, which a pasted key cannot use (the screen hides it).
-              lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
-            } else if (isLikelyNetworkError(error)) {
-              // A raw "Failed to fetch" / RPC timeout message is not translated; show the
-              // operator-unreachable notice instead.
-              lookupFailure = t('guardianUrlUnreachable');
-            } else {
-              lookupFailure = failure;
-            }
-            setGuardianLookupFailure(lookupFailure);
-            navigate('/#import-select-recovery-method');
-          } else if (password === '__HARDWARE_ONLY__') {
+          // A failure the routine leaves on this screen: the hardware-only path adds its attempt count.
+          if (!routeRegistrationFailure(error) && password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
             const newAttempts = biometricAttempts + 1;
             setBiometricAttempts(newAttempts);
@@ -939,8 +961,9 @@ const Welcome: FC = () => {
 
   useEffect(() => {
     // While a confirmation attempt runs, any other hash (browser back or forward, an edited URL) is sent back to
-    // Confirmation. The attempt's own navigation is not: its finally ends the attempt before React commits the
-    // location that navigation sets, and this effect runs only after a commit.
+    // Confirmation. The attempt's own navigation commits while the attempt is still in flight
+    // (navigateOnFromOnboarding), and is left alone only because every target leaves Welcome's route: a handoff
+    // screen, or the held root once Ready.
     if (attemptInFlightRef.current) {
       if (hash !== '#confirmation') navigate('/#confirmation');
       return;
@@ -1078,17 +1101,20 @@ const Welcome: FC = () => {
   useEffect(() => {
     if (step !== OnboardingStep.Confirmation) {
       setRegistrationError(null);
-      setRegistrationCommitted(false);
     }
   }, [step]);
 
   // Confirmation creates the wallet, so there is nothing to step back to, except a file restore the
-  // user might want to retry with a different file - and only while no registration has landed. The
-  // chevron and the hardware back read the SAME predicate: the hardware path used to consult only
-  // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
-  // file choice; see the 'back' action.
+  // user might want to retry with a different file - and only while no registration has landed FOR
+  // THE FILE CURRENTLY STAGED (a different file staged after an earlier one landed gets its own way
+  // back). The chevron and the hardware back read the SAME predicate: the hardware path used to
+  // consult only `isLoading`, so it stayed open exactly where the chevron was being closed. Back
+  // returns to the file choice; see the 'back' action.
   const canLeaveConfirmation =
-    step !== OnboardingStep.Confirmation || (walletFilePayload !== null && !isLoading && !registrationCommitted);
+    step !== OnboardingStep.Confirmation ||
+    (walletFilePayload !== null &&
+      !isLoading &&
+      JSON.stringify(fileRegistrationBinding(walletFilePayload)) !== committedFileBinding);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -1121,7 +1147,7 @@ const Welcome: FC = () => {
           guardianLookupFailure={guardianLookupFailure}
           recoveryError={registrationError}
           guardianProbe={guardianProbeState}
-          confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+          confirmCreating={confirmPhase === 'creating' || (autoRegisterDue && confirmPhase === 'idle')}
           importViaKey={Boolean(keyPairPayload)}
           canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}

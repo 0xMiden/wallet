@@ -231,6 +231,8 @@ export interface SerializedConsumableNote {
   noteType?: string; // 'public' | 'private' | 'unknown'
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
+  standardPayment?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   swapOrder?: {

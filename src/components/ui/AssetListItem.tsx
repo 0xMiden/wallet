@@ -37,6 +37,8 @@ export interface AssetListItemProps {
    * share a symbol, so a caller that has to address one exactly passes its faucet id here.
    */
   'data-token-id'?: string;
+  /** A short mark after the name, such as a token's verification. It never shrinks; the name truncates first. */
+  badge?: ReactNode;
 }
 
 export const AssetListItem: FC<AssetListItemProps> = ({
@@ -51,7 +53,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   onClick,
   className,
   'data-testid': dataTestId,
-  'data-token-id': dataTokenId
+  'data-token-id': dataTokenId,
+  badge
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -86,7 +89,10 @@ export const AssetListItem: FC<AssetListItemProps> = ({
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
         <div className="flex flex-col min-w-0">
-          <div className="text-row-title text-ink truncate">{name}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="text-row-title text-ink truncate">{name}</div>
+            {badge && <div className="shrink-0">{badge}</div>}
+          </div>
           <div className="text-caption text-muted truncate">{amount}</div>
         </div>
       </div>
