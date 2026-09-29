@@ -328,6 +328,17 @@ it('normalizes operators and accepts only exact nonempty note sets', () => {
   expect(sameNonemptyNotes(['a', 'b'], ['b', 'a'])).toBe(true);
 });
 
+it('keeps plain http operators only on the local hosts Guardian Settings accepts', () => {
+  expect(
+    normalizeHistoryOperators([
+      'http://plain.example',
+      'http://localhost:3001/',
+      'http://127.0.0.1:4000',
+      'https://one'
+    ])
+  ).toEqual(['http://localhost:3001', 'http://127.0.0.1:4000', 'https://one']);
+});
+
 function recoveredSwapPair() {
   const swap = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta({ proposalType: 'swap' }), {
     ...summary,

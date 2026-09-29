@@ -100,27 +100,16 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   const canonicalAccountId = canonicalWalletAccountId(account.publicKey);
   const initialState = await readGuardianHistoryState();
   const local = await transactions.where('accountId').equals(account.publicKey).toArray();
+  const current = await resolveGuardianEndpoint(account);
+  // Guardian history and backup files can name any host, so only rows this wallet made add operators.
   const previous: string[] = [];
   for (const row of local) {
+    if (row.recovered || row.restoredFromBackup) continue;
     for (const value of [row.extraInputs?.previousGuardianEndpoint, row.extraInputs?.newGuardianEndpoint]) {
       if (typeof value === 'string') previous.push(value);
     }
-    if (row.recovery?.network === network) {
-      previous.push(...row.recovery.operators);
-      const destination = row.recovery.proposal?.newGuardianEndpoint;
-      if (destination) previous.push(destination);
-    }
   }
-  previous.push(
-    ...Object.values(initialState.checkpoints)
-      .filter(checkpoint => checkpoint.network === network && checkpoint.accountId === canonicalAccountId)
-      .map(checkpoint => checkpoint.operator)
-  );
-  const operators = normalizeHistoryOperators([
-    await resolveGuardianEndpoint(account),
-    ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []),
-    ...previous
-  ]);
+  const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
   const check = async () => {
     if (await context.shouldYield()) throw new HistoryInterrupted();
     if (network !== getEffectiveNetworkName()) throw new HistoryInterrupted();

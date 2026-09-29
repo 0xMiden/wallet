@@ -1,5 +1,7 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
+import { isValidGuardianUrl } from 'lib/settings/helpers';
+
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -149,9 +151,9 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
 export function normalizeHistoryOperators(endpoints: string[]): string[] {
   const operators = new Set<string>();
   for (const endpoint of endpoints) {
+    if (!isValidGuardianUrl(endpoint)) continue;
     try {
       const url = new URL(endpoint);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
       url.hash = '';
       url.search = '';
       operators.add(url.toString().replace(/\/+$/, ''));

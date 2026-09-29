@@ -10,7 +10,12 @@ import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { ITransactionStatus } from '../db/types';
-import { clearGuardianHistoryCheckpoints, readGuardianHistoryState } from '../guardian/history-storage';
+import { GUARDIAN_HISTORY_VERSION, historyCheckpointId } from '../guardian/history';
+import {
+  clearGuardianHistoryCheckpoints,
+  readGuardianHistoryState,
+  saveGuardianHistoryCheckpoint
+} from '../guardian/history-storage';
 import { exportDb, importDb, transactions } from '../repo';
 import { classifyHistoryFailure, recoverGuardianHistory } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
@@ -336,4 +341,59 @@ it('fills missing Guardian-switch endpoints from a richer copy on another source
     newGuardianEndpoint: 'https://new'
   });
   expect(rows[0]?.recovery?.operators).toEqual(['https://one', 'https://two']);
+  // An endpoint a Guardian reported is data, not an operator to contact.
+  createClient.mockClear();
+  await run();
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('https://new');
+});
+
+it('ignores a saved checkpoint for an operator outside the list without deleting it', async () => {
+  const id = historyCheckpointId('testnet', 'account', 'https://attacker');
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id,
+    network: 'testnet',
+    accountId: 'account',
+    operator: 'https://attacker',
+    version: GUARDIAN_HISTORY_VERSION,
+    seenCursors: [],
+    completed: false,
+    restored: 0
+  });
+  expect((await run()).sourceFailures).toBe(0);
+  expect(createClient.mock.calls.map(call => call[1])).toEqual(['https://one', 'https://two']);
+  expect((await readGuardianHistoryState()).checkpoints[id]?.operator).toBe('https://attacker');
+});
+
+const localSwitch = (previousGuardianEndpoint: string, restoredFromBackup?: boolean) =>
+  transactions.add({
+    id: 'local-switch',
+    type: 'switch-guardian',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'DEFAULT',
+    restoredFromBackup,
+    extraInputs: { previousGuardianEndpoint, newGuardianEndpoint: 'https://one' }
+  });
+
+it('visits the previous operator of a switch the wallet made itself', async () => {
+  source('http://localhost:3001', []);
+  await localSwitch('http://localhost:3001');
+  await run();
+  expect(createClient.mock.calls.map(call => call[1])).toContain('http://localhost:3001');
+});
+
+it('does not visit an operator named by a row restored from a backup file', async () => {
+  source('http://localhost:3001', []);
+  await localSwitch('http://localhost:3001', true);
+  await run();
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('http://localhost:3001');
+});
+
+it('does not visit a plain http operator on a remote host', async () => {
+  source('http://plain.example', []);
+  await localSwitch('http://plain.example');
+  await run();
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('http://plain.example');
 });
