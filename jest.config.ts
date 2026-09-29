@@ -167,8 +167,15 @@ export default {
   // plain `jest` run discovers their stale test files and emits haste-map
   // duplicate-mock collisions (spurious local failures). CI checks out clean, so
   // this only matters for local runs.
-  modulePathIgnorePatterns: ['<rootDir>/sdk-debug/', '<rootDir>/.worktrees/', '<rootDir>/.claude/'],
+  // backend/ is a standalone Node package with its own node:test suite.
+  modulePathIgnorePatterns: [
+    '<rootDir>/sdk-debug/',
+    '<rootDir>/.worktrees/',
+    '<rootDir>/.claude/',
+    '<rootDir>/backend/'
+  ],
   testPathIgnorePatterns: [
+    '<rootDir>/backend/',
     // Playwright's own *.spec.ts e2e suites (and every other file under
     // playwright/) stay out of the Jest run — only pure-unit *.test.ts files
     // living under playwright/ (e.g. playwright/e2e/harness/*.test.ts) are

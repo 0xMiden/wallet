@@ -13,7 +13,42 @@ jest.mock('framer-motion', () => ({
 }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => <span />,
-  IconName: { Backspace: 'backspace' }
+  IconName: { Backspace: 'backspace', Warning: 'warning' }
+}));
+
+const EVM_ADDRESS = '0x1111111111111111111111111111111111111111';
+let mockAccount: { publicKey: string; evmAddress?: string } = { publicKey: 'miden-pk', evmAddress: EVM_ADDRESS };
+jest.mock('lib/miden/front', () => ({ useAccount: () => mockAccount }));
+
+let mockIsMobile = false;
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => mockIsMobile
+}));
+
+type WidgetInput = {
+  url: string;
+  expected: { evmAddress: string; fiatAmount: string };
+  onMismatch: () => void;
+  onClosed: () => void;
+};
+const mockCreateSession = jest.fn();
+const mockOpenWidget = jest.fn<Promise<void>, [WidgetInput]>();
+jest.mock('lib/onramp/transak-client', () => {
+  class MockTransakSessionError extends Error {
+    readonly reason: 'request-failed' | 'mismatch';
+    constructor(reason: 'request-failed' | 'mismatch') {
+      super(reason);
+      this.reason = reason;
+    }
+  }
+  return {
+    TransakSessionError: MockTransakSessionError,
+    createTransakBuySession: (input: object) => mockCreateSession(input)
+  };
+});
+jest.mock('lib/onramp/transak-webview', () => ({
+  openTransakWidget: (input: WidgetInput) => mockOpenWidget(input)
 }));
 
 const mockLeavePage = jest.fn();
@@ -91,8 +126,8 @@ describe('Cash amount entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'continue' }));
     const stripe = await screen.findByRole('radio', { name: 'Stripe' });
     expect(screen.getByTestId('cash-checkout-amount')).toHaveTextContent('$0.01');
-    fireEvent.click(stripe);
-    expect(stripe).toHaveAttribute('aria-checked', 'true');
+    expect(stripe).toBeDisabled();
+    expect(screen.getByText('cashComingSoon')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
     expect(stripe).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('radio', { name: 'Transak' })).toHaveAttribute('aria-checked', 'true');
@@ -111,5 +146,149 @@ describe('Cash amount entry', () => {
       expect(mockBackHandler()).toBe(true);
     });
     await waitFor(() => expect(screen.getByLabelText('cashSellAmount')).toHaveValue('2.5'));
+  });
+});
+
+describe('Cash provider checkout', () => {
+  const { TransakSessionError } = jest.requireMock<{
+    TransakSessionError: new (reason: 'request-failed' | 'mismatch') => Error;
+  }>('lib/onramp/transak-client');
+  const originalBackendUrl = process.env.BACKEND_URL;
+
+  const openProviders = async (action: 'buy' | 'sell' = 'buy') => {
+    const view = render(<Cash action={action} />);
+    press('1', '2', 'decimal', '5');
+    fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+    await screen.findByRole('radio', { name: 'Transak' });
+    return view;
+  };
+  const continueButton = () => screen.getByTestId('cash-checkout-continue');
+  const widgetInput = (): WidgetInput => {
+    const call = mockOpenWidget.mock.calls[0];
+    if (!call) throw new Error('openTransakWidget was not called');
+    return call[0];
+  };
+
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockAccount = { publicKey: 'miden-pk', evmAddress: EVM_ADDRESS };
+    process.env.BACKEND_URL = 'https://backend.test';
+    mockCreateSession.mockReset();
+    mockOpenWidget.mockReset();
+    mockCreateSession.mockResolvedValue({ widgetUrl: 'https://global.transak.com/?sessionId=s', partnerOrderId: 'n' });
+    mockOpenWidget.mockResolvedValue(undefined);
+  });
+
+  afterAll(() => {
+    process.env.BACKEND_URL = originalBackendUrl;
+    mockIsMobile = false;
+  });
+
+  it('keeps Buy a preview with no CTA off mobile', async () => {
+    mockIsMobile = false;
+    const view = await openProviders();
+    expect(screen.getByText('cashProviderPreview')).toBeInTheDocument();
+    expect(screen.queryByTestId('cash-checkout-continue')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('keeps Sell a preview on mobile', async () => {
+    const view = await openProviders('sell');
+    expect(screen.getByText('cashProviderPreview')).toBeInTheDocument();
+    expect(screen.queryByTestId('cash-checkout-continue')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('shows the CTA on mobile Buy, disabled until Transak is chosen', async () => {
+    const view = await openProviders();
+    expect(screen.queryByText('cashProviderPreview')).not.toBeInTheDocument();
+    expect(continueButton()).toHaveTextContent('cashContinueWithProvider');
+    expect(continueButton()).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Stripe' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    expect(continueButton()).toBeEnabled();
+    view.unmount();
+  });
+
+  it('explains and disables the CTA for an account with no EVM address', async () => {
+    mockAccount = { publicKey: 'miden-pk' };
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    expect(screen.getByText('cashNoEvmAddress')).toBeInTheDocument();
+    expect(continueButton()).toBeDisabled();
+    view.unmount();
+  });
+
+  it('explains and disables the CTA when the backend URL is not set', async () => {
+    process.env.BACKEND_URL = '';
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    expect(screen.getByText('cashBackendMissing')).toBeInTheDocument();
+    expect(continueButton()).toBeDisabled();
+    view.unmount();
+  });
+
+  it('creates a session and opens the widget with the expected address and amount', async () => {
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    expect(mockCreateSession).toHaveBeenCalledWith({
+      apiUrl: 'https://backend.test',
+      midenAccountPublicKey: 'miden-pk',
+      evmAddress: EVM_ADDRESS,
+      fiatAmount: '12.5'
+    });
+    expect(widgetInput()).toMatchObject({
+      url: 'https://global.transak.com/?sessionId=s',
+      expected: { evmAddress: EVM_ADDRESS, fiatAmount: '12.5' }
+    });
+    view.unmount();
+  });
+
+  it('shows the mismatch line when the session check fails, and lets the user try again', async () => {
+    mockCreateSession.mockRejectedValueOnce(new TransakSessionError('mismatch'));
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    expect(await screen.findByText('cashCheckoutMismatch')).toBeInTheDocument();
+    expect(mockOpenWidget).not.toHaveBeenCalled();
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    expect(mockCreateSession).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('cashCheckoutMismatch')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('shows the generic error line for any other failure', async () => {
+    mockCreateSession.mockRejectedValueOnce(new Error('network'));
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    expect(await screen.findByText('cashCheckoutError')).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('replaces the providers with a blocking state when the widget reports an address mismatch', async () => {
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    act(() => widgetInput().onMismatch());
+    expect(screen.getByTestId('cash-address-mismatch')).toHaveTextContent('cashCheckoutAddressMismatch');
+    expect(screen.queryByRole('radio', { name: 'Transak' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cash-checkout-continue')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('flow-back'));
+    await waitFor(() => expect(screen.getByTestId('cash-amount')).toHaveValue('$12.5'));
+    view.unmount();
+  });
+
+  it('ignores a widget callback that arrives after the page closes', async () => {
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    view.unmount();
+    expect(() => widgetInput().onMismatch()).not.toThrow();
   });
 });

@@ -15,6 +15,9 @@ import { goBack as leavePage } from 'lib/woozie';
 
 import CashProviders, { CashAction } from './CashProviders';
 
+// A token symbol is a name, not copy: it is not translated.
+const USDCX_SYMBOL = 'USDCx';
+
 const routes: Route[] = [
   { name: 'amount', animationIn: 'push', animationOut: 'pop' },
   { name: 'providers', animationIn: 'push', animationOut: 'pop' }
@@ -62,8 +65,8 @@ const CashFlow = ({ action }: CashProps) => {
             <span className="text-title-tab text-ink">{label}</span>
             <Pill>
               <span className="flex items-center gap-2">
-                <TokenLogo symbol="USDCx" size="sm" />
-                <span>USDCx</span>
+                <TokenLogo symbol={USDCX_SYMBOL} size="sm" />
+                <span>{USDCX_SYMBOL}</span>
               </span>
             </Pill>
           </div>

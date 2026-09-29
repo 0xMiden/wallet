@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection preview. Checkout is not connected yet.
+- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection step. On mobile, Buy with Transak opens a Transak checkout locked to the account's Ethereum address and closes it if the destination does not match; Sell, Buy on the extension and desktop, and Stripe stay a preview.
 
 ### Changes
 
