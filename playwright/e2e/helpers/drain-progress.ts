@@ -91,8 +91,8 @@ interface DrainTimeoutInfo {
 
 /**
  * Extends the running test's timeout so it outlasts a drain that runs to its cap, plus
- * {@link DRAIN_DUMP_MARGIN_MS} of headroom (#1266 fix round 1: the test timeout otherwise fires first
- * and the drain's diagnostics never print). A no-op with no `info` (outside a test) or a 0 timeout (none set).
+ * {@link DRAIN_DUMP_MARGIN_MS} of headroom: otherwise the test timeout fires first and the drain's diagnostics never
+ * print. A no-op with no `info` (outside a test) or a 0 timeout (none set).
  */
 export function extendTestTimeoutForDrain(budgetMs: number, info: DrainTimeoutInfo | undefined): void {
   if (info === undefined || info.timeout === 0) return;

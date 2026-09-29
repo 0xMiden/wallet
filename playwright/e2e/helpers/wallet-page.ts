@@ -2275,7 +2275,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.reloadAndPreparePending();
 
     // A drain that runs to its cap must outlast the test's own timeout, or its verdict line and
-    // dumpTransactions dump never print (#1266 fix round 1). test.info() throws outside a test.
+    // dumpTransactions dump never print. test.info() throws outside a test.
     let testInfo: TestInfo | undefined;
     try {
       testInfo = test.info();
