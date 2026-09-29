@@ -11,17 +11,14 @@
  * real mobile and Chrome bundles with the flag set, for store-screenshot capture only.
  *
  * Deliberately narrow: all the fixture symbol does is bypass the faucet-id allowlist match
- * (`priceSymbolFor`, and the cap's strict match) and short-circuit `getPriceMicro`, so
- * `readCache`, the freshness window and a covered asset's `SpendingLimitPriceUnavailableError`
- * refusal stay entirely unexercised by an E2E run. Widening it to cover those too would mean
- * seeding the price cache across realms (a frontend write the backend reads) instead of a
- * same-process short-circuit, and that seeded entry would go stale at `PRICE_MAX_AGE_SECONDS`
- * (600s) partway through a long journey - trading this gap for a flakier one.
- *
- * In `MIDEN_E2E_TEST` builds (#1131) this symbol bypasses the faucet-id allowlist in its match
- * (`priceSymbolFor`, and `strictPriceSymbolFor` for the cap) - the harness's fixture faucet has no
- * allowlist entry, so without that exception an E2E spend of it would never reach the
- * `getPriceMicro` short-circuit above.
+ * (`priceSymbolFor`, and `strictPriceSymbolFor` for the cap; #1131) - the harness's fixture faucet
+ * has no allowlist entry, so without that an E2E spend of it would never reach usd.ts's
+ * `getPriceMicro` - and short-circuit that `getPriceMicro`, so `readCache`, the freshness window
+ * and a covered asset's `SpendingLimitPriceUnavailableError` refusal stay entirely unexercised by
+ * an E2E run. Widening it to cover those too would mean seeding the price cache across realms (a
+ * frontend write the backend reads) instead of a same-process short-circuit, and that seeded entry
+ * would go stale at `PRICE_MAX_AGE_SECONDS` (600s) partway through a long journey - trading this
+ * gap for a flakier one.
  */
 const E2E_FIXTURE_SYMBOL = 'TST';
 export const isE2eFixtureSymbol = (symbol: string): boolean =>
