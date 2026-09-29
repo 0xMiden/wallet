@@ -11,7 +11,7 @@
  *     → submit → completeSendTransaction).
  */
 
-import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -240,7 +240,9 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
-  getVerificationBaseFee: jest.fn(async () => 10000)
+  getVerificationBaseFee: jest.fn(async () => 10000),
+  // Unknown, so no output note is set aside as the fee note.
+  getVerificationBaseFeeSync: jest.fn(() => null)
 }));
 
 // Passthrough by DEFAULT, so every other test in this file sees exactly the bytes it built.
@@ -7178,6 +7180,95 @@ describe('generateTransaction — Guardian routing', () => {
     // Only `completeSendTransaction` relays a private note to its recipient, and it never ran.
     expect(row.noteDelivery).toBe('undelivered');
     expect(row.displayMessage).toBe('Sent - the private note could not be delivered');
+  });
+
+  // #1233: only `completeCustomTransaction` relays an execute's private notes, and a landed execute
+  // never ran it. The executed transaction says how many it produced; unreadable, the recipient the
+  // request named says whether any were owed.
+  const privateOutputNote = { metadata: () => ({ noteType: () => NoteType.Private }) };
+  const publicOutputNote = { metadata: () => ({ noteType: () => NoteType.Public }) };
+  it.each([
+    {
+      label: 'two private output notes',
+      notes: [privateOutputNote, publicOutputNote, privateOutputNote],
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - 2 private notes could not be delivered'
+    },
+    {
+      label: 'only public output notes and a named recipient',
+      notes: [publicOutputNote],
+      recipient: 'recipient',
+      delivery: undefined,
+      message: 'Executed'
+    },
+    {
+      label: 'unreadable output notes and a named recipient',
+      notes: null,
+      recipient: 'recipient',
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    },
+    {
+      label: 'unreadable output notes and no recipient',
+      notes: null,
+      recipient: undefined,
+      delivery: undefined,
+      message: 'Executed'
+    }
+  ])('Guardian execute landed with $label reads as its notes were delivered or not (#1233)', async args => {
+    const { notes, recipient, delivery, message } = args;
+    const txId = 'execute-apply-fail';
+    const requestBytes = new Uint8Array([4, 4]);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-execute' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const result = Object.assign(makeResult(), {
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        outputNotes: () => {
+          if (notes === null) throw new Error('recursive use of an object detected');
+          return { notes: () => notes };
+        }
+      })
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(
+        result,
+        jest.fn(async () => {
+          throw new Error(STORE_APPLY_ERROR_MESSAGE);
+        })
+      )
+    });
+    const queued = {
+      id: txId,
+      type: 'execute',
+      accountId: 'guardian-acc',
+      requestBytes,
+      secondaryAccountId: recipient
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.noteDelivery).toBe(delivery);
+    expect(row.displayMessage).toBe(message);
+    expect(row.transactionId).toBe('exec-tx-hash');
   });
 
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store

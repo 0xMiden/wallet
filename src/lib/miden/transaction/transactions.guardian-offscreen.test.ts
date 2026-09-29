@@ -2684,6 +2684,53 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.noteDelivery).toBe('undelivered');
     expect(finalRow.displayMessage).toBe('Sent - the private note could not be delivered');
   });
+
+  it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // As the proxy rebuilds the reply: the code, the id and the count on a plain Error.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      transactionId: '0xlanded',
+      privateOutputNotes: 2
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]) };
+    arrange('apply-execute-private', row);
+
+    await generateTransaction(buildTx('apply-execute-private', row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-execute-private')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.noteDelivery).toBe('undelivered');
+    expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
+    expect(finalRow.transactionId).toBe('0xlanded');
+  });
+
+  it('execute: a canonicalization refusal on an execute that names a recipient flags its notes undelivered (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+          'local nonce 4 but commitments differ for account 0xacc'
+      )
+    );
+    const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
+    arrange('refusal-execute-recipient', row);
+
+    await generateTransaction(
+      buildTx('refusal-execute-recipient', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // A refusal carries no count, so the recipient the request named is the only evidence.
+    const finalRow = txStore.find(r => r.id === 'refusal-execute-recipient')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.noteDelivery).toBe('undelivered');
+    expect(finalRow.displayMessage).toBe('Executed - the private note could not be delivered');
+    expect(finalRow.transactionId).toBeUndefined();
+  });
 });
 
 // ─── Structural guardian types (issue #260, slice 6b) ────────────────────────

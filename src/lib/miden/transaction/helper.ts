@@ -449,10 +449,11 @@ export const applyLandedDisplayMessage = (
 
 /**
  * What a landed reconcile knows about a write whose submit resolved and whose local apply failed
- * (#1233): no `TransactionResult`, at most the executed transaction's id.
+ * (#1233): no `TransactionResult`, at most the executed transaction's id and its private output note count.
  */
 export interface LandedWithoutResult {
   transactionId?: string;
+  privateOutputNotes?: number;
 }
 
 /** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
@@ -466,10 +467,26 @@ export const landedTransactionIdFields = (landed: LandedWithoutResult | undefine
  * repairs, so the row says the note was not delivered. `isPrivateNoteType` and not a string
  * compare, since a row can hold the SDK's numeric note type; an unreadable one counts as private,
  * because under-reporting costs the funds while over-reporting costs a stale warning.
+ *
+ * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
+ * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
+ * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
+ * already recorded is kept under a label that says so.
  */
 export const landedValueRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId'>
+  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>,
+  privateOutputNotes?: number
 ): { displayMessage: string; noteDelivery?: 'undelivered' } => {
+  const displayMessage = applyLandedDisplayMessage(tx);
+  if (tx.type === 'execute') {
+    const owed =
+      tx.noteDelivery === 'undelivered' ||
+      (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
+    const notes = privateOutputNotes !== undefined && privateOutputNotes > 0 ? privateOutputNotes : undefined;
+    return owed
+      ? { displayMessage: undeliveredDisplayMessage(displayMessage, notes), noteDelivery: 'undelivered' }
+      : { displayMessage };
+  }
   let privateSend = tx.type === 'send';
   if (privateSend) {
     try {
@@ -478,7 +495,6 @@ export const landedValueRowFields = (
       privateSend = true;
     }
   }
-  const displayMessage = applyLandedDisplayMessage(tx);
   return privateSend
     ? { displayMessage: undeliveredDisplayMessage(displayMessage), noteDelivery: 'undelivered' }
     : { displayMessage };

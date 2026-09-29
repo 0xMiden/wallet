@@ -9,20 +9,26 @@
 // account the transaction started from. Once the account write landed, a second apply archives
 // the post-transaction values as the "replaced" history and corrupts what an undo restores.
 
+import type { OutputNote } from '@miden-sdk/miden-sdk/lazy';
+
 import { ApplyAfterSubmitError } from './sdk-error-code';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import { toNoteTypeString } from '../helpers';
+import { NoteTypeEnum } from '../types';
 
 /** The waits before the second and the third attempt. */
 export const APPLY_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
 /**
  * The parts of the submitted transaction's result the helper reads: a retry reads the account id and
- * its initial header, and the error carries `id()`.
+ * its initial header, and the error carries `id()` and the private output note count.
  */
 export interface SubmittedResult<Id> {
   executedTransaction(): {
     id(): { toHex(): string };
     accountId(): Id;
     initialAccountHeader(): { to_commitment(): { toHex(): string } };
+    outputNotes(): { notes(): OutputNote[] };
   };
 }
 
@@ -49,7 +55,9 @@ const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(res
 export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<void> {
   const sleep = options.sleep ?? defaultSleep;
   // Read up front, while this hold still owns the client the result is a borrow of.
-  const transactionId = options.holdIsCurrent() ? readTransactionId(options.result) : undefined;
+  const current = options.holdIsCurrent();
+  const transactionId = current ? readTransactionId(options.result) : undefined;
+  const privateOutputNotes = current ? countPrivateOutputNotes(options.result) : undefined;
   let lastError: unknown;
   try {
     await options.apply();
@@ -71,7 +79,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
       report(options, error);
     }
   }
-  throw new ApplyAfterSubmitError(lastError, transactionId);
+  throw new ApplyAfterSubmitError(lastError, transactionId, privateOutputNotes);
 }
 
 function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
@@ -85,6 +93,20 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
 function readTransactionId<Id>(result: SubmittedResult<Id>): string | undefined {
   try {
     return result.executedTransaction().id().toHex();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The private notes `completeCustomTransaction` would have relayed, counted as it picks them. The fee
+ * note is set aside first, though it is always public, and a realm that has not discovered the fee
+ * leaves it in, which changes nothing here.
+ */
+function countPrivateOutputNotes<Id>(result: SubmittedResult<Id>): number | undefined {
+  try {
+    const { userNotes } = splitExecutedOutputNotes(result.executedTransaction());
+    return userNotes.filter(note => toNoteTypeString(note.metadata().noteType()) === NoteTypeEnum.Private).length;
   } catch {
     return undefined;
   }

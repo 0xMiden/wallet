@@ -88,7 +88,11 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { extractLandedTransactionId, extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import {
+  extractLandedPrivateOutputNotes,
+  extractLandedTransactionId,
+  extractSdkErrorCode
+} from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -1518,11 +1522,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     let error = 'offscreen call failed (error details unreadable)';
     let errorCode: string | undefined;
     let errorTransactionId: string | undefined;
+    let errorPrivateOutputNotes: number | undefined;
     try {
       error = String((err as { message?: string })?.message ?? err);
       errorCode = extractSdkErrorCode(err);
-      // A landed apply failure's transaction id, which only this reply can carry across (#1233).
+      // What a landed apply failure knows about its transaction, which only this reply can carry across (#1233).
       errorTransactionId = extractLandedTransactionId(err);
+      errorPrivateOutputNotes = extractLandedPrivateOutputNotes(err);
     } catch {
       /* unreadable error object — the reply below still carries the class */
     }
@@ -1532,6 +1538,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       error,
       errorCode,
       errorTransactionId,
+      errorPrivateOutputNotes,
       // The error CLASS, for the classifications that key off it rather than off
       // a code — today `WasmClientPoisonedError` from this realm's own lock
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and

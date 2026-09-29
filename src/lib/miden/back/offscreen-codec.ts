@@ -163,9 +163,9 @@ export interface OffscreenCallRequest {
  * {@link finishOpError}'s: the SW must not see a kill as a plain error.
  * `errorReason` carries that error's own discriminant alongside it, so the
  * rebuilt error names the mechanism that actually fired rather than guessing.
- * `errorTransactionId` carries the executed transaction's id off an
- * `ApplyAfterSubmitError`, so a landed row the service worker completes still
- * records it (#1233).
+ * `errorTransactionId` and `errorPrivateOutputNotes` carry the executed transaction's
+ * id and private output note count off an `ApplyAfterSubmitError`, so a landed row
+ * the service worker completes still records both (#1233).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
@@ -175,6 +175,7 @@ export type OffscreenCallResponse =
       error: string;
       errorCode?: string;
       errorTransactionId?: string;
+      errorPrivateOutputNotes?: number;
       errorName?: string;
       errorReason?: string;
     };

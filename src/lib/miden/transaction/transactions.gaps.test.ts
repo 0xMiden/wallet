@@ -338,6 +338,10 @@ const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmi
     syncState: jest.fn(),
     sendTransaction: jest.fn(async () => {
       throw makeError();
+    }),
+    // An execute row's write.
+    newTransaction: jest.fn(async () => {
+      throw makeError();
     })
   });
   const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -479,6 +483,55 @@ describe('apply-after-submit on a public send', () => {
     expect(txStore[0]!.displayMessage).toBe('Sent');
     expect(txStore[0]!.transactionId).toBe('landed-send-hash');
   });
+});
+
+describe('apply-after-submit on an execute', () => {
+  // Only `completeCustomTransaction` relays an execute's private notes, and a landed execute never
+  // ran it (#1233).
+  it.each([
+    {
+      privateOutputNotes: 2,
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - 2 private notes could not be delivered'
+    },
+    { privateOutputNotes: 0, recipient: 'recipient', delivery: undefined, message: 'Executed' },
+    {
+      privateOutputNotes: undefined,
+      recipient: 'recipient',
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    },
+    { privateOutputNotes: undefined, recipient: undefined, delivery: undefined, message: 'Executed' }
+  ])(
+    'a landed execute with $privateOutputNotes private output notes and recipient $recipient reads $message (#1233)',
+    async ({ privateOutputNotes, recipient, delivery, message }) => {
+      txStore.push({
+        id: 'tx-apply-execute',
+        type: 'execute',
+        accountId: 'acc-1',
+        secondaryAccountId: recipient,
+        requestBytes: new Uint8Array([7]),
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        displayIcon: 'DEFAULT'
+      });
+
+      await runLoopWithFailingSend(
+        () =>
+          new ApplyAfterSubmitError(
+            new Error('IndexedDB transaction aborted'),
+            'landed-execute-hash',
+            privateOutputNotes
+          )
+      );
+
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe(delivery);
+      expect(txStore[0]!.displayMessage).toBe(message);
+      expect(txStore[0]!.transactionId).toBe('landed-execute-hash');
+    }
+  );
 });
 
 describe('completeCustomTransaction private-note delivery', () => {

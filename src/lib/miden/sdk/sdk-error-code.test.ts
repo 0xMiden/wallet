@@ -1,5 +1,6 @@
 import {
   ApplyAfterSubmitError,
+  extractLandedPrivateOutputNotes,
   extractLandedTransactionId,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
@@ -185,13 +186,44 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractLandedTransactionId(null)).toBeUndefined();
   });
 
-  it('a throwing accessor reads as no id (#1233)', () => {
-    const hostile = Object.defineProperty(new Error('hostile'), 'transactionId', {
-      get() {
-        throw new Error('accessor');
+  it('carries the private output note count, which extractLandedPrivateOutputNotes reads (#1233)', () => {
+    const error = new ApplyAfterSubmitError(new Error('store quota'), '0xlanded', 2);
+    expect(error.privateOutputNotes).toBe(2);
+    expect(extractLandedPrivateOutputNotes(error)).toBe(2);
+    expect(extractLandedPrivateOutputNotes(Object.assign(new Error('rebuilt'), { privateOutputNotes: 0 }))).toBe(0);
+  });
+
+  it.each([undefined, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null])(
+    'reads no count off a privateOutputNotes of %p (#1233)',
+    value => {
+      expect(extractLandedPrivateOutputNotes(Object.assign(new Error('rebuilt'), { privateOutputNotes: value }))).toBe(
+        undefined
+      );
+    }
+  );
+
+  it('reads no count off an error that carries none, or off a non-object (#1233)', () => {
+    expect(new ApplyAfterSubmitError(new Error('store quota'), '0xlanded').privateOutputNotes).toBeUndefined();
+    expect(extractLandedPrivateOutputNotes(new Error('plain'))).toBeUndefined();
+    expect(extractLandedPrivateOutputNotes(2)).toBeUndefined();
+    expect(extractLandedPrivateOutputNotes(null)).toBeUndefined();
+  });
+
+  it('a throwing accessor reads as no id and no count (#1233)', () => {
+    const hostile = Object.defineProperties(new Error('hostile'), {
+      transactionId: {
+        get() {
+          throw new Error('accessor');
+        }
+      },
+      privateOutputNotes: {
+        get() {
+          throw new Error('accessor');
+        }
       }
     });
     expect(extractLandedTransactionId(hostile)).toBeUndefined();
+    expect(extractLandedPrivateOutputNotes(hostile)).toBeUndefined();
   });
 });
 

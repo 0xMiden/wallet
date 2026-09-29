@@ -413,10 +413,11 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // flag-off inline path: its row takes its type's landed verdict and is never
     // requeued into a second submit. The rejection's MESSAGE also embeds the offscreen
     // realm's verbatim text, which the classifier reads as a fallback. The landed
-    // transaction's id rides along as `transactionId`, the name
-    // `extractLandedTransactionId` reads, so the row still records it (#1233). Shared by
-    // all five writes via `dispatchOffscreenWrite`/this single choke point. A code-less
-    // failure (`undefined`) leaves the error untagged, exactly as before.
+    // transaction's id and private output note count ride along as `transactionId` and
+    // `privateOutputNotes`, the names `extractLandedTransactionId` and
+    // `extractLandedPrivateOutputNotes` read, so the row still records them (#1233).
+    // Shared by all five writes via `dispatchOffscreenWrite`/this single choke point. A
+    // code-less failure (`undefined`) leaves the error untagged, exactly as before.
     //
     // A lock-recovery eviction inside the offscreen realm is rebuilt as the same
     // TYPE it was thrown as (issue #775). It has to be: that error means "the op
@@ -438,6 +439,9 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorTransactionId !== undefined) Object.assign(err, { transactionId: resp.errorTransactionId });
+    if (resp.errorPrivateOutputNotes !== undefined) {
+      Object.assign(err, { privateOutputNotes: resp.errorPrivateOutputNotes });
+    }
     op.reject(err);
   }
 }

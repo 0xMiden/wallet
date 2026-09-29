@@ -83,6 +83,16 @@ const LABEL_CASES: [string, Partial<ITransaction>, string][] = [
   ['Agglayer bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }, 'Bridged to EVM']
 ];
 
+const UNDELIVERED_EXECUTE = 'Executed - the private note could not be delivered';
+
+// Retry reads no count off the executed transaction, so a landed execute owes the recipient its request named,
+// and one whose relay was recorded as failed never reads as a clean success (#1233).
+const EXECUTE_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undefined, string][] = [
+  ['names a recipient', { type: 'execute', secondaryAccountId: 'recipient' }, 'undelivered', UNDELIVERED_EXECUTE],
+  ['names no recipient', { type: 'execute' }, undefined, 'Executed'],
+  ['recorded its relay as failed', { type: 'execute', noteDelivery: 'undelivered' }, 'undelivered', UNDELIVERED_EXECUTE]
+];
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await Repo.transactions.clear();
@@ -157,6 +167,21 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
       expect(row?.status).toBe(ITransactionStatus.Completed);
       expect(row?.displayMessage).toBe(message);
       expect(row?.noteDelivery).toBeUndefined();
+    }
+  );
+
+  it.each(EXECUTE_CASES)(
+    'completes a landed execute that %s with the matching delivery state (#1233)',
+    async (_label, overrides, delivery, message) => {
+      await Repo.transactions.put(failedSend({ id: 'tx-landed-execute', ...overrides }));
+      mockVerifySendLanded.mockResolvedValue('landed');
+
+      await requeueFailedTransaction('tx-landed-execute');
+
+      const row = await Repo.transactions.where({ id: 'tx-landed-execute' }).first();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.noteDelivery).toBe(delivery);
+      expect(row?.displayMessage).toBe(message);
     }
   );
 

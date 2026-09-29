@@ -130,6 +130,7 @@ import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '.
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
+  extractLandedPrivateOutputNotes,
   extractLandedTransactionId,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
@@ -878,14 +879,17 @@ async function requeueWithWake(
   );
 }
 
-/** What a landed arm knows about the write from its error (#1233): at most the executed transaction's id. */
-const landedOf = (error: unknown): LandedWithoutResult => ({ transactionId: extractLandedTransactionId(error) });
+/** What a landed arm knows about the write from its error (#1233): at most the executed transaction's id and count. */
+const landedOf = (error: unknown): LandedWithoutResult => ({
+  transactionId: extractLandedTransactionId(error),
+  privateOutputNotes: extractLandedPrivateOutputNotes(error)
+});
 
 /** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
-const landedRowFields = (tx: ITransaction, error: unknown) => ({
-  ...landedValueRowFields(tx),
-  ...landedTransactionIdFields(landedOf(error))
-});
+const landedRowFields = (tx: ITransaction, error: unknown) => {
+  const landed = landedOf(error);
+  return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
+};
 
 /**
  * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
@@ -3591,8 +3595,8 @@ export const generateTransactionsLoop = async (
         // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
         // next sync reconciles via ConsumedExternal.
         //
-        // A private send's note was never relayed, and the row says so (`landedValueRowFields`, which
-        // every landed writer shares so none can disagree about one landed send).
+        // A private send's note, or an execute's private notes, were never relayed, and the row says so
+        // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)

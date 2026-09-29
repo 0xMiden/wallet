@@ -1,10 +1,21 @@
+import { NoteType, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
+
 import { APPLY_RETRY_DELAYS_MS, applyAfterSubmit, type ApplyAfterSubmitRetry } from './apply-after-submit';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
+
+// A chain whose fee is not known yet, so no output note is set aside as the fee note.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => null,
+  getVerificationBaseFeeSync: () => null
+}));
 
 const INITIAL = '0xinitial';
 const FINAL = '0xfinal';
 
 const withCommitment = (hex: string) => ({ to_commitment: () => ({ toHex: () => hex }) });
+
+const outputNote = (noteType: NoteType) =>
+  ({ metadata: () => ({ noteType: () => noteType }) }) as unknown as OutputNote;
 
 /**
  * A transaction on account 'acc' that started at INITIAL, submitted in a hold that stays current,
@@ -17,7 +28,8 @@ const arrange = (overrides: Partial<ApplyAfterSubmitRetry<string>> = {}, local: 
       executedTransaction: () => ({
         id: () => ({ toHex: () => '0xtx' }),
         accountId: () => 'acc',
-        initialAccountHeader: () => withCommitment(INITIAL)
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: () => ({ notes: () => [] })
       })
     },
     readLocalAccount: jest.fn(async (_accountId: string) => (local === null ? null : withCommitment(local))),
@@ -219,11 +231,54 @@ describe('applyAfterSubmit (#1233)', () => {
     await expect(applyAfterSubmit(arrange({ apply }, FINAL))).rejects.toMatchObject({ transactionId: '0xtx' });
   });
 
-  it('an evicted hold leaves the id unread (#1233)', async () => {
+  it('the wrap carries how many private user output notes the transaction produced (#1233)', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const notes = [outputNote(NoteType.Private), outputNote(NoteType.Public), outputNote(NoteType.Private)];
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xtx' }),
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    };
+
+    await expect(applyAfterSubmit(arrange({ apply, result }, FINAL))).rejects.toMatchObject({
+      transactionId: '0xtx',
+      privateOutputNotes: 2
+    });
+  });
+
+  it('an unreadable output note list leaves the count unread and still carries the id (#1233)', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xtx' }),
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        outputNotes: (): { notes: () => OutputNote[] } => {
+          throw new Error('recursive use of an object detected');
+        }
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result }, FINAL)).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(error).toHaveProperty('transactionId', '0xtx');
+    expect(error).toHaveProperty('privateOutputNotes', undefined);
+  });
+
+  it('an evicted hold leaves the id and the count unread (#1233)', async () => {
     const executedTransaction = jest.fn(() => ({
       id: () => ({ toHex: () => '0xtx' }),
       accountId: () => 'acc',
-      initialAccountHeader: () => withCommitment(INITIAL)
+      initialAccountHeader: () => withCommitment(INITIAL),
+      outputNotes: () => ({ notes: () => [outputNote(NoteType.Private)] })
     }));
     const apply = jest.fn(async () => {
       throw new Error('IndexedDB transaction aborted');
@@ -233,6 +288,7 @@ describe('applyAfterSubmit (#1233)', () => {
     const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
 
     expect(error).toHaveProperty('transactionId', undefined);
+    expect(error).toHaveProperty('privateOutputNotes', undefined);
     expect(executedTransaction).not.toHaveBeenCalled();
   });
 });
