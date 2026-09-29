@@ -2,7 +2,7 @@ import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, 
 
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
 
-import { useTabShownAgain } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
@@ -78,6 +78,7 @@ function isTextInput(target: EventTarget | null): boolean {
 
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
+  const layerActive = usePageActive();
   const containerRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
@@ -128,9 +129,21 @@ const HomeSwipeContainer: FC = () => {
   // than sliding to Overview out of sight, which is what the pane showed on the
   // way back before it slid to the page the action bar named.
   const onHome = routeIdx !== -1;
+  const selectedPageId = pages[routeIdx]?.id;
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
+
+  // A page can keep its focused input after it moves out of view because the carousel keeps
+  // every page mounted. Release that focus when the route selects another page so the mobile
+  // keyboard closes and its navbar hold can end.
+  useLayoutEffect(() => {
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement)) return;
+    const focusedPage = focused.closest('[data-home-page]');
+    if (!focusedPage || focusedPage.getAttribute('data-home-page') === selectedPageId) return;
+    focused.blur();
+  }, [selectedPageId]);
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -472,8 +485,15 @@ const HomeSwipeContainer: FC = () => {
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
         {pages.map(page => (
-          <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
-            {page.node}
+          <div
+            key={page.id}
+            data-home-page={page.id}
+            className="h-full shrink-0"
+            style={{ width: `${100 / pages.length}%` }}
+          >
+            <PageActiveContext.Provider value={layerActive && onHome && page.id === selectedPageId}>
+              {page.node}
+            </PageActiveContext.Provider>
           </div>
         ))}
       </motion.div>

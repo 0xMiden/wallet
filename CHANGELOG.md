@@ -8,6 +8,7 @@
 
 ### Changes
 
+- [FIX][all] The bottom navbar returns when a Send, Swap, or other action subscreen moves out of view (#1270).
 - [FIX][all] A recovered wallet opens in the side panel on its first Open wallet tap, as a new one does: a seed-phrase recovery registers while the confirmation screen shows, and the device-key rotation runs in the panel instead of holding a second "Your wallet is ready!" screen; the recovery confirmation no longer shows the create flow's write-it-down reminders (#1097)
 - [FIX][all] Unlocking on mobile or desktop restarts transactions queued while the wallet was locked, and the startup sweep of interrupted transactions spares any transaction started after the app or browser opened (#1202).
 - [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
