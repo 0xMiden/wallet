@@ -111,6 +111,28 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     }
   );
 
+  // The node check is a network round trip, and the sweep or a cancelled pipeline can record a relay
+  // outcome while it runs; the write judges the row it finds, not the one read before (#1233).
+  it.each<INoteDeliveryState>(['relayed', 'confirmed'])(
+    'keeps a relay outcome recorded as %s during the landed check (#1233)',
+    async recorded => {
+      await Repo.transactions.put(failedSend({ id: 'tx-landed-race', noteType: NoteTypeEnum.Private }));
+      mockVerifySendLanded.mockImplementationOnce(async () => {
+        await Repo.transactions.where({ id: 'tx-landed-race' }).modify(tx => {
+          tx.noteDelivery = recorded;
+        });
+        return 'landed';
+      });
+
+      await requeueFailedTransaction('tx-landed-race');
+
+      const row = await Repo.transactions.where({ id: 'tx-landed-race' }).first();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.noteDelivery).toBe(recorded);
+      expect(row?.displayMessage).toBe('Sent');
+    }
+  );
+
   it.each(LABEL_CASES)(
     'completes a landed %s under its completion label (#1233)',
     async (_label, overrides, message) => {

@@ -444,15 +444,18 @@ export const landedValueRowFields = (
  * an ambiguous post-submit abort and a second payment — so it gets its own
  * narrow door rather than a hole in that one. Refuses to touch an
  * already-Completed row, which needs no reconciling.
+ *
+ * `otherValues` may be a function of the row as the write finds it, for fields that
+ * depend on state another writer can record while the caller awaits the node.
  */
 export const completeVerifiedLandedTransaction = async (
   id: string,
-  otherValues: Partial<ITransaction> = {}
+  otherValues: Partial<ITransaction> | ((fresh: ITransaction) => Partial<ITransaction>) = {}
 ): Promise<void> => {
   let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Failed) return;
-    Object.assign(tx, otherValues);
+    Object.assign(tx, typeof otherValues === 'function' ? otherValues(tx) : otherValues);
     tx.status = ITransactionStatus.Completed;
     tx.stage = 'complete';
     // The failure is no longer the row's story; leaving it behind renders a
