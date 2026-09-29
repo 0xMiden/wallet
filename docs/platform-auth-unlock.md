@@ -1040,22 +1040,41 @@ decided before the milestone that ships the step it names.
 - **One writer at a time for the record** (milestone 2). Every write to
   `vault_key_platform` or to the to-signal list (the enrollment save, removal,
   the setup wipes and the list's own updates) runs on one serial queue in the
-  service worker. Reset extension and Developer Settings' reset, which wipe
-  from a page today (`src/options.tsx:92`,
-  `src/screens/developer-settings/DeveloperSettings.tsx:231`), hand their
-  storage wipe to that queue; if the service worker does not answer within a
-  few seconds, the page writes a preserved reset-request marker and reloads
-  the runtime, and the fresh service worker runs the wipe on its queue at
-  start, queuing the record's credential id first, before it serves anything.
-  A stuck worker is replaced by the reload, so the recovery tool never
-  blocks, and no wipe deletes a record untracked or writes beside a live
-  queue. Inside the queue, just before writing, the enrollment
+  service worker. Inside the queue, just before writing, the enrollment
   save re-reads `vault_key_platform` and the `vault_key_password` ciphertext
   its unwrap used, and writes only if both are unchanged: the record still
   holds the credential the enrollment started from, or still none, and no
   wipe or setup has replaced the password wrapping. A save then cannot land
   between a wipe's read and its remove (`src/lib/miden/reset.ts:34-35`),
-  survive into a new wallet, or pass the check alongside a second save.
+  survive into a new wallet, or pass the check alongside a second save. Reset
+  extension and Developer Settings' reset, which wipe from a page today
+  (`src/options.tsx:92`,
+  `src/screens/developer-settings/DeveloperSettings.tsx:231`), hand their
+  storage wipe to that queue and keep today's pairing of wipe and reload: the
+  page reloads the runtime once the wipe succeeds (`src/options.tsx:93`,
+  `src/screens/developer-settings/DeveloperSettings.tsx:240`) and shows the
+  error if it fails, as the options page does today (`src/options.tsx:94-98`).
+  If the service worker does not answer within a few seconds, the page writes
+  a preserved reset-request marker and reloads the runtime, and the fresh
+  service worker runs the start-time reset below. A stuck worker is replaced
+  by the reload, so the recovery tool never blocks, and no wipe deletes a
+  record untracked or writes beside a live queue. The start-time reset: a
+  service worker that starts with the marker set, once the nonce check (next
+  bullet) accepts it, runs the reset as its first step, before anything else
+  reads wallet storage. The side-panel restore (`src/background.ts:18-33`),
+  the interrupted-transaction sweep (`src/background.ts:45-47`), the
+  alarm-driven sync (`src/background.ts:54-56`), and the connectivity
+  hydration, the endpoint overrides and `Actions.init`
+  (`src/lib/miden/back/main.ts:84-94`) wait for it, and until it ends every
+  request is answered only with "resetting". The reset is one task on the
+  queue: it queues the credential id of the record, if there is one, moves
+  the pending enrollments to the to-signal list, runs the wipe and removes
+  the marker as the task's last step; the worker then reloads the runtime
+  once more, so the next worker starts from wiped storage, as after today's
+  reset. A restart mid-wipe finds the marker and runs the task again, and a
+  finished wipe never runs twice. If the wipe fails, the marker stays and the
+  worker stays reset-pending: it refuses setup and unlock and reports the
+  error to the next page that connects.
 
 - **Redaction of free text** (milestone 2). `src/lib/telemetry/redact.ts`
   matches structured fields and free text (an error message, a breadcrumb)
