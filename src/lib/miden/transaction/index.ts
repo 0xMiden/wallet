@@ -510,6 +510,25 @@ const requeueWakeDelayMs = (
 const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
 
 /**
+ * What one pass of the transaction loop did. `processed`: it ran a row, which may have left that row requeued with
+ * a cooldown or parked for its recovery seed. `idle`: nothing it could run, a row already in flight, or the loop lock
+ * held by another driver. `failed`: the row's pipeline threw, or the pass itself did.
+ */
+export type TransactionsLoopOutcome = 'processed' | 'idle' | 'failed';
+
+/**
+ * True for a Queued row the loop's pick would take at `nowSec` (unix seconds). The pick and the extension processor's
+ * choice to skip its wait between passes both call it, so the processor never hurries toward a row the pick skips.
+ */
+export const isQueuedRowReady = (
+  row: Pick<ITransaction, 'status' | 'nextEligibleAt' | 'awaitingRecoverySeed'>,
+  nowSec: number
+): boolean =>
+  row.status === ITransactionStatus.Queued &&
+  loopCanPick(row) &&
+  (row.nextEligibleAt === undefined || row.nextEligibleAt <= nowSec);
+
+/**
  * How long until the soonest of `rows` that is Queued next needs a drive, by the same rule as a requeue wake, or
  * `undefined` when none does. The extension's service worker arms a one-shot alarm from it when a processing run ends,
  * because the run stops after a fixed number of passes and a backed-off row can come due after it has (#1223).
@@ -3383,9 +3402,7 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(
-    tx => loopCanPick(tx) && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
-  );
+  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
@@ -3594,23 +3611,18 @@ export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-) => {
+): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
-    .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) return;
+    .request(`generate-transactions-loop`, { ifAvailable: true }, async (lock): Promise<TransactionsLoopOutcome> => {
+      if (!lock) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
-      if (result === false) {
-        return false;
-      }
-
-      // Either a transaction was processed successfully (true)
-      // or there was nothing to do / another transaction is in progress (undefined).
-      return true;
+      if (result === true) return 'processed';
+      return result === false ? 'failed' : 'idle';
     })
-    .catch(e => {
+    .catch((e): TransactionsLoopOutcome => {
       logger.error('Error in safe generate transactions loop', e);
-      return false;
+      return 'failed';
     });
 };
 

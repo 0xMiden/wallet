@@ -19,6 +19,8 @@ import {
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
+  isQueuedRowReady,
+  safeGenerateTransactionsLoop,
   buildSignCallbackError
 } from './index'; // eslint-disable-line import/order
 
@@ -1345,6 +1347,82 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
     const row = txStore.find(t => t.id === 'tx-cooldown-expired');
     // Cooldown elapsed → eligible again → selected and processed (left the queue).
     expect(row!.status).not.toBe(ITransactionStatus.Queued);
+  });
+});
+// #1266: the extension processor skips its 5 s wait only after a `processed` pass, and only toward a row
+// `isQueuedRowReady` calls ready, so the predicate has to agree with the loop's own pick.
+describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+  // A recovery row still waiting for its seed: `generateTransaction` returns without touching the row, so the pass
+  // that picks it reports `processed` and the row stays Queued exactly as pushed.
+  const seedWaitingProvider = {
+    ...stubGuardianProvider,
+    prepareRecoveryTransaction: jest.fn(async (_transactionId: string) => ({ ready: false }))
+  };
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const queued = (id: string, extra: { nextEligibleAt?: number; awaitingRecoverySeed?: boolean } = {}) => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    status: ITransactionStatus.Queued,
+    initiatedAt: nowSec(),
+    ...extra
+  });
+
+  it.each([
+    { label: 'a Queued row with no cooldown', row: { status: ITransactionStatus.Queued }, ready: true },
+    {
+      label: 'a Queued row whose cooldown ends this second',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_000 },
+      ready: true
+    },
+    {
+      label: 'a Queued row still cooling down',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_001 },
+      ready: false
+    },
+    {
+      label: 'a Queued row awaiting its recovery seed',
+      row: { status: ITransactionStatus.Queued, awaitingRecoverySeed: true },
+      ready: false
+    },
+    { label: 'a row in flight', row: { status: ITransactionStatus.GeneratingTransaction }, ready: false },
+    { label: 'a Completed row', row: { status: ITransactionStatus.Completed }, ready: false }
+  ])('isQueuedRowReady calls $label ready: $ready', ({ row, ready }) => {
+    expect(isQueuedRowReady(row, 1_000)).toBe(ready);
+  });
+
+  it('returns processed when the pass ran a row', async () => {
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('processed');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).toHaveBeenCalledWith('ready');
+  });
+
+  it('returns idle when nothing is queued', async () => {
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+  });
+
+  it('returns idle while another row is in flight, without picking the ready one', async () => {
+    txStore.push({
+      ...queued('in-flight'),
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: nowSec()
+    });
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'a ready row', extra: {}, outcome: 'processed' },
+    { label: 'a row still cooling down', extra: { nextEligibleAt: nowSec() + 600 }, outcome: 'idle' },
+    { label: 'a row awaiting its recovery seed', extra: { awaitingRecoverySeed: true }, outcome: 'idle' }
+  ])('picks $label exactly when isQueuedRowReady calls it ready', async ({ extra, outcome }) => {
+    const row = queued('only', extra);
+    txStore.push(row);
+    const ready = isQueuedRowReady(row, nowSec());
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe(outcome);
+    expect(ready).toBe(outcome === 'processed');
   });
 });
 describe('buildSignCallbackError', () => {
