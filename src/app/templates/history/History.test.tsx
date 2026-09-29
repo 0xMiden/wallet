@@ -605,6 +605,15 @@ describe('History', () => {
     await waitFor(() => expect(view.getAttribute('data-initial-loading')).toBe('false'));
   });
 
+  it('hides the list spinner only when asked, not because a loading callback is attached', async () => {
+    const view = await renderHistory({ onLoadingChange: jest.fn() });
+    expect(mockHistoryViewProps.hideLoadingSpinner).toBeFalsy();
+    view.unmount();
+
+    await renderHistory({ onLoadingChange: jest.fn(), hideLoadingSpinner: true });
+    expect(mockHistoryViewProps.hideLoadingSpinner).toBe(true);
+  });
+
   it('filters by searchQuery across message, token and secondaryAddress (case-insensitive), skipping blank queries', async () => {
     const { rerender } = await renderHistory();
     const doRerender = async (props: Record<string, unknown>) => {

@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Seed-restored Guardian accounts recover transaction history from known operators into Activity, with local checkpoints and a shared history-and-notes progress bar. Recovered records stay out of transaction automation, separate transfer amounts from fees, retain Guardian switch details, and group swap settlement receipts; a chain that reports no fee stops recovery without automatic retry, while a failed fee lookup is retried with the other unreadable sources. Guardian switches retain their committed delta on the old operator. Wallet import opens seed-phrase entry directly, with hot-key import still available and encrypted-file import removed from onboarding.
+- [FEATURE][all] Seed-restored Guardian accounts recover transaction history from known operators into Activity, with local checkpoints and a history-and-notes progress bar in the Activity list view. Recovered records stay out of transaction automation, separate transfer amounts from fees, retain Guardian switch details, and group swap settlement receipts; a chain that reports no fee stops recovery without automatic retry, while a failed fee lookup is retried with the other unreadable sources. Guardian switches retain their committed delta on the old operator. Wallet import opens seed-phrase entry directly, with hot-key import still available and encrypted-file import removed from onboarding.
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
 
 ### Changes

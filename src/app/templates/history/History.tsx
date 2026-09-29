@@ -66,6 +66,8 @@ type HistoryProps = {
   onInitialLoad?: () => void;
   onLoadingChange?: (loading: boolean) => void;
   externalLoading?: boolean;
+  /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
+  hideLoadingSpinner?: boolean;
   /**
    * Narrows the list further, after the search and the filter. The Groups view's own page hands
    * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
@@ -139,7 +141,8 @@ const History = memo<HistoryProps>(
     drawnPendingItems,
     renderPendingItem,
     onLoadingChange,
-    externalLoading = false
+    externalLoading = false,
+    hideLoadingSpinner = false
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
@@ -430,7 +433,7 @@ const History = memo<HistoryProps>(
       <HistoryView
         entries={entries ?? []}
         initialLoading={externalLoading || initialLoading}
-        hideLoadingSpinner={onLoadingChange !== undefined}
+        hideLoadingSpinner={hideLoadingSpinner}
         loadError={loadError}
         onRetry={onRetry}
         loadMore={loadMore}

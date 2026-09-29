@@ -91,6 +91,7 @@ const mockHistoryRenders: Array<{
   drawnPendingItems?: PendingActivityItem[];
   renderPendingItem: unknown;
   filter?: string;
+  hideLoadingSpinner?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -99,18 +100,20 @@ jest.mock('./History', () => ({
     drawnPendingItems,
     renderPendingItem,
     filter,
-    onLoadingChange
+    onLoadingChange,
+    hideLoadingSpinner
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
     onLoadingChange: (loading: boolean) => void;
     filter?: string;
+    hideLoadingSpinner?: boolean;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
     }, [onLoadingChange, mockState.isLoadingHistory]);
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter });
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -165,6 +168,11 @@ function expandCard(noteId: string): HTMLElement {
   fireEvent.click(within(card).getByRole('button', { expanded: false }));
   return card;
 }
+
+it('hides the list spinner under its own progress bar', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders.at(-1)?.hideLoadingSpinner).toBe(true);
+});
 
 it('uses one progress bar for notes, history rows, and Guardian recovery', () => {
   const view = render(<ActivityPendingHistory search="" filter="all" />);

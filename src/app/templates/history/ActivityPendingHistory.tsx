@@ -154,6 +154,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             onInitialLoad={onInitialLoad}
             onLoadingChange={setIsLoadingHistory}
             externalLoading={isLoadingNotes || isRecovering}
+            hideLoadingSpinner
           />
         </div>
       </div>
