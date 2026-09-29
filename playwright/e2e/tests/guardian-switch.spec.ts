@@ -1,4 +1,4 @@
-import { getEnvironmentConfig } from '../config/environments';
+import { getEnvironmentConfig, IS_LOCALNET } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { snapshotTransfer } from '../helpers/assertions';
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
@@ -143,16 +143,19 @@ test.describe('Guardian switch - happy path + usability', () => {
       }
     );
 
-    await steps.step('outgoing_guardian_releases_with_post_switch_state', async () => {
-      // #1233: the switch hands A the executed switch delta, so A canonicalizes it once the block
-      // lands, holds the post-switch state B was registered with, and releases the account. Before
-      // that, A kept the pre-switch state and never stood down.
-      const onB = await walletA.guardianOperatorView(addressA!, B);
-      expect(onB.error).toBeUndefined();
-      await expect
-        .poll(async () => walletA.guardianOperatorView(addressA!, A), { timeout: 120_000, intervals: [3_000] })
-        .toEqual({ commitment: onB.commitment, released: true });
-    });
+    // Local stack only: versions.env pins the guardian whose release we verified; testnet runs third-party operators.
+    if (IS_LOCALNET) {
+      await steps.step('outgoing_guardian_releases_with_post_switch_state', async () => {
+        // #1233: the switch hands A the executed switch delta, so A canonicalizes it once the block
+        // lands, holds the post-switch state B was registered with, and releases the account. Before
+        // that, A kept the pre-switch state and never stood down.
+        const onB = await walletA.guardianOperatorView(addressA!, B);
+        expect(onB.error).toBeUndefined();
+        await expect
+          .poll(async () => walletA.guardianOperatorView(addressA!, A), { timeout: 120_000, intervals: [3_000] })
+          .toEqual({ commitment: onB.commitment, released: true });
+      });
+    }
 
     await steps.step(
       'usable_on_b',
@@ -245,8 +248,8 @@ test.describe('Guardian switch - happy path + usability', () => {
  * Scope boundary (per the design doc / Product-Fix Protocol): this asserts
  * WALLET-observable behavior only -- which guardian the wallet contacts and
  * whether the tx completes. The old guardian's own state (post-switch, and
- * released) is asserted by the happy-path test above, since the wallet now
- * hands it the executed switch delta (#1233).
+ * released) is asserted by the happy-path test above on the local stack,
+ * since the wallet now hands it the executed switch delta (#1233).
  */
 test.describe('Guardian switch - cross-guardian correctness', () => {
   test.skip(() => !B, NO_SECOND_GUARDIAN);
