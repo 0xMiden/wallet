@@ -217,6 +217,11 @@ export async function applyEndpointOverride(override: EndpointOverride): Promise
   overrideCache = override;
 }
 
+/**
+ * Remove the stored override. Only the tests that reset their fixture with it call it. The destructive
+ * reset must not: the dev reset takes the override with the wipe (`keepEndpointOverride: false`), and a
+ * separate clear after it could fail after the wallet is already gone.
+ */
 export async function clearEndpointOverride(): Promise<void> {
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
   overrideCache = null;
