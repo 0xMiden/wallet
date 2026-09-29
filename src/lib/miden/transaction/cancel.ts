@@ -651,8 +651,9 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  * freshest node state; a sync failure falls back to the last-synced record.
  *
  * COVERAGE LIMIT — read before relying on this as the only double-send guard.
- * `ITransaction.transactionId` is written ONLY by the completion handlers in
- * `complete.ts` (the success path) and by `updateBridgedReceivePhase`. A row
+ * `ITransaction.transactionId` is written only by the completion handlers in
+ * `complete.ts` (the success path), by `updateBridgedReceivePhase`, and by the
+ * landed arms of a failed apply after submit (#1233). A row
  * failed by a route that killed it from OUTSIDE its own write pipeline — the
  * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
  * mid-flight — therefore arrives here with no id at all and short-circuits to

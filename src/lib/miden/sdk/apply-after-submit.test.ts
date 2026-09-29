@@ -210,4 +210,29 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(error).toHaveProperty('cause', 'QuotaExceededError');
   });
+
+  it('the wrap carries the executed transaction id, read while the hold was current (#1233)', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+
+    await expect(applyAfterSubmit(arrange({ apply }, FINAL))).rejects.toMatchObject({ transactionId: '0xtx' });
+  });
+
+  it('an evicted hold leaves the id unread (#1233)', async () => {
+    const executedTransaction = jest.fn(() => ({
+      id: () => ({ toHex: () => '0xtx' }),
+      accountId: () => 'acc',
+      initialAccountHeader: () => withCommitment(INITIAL)
+    }));
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const options = arrange({ apply, holdIsCurrent: () => false, result: { executedTransaction } });
+
+    const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
+
+    expect(error).toHaveProperty('transactionId', undefined);
+    expect(executedTransaction).not.toHaveBeenCalled();
+  });
 });

@@ -163,10 +163,21 @@ export interface OffscreenCallRequest {
  * {@link finishOpError}'s: the SW must not see a kill as a plain error.
  * `errorReason` carries that error's own discriminant alongside it, so the
  * rebuilt error names the mechanism that actually fired rather than guessing.
+ * `errorTransactionId` carries the executed transaction's id off an
+ * `ApplyAfterSubmitError`, so a landed row the service worker completes still
+ * records it (#1233).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
-  | { ok: false; op_id: string; error: string; errorCode?: string; errorName?: string; errorReason?: string };
+  | {
+      ok: false;
+      op_id: string;
+      error: string;
+      errorCode?: string;
+      errorTransactionId?: string;
+      errorName?: string;
+      errorReason?: string;
+    };
 
 /**
  * SW → offscreen endpoint-override reload request. Carries no payload: the

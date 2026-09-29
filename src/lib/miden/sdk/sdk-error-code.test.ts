@@ -1,5 +1,6 @@
 import {
   ApplyAfterSubmitError,
+  extractLandedTransactionId,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -164,6 +165,33 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+
+  it('carries the landed transaction id, which extractLandedTransactionId reads (#1233)', () => {
+    const error = new ApplyAfterSubmitError(new Error('store quota'), '0xlanded');
+    expect(error.transactionId).toBe('0xlanded');
+    expect(extractLandedTransactionId(error)).toBe('0xlanded');
+    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded field.
+    expect(extractLandedTransactionId(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded' }))).toBe(
+      '0xlanded'
+    );
+  });
+
+  it('reads no id off an error that carries none, or a non-string one (#1233)', () => {
+    expect(new ApplyAfterSubmitError(new Error('store quota')).transactionId).toBeUndefined();
+    expect(extractLandedTransactionId(new Error('plain'))).toBeUndefined();
+    expect(extractLandedTransactionId({ transactionId: 42 })).toBeUndefined();
+    expect(extractLandedTransactionId('0xlanded')).toBeUndefined();
+    expect(extractLandedTransactionId(null)).toBeUndefined();
+  });
+
+  it('a throwing accessor reads as no id (#1233)', () => {
+    const hostile = Object.defineProperty(new Error('hostile'), 'transactionId', {
+      get() {
+        throw new Error('accessor');
+      }
+    });
+    expect(extractLandedTransactionId(hostile)).toBeUndefined();
   });
 });
 

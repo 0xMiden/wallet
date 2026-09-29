@@ -179,10 +179,11 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * input note's nullifier makes a duplicate unusable.)
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
- * `ITransaction.transactionId`, and the only writers of that field are the
- * completion handlers in `complete.ts` - the SUCCESS path - plus
- * `updateBridgedReceivePhase`. A row that failed before any completion handler
- * ran therefore reaches Retry with `transactionId === undefined`, where
+ * `ITransaction.transactionId`, whose writers are the completion handlers in
+ * `complete.ts` - the SUCCESS path - `updateBridgedReceivePhase`, and the landed
+ * arms, which record the id a failed apply after submit carried (#1233). A row
+ * that failed before any of them ran therefore reaches Retry with
+ * `transactionId === undefined`, where
  * `verifySendLanded` short-circuits to `'unknown'` and the resubmit would proceed
  * unguarded. Stamping the id pre-submit is not available today: under
  * `MIDEN_USE_OFFSCREEN_CLIENT` the write runs in the offscreen realm, whose DTOs

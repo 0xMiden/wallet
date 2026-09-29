@@ -188,11 +188,34 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
  */
 export class ApplyAfterSubmitError extends Error {
   readonly code = 'ApplyTransactionAfterSubmitFailed';
+  /** The executed transaction's id, when it could be read: a landed row's only record of it (#1233). */
+  readonly transactionId: string | undefined;
 
-  constructor(cause: unknown) {
+  constructor(cause: unknown, transactionId?: string) {
     super("This transaction was accepted into the node's mempool but the local store update failed", { cause });
     this.name = 'ApplyAfterSubmitError';
+    this.transactionId = transactionId;
   }
+}
+
+/**
+ * Read one landed field off this realm's `ApplyAfterSubmitError` or off the rejection the service
+ * worker rebuilds from an offscreen reply (#1233). Guarded like `errorMessageParts`: the property can
+ * be an accessor, and a throw here would cost the verdict.
+ */
+const readLandedField = (err: unknown, field: 'transactionId'): unknown => {
+  if (!err || typeof err !== 'object') return undefined;
+  try {
+    return Reflect.get(err, field);
+  } catch {
+    return undefined;
+  }
+};
+
+/** The landed transaction's id an `ApplyAfterSubmitError` carries, or `undefined`. */
+export function extractLandedTransactionId(err: unknown): string | undefined {
+  const id = readLandedField(err, 'transactionId');
+  return typeof id === 'string' ? id : undefined;
 }
 
 /**

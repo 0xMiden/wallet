@@ -6515,6 +6515,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.status).toBe(ITransactionStatus.Completed);
       // #618: completion stamps the terminal stage through the real complete* layer.
       expect(row.stage).toBe('complete');
+      expect(row.transactionId).toBe('exec-tx-hash');
     }
   );
 
@@ -6671,6 +6672,7 @@ describe('generateTransaction — Guardian routing', () => {
       // receipt again.
       expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true });
       expect(row.displayMessage).toBe('Guardian switch submitted');
+      expect(row.transactionId).toBe('exec-tx-hash');
     }
   );
 
@@ -6870,6 +6872,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(row()?.status).toBe(ITransactionStatus.Completed);
     expect(row()?.displayMessage).toBe('Account secured');
+    expect(row()?.transactionId).toBe('exec-tx-hash');
     // The cached hot service holds the pre-update threshold map.
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     // The local store still holds the pre-update account: nothing may push it to the guardian.
@@ -6926,6 +6929,7 @@ describe('generateTransaction — Guardian routing', () => {
       "ApplyAfterSubmitError: This transaction was accepted into the node's mempool but the local store update failed"
     );
     expect(row?.error).toContain(STORE_APPLY_ERROR_MESSAGE);
+    expect(row?.transactionId).toBe('exec-tx-hash');
   });
 
   it('update-procedure-threshold: a raw store failure at apply completes with its finalization (#1233)', async () => {
@@ -7061,6 +7065,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.status).toBe(ITransactionStatus.Completed);
       expect(row.displayMessage).toBe('Sent');
       expect(row.noteDelivery).toBeUndefined();
+      expect(row.transactionId).toBe('exec-tx-hash');
     }
   );
 

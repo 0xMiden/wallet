@@ -2417,8 +2417,11 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
     async ({ label, row, complete, expected }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const id = `be-apply-${label}`;
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.transactionId = '0xlanded';
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service } = arrange(id, row);
 
@@ -2426,6 +2429,7 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
 
       const finalRow = txStore.find(r => r.id === id)!;
       expect(finalRow.status).toBe(expected);
+      expect(finalRow.transactionId).toBe('0xlanded');
       // The candidate proposal is abandoned either way — that happens in
       // `generateGuardianTransaction`'s own catch, before the classification above.
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
@@ -2633,8 +2637,11 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Completed, not Failed',
     async ({ row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.transactionId = '0xlanded';
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service } = arrange(`apply-${row.type}`, row);
 
@@ -2645,6 +2652,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       // sync reconciles. NOT Failed → requeue → double-spend.
       const finalRow = txStore.find(r => r.id === `apply-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Completed);
+      expect(finalRow.transactionId).toBe('0xlanded');
       // The submit-catch still abandoned the candidate (idempotent), and the value-moving
       // completion handler did NOT run (Completed was set directly by the classifier).
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
@@ -2972,19 +2980,24 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     {
       type: 'replace-hot-key',
       row: { type: 'replace-hot-key', extraInputs: {} },
-      complete: mockComplete.replaceHotKey
+      complete: mockComplete.replaceHotKey,
+      landedArg: 3
     },
     {
       type: 'switch-guardian',
       row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
-      complete: mockComplete.switchGuardian
+      complete: mockComplete.switchGuardian,
+      landedArg: 5
     }
   ])(
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed reaches the RECONCILE handler (row not Failed)',
-    async ({ type, row, complete }) => {
+    async ({ type, row, complete, landedArg }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+        'local apply failed after submit'
+      );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+      applyErr.transactionId = '0xlanded';
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service, provider: sp } = arrangeStructural(`s-apply-${type}`, row);
 
@@ -2998,6 +3011,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
+      expect(complete.mock.calls[0]![landedArg]).toEqual({ transactionId: '0xlanded' });
       const finalRow = txStore.find(r => r.id === `s-apply-${type}`)!;
       expect(finalRow.status).not.toBe(ITransactionStatus.Failed);
     }
@@ -3005,8 +3019,11 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
 
   it('update-procedure-threshold landed: a round-tripped ApplyTransactionAfterSubmitFailed completes the row with its finalization', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+      'local apply failed after submit'
+    );
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    applyErr.transactionId = '0xlanded';
     mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
     const { service, provider: sp } = arrangeStructural('s-apply-upt', row);
@@ -3022,6 +3039,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     const finalRow = txStore.find(r => r.id === 's-apply-upt')!;
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
     expect(finalRow.displayMessage).toBe('Account secured');
   });
 
@@ -3066,17 +3084,19 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       type: 'replace-hot-key',
       row: { type: 'replace-hot-key', extraInputs: {} },
       complete: mockComplete.replaceHotKey,
-      refusal: REFUSAL_EQUAL_NONCE
+      refusal: REFUSAL_EQUAL_NONCE,
+      landedArg: 3
     },
     {
       type: 'switch-guardian',
       row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
       complete: mockComplete.switchGuardian,
-      refusal: REFUSAL_ONCHAIN_COMMITMENT
+      refusal: REFUSAL_ONCHAIN_COMMITMENT,
+      landedArg: 5
     }
   ])(
     '$type: a structural refusal reaches the RECONCILE handler, not the Completed-as-a-send arm (#1233)',
-    async ({ type, row, complete, refusal }) => {
+    async ({ type, row, complete, refusal, landedArg }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       mockDispatchGuardianPipeline.mockRejectedValueOnce(
         new Error(`Offscreen call 'guardianPipeline' failed: ${refusal}`)
@@ -3088,6 +3108,8 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
+      // A refusal carries no id.
+      expect(complete.mock.calls[0]![landedArg]).toEqual({ transactionId: undefined });
       expect(txStore.find(r => r.id === `s-refusal-${type}`)!.displayMessage).not.toBe('Sent');
     }
   );

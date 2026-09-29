@@ -16,7 +16,14 @@ import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
-import { recordNoteDelivery, setTransactionStage, undeliveredDisplayMessage, updateTransactionStatus } from './helper';
+import {
+  landedTransactionIdFields,
+  type LandedWithoutResult,
+  recordNoteDelivery,
+  setTransactionStage,
+  undeliveredDisplayMessage,
+  updateTransactionStatus
+} from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -415,7 +422,9 @@ export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -520,12 +529,11 @@ export const completeReplaceHotKeyTransaction = async (
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
       // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
-      // `result` is absent on the apply-after-submit-failed reconcile path: the
-      // rotation is already on chain, we just lack the local TransactionResult.
-      ...(result && {
-        transactionId: result.executedTransaction().id().toHex(),
-        resultBytes: result.serialize()
-      })
+      // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
+      // the reconcile has is the id its failure carried (#1233).
+      ...(result
+        ? { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() }
+        : landedTransactionIdFields(landed))
     });
 
     // The account now has both signers on-chain, so bring it up to the same
@@ -616,7 +624,9 @@ export const completeSwitchGuardianTransaction = async (
   // That is a claim about the commit wait, not about which path called: do not
   // read this default as "coordinated means confirmed" and add a caller without
   // checking which of the two it is.
-  commitUnconfirmed = false
+  commitUnconfirmed = false,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   // Read the WASM-backed result fields ONCE, up front, before anything that can
   // select a terminal status depends on them.
@@ -750,10 +760,9 @@ export const completeSwitchGuardianTransaction = async (
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
       extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      // Absent on the apply-after-submit-failed reconcile path (no local
-      // TransactionResult), and absent if reading the handle threw — the switch
-      // is on chain either way, so the row completes without them.
-      ...resultFields
+      // On the landed reconcile path there is no local TransactionResult, so the row takes the id
+      // the failure carried, if any (#1233); the switch is on chain either way.
+      ...(resultFields ?? landedTransactionIdFields(landed))
     });
   } catch (error) {
     // Past the commit, Failed is not an honest terminal status: the rotation IS
@@ -787,7 +796,7 @@ export const completeSwitchGuardianTransaction = async (
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      ...resultFields
+      ...(resultFields ?? landedTransactionIdFields(landed))
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
       try {

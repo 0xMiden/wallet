@@ -3894,6 +3894,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(isApplyAfterSubmitError(abandoned)).toBe(true);
   });
 
+  it('guardianPipeline: an apply that keeps failing replies with the landed transaction id beside its code (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({
+      apply: jest.fn(async () => {
+        throw new Error('QuotaExceededError');
+      })
+    }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorTransactionId: '0xlanded'
+    });
+  });
+
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
     await loadModule();
     let signatureSeen: Uint8Array | null = null;

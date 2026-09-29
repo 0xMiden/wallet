@@ -407,13 +407,16 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   else {
     // Preserve the SDK's stable error code end-to-end (issue #260, funds-critical).
     // Re-attach it onto the rejection under `errorCode`, one of the two names
-    // `extractSdkErrorCode` reads. The rejection's MESSAGE also embeds the offscreen
-    // realm's verbatim error text, which is what lets the SW classify a round-tripped
+    // `extractSdkErrorCode` reads. That code - which the wallet's own
+    // `ApplyAfterSubmitError` sets - is what lets the SW classify a round-tripped
     // apply-after-submit failure (`isApplyAfterSubmitError`) identically to the
-    // flag-off inline path — marked Completed, NOT Failed → requeue → double-spend —
-    // even though web-sdk 0.16 attaches no code for that variant. Shared by all four
-    // writes via `dispatchOffscreenWrite`/this single choke point. A code-less failure
-    // (`undefined`) leaves the error untagged, exactly as before.
+    // flag-off inline path: its row takes its type's landed verdict and is never
+    // requeued into a second submit. The rejection's MESSAGE also embeds the offscreen
+    // realm's verbatim text, which the classifier reads as a fallback. The landed
+    // transaction's id rides along as `transactionId`, the name
+    // `extractLandedTransactionId` reads, so the row still records it (#1233). Shared by
+    // all five writes via `dispatchOffscreenWrite`/this single choke point. A code-less
+    // failure (`undefined`) leaves the error untagged, exactly as before.
     //
     // A lock-recovery eviction inside the offscreen realm is rebuilt as the same
     // TYPE it was thrown as (issue #775). It has to be: that error means "the op
@@ -434,6 +437,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
+    if (resp.errorTransactionId !== undefined) Object.assign(err, { transactionId: resp.errorTransactionId });
     op.reject(err);
   }
 }

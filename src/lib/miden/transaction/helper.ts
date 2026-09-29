@@ -448,6 +448,18 @@ export const applyLandedDisplayMessage = (
 };
 
 /**
+ * What a landed reconcile knows about a write whose submit resolved and whose local apply failed
+ * (#1233): no `TransactionResult`, at most the executed transaction's id.
+ */
+export interface LandedWithoutResult {
+  transactionId?: string;
+}
+
+/** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
+export const landedTransactionIdFields = (landed: LandedWithoutResult | undefined): { transactionId?: string } =>
+  landed?.transactionId === undefined ? {} : { transactionId: landed.transactionId };
+
+/**
  * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
  * on either catch or on Retry's landed reconcile (#1233). A PRIVATE send's note reaches its
  * recipient only through `completeSendTransaction`'s relay, which never ran and which no sync

@@ -986,6 +986,87 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('records the landed id on the result-awaiting row it fails (#1233)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { transactionId: '0xbridge' });
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-bridge-apply-id',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const row = txStore.find(t => t.id === 'tx-bridge-apply-id');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    // Its receipt names the transaction the Epoch caller stopped waiting for.
+    expect(row.transactionId).toBe('0xbridge');
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('still fails the result-awaiting row when its landed id cannot be recorded (#1233)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { transactionId: '0xbridge' });
+      }
+      return fn();
+    });
+    // The store that failed the apply fails the id's write too; every other write lands.
+    const repo = require('lib/miden/repo');
+    const whereImpl = repo.transactions.where.getMockImplementation();
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = whereImpl(query);
+      return {
+        ...handle,
+        modify: async (fn: (tx: Record<string, unknown>) => void) => {
+          const probe: Record<string, unknown> = {};
+          fn(probe);
+          if (Object.keys(probe).length === 1 && probe.transactionId === '0xbridge') throw new Error('store closed');
+          return handle.modify(fn);
+        }
+      };
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    txStore.push({
+      id: 'tx-bridge-apply-id-lost',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    try {
+      await expect(generateTransactionsLoop(dummySign, true, stubGuardianProvider)).resolves.toBe(false);
+
+      const row = txStore.find(t => t.id === 'tx-bridge-apply-id-lost');
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBeUndefined();
+    } finally {
+      repo.transactions.where.mockImplementation(whereImpl);
+      warnSpy.mockRestore();
+      sdk.withWasmClientLock = origLock;
+    }
+  });
+
   it('marks an AGGLAYER bridged-send Completed (never Failed) on the apply-after-submit error', async () => {
     // The route matters, not the type. An Agglayer (Slow) bridge-out is queued by
     // `initiateB2AggBridge`, which returns the txId immediately and never awaits the

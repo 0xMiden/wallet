@@ -72,7 +72,9 @@ import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
+  landedTransactionIdFields,
   landedValueRowFields,
+  type LandedWithoutResult,
   markMayHaveSubmitted,
   setTransactionStage,
   updateTransactionStatus
@@ -128,6 +130,7 @@ import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '.
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
+  extractLandedTransactionId,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
   isStaleInitialCommitmentError,
@@ -875,6 +878,33 @@ async function requeueWithWake(
   );
 }
 
+/** What a landed arm knows about the write from its error (#1233): at most the executed transaction's id. */
+const landedOf = (error: unknown): LandedWithoutResult => ({ transactionId: extractLandedTransactionId(error) });
+
+/** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
+const landedRowFields = (tx: ITransaction, error: unknown) => ({
+  ...landedValueRowFields(tx),
+  ...landedTransactionIdFields(landedOf(error))
+});
+
+/**
+ * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
+ * still names the transaction. Guard-free like `markMayHaveSubmitted`: the cancel that follows is
+ * what makes the row terminal. A failed write is logged, never thrown: the store that just failed the
+ * apply can fail this one too, and the cancel is what releases the awaiting caller.
+ */
+const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
+  const { transactionId } = landedOf(error);
+  if (transactionId === undefined) return;
+  try {
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      row.transactionId = transactionId;
+    });
+  } catch (recordError) {
+    console.warn('Could not record the landed transaction id', { txId, recordError });
+  }
+};
+
 /**
  * Run the side effects a structural Guardian op needs after its submit landed on
  * chain but a post-submit step failed (an apply-after-submit error, or a
@@ -891,13 +921,15 @@ async function requeueWithWake(
  *   re-syncs the post-switch account state itself) + persist the per-account
  *   endpoint. The replace-hot-key and switch-guardian completion handlers
  *   tolerate a missing TransactionResult.
+ * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  landed: LandedWithoutResult
 ): Promise<void> {
   if (tx.type === 'replace-hot-key') {
-    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
+    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider, landed);
     return;
   }
   if (tx.type === 'update-procedure-threshold') {
@@ -907,6 +939,7 @@ async function reconcileStructuralApplyFailure(
     // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
     // carries, and minus its re-register: the local store still holds the pre-update account.
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...landedTransactionIdFields(landed),
       displayMessage: 'Account secured',
       completedAt: Math.floor(Date.now() / 1000) // seconds
     });
@@ -959,7 +992,14 @@ async function reconcileStructuralApplyFailure(
   // never called, so this path has strictly LESS evidence of a commit than the direct
   // path's `landed === undefined` case that the flag was introduced for. Defaulting it
   // to false let this exit render the full-confidence receipt.
-  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider, true);
+  await completeSwitchGuardianTransaction(
+    tx as SwitchGuardianTransaction,
+    undefined,
+    service,
+    guardianProvider,
+    true,
+    landed
+  );
 }
 
 /**
@@ -1203,7 +1243,7 @@ const generateTransactionWithProvider = async (
         (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
       ) {
         try {
-          await reconcileStructuralApplyFailure(transaction, guardianProvider);
+          await reconcileStructuralApplyFailure(transaction, guardianProvider, landedOf(error));
         } catch (reconcileError) {
           console.error(
             'Structural-op landed reconcile failed; cancelling (apply-after-submit or refusal)',
@@ -1246,6 +1286,7 @@ const generateTransactionWithProvider = async (
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
+        await recordLandedTransactionId(transaction.id, error);
         await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
       }
@@ -1269,7 +1310,7 @@ const generateTransactionWithProvider = async (
         );
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            ...landedValueRowFields(transaction),
+            ...landedRowFields(transaction, error),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -1288,7 +1329,7 @@ const generateTransactionWithProvider = async (
         console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            ...landedValueRowFields(transaction),
+            ...landedRowFields(transaction, error),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -3528,7 +3569,10 @@ export const generateTransactionsLoop = async (
         logger.warning(
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
-        if (tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
+        if (tx.status !== ITransactionStatus.Failed) {
+          await recordLandedTransactionId(tx.id, e);
+          await cancelTransactionAfterPipelineStopped(tx, e);
+        }
         return false;
       }
 
@@ -3550,7 +3594,7 @@ export const generateTransactionsLoop = async (
         // A private send's note was never relayed, and the row says so (`landedValueRowFields`, which
         // every landed writer shares so none can disagree about one landed send).
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          ...landedValueRowFields(tx),
+          ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)
         });
       }

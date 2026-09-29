@@ -16,7 +16,7 @@ export const APPLY_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
 /**
  * The parts of the submitted transaction's result the helper reads: a retry reads the account id and
- * its initial header, and `id()` is read later, for the error.
+ * its initial header, and the error carries `id()`.
  */
 export interface SubmittedResult<Id> {
   executedTransaction(): {
@@ -48,6 +48,8 @@ const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(res
  */
 export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<void> {
   const sleep = options.sleep ?? defaultSleep;
+  // Read up front, while this hold still owns the client the result is a borrow of.
+  const transactionId = options.holdIsCurrent() ? readTransactionId(options.result) : undefined;
   let lastError: unknown;
   try {
     await options.apply();
@@ -69,7 +71,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
       report(options, error);
     }
   }
-  throw new ApplyAfterSubmitError(lastError);
+  throw new ApplyAfterSubmitError(lastError, transactionId);
 }
 
 function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
@@ -77,6 +79,14 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
     options.onApplyFailed?.(error);
   } catch {
     // A breadcrumb must never cost the landed verdict.
+  }
+}
+
+function readTransactionId<Id>(result: SubmittedResult<Id>): string | undefined {
+  try {
+    return result.executedTransaction().id().toHex();
+  } catch {
+    return undefined;
   }
 }
 

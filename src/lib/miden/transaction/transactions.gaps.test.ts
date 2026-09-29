@@ -466,13 +466,18 @@ describe('apply-after-submit on a public send', () => {
     });
 
     await runLoopWithFailingSend(
-      () => new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted while applying the transaction update'))
+      () =>
+        new ApplyAfterSubmitError(
+          new Error('IndexedDB transaction aborted while applying the transaction update'),
+          'landed-send-hash'
+        )
     );
 
     // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
     expect(txStore[0]!.displayMessage).toBe('Sent');
+    expect(txStore[0]!.transactionId).toBe('landed-send-hash');
   });
 });
 
