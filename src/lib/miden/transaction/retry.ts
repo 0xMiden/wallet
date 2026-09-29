@@ -3,7 +3,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
-import { completeVerifiedLandedTransaction } from './helper';
+import { completeVerifiedLandedTransaction, landedValueRowFields } from './helper';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
@@ -332,11 +332,16 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
   if (NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
+      // Only `completeSendTransaction` relays a private send's note. With no delivery
+      // recorded that relay never ran, so the row is flagged as the landed catches flag
+      // one (#1233); any other recorded outcome is the relay's own and is kept.
+      const landed =
+        tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered' ? landedValueRowFields(tx) : undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
       await completeVerifiedLandedTransaction(txId, {
-        displayMessage: 'Completed',
+        ...(landed?.noteDelivery ? landed : { displayMessage: 'Completed' }),
         completedAt: Math.floor(Date.now() / 1000)
       });
       return;

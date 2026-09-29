@@ -24,7 +24,8 @@ jest.mock('./cancel', () => ({
 import { TRANSACTION_RETRY_UNSAFE_ERROR } from './constants';
 import { updateTransactionStatus } from './helper';
 import { requeueFailedTransaction } from './retry';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { INoteDeliveryState, ITransaction, ITransactionStatus } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 const failedSend = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx-landed',
@@ -40,6 +41,27 @@ const failedSend = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   displayIcon: 'FAILED',
   ...overrides
 });
+
+const UNDELIVERED = 'Sent - the private note could not be delivered';
+
+// Only `completeSendTransaction` relays a private send's note, so a landed row with no delivery
+// recorded never had it relayed; a recorded outcome is the relay's own and must survive (#1233).
+const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undefined, string][] = [
+  ['a private send with no delivery recorded', { noteType: NoteTypeEnum.Private }, 'undelivered', UNDELIVERED],
+  ['a public send', { noteType: NoteTypeEnum.Public }, undefined, 'Completed'],
+  [
+    'a private send whose relay was recorded',
+    { noteType: NoteTypeEnum.Private, noteDelivery: 'relayed' },
+    'relayed',
+    'Completed'
+  ],
+  [
+    'a private send whose relay was recorded as failed',
+    { noteType: NoteTypeEnum.Private, noteDelivery: 'undelivered' },
+    'undelivered',
+    UNDELIVERED
+  ]
+];
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -65,6 +87,21 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.error).toBeUndefined();
     expect(row?.rawError).toBeUndefined();
   });
+
+  it.each(DELIVERY_CASES)(
+    'completes %s with the matching delivery state (#1233)',
+    async (_label, overrides, delivery, message) => {
+      await Repo.transactions.put(failedSend({ id: 'tx-landed-delivery', ...overrides }));
+      mockVerifySendLanded.mockResolvedValue('landed');
+
+      await requeueFailedTransaction('tx-landed-delivery');
+
+      const row = await Repo.transactions.where({ id: 'tx-landed-delivery' }).first();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.noteDelivery).toBe(delivery);
+      expect(row?.displayMessage).toBe(message);
+    }
+  );
 
   it('refuses, and leaves the real row Failed, when the node cannot confirm the send landed', async () => {
     // 'unknown' is "we could not confirm", not "it did not land": the node may
