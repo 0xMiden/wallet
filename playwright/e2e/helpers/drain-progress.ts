@@ -57,11 +57,20 @@ function drainCapMs(budgetMs: number): number {
  *
  * `now` defaults to `performance.now()`: a stress run lasts hours, and a wall-clock step would otherwise end a drain
  * early or stretch it.
+ *
+ * `onOverrun`, if given, fires exactly once: on the first `verdict()` call that lands past the budget while still
+ * `continue`-ing. A drain that finishes inside its budget never fires it, so a caller can use it to extend its own
+ * timeout only for the run that actually needs the room.
  */
-export function startDrainDeadline(budgetMs: number, now: () => number = () => performance.now()): DrainDeadline {
+export function startDrainDeadline(
+  budgetMs: number,
+  now: () => number = () => performance.now(),
+  onOverrun?: () => void
+): DrainDeadline {
   const startedAt = now();
   let last: DrainSnapshot | null = null;
   let lastProgressAt: number | null = null;
+  let overrunFired = false;
   return {
     observe(snapshot) {
       if (snapshot === null) return;
@@ -74,14 +83,22 @@ export function startDrainDeadline(budgetMs: number, now: () => number = () => p
       if (elapsed < budgetMs) return 'continue';
       const moving = lastProgressAt !== null && at - lastProgressAt < DRAIN_STALL_WINDOW_MS;
       if (!moving) return 'stalled';
-      return elapsed >= drainCapMs(budgetMs) ? 'cap' : 'continue';
+      if (elapsed >= drainCapMs(budgetMs)) return 'cap';
+      if (!overrunFired) {
+        overrunFired = true;
+        onOverrun?.();
+      }
+      return 'continue';
     },
     elapsedMs: () => now() - startedAt
   };
 }
 
-/** Extra time past the cap for a capped or stalled drain's own verdict line and `dumpTransactions` dump to print. */
-export const DRAIN_DUMP_MARGIN_MS = 15_000;
+/**
+ * Extra time past the cap for a capped or stalled drain to still finish its own diagnostics: one more lap (a rescue
+ * reload lap can take 30 s or more) plus the `dumpTransactions` dump.
+ */
+export const DRAIN_DUMP_MARGIN_MS = 60_000;
 
 /** The slice of Playwright's TestInfo this helper needs, declared locally so this file stays runner-free. */
 interface DrainTimeoutInfo {
@@ -92,7 +109,9 @@ interface DrainTimeoutInfo {
 /**
  * Extends the running test's timeout so it outlasts a drain that runs to its cap, plus
  * {@link DRAIN_DUMP_MARGIN_MS} of headroom: otherwise the test timeout fires first and the drain's diagnostics never
- * print. A no-op with no `info` (outside a test) or a 0 timeout (none set).
+ * print. Meant to run once the drain runs past its budget while still moving (see `startDrainDeadline`'s
+ * `onOverrun`), so a drain that finishes inside its budget never pays for the room. A no-op with no `info` (outside
+ * a test) or a 0 timeout (none set).
  */
 export function extendTestTimeoutForDrain(budgetMs: number, info: DrainTimeoutInfo | undefined): void {
   if (info === undefined || info.timeout === 0) return;

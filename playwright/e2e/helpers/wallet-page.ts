@@ -2274,21 +2274,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // Fresh reload + metadata injection + land on the Pending list. See reloadAndPreparePending.
     await this.reloadAndPreparePending();
 
-    // A drain that runs to its cap must outlast the test's own timeout, or its verdict line and
-    // dumpTransactions dump never print. test.info() throws outside a test.
+    // Outside a running test, test.info() throws.
     let testInfo: TestInfo | undefined;
     try {
       testInfo = test.info();
     } catch {
       testInfo = undefined;
     }
-    extendTestTimeoutForDrain(timeoutMs, testInfo);
 
     // Start the clock AFTER reload/prepare. That step costs ~8-12s of fixed
     // sleeps, and billing it against the caller's budget silently turned a 120s
     // budget into ~110s of actual draining (#615). The first read is the base the
-    // first lap's progress is measured against.
-    const drain = startDrainDeadline(timeoutMs);
+    // first lap's progress is measured against. A drain that runs past its budget while still
+    // moving must outlast the test's own timeout, or its verdict line and dumpTransactions dump
+    // never print, so the extension only fires once the drain actually needs the room.
+    const drain = startDrainDeadline(timeoutMs, undefined, () => extendTestTimeoutForDrain(timeoutMs, testInfo));
     drain.observe(await readDrainSnapshot(this.page));
 
     const readPendingCount = (): Promise<number> =>

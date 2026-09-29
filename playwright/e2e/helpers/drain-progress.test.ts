@@ -146,6 +146,56 @@ describe('startDrainDeadline', () => {
       wall.mockRestore();
     }
   });
+
+  it('does not call onOverrun before the budget', () => {
+    const clock = fakeClock();
+    const onOverrun = jest.fn();
+    const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
+    deadline.observe(idle);
+    clock.advance(59_999);
+    expect(deadline.verdict()).toBe('continue');
+    expect(onOverrun).not.toHaveBeenCalled();
+  });
+
+  it('calls onOverrun once on the first verdict that lands past the budget while moving', () => {
+    const clock = fakeClock();
+    const onOverrun = jest.fn();
+    const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
+    deadline.observe(at('complete'));
+    clock.advance(59_999);
+    deadline.observe(at('sending'));
+    clock.advance(1);
+    expect(deadline.verdict()).toBe('continue');
+    expect(onOverrun).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onOverrun again on a later verdict, even once the drain reaches the cap', () => {
+    const clock = fakeClock();
+    const onOverrun = jest.fn();
+    const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
+    deadline.observe(at('complete'));
+    for (let lap = 0; lap < 12; lap++) {
+      clock.advance(9_999);
+      deadline.observe(at(lap % 2 === 0 ? 'sending' : 'signing-proposal'));
+    }
+    expect(deadline.verdict()).toBe('continue');
+    expect(onOverrun).toHaveBeenCalledTimes(1);
+    expect(deadline.verdict()).toBe('continue');
+    expect(onOverrun).toHaveBeenCalledTimes(1);
+    clock.advance(12);
+    expect(deadline.verdict()).toBe('cap');
+    expect(onOverrun).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onOverrun when the verdict past the budget is stalled', () => {
+    const clock = fakeClock();
+    const onOverrun = jest.fn();
+    const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
+    deadline.observe(idle);
+    clock.advance(60_000);
+    expect(deadline.verdict()).toBe('stalled');
+    expect(onOverrun).not.toHaveBeenCalled();
+  });
 });
 
 describe('extendTestTimeoutForDrain', () => {
