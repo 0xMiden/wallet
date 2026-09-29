@@ -68,7 +68,7 @@ interface PositionsApiChainItem {
   chainId: string;
   aprData: PositionsApiAprData;
   data: { positions: PositionsApiPosition[] }[];
-  lenderInfo: { lenderKey: string; name: string; logoUri: string };
+  lenderInfo: { lenderKey: string; name: string; logoUri?: string };
 }
 
 interface PositionsApiResponse {
@@ -194,6 +194,16 @@ async function fetchPositionsForOwner(
   }
 }
 
+/**
+ * Throws unless every one of `strings` is a string and every one of `numbers` a finite number: the fields a position
+ * or vault copies from an owner's payload, so a field of another type fails that owner as a read that throws does.
+ */
+function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
+  if (!strings.every(value => typeof value === 'string') || !numbers.every(value => Number.isFinite(value))) {
+    throw new TypeError('positions field of the wrong type');
+  }
+}
+
 /** Flatten one chain item's nested `data[].positions[]` into non-zero `EarnPosition`s. */
 function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosition[] {
   const out: EarnPosition[] = [];
@@ -202,6 +212,20 @@ function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosit
       if (pos.marketUid.toLowerCase() !== EARN_MARKET_UID.toLowerCase()) continue;
       // Every supported token is returned even at zero balance — keep only funded ones.
       if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
+      const { asset, prices } = pos.underlyingInfo;
+      assertFieldTypes(
+        [
+          item.lenderInfo.lenderKey,
+          item.lenderInfo.name,
+          item.chainId,
+          pos.marketUid,
+          pos.deposits,
+          pos.withdrawable,
+          asset.symbol,
+          asset.address
+        ],
+        [item.aprData.depositApr, pos.depositsUSD, asset.decimals, prices.priceUsd]
+      );
       out.push({
         owner,
         marketUid: pos.marketUid,
@@ -212,10 +236,10 @@ function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosit
         withdrawable: pos.withdrawable,
         depositsUSD: pos.depositsUSD,
         depositApr: item.aprData.depositApr,
-        symbol: pos.underlyingInfo.asset.symbol,
-        underlyingAddress: pos.underlyingInfo.asset.address,
-        decimals: pos.underlyingInfo.asset.decimals,
-        priceUsd: pos.underlyingInfo.prices.priceUsd
+        symbol: asset.symbol,
+        underlyingAddress: asset.address,
+        decimals: asset.decimals,
+        priceUsd: prices.priceUsd
       });
     }
   }
@@ -236,8 +260,9 @@ export interface FetchEarnPositionsArgs {
  * owner addresses from `earn-deposit` activity and queries the positions service
  * for all of them at once via `Promise.all`. Per-address failures are isolated
  * (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a payload
- * that cannot be read, with none of that owner's positions or vaults kept. It
- * rejects only when the owner lookup fails, before any request.
+ * that cannot be read or has a copied field of the wrong type, with none of that
+ * owner's positions or vaults kept. It rejects only when the owner lookup fails,
+ * before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
   const chains = args.chains ?? [EARN_DESTINATION_CHAIN_ID];
@@ -256,8 +281,8 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     if (result.error) {
       errors.push({ owner: result.owner, error: result.error });
     }
-    // An owner's items are kept only once all of them read: a payload missing a field fails that owner alone, like a
-    // failed request, so the read does not reject after its requests are spent.
+    // An owner's items are kept only once all of them read: a payload missing a field, or with one of the wrong type,
+    // fails that owner alone, like a failed request, so the read does not reject after its requests are spent.
     const ownerPositions: EarnPosition[] = [];
     const ownerVaults: EarnVaultInfo[] = [];
     try {
@@ -265,16 +290,22 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
         if (owners.length > 0) {
           ownerPositions.push(...flattenChainItem(result.owner, item));
         }
+        const logoUri = item.lenderInfo.logoUri ?? '';
+        assertFieldTypes(
+          [item.lenderInfo.lenderKey, item.lenderInfo.name, logoUri, item.chainId],
+          [item.aprData.apr, item.aprData.depositApr]
+        );
         ownerVaults.push({
           lenderKey: item.lenderInfo.lenderKey,
           lenderName: item.lenderInfo.name,
-          logoUri: item.lenderInfo.logoUri,
+          logoUri,
           chainId: item.chainId,
           apr: item.aprData.apr,
           depositApr: item.aprData.depositApr
         });
       }
-    } catch {
+    } catch (err) {
+      console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
       errors.push({ owner: result.owner, error: 'positions response unreadable' });
       continue;
     }

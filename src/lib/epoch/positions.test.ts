@@ -117,6 +117,93 @@ describe('fetchEarnPositions', () => {
     expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
   });
 
+  describe('an owner whose payload has a field of the wrong type', () => {
+    const malformed = '0x2222222222222222222222222222222222222222';
+    const loadWith = (bad: object) =>
+      (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { items: url.includes(malformed) ? [bad] : [apiItem('12.5', 12.5)] }
+        })
+      }));
+
+    beforeEach(() => {
+      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("settles an unfunded item with no APRs, which only its vault reads, as that owner's error", async () => {
+      loadWith({
+        ...apiItem(),
+        aprData: {},
+        lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' }
+      });
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+    });
+
+    it("settles a funded position with no USD value as that owner's error", async () => {
+      const funded = apiItem('3', 3);
+      loadWith({
+        ...funded,
+        data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) })),
+        lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' }
+      });
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+      expect(result.totalDepositsUSD).toBe(12.5);
+    });
+
+    it("settles a vault whose chain id is not a string as that owner's error", async () => {
+      loadWith({ ...apiItem(), chainId: 11155111 });
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
+    });
+
+    it('loads a vault whose lender has no logo, with an empty one', async () => {
+      loadWith({ ...apiItem(), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other' } });
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.vaults).toContainEqual(expect.objectContaining({ lenderKey: 'OTHER_LENDING', logoUri: '' }));
+    });
+
+    it('logs the fold, naming the owner', async () => {
+      loadWith({ ...apiItem(), aprData: {} });
+
+      await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(malformed), expect.any(Error));
+    });
+
+    it("settles the catalog query's item with no APRs as the catalog's error, with no vaults", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { items: [{ ...apiItem(), aprData: {} }] } })
+      });
+
+      const result = await fetchEarnPositions({ owners: [] });
+
+      expect(result.errors).toEqual([{ owner: CATALOG_ACCOUNT, error: 'positions response unreadable' }]);
+      expect(result.vaults).toEqual([]);
+    });
+  });
+
   it("settles an owner whose request stalls as that owner's error at 15 s, while the others load", async () => {
     jest.useFakeTimers();
     const stalled = '0x2222222222222222222222222222222222222222';
