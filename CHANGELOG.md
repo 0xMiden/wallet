@@ -2,9 +2,15 @@
 
 ## 1.16.3 (TBD)
 
+### Features
+
+- [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
+
 ### Changes
 
 - [FIX][all] Unlocking on mobile or desktop restarts transactions queued while the wallet was locked, and the startup sweep of interrupted transactions spares any transaction started after the app or browser opened (#1202).
+- [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
+- [FIX][all] An empty or blank `WALLETCONNECT_PROJECT_ID`, or an empty E2E counterparty secret, now falls back to the default Reown project ID instead of a blank one, and that default is defined in one place (#1259).
 - [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
@@ -29,6 +35,7 @@
 - [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 - [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
+- [CHANGE][ci] The changelog check also fails a pull request that changes or removes a released heading's version (dating it still passes) or moves a released entry under another version, compares the file with the pull request's merge base instead of reading a diff, and reads headings, sections and `---` lines through one parser that the release notes use too (#1190).
 
 ### Fixes
 
@@ -69,6 +76,7 @@
 - [FIX][e2e] Mobile `claimAllNotes` waits for the Activity Pending list to read empty twice in a row (Chrome's two-read rule) instead of a positive balance, which a fee-funded account already has and which a claim smaller than its fee leaves flat (#1008).
 - [FIX][mobile] Hardware back and the back swipe in the recovery-phrase check now step back the way the header back arrow does (from the password step to the warning, from the quiz to the phrase) instead of leaving the whole check, and on the Settings recovery-phrase page they hide the phrase and leave through the same path as the arrow (#1042).
 - [FIX][all] Send feedback in Settings > About opens the current feedback form again; it pointed at the retired form, which no longer loads (#817).
+- [FIX][all] A token is valued in USD only when its faucet is one the wallet knows stands for a quoted asset (the swap registry's IETH and IBTC, the Earn USDC, the Agglayer-bridged ETH): a faucet that merely names itself ETH, BTC or USDC shows no dollar figure and no longer counts toward a spending limit (#1131).
 - [FIX][all] Every storage reset keeps the developer endpoint override, and every wallet setup, a restore from file included, keeps a legacy custom Guardian address until one succeeds, so a Retry after a failed step no longer recovers on the default network or Guardian (#1174).
 - [FIX][all] Creating a Guardian wallet while the guardian is rate limiting (a 429) waits out the guardian's cooldown and retries for up to 90 seconds, instead of failing with "Failed to create wallet" at the first one (#906, #903).
 - [FIX][all] A wallet holding a Guardian account imported with its everyday and EVM keys writes its Encrypted Wallet File instead of failing: the file backs up the other accounts and the database, and the export screen names the Guardian account it does not restore, which comes back from those keys as a separate wallet (#1114).
@@ -85,6 +93,7 @@
 - [FIX][all] When the Fund card's 3-minute wait ends with no tokens, it now says an earlier request may still arrive and asks before sending another, instead of letting a tap mint again silently (#709).
 - [FIX][all] A spending limit no longer skips a stored transaction whose start time is missing or unreadable (#1007).
 - [FIX][all] A Guardian operator you pick that then goes offline stays unselected, with its card saying so, instead of another operator being submitted in its place; an account on a custom Guardian no longer opens Rotate Guardian with a built-in preselected as the default (#1083).
+- [FIX][extension] The side panel and popup stay responsive while a transaction is proved on this device: the proof runs in a worker of its own instead of on the thread those pages share, so they no longer freeze for the 20 to 75 seconds it takes (#945).
 - [FIX][all] A Guardian account recovered from its recovery phrase that holds no MIDEN no longer stays stuck on the everyday-key activation screen: the screen explains that activating the key pays a small network fee, shows the account address with a Copy button, claims the MIDEN sent there with the recovery key, and then finishes activating the key on its own (#805).
 - [FIX][all] Creating a Guardian account while its Guardian is rate-limiting no longer freezes sync, sends and claims for up to 90 seconds while the wallet waits (#1207).
 - [FIX][all] A note's failed claim attempts no longer show as "Transaction failed" in Activity or Token Detail, or light the Activity tab's unread mark, once this account has claimed the note (#771).

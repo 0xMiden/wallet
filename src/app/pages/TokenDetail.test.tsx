@@ -211,9 +211,9 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// A realistic bech32 faucet id, long enough to exercise HashShortView's middle truncation
-// (default trimAfter 20) the way a real Miden faucet id does.
-const TOKEN_ID = 'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec_qr7qqq9wr6w';
+// A faucet the wallet prices (IETH, at ETH), and a realistic bech32 faucet id, long enough to
+// exercise HashShortView's middle truncation (default trimAfter 20) the way a real Miden faucet id does.
+const TOKEN_ID = TOKEN_IETH.faucetId;
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -224,6 +224,11 @@ const mockGetExplorerAccountUrl = jest.fn();
 jest.mock('lib/miden-chain/constants', () => ({
   ...jest.requireActual('lib/miden-chain/constants'),
   getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
+}));
+
+const mockVerifyToken = jest.fn();
+jest.mock('lib/token-list/useTokenVerification', () => ({
+  useTokenVerification: (id: string) => mockVerifyToken(id)
 }));
 
 const mockOpenExternalUrl = jest.fn();
@@ -519,7 +524,7 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        tokenPrices: { Unknown: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
@@ -778,6 +783,41 @@ describe('TokenDetail', () => {
 
       expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
       expect(mockOpenExternalUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the Unverified mark', () => {
+    it.each(['verified', 'unknown'] as const)('hides the Unverified mark for a %s token', verification => {
+      mockVerifyToken.mockReturnValue(verification);
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-unverified')).not.toBeInTheDocument();
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    });
+
+    it('shows the Unverified mark, its warning pill and explanation for an unverified token', () => {
+      mockVerifyToken.mockReturnValue('unverified');
+      renderPage();
+
+      const mark = screen.getByTestId('token-detail-unverified');
+      // Directly under the Hero, not buried further down the page.
+      expect(screen.getByTestId('token-detail-hero').nextElementSibling).toBe(mark);
+      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2');
+
+      // The pill itself: `sm`/`warning`, not any other size or tone.
+      const pill = within(mark).getByText('unverifiedToken').parentElement;
+      expect(pill).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
+
+      // The explanation is the design system's footnote, an inline warning Notice, under the pill.
+      const notice = within(mark).getByRole('note');
+      expect(notice).toHaveTextContent('unverifiedTokenDescription');
+      expect(notice).toHaveAttribute('data-variant', 'inline');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveClass('justify-center', 'text-center');
+      expect(notice).not.toHaveClass('text-left');
+      expect(Array.from(mark.children)).toEqual([pill, notice]);
+
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
     });
   });
 });

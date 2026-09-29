@@ -4535,6 +4535,14 @@
     "message": "sin verificar",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Sin verificar",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Este token no figura en la lista de tokens verificados de Miden. Cualquiera puede crear un token con cualquier nombre, así que comprueba el ID de faucet antes de confiar en él.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "No se ha podido verificar mediante simulación. Las cantidades que figuran a continuación son las declaradas por la página web.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

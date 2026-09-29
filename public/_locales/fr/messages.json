@@ -4535,6 +4535,14 @@
     "message": "non vérifié",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Non vérifié",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant de l’faucete avant de lui accorder votre confiance.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Impossible de vérifier par simulation. Les montants ci-dessous sont ceux indiqués par le site.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
