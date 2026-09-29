@@ -635,7 +635,7 @@ bar is weighed at the end of the section.
 | Threat | Password vault today | Adding a device-bound record | Adding a synced record |
 |---|---|---|---|
 | Offline attack on a copy of the profile | Guess the password; each guess costs 10,310,000 PBKDF2 iterations | No new path | The copy, plus the user's Apple or Google account on a device the attacker holds |
-| A person at the unlocked OS session | Needs the wallet password | Needs what the OS accepts as user verification, which can be its PIN or password | Same as device-bound |
+| A person at the unlocked OS session | Needs the wallet password | Needs what the OS accepts as user verification, which can be its PIN or password | The provider's own user verification applies; which methods count is **Unconfirmed** (Open question 4) |
 | Script injection or malware in the extension | Reads the password at the next unlock | Reads the PRF output at the next unlock | Same as device-bound |
 | Phishing | A page can ask for the password | No page and no other extension can use the credential; the password prompt is unchanged | Same as device-bound |
 
@@ -651,9 +651,9 @@ bar is weighed at the end of the section.
 - The record adds a second ciphertext of the same 32 bytes under a key derived
   from a PRF output. PRF outputs are 32 bytes
   ([WebAuthn Level 3 section 10.1.4][webauthn-l3]) computed from a secret the
-  authenticator holds; the credential id and salt stored beside the record are
-  inputs, not secrets. The record gives an offline attacker nothing to guess,
-  so the password stays the cheapest target, as it is today.
+  authenticator holds; the credential id and salt stored in the record are
+  inputs, not secrets. The record gives an offline attacker nothing to guess, so
+  the password stays the cheapest target, as it is today.
 - That holds while the PRF secret stays out of reach: on one device for a
   device-bound credential, and for a synced one see below.
 
@@ -699,11 +699,12 @@ bar is weighed at the end of the section.
   one UV bit ([WebAuthn Level 3 section 6.1][webauthn-l3]), Level 3 dropped
   the `uvm` extension (its changes section), and Blink does not offer it
   ([`public_key_credential.cc`][cr-pkc]).
-- So a person who knows the OS PIN or password, and not the wallet password,
-  can unlock. The hardware protector the owner's bar names already accepts
-  the same: the macOS desktop key asks for "Touch ID or system password"
-  (`src-tauri/src/secure_storage/macos.rs:61-63`), and the Android key accepts
-  a device credential from API 30
+- So a person who knows the OS PIN or password, and not the wallet password, can
+  unlock a device-bound credential; a synced one depends on its provider (Open
+  question 4). The hardware protector the owner's bar names already accepts the
+  same: the macOS desktop key asks for "Touch ID or system password"
+  (`src-tauri/src/secure_storage/macos.rs:61-63`), and the Android key accepts a
+  device credential from API 30
   (`android/app/src/main/java/com/miden/wallet/HardwareSecurityPlugin.kt:118-123`).
 
 ### Script injection or malware in the extension
