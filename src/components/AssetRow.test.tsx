@@ -199,6 +199,17 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
   });
 
+  it('gives no price to a faucet outside the allowlist that names itself BTC', () => {
+    const asset = { ...makeAsset({ balance: 7 }), tokenId: 'mtst1other' };
+
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.queryByTestId('row-delta')).toBeNull();
+    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');
+  });
+
   it('falls back to a flat grey sparkline when there are no real points (length <= 1)', () => {
     // Positive change, but no real sparkline data => tertiary color wins.
     tokenPrices = { BTC: priceInfo({ percentageChange24h: 8 }) };
