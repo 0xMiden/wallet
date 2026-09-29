@@ -832,6 +832,25 @@ describe('DeveloperSettings', () => {
     expect(runtimeReload).not.toHaveBeenCalled();
   });
 
+  it('says the reset did not finish on mobile and desktop too', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    closeAlert();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).not.toHaveBeenCalled();
+    // The inline error is only for a reload that cannot start.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('stops the reset spinner when the extension reload does not unload the page', async () => {
     mockIsExtension.value = true;
     let finishWipe!: () => void;
