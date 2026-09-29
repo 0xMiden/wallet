@@ -653,7 +653,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
             onOpenPendingNotes={
-              receipt.offerClaimRoute && !transaction?.restoredFromBackup
+              receipt.offerClaimRoute && !transaction?.recovered
                 ? () => navigate(ACTIVITY_PENDING_PATH)
                 : undefined
             }
