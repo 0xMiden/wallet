@@ -819,9 +819,10 @@ const Welcome: FC = () => {
         // Side panel handoff (Chrome) registers a create or a recovery-phrase
         // import in the auto-register effect above and navigates to
         // /finish-side-panel, so this click only runs in the classic flow:
-        // non-Chrome, hardware/biometric, a wallet-file or key-pair import, or
-        // a retry after a failed auto-register. It registers the wallet, then
-        // waits for Ready before moving on.
+        // non-Chrome or a MIDEN_E2E_DISABLE_SIDEPANEL build, hardware/biometric,
+        // a wallet-file or key-pair import, or a retry after a failed
+        // auto-register. It registers the wallet, then waits for Ready before
+        // moving on.
         attemptInFlightRef.current = true;
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives

@@ -3070,7 +3070,7 @@ describe('Welcome — side-panel handoff', () => {
     warn.mockRestore();
   });
 
-  it('releases the finishing mark when the auto-create fails', async () => {
+  it('releases the finishing mark when the auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValueOnce(new Error('creation failed'));
     await renderWelcome();
@@ -3129,7 +3129,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('falls back to the classic flow when the auto-create fails', async () => {
+  it('falls back to the classic flow when the auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
     await renderWelcome();
@@ -3150,7 +3150,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockFlowProps.current.recoveryError).toBe('creation failed');
   });
 
-  it('retries prompt setup without recreating a wallet the auto-create already registered', async () => {
+  it('retries prompt setup without recreating a wallet the auto-register already registered', async () => {
     mockCanHandoff = true;
     mockSeedWalletPrompt.mockRejectedValueOnce(new Error('prompt write failed')).mockResolvedValue(undefined);
     await renderWelcome();
@@ -3174,7 +3174,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('starts no second attempt when confirmation fires while the auto-create still runs', async () => {
+  it('starts no second attempt when confirmation fires while the auto-register still runs', async () => {
     mockCanHandoff = true;
     let finishRegistration: () => void = () => undefined;
     mockRegisterWallet.mockReturnValue(
@@ -3184,7 +3184,7 @@ describe('Welcome — side-panel handoff', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    await setHash('#confirmation'); // the auto-create effect starts registering
+    await setHash('#confirmation'); // the auto-register effect starts registering
     mockNavigate.mockClear();
 
     let confirming: Promise<void> | undefined;
@@ -3197,14 +3197,14 @@ describe('Welcome — side-panel handoff', () => {
     });
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    // The auto-create's attempt is the only one: one seed prompt, no readiness read and one hand-off.
+    // The auto-register's attempt is the only one: one seed prompt, no readiness read and one hand-off.
     expect(mockSeedWalletPrompt).toHaveBeenCalledTimes(1);
     expect(mockFetchState).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('keeps onboarding on Confirmation while the auto-create runs, and shows its failure there', async () => {
+  it('keeps onboarding on Confirmation while the auto-register runs, and shows its failure there', async () => {
     mockCanHandoff = true;
     let failRegistration: (error: Error) => void = () => undefined;
     mockRegisterWallet.mockReturnValue(
@@ -3214,7 +3214,7 @@ describe('Welcome — side-panel handoff', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    await setHash('#confirmation'); // the auto-create starts and shows its spinner
+    await setHash('#confirmation'); // the auto-register starts and shows its spinner
     mockNavigate.mockClear();
 
     // Browser back while it runs is sent back to Confirmation, which keeps showing the spinner.
@@ -3288,7 +3288,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate.mock.calls.filter(([route]) => route === '/#import-select-recovery-method')).toHaveLength(1);
   });
 
-  it('does not auto-create hardware-only wallets (deferred to a tap)', async () => {
+  it('does not auto-register a hardware-only wallet, created or recovered (deferred to a tap)', async () => {
     mockCanHandoff = true;
     mockIsMobileFn.mockReturnValue(true);
     mockBiometricHW.mockResolvedValue(true);
@@ -3926,7 +3926,7 @@ describe('Welcome — telemetry', () => {
     expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
   });
 
-  it('reports errored when the side-panel auto-create fails', async () => {
+  it('reports errored when the side-panel auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
     await renderWelcome();

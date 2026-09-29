@@ -3,15 +3,16 @@ import { isExtension } from 'lib/platform';
 /**
  * Onboarding → side panel handoff (Chrome).
  *
- * The wallet is created first (the onboarding tab spins through
- * `registerWallet()`), and only once it's Ready does the final "Open wallet"
- * click open the side panel onto the finished wallet and close the onboarding
- * tab. Opening the panel from that post-Ready click keeps it inside a live user
- * gesture — `chrome.sidePanel.open()` requires one, and creating the wallet
- * first means there's no multi-second await between the click and the open to
- * outlive the gesture. The side panel also becomes the primary surface (the
- * same `sidepanel_mode` the Header "maximise view" toggle uses), so clicking
- * the toolbar icon opens it instead of the popup.
+ * The wallet is registered first (a create or a recovery-phrase import by the
+ * onboarding tab's auto-register, any other flow on its confirmation tap; the
+ * tab spins through `registerWallet()`), and only once it's Ready does the
+ * final "Open wallet" click open the side panel onto the finished wallet and
+ * close the onboarding tab. Opening the panel from that post-Ready click keeps
+ * it inside a live user gesture: `chrome.sidePanel.open()` requires one, and
+ * registering the wallet first means there's no multi-second await between the
+ * click and the open to outlive the gesture. The side panel also becomes the
+ * primary surface (the same `sidepanel_mode` the Header "maximise view" toggle
+ * uses), so clicking the toolbar icon opens it instead of the popup.
  */
 
 const SIDEPANEL_MODE_FLAG = 'sidepanel_mode';

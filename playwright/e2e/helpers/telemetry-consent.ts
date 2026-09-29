@@ -47,12 +47,15 @@ const ROTATION_GATE_SELECTOR = '[data-testid="hot-key-rotation-gate"]';
  * repeated until the timeout) names neither the scrim nor the fix.
  *
  * `HotKeyRotationGate` is a sibling of `PageRouter` in `App.tsx` and paints a
- * `fixed inset-0 z-[9999]` scrim over whatever route is mounted. A Guardian
- * wallet adopted from a seed phrase is flagged `requiresHotKeyRotation`
- * (`Vault.spawn`'s `recoveredCold` branch) at the same store update that ends a
- * driver's post-`register()` readiness wait — so on that one path the prompt is
- * on screen, and unclickable, from before it is even routed to until the
- * rotation lands on-chain.
+ * `fixed inset-0 z-[9999]` scrim over whatever route is mounted, except that it
+ * spares the consent prompt and the handoff screen in the onboarding tab of a
+ * build with the side panel (#1097), so the blocked decline this explains
+ * arises on a non-Chrome build or a MIDEN_E2E_DISABLE_SIDEPANEL build such as
+ * the blockchain harness. There a Guardian wallet adopted from a seed phrase is
+ * flagged `requiresHotKeyRotation` (`Vault.spawn`'s `recoveredCold` branch) at
+ * the same store update that ends a driver's post-`register()` readiness wait,
+ * so on that one path the prompt is on screen, and unclickable, from before it
+ * is even routed to until the rotation lands on-chain.
  *
  * Waiting that out is deliberately NOT this function's job. A rotation proves
  * an on-chain `replace_signer` and is bounded by nothing a timeout here could
