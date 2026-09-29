@@ -64,10 +64,10 @@ jest.mock(
   { virtual: true }
 );
 
-import { onLocalStorageCleared } from 'lib/local-storage-cleared';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
+import { onStorageCleared } from 'lib/storage-cleared';
 
 import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
 
@@ -168,7 +168,7 @@ describe('clearStorage', () => {
 async function announcementsSeeingTheKeyGone(clear: () => unknown): Promise<boolean[]> {
   localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, JSON.stringify({ seenBefore: 1, ids: {} }));
   const seen: boolean[] = [];
-  const unsubscribe = onLocalStorageCleared(() => seen.push(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY) === null));
+  const unsubscribe = onStorageCleared(() => seen.push(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY) === null));
   await clear();
   unsubscribe();
   return seen;
@@ -203,11 +203,11 @@ describe('clearClientStorage', () => {
   });
 });
 
-describe('announcing a localStorage clear', () => {
+describe('announcing a storage clear', () => {
   const cleared = jest.fn();
   let unsubscribe: () => void;
   beforeEach(() => {
-    unsubscribe = onLocalStorageCleared(cleared);
+    unsubscribe = onStorageCleared(cleared);
   });
   afterEach(() => unsubscribe());
 
@@ -226,5 +226,44 @@ describe('announcing a localStorage clear', () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     await resetStorageDestructive();
     expect(cleared).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('announcing the platform wipe, once fully settled', () => {
+  const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+
+  beforeEach(() => {
+    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+  });
+
+  it('on mobile, announces once, after Preferences.clear() and after the preserved key is written back', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    _g.__resetTest.prefStub.clear.mockResolvedValueOnce(undefined);
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(_g.__resetTest.prefStub.clear.mock.invocationCallOrder[0]!).toBeLessThan(
+      cleared.mock.invocationCallOrder[0]!
+    );
+    expect(mockPutToStorage.mock.invocationCallOrder[0]!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('on desktop, announces once, after localStorage.clear() and after the preserved key is written back', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    const clearSpy = jest.spyOn(Storage.prototype, 'clear');
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(clearSpy.mock.invocationCallOrder[0]!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    expect(mockPutToStorage.mock.invocationCallOrder[0]!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    clearSpy.mockRestore();
   });
 });

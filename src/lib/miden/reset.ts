@@ -1,9 +1,9 @@
-import { localStorageCleared } from 'lib/local-storage-cleared';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { storageCleared } from 'lib/storage-cleared';
 
 // Keys that are configuration, NOT wallet data, and must survive a storage
 // reset. The dev-settings endpoint override selects the network the wallet is
@@ -23,6 +23,8 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
     if (value != null) preserved[key] = value;
   }
 
+  const wipedNonExtension = isMobile() || isDesktop();
+
   if (isMobile()) {
     // On mobile, use native Capacitor Preferences.clear()
     const { Preferences } = await import('@capacitor/preferences');
@@ -30,7 +32,6 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
   } else if (isDesktop()) {
     // On desktop, use localStorage
     localStorage.clear();
-    localStorageCleared();
   } else if (isExtension()) {
     // On extension, use browser.storage.local.clear()
     const browser = await import('webextension-polyfill');
@@ -40,6 +41,11 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
   for (const [key, value] of Object.entries(preserved)) {
     await putToStorage(key, value).catch(() => {});
   }
+
+  // Announce once the wipe is fully settled - preserved keys already written back - so a
+  // subscriber's re-read (onStorageChanged) lands on final state, not a moment mid-wipe. The
+  // extension arm needs none: browser.storage.onChanged already reports its own clear.
+  if (wipedNonExtension) storageCleared();
 }
 
 /**
@@ -89,6 +95,6 @@ export async function resetStorageDestructive() {
 
 export function clearClientStorage() {
   localStorage.clear();
-  localStorageCleared();
+  storageCleared();
   sessionStorage.clear();
 }

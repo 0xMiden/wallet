@@ -1,5 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { storageCleared } from 'lib/storage-cleared';
+
 import { fetchFromStorage, putToStorage, onStorageChanged, usePassiveStorage, useStorage } from './storage';
 
 // Mock platform detection - default to extension context
@@ -236,15 +238,63 @@ describe('storage utilities', () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it('returns no-op cleanup on mobile/desktop', () => {
+    it('does not register the extension listener on mobile/desktop', () => {
       mockIsExtension.mockReturnValue(false);
       const callback = jest.fn();
 
       const cleanup = onStorageChanged('my-key', callback);
 
       expect(typeof cleanup).toBe('function');
-      // Should not register listener on mobile/desktop
       expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
+    it('re-reads its key and calls back with the value once this document wipes the platform store', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith('restored-value');
+    });
+
+    it('calls back with undefined, not null, when the re-read finds nothing', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({});
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith(undefined);
+    });
+
+    it('stops calling back once its cleanup unsubscribes', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      const cleanup = onStorageChanged('my-key', callback);
+      cleanup();
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('calls back nothing when the re-read fails', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockRejectedValue(new Error('boom'));
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
     });
   });
 });

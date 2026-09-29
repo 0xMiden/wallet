@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { localStorageCleared } from 'lib/local-storage-cleared';
+import { storageCleared } from 'lib/storage-cleared';
 
 import {
   getActivityReadState,
@@ -245,7 +245,7 @@ describe('several windows (#1106)', () => {
     getActivityReadState();
     markActivityRead('tx:a', NOW_S + 100);
     localStorage.clear();
-    localStorageCleared();
+    storageCleared();
     jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 60_000);
 
     const state = getActivityReadState();
