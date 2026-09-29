@@ -29,10 +29,10 @@ const MAX_TRACKED_ACCOUNTS = 20;
  * A live record ('transport', 'proposals', 'public' or 'history') not refreshed
  * within this window is treated as abandoned. The orchestrator rewrites it on
  * every step, after every backfill chunk (each bounded by a 60s op deadline)
- * and after every proposal-import batch, and the history phase rewrites it at
- * the interval GUARDIAN_HISTORY_PROGRESS_REFRESH_MS, so a longer gap means the
- * run died with the realm; without this bound its card, being non-dismissible,
- * would stay on screen forever. The terminal 'history-partial' and
+ * and after every proposal-import batch, and the history phase re-writes it
+ * on a GUARDIAN_HISTORY_PROGRESS_REFRESH_MS timer while it runs, so a longer
+ * gap means the run died with the realm; without this bound its card, being
+ * non-dismissible, would stay on screen forever. The terminal 'history-partial' and
  * 'history-failed' records never age out: each is written once, its card is
  * dismissible, and dismissing the card (which clears a 'history-failed' record
  * and hides a 'history-partial' one) or the next run's first write removes it.

@@ -575,48 +575,82 @@ const historyWrites = (operator: string) => {
     .filter(({ progress }) => progress.operator === operator);
 };
 
-// Each op moves the clock by exactly the interval, which rewrites the record only under an inclusive comparison.
-const tickPerCall = () => {
-  let now = Date.now();
-  const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
-  return { clock, tick: () => (now += GUARDIAN_HISTORY_PROGRESS_REFRESH_MS) };
-};
+function held() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  return { promise, release };
+}
 
-it('rewrites the live history record once the refresh interval has passed, before each decode', async () => {
-  const { clock, tick } = tickPerCall();
+// Longer than six refresh intervals.
+const WAIT_MS = 200_000;
+
+// Dexie runs on the real microtask queue; advancing the clock also runs its zero-delay timers.
+const fakeTimers = () => jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+
+async function until(done: () => boolean) {
+  for (let i = 0; i < 1_000 && !done(); i++) await jest.advanceTimersByTimeAsync(0);
+  expect(done()).toBe(true);
+}
+
+function startRun(context: Partial<Parameters<typeof recoverGuardianHistory>[1]> = {}) {
+  const state: { resolved: boolean; result?: Awaited<ReturnType<typeof recoverGuardianHistory>> } = {
+    resolved: false
+  };
+  const events: string[] = [];
+  const done = storedGeneration()
+    .then(generation => recoverGuardianHistory(account, { createClient, shouldYield, generation, ...context }))
+    .then(result => {
+      events.push('run');
+      state.resolved = true;
+      state.result = result;
+    });
+  return { state, events, done };
+}
+
+/** A createClient that waits on `built` for operator two. */
+function slowOperatorTwo(built: { promise: Promise<void> }) {
+  return jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
+    if (endpoint === 'https://two') await built.promise;
+    return createClient(walletAccount, endpoint);
+  });
+}
+
+const liveWritesAfter = (operator: string, order: number) =>
+  historyWrites(operator).filter(({ progress, order: written }) => progress.step === 'history' && written > order);
+
+it('rewrites the live history record on the refresh interval while a delta request waits', async () => {
+  fakeTimers();
+  const answer = held();
   try {
-    const client = source('https://one', [{ entries: [entry(4), entry(3), entry(2)] }]);
+    const client = source('https://one', []);
+    // The page answers a second in, so the delta request's wait does not start on an interval boundary.
+    jest
+      .spyOn(client, 'getDeltaHistory')
+      .mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({ entries: [entry(4)] }), 1_000)));
     jest.spyOn(client, 'getDelta').mockImplementation(async (_account, nonce) => {
-      tick();
+      await answer.promise;
       return delta(nonce);
     });
-    await run();
-    const [firstDelta] = jest.mocked(client.getDelta).mock.invocationCallOrder;
-    const twoStarts = createClient.mock.invocationCallOrder[1]!;
-    const report = jest.mocked(reportGuardianNoteRecoveryProgress).mock;
-    const refreshes = report.calls.filter((_call, index) => {
-      const order = report.invocationCallOrder[index]!;
-      return order > firstDelta! && order < twoStarts;
-    });
-    expect(refreshes.length).toBeGreaterThanOrEqual(2);
-    for (const [progress] of refreshes) {
-      expect(progress).toMatchObject({
-        step: 'history',
-        operator: 'https://one',
-        sourcesClean: true,
-        historyGeneration: await storedGeneration()
-      });
+    const pass = startRun();
+    await until(() => jest.mocked(client.getDeltaHistory).mock.calls.length > 0);
+    await jest.advanceTimersByTimeAsync(1_000);
+    await until(() => jest.mocked(client.getDelta).mock.calls.length > 0);
+    const asked = jest.mocked(client.getDelta).mock.invocationCallOrder[0]!;
+    await jest.advanceTimersByTimeAsync(WAIT_MS);
+    // A delta request has a 15 s deadline and one retry, so its wait spans one interval, not six.
+    const during = liveWritesAfter('https://one', asked);
+    expect(during.length).toBeGreaterThanOrEqual(1);
+    for (const { progress } of during) {
+      expect(progress).toMatchObject({ sourcesClean: true, historyGeneration: await storedGeneration() });
     }
-    // A decode waits on the WASM lock with no deadline off the offscreen path, so the record is rewritten after each
-    // delta answer and before that entry's decode.
-    const deltaOrder = jest.mocked(client.getDelta).mock.invocationCallOrder;
-    const decodeOrder = jest.mocked(midenClientProxy.decodeGuardianHistory).mock.invocationCallOrder;
-    const writes = historyWrites('https://one');
-    for (const [index, answered] of deltaOrder.entries()) {
-      expect(writes.some(({ order }) => order > answered && order < decodeOrder[index]!)).toBe(true);
-    }
+    answer.release();
+    await until(() => pass.state.resolved);
+    expect(pass.state.result?.sourceFailures).toBe(1);
   } finally {
-    clock.mockRestore();
+    answer.release();
+    jest.useRealTimers();
   }
 });
 
@@ -626,72 +660,127 @@ it('writes the live history record per page, not per entry, while the refresh in
   expect(historyWrites('https://one')).toHaveLength(2);
 });
 
-it('rewrites the live history record after a slow decode, before the next delta and commitment op', async () => {
-  const { clock, tick } = tickPerCall();
+it('rewrites the live history record on the refresh interval while a decode waits', async () => {
+  fakeTimers();
+  const decoded = held();
   try {
-    await transactions.add({
-      id: 'local-send',
-      type: 'send',
-      accountId: 'account',
-      status: ITransactionStatus.Completed,
-      initiatedAt: 1,
-      displayIcon: 'SEND',
-      resultBytes: new Uint8Array([1])
-    });
-    const client = source('https://one', [{ entries: [entry(4), entry(3), entry(2)] }]);
+    source('https://one', [{ entries: [entry(4)] }]);
     const decode = jest.mocked(midenClientProxy.decodeGuardianHistory);
     const decodeSummary = decode.getMockImplementation()!;
     decode.mockImplementation(async encoded => {
-      tick();
+      await decoded.promise;
       return decodeSummary(encoded);
     });
-    await run();
-    const deltaOrder = jest.mocked(client.getDelta).mock.invocationCallOrder;
-    const decodeOrder = decode.mock.invocationCallOrder;
-    const [commitmentOrder] = jest.mocked(midenClientProxy.getGuardianResultCommitment).mock.invocationCallOrder;
-    const writes = historyWrites('https://one');
-    const writtenBetween = (after: number, before: number) =>
-      writes.some(({ progress, order }) => progress.step === 'history' && order > after && order < before);
-    for (let index = 1; index < 3; index++) {
-      expect(writtenBetween(decodeOrder[index - 1]!, deltaOrder[index]!)).toBe(true);
-      expect(writtenBetween(decodeOrder[index - 1]!, decodeOrder[index]!)).toBe(true);
-    }
-    expect(writtenBetween(decodeOrder[2]!, commitmentOrder!)).toBe(true);
+    const pass = startRun();
+    await until(() => decode.mock.calls.length > 0);
+    const waiting = decode.mock.invocationCallOrder[0]!;
+    await jest.advanceTimersByTimeAsync(WAIT_MS);
+    expect(liveWritesAfter('https://one', waiting).length).toBeGreaterThanOrEqual(6);
+    decoded.release();
+    await until(() => pass.state.resolved);
   } finally {
-    clock.mockRestore();
+    decoded.release();
+    jest.useRealTimers();
   }
 });
 
-it('rewrites the live history record after an operator ends on a slow decode, before the next createClient', async () => {
-  const { clock, tick } = tickPerCall();
+it("rewrites the live history record on the refresh interval while the next operator's createClient waits", async () => {
+  fakeTimers();
+  const built = held();
   try {
-    const decode = jest.mocked(midenClientProxy.decodeGuardianHistory);
-    const decodeSummary = decode.getMockImplementation()!;
-    // Nonce 1 is the last entry operator one serves.
-    decode.mockImplementation(async encoded => {
-      if (encoded === '1') tick();
-      return decodeSummary(encoded);
-    });
-    const slowCreateClient = jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
-      if (endpoint === 'https://two') tick();
-      return createClient(walletAccount, endpoint);
-    });
-    await recoverGuardianHistory(account, {
-      createClient: slowCreateClient,
-      shouldYield,
-      generation: await storedGeneration()
-    });
-    const twoStarts = slowCreateClient.mock.invocationCallOrder[1]!;
-    const lastOneDecode = decode.mock.invocationCallOrder[decode.mock.calls.findIndex(([encoded]) => encoded === '1')]!;
-    const report = jest.mocked(reportGuardianNoteRecoveryProgress).mock;
-    const between = report.calls.filter((_call, index) => {
-      const order = report.invocationCallOrder[index]!;
-      return order > lastOneDecode && order < twoStarts;
-    });
-    expect(between.length).toBeGreaterThan(0);
-    for (const [progress] of between) expect(progress).toMatchObject({ step: 'history', operator: 'https://two' });
+    const slowCreateClient = slowOperatorTwo(built);
+    const pass = startRun({ createClient: slowCreateClient });
+    await until(() => slowCreateClient.mock.calls.length > 1);
+    const waiting = slowCreateClient.mock.invocationCallOrder[1]!;
+    await jest.advanceTimersByTimeAsync(WAIT_MS);
+    expect(liveWritesAfter('https://two', waiting).length).toBeGreaterThanOrEqual(6);
+    built.release();
+    await until(() => pass.state.resolved);
   } finally {
-    clock.mockRestore();
+    built.release();
+    jest.useRealTimers();
+  }
+});
+
+it('writes nothing on the refresh interval once the pass has returned', async () => {
+  fakeTimers();
+  try {
+    const pass = startRun();
+    await until(() => pass.state.resolved);
+    const calls = jest.mocked(reportGuardianNoteRecoveryProgress).mock.calls.length;
+    await jest.advanceTimersByTimeAsync(WAIT_MS);
+    expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledTimes(calls);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('returns only after a refresh write in flight has settled', async () => {
+  fakeTimers();
+  const built = held();
+  const write = held();
+  let heldWrite = false;
+  try {
+    const slowCreateClient = slowOperatorTwo(built);
+    const pass = startRun({ createClient: slowCreateClient });
+    jest.mocked(reportGuardianNoteRecoveryProgress).mockImplementation(async progress => {
+      if (heldWrite || progress.operator !== 'https://two' || slowCreateClient.mock.calls.length < 2) return;
+      heldWrite = true;
+      await write.promise;
+      pass.events.push('refresh write');
+    });
+    await until(() => slowCreateClient.mock.calls.length > 1);
+    await jest.advanceTimersByTimeAsync(GUARDIAN_HISTORY_PROGRESS_REFRESH_MS);
+    expect(heldWrite).toBe(true);
+
+    built.release();
+    // The interval is the pass's only timer once its requests have settled, so none left means it has been cleared.
+    await until(() => jest.getTimerCount() === 0);
+    for (let i = 0; i < 10; i++) await jest.advanceTimersByTimeAsync(0);
+    expect(pass.state.resolved).toBe(false);
+
+    write.release();
+    await until(() => pass.state.resolved);
+    expect(pass.events).toEqual(['refresh write', 'run']);
+  } finally {
+    built.release();
+    write.release();
+    jest.mocked(reportGuardianNoteRecoveryProgress).mockReset();
+    jest.useRealTimers();
+  }
+});
+
+it.each([
+  [
+    'the wallet locks',
+    async () => {
+      shouldYield.mockResolvedValue('wallet locked');
+    }
+  ],
+  [
+    'the generation marker is removed',
+    async () => {
+      await putToStorage('guardian_history_generation_v1', null);
+    }
+  ]
+])('writes nothing on the refresh interval once %s', async (_case, interrupt) => {
+  fakeTimers();
+  const built = held();
+  try {
+    const slowCreateClient = slowOperatorTwo(built);
+    const pass = startRun({ createClient: slowCreateClient });
+    await until(() => slowCreateClient.mock.calls.length > 1);
+    await interrupt();
+    const interrupted = jest.mocked(reportGuardianNoteRecoveryProgress).mock.invocationCallOrder.at(-1)!;
+    await jest.advanceTimersByTimeAsync(WAIT_MS);
+    expect(liveWritesAfter('https://two', interrupted)).toEqual([]);
+    built.release();
+    await until(() => pass.state.resolved);
+    expect(pass.state.result?.deferred).toBe(true);
+  } finally {
+    built.release();
+    jest.useRealTimers();
   }
 });
 

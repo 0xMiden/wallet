@@ -38,13 +38,10 @@ class HistoryInterrupted extends Error {}
 type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported'; session: number };
 
 /**
- * How old the history phase lets its live progress record get before it writes it again, checked before each
- * createClient, getDelta, decodeGuardianHistory and getGuardianResultCommitment; each page also writes it at its start.
- * The record is then at most this old plus the longest stretch between two of those points: a history request (15 s,
- * one retry), a decode or commitment op, the merge and a checkpoint save, or a createClient, which keeps it well inside
- * GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS. A decode or commitment op has a 15 s deadline on the offscreen path;
- * inline, on mobile and desktop, it waits on the WASM lock with no deadline, and createClient takes the lock of the
- * realm the pass runs in for its account read, with no deadline on every path.
+ * The interval on which the history phase re-writes its live progress record while it runs, from a timer in the realm
+ * the pass runs in, so the record stays well inside GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS through every wait, those
+ * with no deadline included: createClient's lock wait, and inline decode and commitment ops on mobile and desktop.
+ * Each page also writes it at its start.
  */
 export const GUARDIAN_HISTORY_PROGRESS_REFRESH_MS = 30_000;
 
@@ -149,18 +146,20 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   }
   const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
   const ownOperators = normalizeHistoryOperators([current, ...previous]);
+  // Every write of this pass relies on this: reportHistory carries no guard of its own.
+  const interrupted = async () => {
+    if (await context.shouldYield()) return true;
+    if (network !== getEffectiveNetworkName()) return true;
+    return (await readGuardianHistoryGeneration()) !== context.generation;
+  };
   const check = async () => {
-    if (await context.shouldYield()) throw new HistoryInterrupted();
-    if (network !== getEffectiveNetworkName()) throw new HistoryInterrupted();
-    if ((await readGuardianHistoryGeneration()) !== context.generation) throw new HistoryInterrupted();
+    if (await interrupted()) throw new HistoryInterrupted();
   };
   let sourceFailures = 0;
   let deferredSources = 0;
   let restored = local.filter(row => row.recovered && row.recovery?.network === network).length;
   const commitments = new Map<string, string>();
-  let lastHistoryWrite = 0;
   const reportHistory = async (operator: string) => {
-    lastHistoryWrite = Date.now();
     await reportGuardianNoteRecoveryProgress({
       accountId: account.publicKey,
       step: 'history',
@@ -170,11 +169,26 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       historyGeneration: context.generation
     });
   };
-  const refreshHistory = async (operator: string) => {
-    if (Date.now() - lastHistoryWrite >= GUARDIAN_HISTORY_PROGRESS_REFRESH_MS) await reportHistory(operator);
+  // Ticks run one at a time on one chain, and the phase awaits it before returning, so no tick lands after the
+  // terminal record. A progress write never fails the recovery it narrates, so a tick never rejects.
+  let currentOperator: string | undefined;
+  let stopped = false;
+  let ticks = Promise.resolve();
+  const tick = async () => {
+    try {
+      if (stopped || (await interrupted())) return;
+      const operator = currentOperator;
+      if (stopped || operator === undefined) return;
+      await reportHistory(operator);
+    } catch (error) {
+      console.warn('[GuardianHistory] Could not refresh the live progress record:', error);
+    }
   };
   // Only a clean notes pass reaches this phase, so a retry may resume here.
   if (operators[0] !== undefined) await reportHistory(operators[0]);
+  const refresh = setInterval(() => {
+    ticks = ticks.then(tick);
+  }, GUARDIAN_HISTORY_PROGRESS_REFRESH_MS);
   try {
     for (const operator of operators) {
       const id = historyCheckpointId(network, canonicalAccountId, operator);
@@ -199,11 +213,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         else deferredSources++;
         continue;
       }
+      currentOperator = operator;
       try {
         if (checkpoint.cursor && checkpoint.cursor.length > MAX_HISTORY_CURSOR_LENGTH)
           throw new GuardianHistoryDataError('Saved Guardian history cursor exceeds the length limit');
         await check();
-        await refreshHistory(operator);
         const { guardian, guardianAccountId } = await context.createClient(account, operator);
         while (!checkpoint.completed) {
           await reportHistory(operator);
@@ -265,9 +279,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
           const records: ITransaction[] = [];
           for (const entry of page.entries) {
-            await refreshHistory(operator);
             const delta = await historyRequest(() => guardian.getDelta(guardianAccountId, entry.nonce), check);
-            await refreshHistory(operator);
             await check();
             const summary = await midenClientProxy.decodeGuardianHistory(delta.deltaPayload.txSummary.data);
             const record = recoveredHistoryRecord(
@@ -284,7 +296,6 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           // Decode local results outside the database transaction and between yield checks.
           for (const row of local) {
             if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
-            await refreshHistory(operator);
             await check();
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
@@ -417,6 +428,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       return { deferred: true, sourceFailures, restored, deferredSources };
     }
     throw error;
+  } finally {
+    clearInterval(refresh);
+    stopped = true;
+    await ticks;
   }
   return { deferred: false, sourceFailures, restored, deferredSources };
 }
