@@ -531,6 +531,18 @@ describe('HistoryDetails', () => {
     }
   );
 
+  it('titles a local consume that gained recovery data with its own message and icon', async () => {
+    await renderRecovered({
+      ...recoveredRow('consume'),
+      recovered: undefined,
+      restoredFromBackup: undefined,
+      displayMessage: 'Claimed',
+      displayIcon: 'DEFAULT'
+    });
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', 'Claimed');
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-icon', 'DEFAULT');
+  });
+
   it('shows a recovered swap with no requested token on the standard card, where a local one gets the order card', async () => {
     const recovered = await renderRecovered(recoveredRow('swap'));
     expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();

@@ -163,6 +163,63 @@ it('preserves a richer local action matched through its execution commitment', a
   expect(local?.recovery).toBeUndefined();
 });
 
+it('gives a matched local consume only the retained recovery data, across a version upgrade', async () => {
+  const localFields = {
+    transactionId: '0xlocal',
+    displayMessage: 'Claimed',
+    displayIcon: 'RECEIVE' as const,
+    extraInputs: { kept: 'local' }
+  };
+  await transactions.add({
+    id: 'local-consume',
+    type: 'consume',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    resultBytes: new Uint8Array([1]),
+    ...localFields
+  });
+  // Both operators retain consume_notes deltas: nonces 2 and 1 on one, 2 and 3 on two.
+  const serveConsumes = () => {
+    const sources: Array<[string, HistoryPage[]]> = [
+      ['https://one', [{ entries: [entry(2)], nextCursor: 'next' }, { entries: [entry(1)] }]],
+      ['https://two', [{ entries: [entry(2), entry(3)] }]]
+    ];
+    for (const [endpoint, pages] of sources) {
+      jest.spyOn(source(endpoint, pages), 'getDelta').mockImplementation(async (_account, nonce) => ({
+        ...delta(nonce),
+        metadata: { proposal: { proposalType: 'consume_notes' } }
+      }));
+    }
+  };
+  serveConsumes();
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: 'account',
+    inputNotes: [
+      { id: `in-${encoded}`, visibility: 'public', sender: 'sender', assets: [{ faucetId: 'asset', amount: '7' }] }
+    ],
+    outputNotes: []
+  }));
+  await run();
+  const first = await transactions.get('local-consume');
+  expect(first).toMatchObject(localFields);
+  expect(first?.recovery?.completeness).toBe('decoded');
+
+  if (!first?.recovery) throw new Error('Missing recovery data');
+  await transactions.update('local-consume', { recovery: { ...first.recovery, version: 1 } });
+  await clearGuardianHistoryCheckpoints();
+  serveConsumes();
+  const second = await run();
+  const upgraded = await transactions.get('local-consume');
+  expect(upgraded).toMatchObject(localFields);
+  expect(upgraded?.recovered).toBeUndefined();
+  expect(upgraded?.restoredFromBackup).toBeUndefined();
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.recovery?.operators).toEqual(['https://one', 'https://two']);
+  // Only the two rows rebuilt from history count as restored.
+  expect(second.restored).toBe(2);
+});
+
 it('keeps the cursor for an interrupted page and resumes without duplicate rows', async () => {
   const client = clients.get('https://one');
   if (!client) throw new Error('Missing test source');

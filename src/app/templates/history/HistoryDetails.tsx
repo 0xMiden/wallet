@@ -374,8 +374,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
-          message: tx.recovery
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery.reclaimed))
+          message: tx.recovered
+            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
             : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,

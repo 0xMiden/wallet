@@ -106,7 +106,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     if ((await readGuardianHistoryState()).generation !== initialState.generation) throw new HistoryInterrupted();
   };
   let sourceFailures = 0;
-  let restored = local.filter(row => row.recovery?.network === network).length;
+  let restored = local.filter(row => row.recovered && row.recovery?.network === network).length;
   const commitments = new Map<string, string>();
   // Only a clean notes pass reaches this phase, so a retry may resume here.
   if (operators[0] !== undefined) {
@@ -236,28 +236,37 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                 );
               });
               if (match) {
-                if (match.recovery) {
-                  const operators = normalizeHistoryOperators([...match.recovery.operators, operator]);
-                  const recovery = { ...match.recovery, operators };
-                  if (
-                    record.recovery?.completeness === 'decoded' &&
-                    (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
-                  ) {
-                    const upgraded = { ...record, id: match.id, recovery: { ...record.recovery, operators } };
-                    await transactions.put(upgraded);
-                    Object.assign(match, upgraded);
-                  } else {
-                    await transactions.update(match.id, { recovery });
-                    match.recovery = recovery;
+                if (match.recovered) {
+                  if (match.recovery) {
+                    const operators = normalizeHistoryOperators([...match.recovery.operators, operator]);
+                    const recovery = { ...match.recovery, operators };
+                    if (
+                      record.recovery?.completeness === 'decoded' &&
+                      (match.recovery.completeness === 'partial' || match.recovery.version < GUARDIAN_HISTORY_VERSION)
+                    ) {
+                      const upgraded = { ...record, id: match.id, recovery: { ...record.recovery, operators } };
+                      await transactions.put(upgraded);
+                      Object.assign(match, upgraded);
+                    } else {
+                      await transactions.update(match.id, { recovery });
+                      match.recovery = recovery;
+                    }
                   }
                 } else if (
                   match.type === 'consume' &&
                   record.type === 'consume' &&
                   record.recovery?.completeness === 'decoded'
                 ) {
-                  // Keep local receipt fields and add the retained note links.
-                  match.recovery = record.recovery;
-                  await transactions.update(match.id, { recovery: record.recovery });
+                  // A local row keeps its own receipt fields and gains only the retained note links.
+                  const recovery = {
+                    ...record.recovery,
+                    operators: normalizeHistoryOperators([
+                      ...(match.recovery?.operators ?? []),
+                      ...record.recovery.operators
+                    ])
+                  };
+                  match.recovery = recovery;
+                  await transactions.update(match.id, { recovery });
                 }
                 continue;
               }
