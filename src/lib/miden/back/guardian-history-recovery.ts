@@ -29,6 +29,8 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
+export const MAX_HISTORY_ENTRIES_PER_SOURCE = 10_000;
+
 export interface GuardianHistoryRecoveryContext {
   createClient: (
     account: WalletAccount,
@@ -165,6 +167,15 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           ) {
             throw new GuardianHistoryDataError('Guardian history cursor repeats');
           }
+          if (page.entries.length === 0 && page.nextCursor)
+            throw new GuardianHistoryDataError('Guardian history page is empty but not the last');
+          // Operators list history newest-first by nonce, so each page must fall below every earlier one.
+          const { lowestNonce } = checkpoint;
+          if (lowestNonce !== undefined && page.entries.some(entry => !(entry.nonce < lowestNonce)))
+            throw new GuardianHistoryDataError('Guardian history nonces do not fall across pages');
+          const entryCount = (checkpoint.entryCount ?? 0) + page.entries.length;
+          if (entryCount > MAX_HISTORY_ENTRIES_PER_SOURCE)
+            throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
           const records: ITransaction[] = [];
           for (const entry of page.entries) {
             const delta = await historyRequest(() => guardian.getDelta(guardianAccountId, entry.nonce), check);
@@ -255,6 +266,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             seenCursors: [...checkpoint.seenCursors, ...(checkpoint.cursor ? [checkpoint.cursor] : [])],
             completed: !page.nextCursor,
             restored: checkpoint.restored + added,
+            lowestNonce: page.entries.reduce<number | undefined>(
+              (lowest, entry) => (lowest === undefined ? entry.nonce : Math.min(lowest, entry.nonce)),
+              lowestNonce
+            ),
+            entryCount,
             failure: undefined
           };
           if (!(await saveGuardianHistoryCheckpoint(initialState.generation, checkpoint)))

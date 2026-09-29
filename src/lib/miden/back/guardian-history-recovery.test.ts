@@ -17,7 +17,11 @@ import {
   saveGuardianHistoryCheckpoint
 } from '../guardian/history-storage';
 import { exportDb, importDb, transactions } from '../repo';
-import { classifyHistoryFailure, recoverGuardianHistory } from './guardian-history-recovery';
+import {
+  classifyHistoryFailure,
+  MAX_HISTORY_ENTRIES_PER_SOURCE,
+  recoverGuardianHistory
+} from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
@@ -203,6 +207,57 @@ it('retries a transient failure only once and stops repeated cursors', async () 
     .mockResolvedValue({ entries: [entry(2)], nextCursor: 'loop' });
   expect((await run()).sourceFailures).toBe(1);
   expect(client.getDeltaHistory).toHaveBeenCalledTimes(3);
+});
+
+const twoCheckpoint = async () =>
+  Object.values((await readGuardianHistoryState()).checkpoints).find(value => value.operator === 'https://two');
+
+it('fails a source whose empty page still carries a cursor', async () => {
+  const client = source('https://two', [
+    { entries: [], nextCursor: 'c1' },
+    { entries: [], nextCursor: 'c2' },
+    { entries: [], nextCursor: 'c3' },
+    { entries: [], nextCursor: 'c4' },
+    { entries: [], nextCursor: 'c5' },
+    { entries: [] }
+  ]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('fails a source whose later page does not fall below the nonces it already returned', async () => {
+  const client = source('https://two', [
+    { entries: [entry(3)], nextCursor: 'a' },
+    { entries: [entry(3)], nextCursor: 'b' }
+  ]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(client.getDelta).toHaveBeenCalledTimes(1);
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('keeps the entry cap and nonce bound across a resumed pass', async () => {
+  const id = historyCheckpointId('testnet', 'account', 'https://two');
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id,
+    network: 'testnet',
+    accountId: 'account',
+    operator: 'https://two',
+    version: GUARDIAN_HISTORY_VERSION,
+    cursor: 'resume',
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    lowestNonce: 100,
+    entryCount: MAX_HISTORY_ENTRIES_PER_SOURCE - 1
+  });
+  const client = source('https://two', [{ entries: [entry(50), entry(49)] }]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledWith('account', { limit: 50, cursor: 'resume' });
+  expect(client.getDelta).not.toHaveBeenCalled();
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
 });
 
 it('clears checkpoints on import and retains recovered records in backups', async () => {

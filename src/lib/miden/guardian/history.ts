@@ -50,6 +50,8 @@ export interface GuardianHistoryCheckpoint {
   seenCursors: string[];
   completed: boolean;
   restored: number;
+  lowestNonce?: number;
+  entryCount?: number;
   failure?: GuardianHistoryFailure;
 }
 
