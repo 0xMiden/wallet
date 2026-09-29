@@ -1,17 +1,24 @@
 import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
-import { AccountInspector, EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { GuardianHttpClient } from '@openzeppelin/guardian-client';
+import { AccountInspector, EcdsaSigner, MultisigClient, type Multisig } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
-import { WalletAccount } from 'lib/shared/types';
 
+import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
+import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
+import type { AssertLive } from '../sdk/miden-client-interface';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account.
@@ -21,16 +28,17 @@ import { fetchFromStorage } from '../front/storage';
  * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
  * network's default guardian.
  *
- * The global-key fallback is retained BY DESIGN as a frozen, read-only,
- * never-written last resort (#408 stage 3). The unlock-time backfill stamps a
+ * The global-key fallback is retained BY DESIGN as a frozen, read-only fallback
+ * (#408 stage 3): nothing writes the key. The unlock-time backfill stamps a
  * per-account endpoint on every legacy account it can resolve on-chain, but a
  * legacy account on a custom/self-hosted/rotated guardian that the backfill
- * cannot identify has this key as its only pointer — removing the fallback
- * would strand it. Do NOT delete this read; full removal of the key needs a
- * "re-enter your guardian URL" user flow (out of scope). The key is no longer
- * written anywhere in the codebase — grep for writers to confirm.
+ * cannot identify has this key as its only pointer, so a wallet that is only
+ * ever unlocked keeps it. It is dropped once a wallet setup succeeds
+ * (`dropLegacyGuardianUrl`) and by a full reset; see `GUARDIAN_URL_STORAGE_KEY`.
+ * Do NOT delete this read; removing the key from a wallet that is only ever
+ * unlocked needs a "re-enter your guardian URL" user flow (out of scope).
  */
-export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+export async function resolveGuardianEndpoint(account: { guardianEndpoint?: string }): Promise<string> {
   return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
 }
 
@@ -135,12 +143,47 @@ export interface CreatedGuardianKeys {
   coldSecretKeyHex: string; // serialized AuthSecretKey hex (for cold-mirror storage)
 }
 
+/**
+ * The guardian's key for a new account and what's left of its rate-limit
+ * budget for registration to spend.
+ */
+export interface GuardianCreateKey {
+  guardianEndpoint: string; // the resolved operator endpoint this key and the account are for
+  guardianCommitment: string; // the operator's guardian key commitment
+  // Optional because the wire response is (`PubkeyResponse.pubkey?`); `client.create`
+  // accepts an absent key, so an absent one is passed through (`MultisigConfig.guardianPublicKey?`).
+  guardianPubkey?: string;
+  // What this fetch's own waits left of the budget, not a deadline fixed at its start:
+  // the wait for the WASM lock and the account build that follow are not guardian
+  // waits, and must not be charged against the 429 budget (#1207).
+  rateLimitBudgetLeftMs: number;
+}
+
+/**
+ * A created account's guardian registration, run after the WASM hold ends
+ * (#1207). `stateBase64` is the account state `client.create` returned,
+ * serialized under the hold so `registerOnGuardian` needs no client call.
+ * `rateLimitBudgetLeftMs` carries forward phase 1's unspent budget (see
+ * `GuardianCreateKey`); registration starts its own deadline from it.
+ *
+ * Consumed only by `registerGuardianAccount`, which calls
+ * `multisig.registerOnGuardian(stateBase64)` and nothing else. Any other
+ * `Multisig` call, or `registerOnGuardian()` called without the state, reads
+ * the WASM client outside the hold.
+ */
+export interface PendingGuardianRegistration {
+  multisig: Multisig;
+  stateBase64: string;
+  rateLimitBudgetLeftMs: number;
+}
+
 export interface CreatedGuardianAccount {
   account: Account;
   keys: CreatedGuardianKeys;
   // The guardian operator endpoint this account was registered with — persisted
   // onto the WalletAccount so runtime reads resolve per-account, not globally.
   guardianEndpoint: string;
+  registration: PendingGuardianRegistration;
 }
 
 /**
@@ -268,6 +311,90 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
 }
 
 /**
+ * How long a Guardian account creation may spend waiting out guardian 429s,
+ * across both of its guardian calls (the key fetch and the registration).
+ * Both waits run outside the WASM client lock (#1207); this bounds the
+ * onboarding spinner and covers one full per-minute cooldown.
+ */
+const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
+
+// Bounds each guardian request of a creation: no WASM watchdog covers a request outside the hold,
+// and unlock waits behind creation on the accounts queue (#1207).
+const GUARDIAN_CREATE_REQUEST_TIMEOUT_MS = 30_000;
+
+// Registration attempts before a timeout fails creation: a timed-out request may land, and a retry tells if it did.
+const GUARDIAN_CREATE_REGISTER_ATTEMPTS = 3;
+
+const GUARDIAN_WAIT_KEEPALIVE_ALARM = 'miden-guardian-wait-keepalive';
+
+/**
+ * Sleep for a guardian 429 wait, or for the backoff before a timed-out registration
+ * is retried. Chrome stops an idle MV3 service worker after ~30 s and a 429 wait can
+ * last up to GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, so on the extension a repeating
+ * alarm keeps the worker alive for the wait, as the transaction processor's does for
+ * its loop, and is cleared when the wait ends. The polyfill is loaded only there: it
+ * throws at load outside an extension, and this module is in the mobile bundle.
+ */
+async function sleepKeepingWorkerAlive(ms: number): Promise<void> {
+  const browser = isExtension() ? await import('webextension-polyfill').then(m => m.default) : undefined;
+  await browser?.alarms.create(GUARDIAN_WAIT_KEEPALIVE_ALARM, { periodInMinutes: 0.4 });
+  try {
+    await new Promise(resolve => setTimeout(resolve, ms));
+  } finally {
+    await browser?.alarms.clear(GUARDIAN_WAIT_KEEPALIVE_ALARM);
+  }
+}
+
+/**
+ * The guardian's key for a new account, fetched with no WASM client hold: its 429 waits
+ * (#906) must not block the realm's other client work (#1207). Hands on what's left of
+ * the rate-limit budget after this fetch's own waits, not a deadline fixed at this call's
+ * start, so the wait for the WASM lock and the account build that follow this
+ * function are not themselves charged against the registration's budget.
+ *
+ * @param assertLive - Run after each 429 wait, so a caller whose wallet a lock can retire
+ *   refuses there; its refusal leaves here unwrapped, as the poison error leaves
+ *   `createGuardianAccount`, so the caller still sees why.
+ */
+export async function fetchGuardianCreateKey(
+  guardianEndpointOverride?: string,
+  assertLive: () => void = () => {}
+): Promise<GuardianCreateKey> {
+  // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
+  // inherits the frozen global key (#408 stage 3).
+  const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
+  registerGuardianOrigin(guardianEndpoint);
+  const startMs = monotonicNowMs();
+  // Set while `assertLive` runs, so its refusal is told apart from a guardian failure.
+  let checkingLive = false;
+  try {
+    const { commitment, pubkey } = await withGuardianRateLimitRetry(
+      () =>
+        withTimeout(
+          new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
+          GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+          'Guardian key fetch'
+        ),
+      {
+        deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
+        sleepFn: sleepKeepingWorkerAlive,
+        afterWait: () => {
+          checkingLive = true;
+          assertLive();
+          checkingLive = false;
+        }
+      }
+    );
+    const rateLimitBudgetLeftMs = GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS - (monotonicNowMs() - startMs);
+    return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitBudgetLeftMs };
+  } catch (e) {
+    if (checkingLive) throw e;
+    console.error('Error creating Guardian account:', e);
+    throw new Error('Failed to create Guardian account', { cause: e });
+  }
+}
+
+/**
  * Create a 3-key Guardian account: a random hot ECDSA key (held outside the
  * WASM keystore, behind the secure-hot-key facade), an HD-derived cold ECDSA
  * key (held inside the keystore, used for rotation/recovery), and the external
@@ -276,19 +403,20 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  * client-side (see Phase 0 in the migration plan).
  *
  * @param webClient - The Miden WebClient instance.
+ * @param createKey - The guardian's key and rate-limit budget, from
+ *   `fetchGuardianCreateKey`.
  * @param coldSeed - HD-derived seed for the cold key. Random if absent (only
  *   appropriate for tests / non-recoverable flows).
- * @param skipRegistration - Skip guardian registration (used by the import path).
- * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
- *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes the effective default
- *   guardian endpoint to reproduce the ID the account originally had.
+ * @param assertLive - The caller's WASM lock hold re-check. Every WASM call
+ *   after a parking await runs it first; an evicted flow is abandoned, not
+ *   cancelled, so the poison error it throws leaves here unwrapped.
+ *   Registration is the caller's, after the hold (see `registerGuardianAccount`).
  */
 export async function createGuardianAccount(
   webClient: MidenClient,
+  createKey: GuardianCreateKey,
   coldSeed?: Uint8Array,
-  skipRegistration: boolean = false,
-  guardianEndpointOverride?: string
+  assertLive: AssertLive = () => {}
 ): Promise<CreatedGuardianAccount> {
   if (!coldSeed) {
     coldSeed = crypto.getRandomValues(new Uint8Array(32));
@@ -312,27 +440,19 @@ export async function createGuardianAccount(
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
 
-    // Get Guardian endpoint and initialize client. Onboarding always threads the
-    // picked endpoint as the override (stage 1 of #408); with no override we use
-    // the effective network default. The frozen global GUARDIAN_URL_STORAGE_KEY
-    // is intentionally NOT consulted here (#408 stage 3) — a NEW account must
-    // never inherit a stale global pointer.
-    const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
-
-    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {
-      guardianEndpoint,
+      guardianEndpoint: createKey.guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
+    assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(
       {
         threshold: 1,
         signerCommitments: [hot.commitmentHex, coldCommitmentHex],
-        guardianCommitment,
-        guardianPublicKey: guardianPubkey,
+        guardianCommitment: createKey.guardianCommitment,
+        guardianPublicKey: createKey.guardianPubkey,
         // No `guardianEnabled` since multisig-client 0.17: the builder now
         // rejects a config without a guardian commitment outright, so every
         // account it creates is guarded and the flag had nothing left to
@@ -361,9 +481,12 @@ export async function createGuardianAccount(
       new EcdsaSigner(coldSk)
     );
 
-    if (!skipRegistration) {
-      await multisig.registerOnGuardian();
-    }
+    // The account object is borrowed from the client, so its read needs the hold too.
+    assertLive('before the account serialize');
+    // The state /configure receives, serialized now: registration runs after the hold ends (#1207).
+    const stateBase64 = u8ToB64(multisig.account.serialize());
+
+    assertLive('before the sync');
     await webClient.sync();
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
@@ -371,6 +494,7 @@ export async function createGuardianAccount(
     // vault key and stores it at accAuthSecretKeyStrgKey(coldPublicKey).
     // Hot is intentionally NOT inserted here — vault.ts persists the
     // returned hot ciphertext separately under its own envelope.
+    assertLive('before the cold key insert');
     await webClient.keystore.insert(multisig.account.id(), coldSk);
 
     console.log('Guardian account created:', multisig.account.id().toString());
@@ -383,12 +507,66 @@ export async function createGuardianAccount(
         hotCiphertext: hot.ciphertext,
         coldSecretKeyHex
       },
-      guardianEndpoint
+      guardianEndpoint: createKey.guardianEndpoint,
+      registration: { multisig, stateBase64, rateLimitBudgetLeftMs: createKey.rateLimitBudgetLeftMs }
     };
   } catch (e) {
+    // The lock's kill classifiers read the poison error's identity; wrapped, an
+    // abandoned flow would read as a flat failure.
+    if (isWasmClientPoisonedError(e)) throw e;
     console.error('Error creating Guardian account:', e);
     // Preserve the original cause so callers can distinguish guardian-unreachable
     // from node/registration/WASM failures.
+    throw new Error('Failed to create Guardian account', { cause: e });
+  }
+}
+
+/**
+ * Registers a created account on its guardian, with no WASM client hold: `registerOnGuardian`
+ * gets the serialized state, so it makes no client call, and signs with the standalone cold key,
+ * as the rotation path's registration does outside the lock. Its 429 waits get their
+ * own deadline, anchored to when this call starts, from what phase 1 left of the creation's
+ * budget. A timeout cannot cancel the request, so a timed-out attempt may have landed: it is
+ * retried with the same state after the switch paths' backoff, and the guardian's
+ * `account_already_exists` counts as success, as on those paths (`registerOnGuardianWithRetry`).
+ *
+ * A failure leaves what `createGuardianAccount` wrote, the account in the SDK store and the cold
+ * key the vault's insert-key sink stored, but no entry in the vault's account list, since the
+ * caller registers before its own writes. That is harmless: the cold key is HD-derived and a
+ * retry rewrites it.
+ */
+export async function registerGuardianAccount(registration: PendingGuardianRegistration): Promise<void> {
+  try {
+    // Anchored to now, not to phase 1's own start: the wait for the WASM lock and the
+    // account build sit between the two and are not guardian waits (#1207). Every attempt
+    // shares it, and a timed-out attempt is retried even past it: it bounds only 429 waits.
+    // A timed-out attempt's retry waits `guardianRegisterBackoffMs` first, as the switch
+    // paths' retries do, so a slow guardian is not sent a second /configure at once.
+    const deadlineMs = monotonicNowMs() + registration.rateLimitBudgetLeftMs;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await withGuardianRateLimitRetry(
+          () =>
+            withTimeout(
+              registration.multisig.registerOnGuardian(registration.stateBase64),
+              GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+              'Guardian registration'
+            ),
+          { deadlineMs, sleepFn: sleepKeepingWorkerAlive }
+        );
+        return;
+      } catch (e) {
+        if (isGuardianAccountAlreadyRegistered(e)) {
+          console.warn('The guardian already holds this account; registration is a no-op.');
+          return;
+        }
+        if (!(e instanceof GuardianProbeTimeoutError) || attempt >= GUARDIAN_CREATE_REGISTER_ATTEMPTS) throw e;
+        console.warn(`Guardian registration timed out (attempt ${attempt}/${GUARDIAN_CREATE_REGISTER_ATTEMPTS})`, e);
+        await sleepKeepingWorkerAlive(guardianRegisterBackoffMs(e, attempt));
+      }
+    }
+  } catch (e) {
+    console.error('Error creating Guardian account:', e);
     throw new Error('Failed to create Guardian account', { cause: e });
   }
 }

@@ -121,6 +121,16 @@ const P2IDE_RECLAIM_HEIGHT_INDEX = 4;
 const P2IDE_STORAGE_ITEM_COUNT = 6;
 
 let p2ideScriptRootHex: string | undefined;
+let standardPaymentRoots: ReadonlySet<string> | undefined;
+
+/**
+ * The script roots of the standard payment notes, P2ID and P2IDE: the only notes the rotation
+ * gate's recovery-key claim takes (#805). Needs the WASM module loaded in this realm.
+ */
+export function standardPaymentScriptRoots(): ReadonlySet<string> {
+  standardPaymentRoots ??= new Set([NoteScript.p2id().root().toHex(), NoteScript.p2ide().root().toHex()]);
+  return standardPaymentRoots;
+}
 
 /**
  * Estimated wall-clock time (epoch ms) at which the sender of a P2IDE note

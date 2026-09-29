@@ -1,6 +1,6 @@
 import { getEnvironmentConfig } from '../config/environments';
-import { ensureFeeFunded } from '../helpers/fee-funding';
 import { expect, test } from '../fixtures/two-wallets';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // The wallet's guardian operator for the active network: the local container on
 // localhost, the real operator (e.g. guardian.openzeppelin.com) on
@@ -233,7 +233,7 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
  * the now-rotated on-chain account and hands its serialized state to
  * `registerOnGuardianWithRetry` (line 574) -- the SAME retry helper
  * `finalizeGuardianSwitch` calls for `switch-guardian` (line 521): up to
- * `MAX_GUARDIAN_REGISTER_RETRIES` (8) attempts with capped exponential backoff
+ * `GUARDIAN_RETRY_MAX_ATTEMPTS` (8) attempts with capped exponential backoff
  * (1s doubling to an 8s ceiling, ~39s total) so the re-register survives the
  * guardian's post-delta canonicalization window instead of exhausting inside it
  * (`guardian/index.ts`).
@@ -369,85 +369,33 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
 });
 
 /**
- * Guardian `409 conflict_pending_delta` during a device-key rotation's OWN
- * proposal-creation call -- a distinct conflict-handling path from the
- * "register fault retries" test above. That test faults `/configure` (the
- * POST-submit re-register step, `reRegisterCurrentStateOnGuardian` inside
- * `completeReplaceHotKeyTransaction`) with a generic `500`, which the
- * wallet's own fixed-attempt `registerOnGuardianWithRetry` back-off already
- * tolerates regardless of conflict-vs-generic failure. This test instead
- * faults `/delta*` (the PRE-submit proposal-creation step) with a REAL
- * `409 conflict_pending_delta` (`guardian-fault.ts`'s `conflictPendingDelta`
- * mode) -- the specific shape `isGuardianPendingConflict`
- * (`src/lib/miden/guardian/serialize.ts`) exists to recognize.
+ * Guardian `409 conflict_pending_delta` on a device-key rotation's OWN proposal POST
+ * (`guardian-fault.ts`'s `conflictPendingDelta` mode, the real body that
+ * `isGuardianPendingConflict` recognizes). A recovery meets this when the old device's
+ * last transaction is still a candidate on the guardian (#904).
  *
- * **Investigated conclusion (superseding this describe block's original
- * "requeues and completes" title/assertion, which was WRONG):**
- * `generateTransaction`'s `REQUEUEABLE_ON_PENDING_CONFLICT` set
- * (`transaction/index.ts:79-85`) is a DELIBERATE allow-list of side-effect-
- * free/idempotent proposal creators (`send`/`consume`/`swap`/`earn-deposit`/
- * `execute`) -- `replace-hot-key` is deliberately EXCLUDED
- * (`transaction/index.ts:72-78`'s own comment) because its proposal creator
- * (`createReplaceHotKeyProposal`, `src/lib/miden/guardian/index.ts:452-486`)
- * mints a fresh hardware hot key BEFORE its `POST /delta/proposal` -- requeuing
- * it would re-mint and orphan another hardware key every retry cycle. A
- * `409 conflict_pending_delta` on that call is therefore BY DESIGN not
- * requeued: it escapes to `generateTransaction`'s outer catch as a plain
- * error and falls through to `cancelTransaction` (`transaction/index.ts:297`),
- * which synchronously marks the row `Failed` in the SAME cycle (`cancel.ts`'s
- * `cancelTransaction` -- no delay, no polling, no stuck `GeneratingTransaction`
- * row). `HotKeyRotationGate` mirrors that onto its `hot-key-rotation-failed`
- * test id (`src/app/templates/HotKeyRotationGate.tsx:159-160`) essentially
- * immediately.
+ * The rotation waits it out in-process (`withGuardianConflictRetry`, 12 attempts 5 s
+ * apart), re-syncing and rebuilding each attempt with the one key it minted, so the gate
+ * goes straight to completion: no failure surface, no Retry. Two armed 409s make the wait
+ * span more than one retry. The fault is scoped to POST on A's `/delta*` path and answers
+ * the first two matching requests; `guardianFaultHits() === 2` proves exactly that - two
+ * POSTs to A's delta endpoint were answered with the 409. What makes those POSTs the
+ * rotation's: B has no transaction of its own yet, and pending-note recovery's own
+ * `/delta*` traffic is a GET, so the rotation's proposal POSTs are the only POSTs B can
+ * make here.
  *
- * This is NOT the perpetual-hang bug this suite's `#103` header test targets:
- * the design doc's own requirement
- * (`docs/superpowers/specs/2026-08-03-guardian-switch-recovery-e2e-design.md`,
- * "Perpetual rotation loading" risk) is that the gate "must always reach a
- * terminal state (completed, **or a diagnosable + escapable failure**);
- * ...surface retry/escape affordance" -- auto-requeue was never the actual
- * bar, only ONE way to clear it. `HotKeyRotationGate`'s terminal-failure
- * surface *is* that diagnosable+escapable affordance: `onRetry`
- * (`HotKeyRotationGate.tsx:162-166`) enqueues a brand-new `replace-hot-key`
- * transaction (`beginRotation(false)` -> `ensureRotationTx(pk, false)` skips
- * the orphan-adopt path and calls `initiateReplaceHotKeyTransaction` fresh) --
- * a real, working, on-screen retry button
- * (`data-testid="hot-key-rotation-retry"`, added alongside this test), not a
- * dead end.
- *
- * `armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta',
- * count: 1 })` fails EXACTLY the first matching `/delta*` call with the real
- * conflict body, then self-clears (further requests `continue()` -- see
- * `decideGuardianFault`'s `hits >= count` gate) -- so the retried attempt's
- * own `POST /delta/proposal` lands unfaulted and the rotation completes
- * normally on the SECOND (manually-retried) attempt.
- *
- * **Expectation: GREEN.** The scenario is reframed from "requeues
- * automatically" (disproved -- deliberately excluded by design, confirmed by
- * both code-reading and a real run) to "escapable": the gate must reach its
- * terminal-failure surface FAST (proving it never hangs), and clicking the
- * real Retry affordance must drive a fresh rotation attempt to completion
- * (proving the failure is not a dead end). If either half goes RED --
- * the failure surface never appears (hang) or Retry doesn't lead to
- * completion -- that IS a genuine escapability bug (`#103`-class); root-cause
- * from `HotKeyRotationGate.tsx`'s `beginRotation`/`ensureRotationTx` and
- * `onRetry` before writing any fix. Do NOT "fix" this by adding
- * `'replace-hot-key'` to `REQUEUEABLE_ON_PENDING_CONFLICT` -- that would
- * reintroduce the hot-key-remint-orphan problem the exclusion exists to
- * prevent; the manual-retry affordance is the intended escape hatch for
- * structural ops, not automatic requeue.
+ * Distinct from the register-fault test above, which faults the post-submit `/configure`.
  */
 test.describe('Guardian recovery stress - pending-delta conflict during rotation', () => {
-  test('pending-delta conflict during device key rotation is escapable via retry, not stuck', async ({
+  test('pending-delta conflict during device key rotation is waited out; the rotation completes without Retry', async ({
     walletA,
     walletB,
     midenCli,
     steps
   }) => {
-    // Create/fund/claim on A, recover + hit the fast terminal failure, click
-    // retry, await the retried rotation's completion -- comfortable headroom
-    // over the base config's 300s default, matching this file's other stress
-    // tests.
+    // Create, fund and claim on A, recover, wait out two 409s, await the rotation's
+    // completion -- comfortable headroom over the base config's 300s default, matching
+    // this file's other stress tests.
     test.setTimeout(600_000);
 
     const commitmentA = await guardianCommitment(A);
@@ -494,75 +442,36 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
     await walletA.kill();
 
     await steps.step(
-      'recover_and_hit_pending_delta_conflict_fast_fail',
+      'recover_and_wait_out_pending_delta_conflict',
       async () => {
-        // Arm BEFORE firing the recovery so the very first /delta* call --
-        // createReplaceHotKeyProposal's own proposal-creation POST, issued
-        // from inside the auto-initiated replace-hot-key rotation -- already
-        // lands on the faulted path; there is no window where an unfaulted
-        // proposal could sneak through first.
-        walletB.armGuardianFault({ target: 'A', path: 'delta', mode: 'conflictPendingDelta', count: 1 });
+        // Scoped to POST: pending-note recovery's own `GET /delta/proposal` shares the
+        // same path segment, and a path-only fault could spend its count on that GET
+        // instead of the rotation's proposal POSTs (#904).
+        // Armed before the recovery, so the rotation's first two proposal POSTs answer the
+        // real 409; `guardianFaultHits() === 2` below proves exactly two POSTs to A's delta
+        // path were answered, and B makes no other `/delta*` POST before its rotation
+        // completes (no transaction of its own yet, and pending-note recovery's own delta
+        // traffic is a GET), so those two can only be the rotation's.
+        walletB.armGuardianFault({
+          target: 'A',
+          path: 'delta',
+          method: 'POST',
+          mode: 'conflictPendingDelta',
+          count: 2
+        });
 
-        // recoverGuardianFromSeed({viaUI:false}) only drives the fast bypass
-        // to the home surface -- it does NOT itself await the rotation (that
-        // only happens on the viaUI:true branch), so the gate is observed
-        // explicitly below, same split as this file's other stress tests.
         await walletB.recoverGuardianFromSeed(seed, { viaUI: false, guardianUrl: A });
 
-        // Proof #1: the recovered account is flagged requiresHotKeyRotation
-        // and the gate has mounted.
-        await walletB.page.getByTestId('hot-key-rotation-gate').waitFor({ state: 'visible', timeout: 30_000 });
-
-        // Proof #2 -- the escapability assertion this test replaces the old
-        // (wrong) "requeues" one with: a pending-delta conflict on this
-        // deliberately-unretried structural op reaches the gate's
-        // terminal-failure surface FAST, not a hang. `cancelTransaction`
-        // marks the row Failed synchronously in the same
-        // safeGenerateTransactionsLoop cycle that hit the 409 (no polling,
-        // no backoff on this path -- createReplaceHotKeyProposal is never
-        // retry-wrapped), so a generous-but-bounded wait here distinguishes
-        // "reached a diagnosable failure state" from "still stuck".
-        await walletB.page.getByTestId('hot-key-rotation-failed').waitFor({ state: 'visible', timeout: 90_000 });
-      },
-      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
-    );
-
-    await steps.step(
-      'retry_drives_a_fresh_rotation_to_completion',
-      async () => {
-        // Click the real on-screen escape affordance -- HotKeyRotationGate's
-        // onRetry, which resets txId and enqueues a BRAND-NEW replace-hot-key
-        // transaction (adoptExisting: false) rather than requeuing the failed
-        // row, by design (see this describe block's doc comment).
-        await walletB.page.getByTestId('hot-key-rotation-retry').click();
-
-        // Proof #3: the click actually re-drove the gate -- the terminal-
-        // failure surface detaches (back to the spinner) instead of staying
-        // put, i.e. a fresh attempt is genuinely in flight, not a no-op
-        // button. Checked explicitly (rather than folding straight into the
-        // next wait) so a Retry button that silently does nothing fails here
-        // with a precise message instead of just timing out later.
-        await walletB.page.getByTestId('hot-key-rotation-failed').waitFor({ state: 'detached', timeout: 15_000 });
-
-        // Proof #4: the retried attempt's own /delta/proposal call lands
-        // unfaulted (the armed fault's count:1 was already consumed by the
-        // first attempt), so this second rotation completes normally --
-        // completeHotKeyRotation() throws if it instead reaches the
-        // terminal-failure surface again.
+        // Throws if the gate reaches its failure surface: the conflict must be waited out.
         await walletB.completeHotKeyRotation();
 
-        walletB.clearFaults();
+        expect(walletB.guardianFaultHits(), 'the armed fault must have answered two requests with its 409').toBe(2);
+        await walletB.clearFaults();
 
         const addressB = await walletB.getAccountAddress();
         expect(addressB, 'recovering the SAME seed on a clean profile must derive the SAME account id as A').toBe(
           addressA!
         );
-
-        // Rotation replaces the HOT key but keeps the same guardian + cold
-        // key + threshold -- so the auth shape (2 signers, update_guardian
-        // threshold 2, guardian commitment = A's) must match A's baseline,
-        // same as the non-stress recovery journey and this file's other
-        // stress tests.
         await walletB.assertGuardianAuth(addressB, {
           signerCount: 2,
           threshold: 2,

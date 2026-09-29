@@ -503,6 +503,10 @@
     "message": "例如：APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "您的私鑰無法從剪貼簿中移除。請在繼續之前自行清除。",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
@@ -1816,6 +1820,22 @@
     "message": "您的資金已準備好",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "先前提出的請求可能仍會送達。",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "需要再次確認嗎？",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "您先前的請求可能仍會送達。若再次提出請求，可能會導致您的錢包被轉入兩次資金。",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "請再次提出請求",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "偵測到帳戶復原",
     "englishSource": "Account recovery detected"
@@ -2775,6 +2795,55 @@
     "message": "重試",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "加入 MIDEN 以啟用您的日常金鑰",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "啟用您的日常金鑰是一項交易，且每筆交易需支付少量 MIDEN 作為網路手續費。請將 MIDEN 發送至下方此帳戶的地址。錢包會自動領取該款項並完成您的金鑰啟用程序。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "請至少發送 $amount$ MIDEN。",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "您的帳戶地址",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "等待 MIDEN 抵達……",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "您收到的 MIDEN 數量不足以支付網路手續費。請再多轉帳一點。",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "已收到 MIDEN。正在申領中……",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "啟用您的日常金鑰……",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "您收到的 MIDEN 無法被領取。",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "請重新嘗試",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "請再次確認",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian 已修改",
     "englishSource": "Guardian changed"
@@ -2827,6 +2896,10 @@
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "此網址未回應 Guardian。請檢查並重試。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "請輸入密碼以存取您的加密錢包檔案。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2911,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "我不會將我的加密錢包檔案分享給任何人，包括 Bread 在內。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "未從此檔案還原：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 透過私鑰匯入的帳戶無法從錢包檔案中還原，且從該檔案還原的錢包亦無法新增這些帳戶。這些帳戶將以獨立錢包的形式還原，並透過「匯入私鑰」功能，搭配其 Miden 日常私鑰與 EVM 私鑰進行設定。請妥善保管這些私鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」方可查看。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "請輸入密碼以加密您的錢包檔案。",
@@ -4449,6 +4535,14 @@
     "message": "未經核實",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "未經核實",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "此代幣未列入 Miden 的已驗證代幣清單。任何人都可以創建任意名稱的代幣，因此在信任它之前，請先檢查 faucet 的 ID。",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "無法透過模擬進行驗證。以下數值均為該網站所聲明者。",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5247,8 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "無法驗證此錢包的解鎖方式。請重試。",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "更改 QR Code 顏色",

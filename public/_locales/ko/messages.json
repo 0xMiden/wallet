@@ -503,6 +503,10 @@
     "message": "예: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
   },
+  "privateKeyClipboardNotCleared": {
+    "message": "클립보드에서 개인 키를 제거할 수 없습니다. 계속하기 전에 직접 지워 주십시오.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
+  },
   "settings": {
     "message": "설정",
     "englishSource": "Settings"
@@ -1816,6 +1820,22 @@
     "message": "자금이 준비되었습니다",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "이전 요청이 아직 도착하지 않았을 수도 있습니다.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "다시 요청하시겠습니까?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "이전에 보내신 요청이 아직 도착하지 않았을 수 있습니다. 다시 요청하시면 지갑에 두 번 자금이 입금될 수 있습니다.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "다시 요청하세요",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "계정 복구 감지됨",
     "englishSource": "Account recovery detected"
@@ -2775,6 +2795,55 @@
     "message": "다시 시도",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "MIDEN을 추가하여 일상용 키를 활성화하세요",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 MIDEN 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 MIDEN을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "$amount$의 MIDEN을 최소한 전송하십시오.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "귀하의 계정 주소",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "MIDEN이 도착하기를 기다리고 있습니다…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "수신하신 MIDEN은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN 수신. 청구 중…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "일상용 키 활성화…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "수령하신 MIDEN은 청구할 수 없었습니다.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "다시 시도해 보세요",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "다시 한 번 확인해 주세요",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian 수정됨",
     "englishSource": "Guardian changed"
@@ -2827,6 +2896,10 @@
     "message": "http:// 또는 https://로 시작하는 유효한 URL을 입력하세요.",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "이 URL에는 'Guardian'에 대한 답변이 없습니다. 해당 URL을 확인하고 다시 시도해 주십시오.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "암호화된 지갑 파일에 액세스하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2911,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "저는 Bread를 포함해 누구에게도 제 암호화된 지갑 파일을 공유하지 않을 것입니다.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "이 파일에서 복원되지 않음: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 개인 키로 가져온 계정은 지갑 파일에서 복원할 수 없으며, 이 파일로 복원한 지갑에는 해당 계정을 추가할 수 없습니다. 이러한 계정은 “개인 키 가져오기”를 통해 설정된 별도의 지갑으로 복원되며, 해당 계정의 Miden everyday 및 EVM 개인 키가 함께 포함됩니다. 해당 키를 안전하게 보관하십시오: 해당 계정을 선택한 상태에서 설정 → 키 → 개인 키 표시를 통해 키를 확인할 수 있습니다.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "지갑 파일을 암호화하려면 비밀번호를 입력하세요.",
@@ -4449,6 +4535,14 @@
     "message": "확인되지 않음",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "미확인",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "이 토큰은 Miden의 검증된 토큰 목록에 포함되어 있지 않습니다. 누구나 원하는 이름으로 토큰을 생성할 수 있으므로, 신뢰하기 전에 faucet의 ID를 확인하십시오.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "시뮬레이션을 통해 확인할 수 없었습니다. 아래 수치는 해당 사이트에서 공개한 내용입니다.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5247,8 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QR 코드 색상 변경",

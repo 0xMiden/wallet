@@ -18,9 +18,12 @@ import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
+  FaucetRequestUnresolvedError,
+  type FaucetFundingMarker,
   WalletPromptStatus,
   WalletPromptType,
   __resetInFlightFaucetRequestsForTest,
+  clearFaucetFundingMarker,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -35,6 +38,7 @@ import {
   isFaucetFundingMarkerLive,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
+  parseFaucetFundingMarker,
   reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
@@ -722,7 +726,9 @@ describe('wallet prompts', () => {
   );
 
   it.each([
-    ['a sent request past its arrival window', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
+    // No surface flagged it (each one watching closed first, or the flag write failed), yet it is
+    // unresolved all the same, as the mount read names it: only a request that names it replaces it.
+    ['a sent request past its arrival window, named as the one replaced', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
     ['an unsent request past its own timeout', FAUCET_UNSUBMITTED_MARKER_MS, false]
   ])('starts a new request over %s', async (_state, ageMs, submitted) => {
     const stale = { requestedAt: Date.now() - ageMs - 1, baselineNoteIds: [], ...(submitted && { submitted }) };
@@ -735,7 +741,7 @@ describe('wallet prompts', () => {
       }
     );
 
-    await faucet('accountStale', marker);
+    await faucet('accountStale', marker, { replaces: submitted ? stale.requestedAt : undefined });
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
     expect(await fetchFaucetFundingMarker('accountStale')).toEqual({
@@ -745,13 +751,90 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('refuses a request over a sent request past its arrival window that does not name it', async () => {
+    const stale: FaucetFundingMarker = {
+      requestedAt: Date.now() - FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - 1,
+      baselineNoteIds: ['note-1'],
+      submitted: true
+    };
+    await setFaucetFundingMarker('accountStale', stale);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountStale', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(error).toMatchObject({ record: { requestedAt: stale.requestedAt, baselineNoteIds: ['note-1'] } });
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    expect(await fetchFaucetFundingMarker('accountStale')).toEqual(stale);
+  });
+
+  describe('over an unresolved request', () => {
+    // Sent 30 s ago by this clock, yet already flagged unresolved by the surface whose wait ended.
+    const unresolvedRecord = (): FaucetFundingMarker => ({
+      requestedAt: Date.now() - 60_000,
+      baselineNoteIds: ['note-1'],
+      submitted: true,
+      submittedAt: Date.now() - 30_000,
+      unresolved: true
+    });
+
+    it.each([
+      ['a request that does not name it', () => undefined],
+      ['a request that names another record', (record: FaucetFundingMarker) => record.requestedAt - 1]
+    ])('refuses %s before any proof of work, and leaves the record', async (_case, replacing) => {
+      // A surface that read storage before another surface flagged the record never asked the user.
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+      const error = await faucet(
+        'accountUnresolved',
+        { requestedAt: Date.now(), baselineNoteIds: [] },
+        { replaces: replacing(record) }
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+      expect(error).toMatchObject({
+        record: { requestedAt: record.requestedAt, baselineNoteIds: record.baselineNoteIds }
+      });
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual(record);
+    });
+
+    it("sends once the request names the record, and the new request's marker replaces it", async () => {
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+      const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
+      mintFromMidenFaucetMock.mockImplementation(
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+          seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
+          await beforeSubmit?.();
+          return { txId: '0xtx', noteId: '0xnote' };
+        }
+      );
+
+      await faucet('accountUnresolved', marker, { replaces: record.requestedAt });
+
+      expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+      expect(seen).toEqual([marker]);
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+        ...marker,
+        submitted: true,
+        submittedAt: expect.any(Number)
+      });
+    });
+  });
+
   it('does not send a request another surface already ended as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
       async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
         // This realm's timers were held back; meanwhile another surface found the marker
         // unflagged past the request timeout, cleared it and offered Fund again.
-        await setFaucetFundingMarker('accountFenced', null);
+        await clearFaucetFundingMarker('accountFenced');
         await beforeSubmit?.();
         sent = true;
         return { txId: '0xtx', noteId: '0xnote' };
@@ -782,7 +865,7 @@ describe('wallet prompts', () => {
           await new Promise<void>(resolve => {
             releaseClear = resolve;
           });
-          if (stored !== null && !stored.submitted) await setFaucetFundingMarker('accountClearing', null);
+          if (stored !== null && !stored.submitted) await clearFaucetFundingMarker('accountClearing');
         });
         await read;
         const flagging = beforeSubmit?.();
@@ -846,6 +929,64 @@ describe('wallet prompts', () => {
     });
 
     expect(await fetchFaucetFundingMarker('accountClock')).toBeNull();
+  });
+
+  it('keeps an unresolved marker stamped in the future: it is never live, so the stamp wedges nothing', async () => {
+    const unresolved: FaucetFundingMarker = {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    };
+    await setFaucetFundingMarker('accountClockUnresolved', unresolved);
+
+    expect(await fetchFaucetFundingMarker('accountClockUnresolved')).toEqual(unresolved);
+  });
+
+  it('reads a sent marker stamped in the future as unresolved, before any surface flagged it', async () => {
+    // Dropped, the request would read as never made, and the next tap would send again without asking.
+    const requestedAt = Date.now() + 60_000;
+    await setFaucetFundingMarker('accountClockSent', { requestedAt, baselineNoteIds: [], submitted: true });
+
+    expect(await fetchFaucetFundingMarker('accountClockSent')).toEqual({
+      requestedAt,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('parses each shape of a marker stamped in the future as the stored read does', async () => {
+    const requestedAt = Date.now() + 60_000;
+    const unresolved: FaucetFundingMarker = { requestedAt, baselineNoteIds: [], submitted: true, unresolved: true };
+    const shapes: Array<[object, FaucetFundingMarker | null]> = [
+      [{ requestedAt, baselineNoteIds: [] }, null],
+      [{ requestedAt, baselineNoteIds: [], submitted: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], unresolved: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], submitted: true, unresolved: true }, unresolved]
+    ];
+
+    for (const [stored, parsed] of shapes) {
+      expect(parseFaucetFundingMarker(stored)).toEqual(parsed);
+      await putToStorage('faucet_funding_v2:accountAhead', stored);
+      expect(await fetchFaucetFundingMarker('accountAhead')).toEqual(parsed);
+    }
+  });
+
+  it('refuses a request over a sent marker stamped in the future that does not name it', async () => {
+    await setFaucetFundingMarker('accountClockSent', {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true
+    });
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountClockSent', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
   });
 
   it('keeps when a flagged request went out, and ignores a send time it cannot trust', async () => {
@@ -931,14 +1072,86 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('keeps the unresolved flag, and reads any stored value of it as unresolved', async () => {
+    await setFaucetFundingMarker('accountUnresolved', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+
+    // Read as absent, a garbled flag would let a second surface send again without asking.
+    await putToStorage('faucet_funding_v2:accountUnresolvedGarbled', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: 'yes'
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolvedGarbled')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('reads an unresolved marker as sent, even with no submitted flag stored', async () => {
+    // Only a sent request can be left unresolved; read as unsent, it would be cleared as abandoned.
+    await putToStorage('faucet_funding_v2:accountUnresolvedOnly', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      unresolved: true
+    });
+
+    expect(await fetchFaucetFundingMarker('accountUnresolvedOnly')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('never reads an unresolved request as live, unless it still runs here', () => {
+    const now = Date.now();
+    // Sent 30 s ago, so its arrival window has not ended by this clock: the flag alone ends the wait.
+    const marker: FaucetFundingMarker = {
+      requestedAt: now - 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      submittedAt: now - 30_000,
+      unresolved: true
+    };
+
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: false, settledAt: null })).toBe(false);
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: true, settledAt: null })).toBe(true);
+  });
+
   it('stores the funding marker per account', async () => {
     await setFaucetFundingMarker('accountA', { requestedAt: 1_000, baselineNoteIds: ['note-1'] });
 
     expect(await fetchFaucetFundingMarker('accountA')).toEqual({ requestedAt: 1_000, baselineNoteIds: ['note-1'] });
     expect(await fetchFaucetFundingMarker('accountB')).toBeNull();
 
-    await setFaucetFundingMarker('accountA', null);
+    await clearFaucetFundingMarker('accountA');
     expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+  });
+
+  it('removes the storage key when the marker is cleared, rather than writing null', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
+    await setFaucetFundingMarker('accountClear', marker);
+
+    await clearFaucetFundingMarker('accountClear');
+
+    const provider = getStorageProvider();
+    const stored = await provider.get(['faucet_funding_v2:accountClear']);
+    expect('faucet_funding_v2:accountClear' in stored).toBe(false);
+    expect(await fetchFaucetFundingMarker('accountClear')).toBeNull();
   });
 
   it('ignores malformed funding markers', async () => {
@@ -1856,5 +2069,51 @@ describe('hot-key rotation-needed report', () => {
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+});
+
+describe('without Web Locks (iOS 15.0-15.3)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+    mintFromMidenFaucetMock.mockReset();
+    __resetInFlightFaucetRequestsForTest();
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+  });
+
+  it('loads the prompt record in the hook and stores a dismissal', async () => {
+    await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.isPromptPending(WalletPromptType.VerifySeedPhrase)).toBe(true);
+
+    act(() => {
+      result.current.dismissPrompt(WalletPromptType.VerifySeedPhrase);
+    });
+
+    await waitFor(async () => {
+      expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
+        WalletPromptStatus.Dismissed
+      );
+    });
+  });
+
+  it('funds an account, flagging its marker submitted before the token request goes out', async () => {
+    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        await beforeSubmit?.();
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    await faucet('accountA', marker);
+
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(await fetchFaucetFundingMarker('accountA')).toEqual({
+      ...marker,
+      submitted: true,
+      submittedAt: expect.any(Number)
+    });
   });
 });

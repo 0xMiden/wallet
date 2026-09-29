@@ -226,6 +226,11 @@ jest.mock('lib/miden-chain/constants', () => ({
   getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
 }));
 
+const mockVerifyToken = jest.fn();
+jest.mock('lib/token-list/useTokenVerification', () => ({
+  useTokenVerification: (id: string) => mockVerifyToken(id)
+}));
+
 const mockOpenExternalUrl = jest.fn();
 jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
@@ -778,6 +783,41 @@ describe('TokenDetail', () => {
 
       expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
       expect(mockOpenExternalUrl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the Unverified mark', () => {
+    it.each(['verified', 'unknown'] as const)('hides the Unverified mark for a %s token', verification => {
+      mockVerifyToken.mockReturnValue(verification);
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-unverified')).not.toBeInTheDocument();
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    });
+
+    it('shows the Unverified mark, its warning pill and explanation for an unverified token', () => {
+      mockVerifyToken.mockReturnValue('unverified');
+      renderPage();
+
+      const mark = screen.getByTestId('token-detail-unverified');
+      // Directly under the Hero, not buried further down the page.
+      expect(screen.getByTestId('token-detail-hero').nextElementSibling).toBe(mark);
+      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2');
+
+      // The pill itself: `sm`/`warning`, not any other size or tone.
+      const pill = within(mark).getByText('unverifiedToken').parentElement;
+      expect(pill).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
+
+      // The explanation is the design system's footnote, an inline warning Notice, under the pill.
+      const notice = within(mark).getByRole('note');
+      expect(notice).toHaveTextContent('unverifiedTokenDescription');
+      expect(notice).toHaveAttribute('data-variant', 'inline');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveClass('justify-center', 'text-center');
+      expect(notice).not.toHaveClass('text-left');
+      expect(Array.from(mark.children)).toEqual([pill, notice]);
+
+      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
     });
   });
 });

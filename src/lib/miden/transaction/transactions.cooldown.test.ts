@@ -1,4 +1,10 @@
-import { unauthorizedRequeueCooldownSec } from 'lib/miden/transaction';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  guardianRequeueBackoffSec,
+  MAX_QUEUED_AGE,
+  nextQueuedWakeDelayMs,
+  unauthorizedRequeueCooldownSec
+} from 'lib/miden/transaction';
 
 describe('unauthorizedRequeueCooldownSec', () => {
   // Both ends matter and neither is arbitrary. The floor has to stay clear of
@@ -34,5 +40,93 @@ describe('unauthorizedRequeueCooldownSec', () => {
       expect(cooldown).toBeGreaterThanOrEqual(15);
       expect(cooldown).toBeLessThanOrEqual(54);
     }
+  });
+});
+
+describe('guardianRequeueBackoffSec', () => {
+  // A guardian arm that requeues the same row again doubles its cooldown, so rows a guardian keeps failing stop being
+  // eligible at every lap (#1223); the cap bounds how long a row waits once the guardian is back.
+  it('doubles the base for each consecutive requeue', () => {
+    expect(guardianRequeueBackoffSec(60, 1)).toBe(60);
+    expect(guardianRequeueBackoffSec(60, 2)).toBe(120);
+    expect(guardianRequeueBackoffSec(60, 3)).toBe(240);
+    expect(guardianRequeueBackoffSec(15, 4)).toBe(120);
+  });
+
+  it('stops at 240 s however long the streak runs', () => {
+    expect(guardianRequeueBackoffSec(60, 4)).toBe(240);
+    expect(guardianRequeueBackoffSec(15, 12)).toBe(240);
+  });
+
+  it("never cuts a base above the cap short, since a 429's base is the guardian's own retry-after", () => {
+    expect(guardianRequeueBackoffSec(300, 1)).toBe(300);
+    expect(guardianRequeueBackoffSec(300, 3)).toBe(300);
+  });
+});
+
+describe('nextQueuedWakeDelayMs', () => {
+  // The extension's service worker arms a one-shot alarm from this when a run ends with rows still Queued, since the
+  // run stops after a fixed number of passes and a backed-off row can come due after it has (#1223).
+  const nowSec = 1_700_000_000;
+  const queued = (
+    extra: Partial<Pick<ITransaction, 'initiatedAt' | 'nextEligibleAt' | 'awaitingRecoverySeed'>> = {}
+  ): Pick<ITransaction, 'status' | 'initiatedAt' | 'nextEligibleAt' | 'awaitingRecoverySeed'> => ({
+    status: ITransactionStatus.Queued,
+    initiatedAt: nowSec,
+    ...extra
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(nowSec * 1000);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('is the soonest wake across the Queued rows, a beat past eligibility', () => {
+    expect(
+      nextQueuedWakeDelayMs([
+        queued({ nextEligibleAt: nowSec + 120 }),
+        queued({ nextEligibleAt: nowSec + 40 }),
+        queued({ nextEligibleAt: nowSec + 240 })
+      ])
+    ).toBe(41_000);
+  });
+
+  it("comes at a row's reap boundary when that is sooner than its eligibility", () => {
+    expect(
+      nextQueuedWakeDelayMs([queued({ initiatedAt: nowSec - MAX_QUEUED_AGE + 100, nextEligibleAt: nowSec + 240 })])
+    ).toBe(103_000);
+  });
+
+  it('ignores rows that are not Queued', () => {
+    expect(
+      nextQueuedWakeDelayMs([
+        { status: ITransactionStatus.GeneratingTransaction, initiatedAt: nowSec, nextEligibleAt: nowSec + 10 },
+        queued({ nextEligibleAt: nowSec + 60 })
+      ])
+    ).toBe(61_000);
+  });
+
+  it('is undefined when no row is Queued', () => {
+    expect(nextQueuedWakeDelayMs([])).toBeUndefined();
+    expect(
+      nextQueuedWakeDelayMs([{ status: ITransactionStatus.GeneratingTransaction, initiatedAt: nowSec }])
+    ).toBeUndefined();
+  });
+
+  it('skips a row paused for its recovery seed, which the loop never picks and the reaper never expires', () => {
+    expect(nextQueuedWakeDelayMs([queued({ awaitingRecoverySeed: true })])).toBeUndefined();
+    expect(
+      nextQueuedWakeDelayMs([queued({ awaitingRecoverySeed: true }), queued({ nextEligibleAt: nowSec + 60 })])
+    ).toBe(61_000);
+  });
+
+  it('gives a row without a usable initiatedAt a finite delay', () => {
+    expect(nextQueuedWakeDelayMs([queued({ initiatedAt: NaN, nextEligibleAt: nowSec + 60 * 60 })])).toBe(
+      (MAX_QUEUED_AGE + 60) * 1000
+    );
   });
 });

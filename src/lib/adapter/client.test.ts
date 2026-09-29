@@ -12,6 +12,8 @@
  * `'id'`, so every request's `reqId` is the constant `'id'`.
  */
 
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
+
 import {
   assertResponse,
   getCurrentPermission,
@@ -35,7 +37,7 @@ import {
   signBytes,
   waitForTransaction
 } from './client';
-import { MidenDAppErrorType, MidenDAppMessageType, MidenPageMessageType } from './types';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppPermission, MidenPageMessageType } from './types';
 
 // ── Captured window `message` listeners ────────────────────────────
 let messageListeners: Array<(evt: any) => void> = [];
@@ -468,12 +470,19 @@ describe('onAvailabilityChange', () => {
   });
 });
 
-// ── onPermissionChange (also covers permissionsAreEqual) ───────────
+// ── onPermissionChange (also covers sameAccount) ────────────────────
 describe('onPermissionChange', () => {
   const permA = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
-  const permAcopy = { address: 'a', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
   const permArpc = { address: 'a', rpc: 'r2', privateDataPermission: 'None', allowedPrivateData: {} };
   const permB = { address: 'b', rpc: 'r1', privateDataPermission: 'None', allowedPrivateData: {} };
+  // The permission a provider connected with names the network by chain id; the poll names it by RPC URL (#1227).
+  const connectedA: MidenDAppPermission = {
+    address: 'a',
+    rpc: 'testnet',
+    privateDataPermission: PrivateDataPermission.UponRequest,
+    allowedPrivateData: AllowedPrivateData.All
+  };
+  const permAonUrl = { ...permA, rpc: 'https://rpc.testnet.miden.io' };
 
   const resolveWith = (permission: any) =>
     deliverPageResponse({ type: MidenDAppMessageType.GetCurrentPermissionResponse, permission });
@@ -481,7 +490,7 @@ describe('onPermissionChange', () => {
   it('emits only on genuine permission changes and swallows errors', async () => {
     jest.useFakeTimers();
     const cb = jest.fn();
-    const stop = onPermissionChange(cb);
+    const stop = onPermissionChange(cb, null);
 
     // check #1 (initial, in flight): null === null -> equal -> no callback.
     resolveWith(null);
@@ -494,37 +503,108 @@ describe('onPermissionChange', () => {
     await flush();
     expect(cb).toHaveBeenNthCalledWith(1, permA);
 
-    // check #3: permA -> identical fields -> equal -> no callback.
-    await jest.advanceTimersByTimeAsync(10_000);
-    resolveWith(permAcopy);
-    await flush();
-    expect(cb).toHaveBeenCalledTimes(1);
-
-    // check #4: same address, different rpc -> changed -> callback.
+    // check #3: same address, different rpc -> the same account -> no callback (#1227).
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(permArpc);
     await flush();
-    expect(cb).toHaveBeenNthCalledWith(2, permArpc);
+    expect(cb).toHaveBeenCalledTimes(1);
 
-    // check #5: different address -> changed -> callback.
+    // check #4: different address -> changed -> callback.
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(permB);
     await flush();
-    expect(cb).toHaveBeenNthCalledWith(3, permB);
+    expect(cb).toHaveBeenNthCalledWith(2, permB);
 
-    // check #6: back to null -> changed -> callback(null).
+    // check #5: back to null -> changed -> callback(null).
     await jest.advanceTimersByTimeAsync(10_000);
     resolveWith(null);
     await flush();
-    expect(cb).toHaveBeenNthCalledWith(4, null);
+    expect(cb).toHaveBeenNthCalledWith(3, null);
 
-    // check #7: error is swallowed by the try/catch -> no callback, keeps polling.
+    // check #6: error is swallowed by the try/catch -> no callback, keeps polling.
     await jest.advanceTimersByTimeAsync(10_000);
     deliverPageError('boom');
     await flush();
-    expect(cb).toHaveBeenCalledTimes(4);
+    expect(cb).toHaveBeenCalledTimes(3);
 
     stop();
+  });
+
+  it('a callback that throws is not called again for the same permission, and a switch back still arrives (#174)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn((perm: any) => {
+      if (perm?.address === 'b') throw new Error('listener failed');
+    });
+    const stop = onPermissionChange(cb, null);
+    resolveWith(permA);
+    await flush();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    expect(cb.mock.calls).toEqual([[permA], [permB]]);
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permA);
+    await flush();
+    expect(cb.mock.calls).toEqual([[permA], [permB], [permA]]);
+    stop();
+  });
+
+  it('from the permission it connected with, a first check that finds no grant calls back null (#1227)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb, connectedA);
+    resolveWith(null);
+    await flush();
+    expect(cb.mock.calls).toEqual([[null]]);
+    stop();
+  });
+
+  it('from the permission it connected with, a first check for that account by RPC URL calls back nothing (#1227)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb, connectedA);
+    resolveWith(permAonUrl);
+    await flush();
+    expect(cb).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(permB);
+    await flush();
+    expect(cb.mock.calls).toEqual([[permB]]);
+    stop();
+  });
+
+  it('from the permission it connected with, a failed first check keeps it, so a later null calls back null (#1227)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb, connectedA);
+    deliverPageError('boom');
+    await flush();
+    await jest.advanceTimersByTimeAsync(10_000);
+    resolveWith(null);
+    await flush();
+    expect(cb.mock.calls).toEqual([[null]]);
+    stop();
+  });
+
+  it('drops a check that answers after stop, and polls no more (#174)', async () => {
+    jest.useFakeTimers();
+    const cb = jest.fn();
+    const stop = onPermissionChange(cb, null);
+    // The first check is in flight when the provider disconnects.
+    stop();
+    resolveWith(permA);
+    await flush();
+    expect(cb).not.toHaveBeenCalled();
+    const requestsAfterStop = postSpy.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(postSpy.mock.calls.length).toBe(requestsAfterStop);
+  });
+
+  it('takes the starting permission as a required argument (#1227)', () => {
+    expect(onPermissionChange).toHaveLength(2);
   });
 });
 

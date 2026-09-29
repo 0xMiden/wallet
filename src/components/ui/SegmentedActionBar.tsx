@@ -38,7 +38,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
       value={item.id}
       asChild
       as="span"
-      className={cn('flex items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
+      // `min-w-0` lets this row shrink with its button, so a label too long for the bar reaches its ellipsis.
+      className={cn('flex min-w-0 items-center justify-center', active ? 'gap-1.5 max-[359px]:gap-1' : 'gap-0')}
     >
       <motion.button
         type="button"
@@ -57,11 +58,12 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
         style={{ borderRadius: '9999px' }}
         className={cn(
           // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
-          // pill's shadow off at the segment's edge.
-          'group flex h-12 min-w-0 items-center justify-center rounded-full',
+          // pill's shadow off at the segment's edge. The active segment takes its label's width, never
+          // less than 112px (96px below 360px), so a longer translation grows it instead of spilling.
+          'group flex h-12 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-          active ? 'w-28 flex-none px-2.5 max-[359px]:w-24 max-[359px]:px-2' : 'flex-1 px-0'
+          active ? 'min-w-28 flex-initial px-2.5 max-[359px]:min-w-24 max-[359px]:px-2' : 'min-w-11 flex-1 px-0'
         )}
       >
         <motion.span
@@ -81,7 +83,8 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative font-bold whitespace-nowrap text-pill max-[359px]:text-badge"
+            // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+            className="relative truncate font-bold text-pill leading-5 max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}

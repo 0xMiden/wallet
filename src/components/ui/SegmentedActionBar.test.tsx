@@ -135,19 +135,26 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
-    // Active: a fixed width so long labels cannot collide with adjacent icons.
-    expect(getTab('Send')).toHaveClass('w-28', 'max-[359px]:w-24', 'flex-none', 'px-2.5', 'h-12');
-    expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1');
+    // The floor, not a fixed width: the segment grows to fit a longer label and gives width back
+    // when the bar runs out (#1069).
+    expect(getTab('Send')).toHaveClass('min-w-28', 'max-[359px]:min-w-24', 'flex-initial', 'px-2.5', 'h-12');
+    expect(getTab('Send')).not.toHaveClass('w-28');
+    expect(getTab('Send')).not.toHaveClass('max-[359px]:w-24');
+    expect(getTab('Send')).not.toHaveClass('flex-none');
+    expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1', 'min-w-0');
 
     // Inactive: stretches to fill the row with no horizontal padding.
     expect(getTab('Receive')).toHaveClass('flex-1', 'px-0');
     expect(getTab('Receive')).not.toHaveClass('w-28');
+    // 44px keeps every inactive segment a touch target when the active one grows.
+    expect(getTab('Receive')).toHaveClass('min-w-11');
+    expect(getTab('Receive')).not.toHaveClass('min-w-28');
   });
 
-  it('keeps the 20px icon: a 24px one would clip "Overview" in a 96px segment at 320px', () => {
+  it('keeps the 20px icon unshrunk, so a label within the 112px floor keeps that width', () => {
     renderBar();
 
-    expect(iconOf(getTab('Send'))).toHaveClass('h-5', 'w-5');
+    expect(iconOf(getTab('Send'))).toHaveClass('h-5', 'w-5', 'shrink-0');
   });
 
   it('renders the pill and the label only inside the active tab', () => {
@@ -165,6 +172,10 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     renderBar({ activeId: 'send' });
 
     expect(screen.getByText('Send')).toHaveClass('font-bold');
+    // A label that still cannot fit ends in an ellipsis; the tab's aria-label keeps it whole.
+    // `leading-5` puts the label on a 20px line, so `truncate`'s hidden overflow keeps its descenders.
+    expect(screen.getByText('Send')).toHaveClass('truncate', 'leading-5');
+    expect(getTab('Send')).toHaveAttribute('aria-label', 'Send');
     expect(getTab('Receive')).not.toHaveTextContent('Receive');
   });
 

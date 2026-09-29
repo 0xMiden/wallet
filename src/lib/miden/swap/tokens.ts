@@ -8,6 +8,7 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
+import { withRequestTimeout } from 'lib/remote-json';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -227,7 +228,7 @@ export interface SwapEta {
  */
 const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
 
-/** Abort a quote request that hasn't responded within this window. */
+/** Abort a quote request whose response and body have not both arrived within this window. */
 const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
 
 export async function getSwapEta(
@@ -243,20 +244,14 @@ export async function getSwapEta(
     requested_amount: requestAmountRaw.toString()
   });
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SWAP_ETA_FETCH_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!res.ok) {
-    throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
-  }
-  const json: SwapEta = await res.json();
-  return json;
+  return withRequestTimeout(SWAP_ETA_FETCH_TIMEOUT_MS, async signal => {
+    const res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal });
+    if (!res.ok) {
+      throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
+    }
+    const json: SwapEta = await res.json();
+    return json;
+  });
 }
 
 /**

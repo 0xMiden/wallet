@@ -13,6 +13,8 @@
  * resets `isProcessing`. This file locks that behavior.
  */
 
+import { ITransactionStatus } from 'lib/miden/db/types';
+
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
 const mockAlarmsOnAlarm = { addListener: jest.fn() };
@@ -42,6 +44,7 @@ jest.mock('webextension-polyfill', () => mockPolyfill);
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
+const mockNextQueuedWakeDelayMs = jest.fn();
 
 // Indirection so a test can simulate the Vite SW build's async-init window
 // (`safeGenerateTransactionsLoop` not yet a function) by setting this to
@@ -60,7 +63,8 @@ jest.mock('lib/miden/transaction', () => ({
     return mockSafeGenerateTransactionsLoopFn;
   },
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
-  cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
+  cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args),
+  nextQueuedWakeDelayMs: (...args: unknown[]) => mockNextQueuedWakeDelayMs(...args)
 }));
 
 const mockDbOpen = jest.fn();
@@ -93,10 +97,12 @@ jest.mock('./defaults', () => ({
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  mockWithUnlocked.mockReset();
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
+  mockNextQueuedWakeDelayMs.mockReturnValue(undefined);
   mockDbOpen.mockResolvedValue(undefined);
   mockStorageGet.mockResolvedValue({});
   mockStorageSet.mockResolvedValue(undefined);
@@ -158,6 +164,10 @@ describe('startTransactionProcessing — happy path', () => {
 });
 
 describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing', () => {
+  afterEach(() => {
+    mockAlarmsClear.mockReset();
+  });
+
   it('still resets isProcessing when the loop throws synchronously', async () => {
     mockSafeGenerateTransactionsLoop.mockImplementationOnce(() => {
       throw new Error('sync throw inside loop');
@@ -198,8 +208,9 @@ describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing'
   });
 
   it('still completes when alarms.clear throws in the finally block', async () => {
-    mockAlarmsClear.mockImplementationOnce(() => {
-      throw new Error('clear denied');
+    // By name: a run also clears the queued-row wake when it starts, and that is not the clear under test.
+    mockAlarmsClear.mockImplementation((name: unknown) => {
+      if (name === 'miden-tx-processor') throw new Error('clear denied');
     });
     const mod = await import('./transaction-processor');
     await expect(mod.startTransactionProcessing()).resolves.toBeUndefined();
@@ -529,7 +540,7 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     // Each of the two runs (the original pass and the kicked restart) creates
     // and clears its own keepalive alarm.
     expect(mockAlarmsCreate).toHaveBeenCalledTimes(2);
-    expect(mockAlarmsClear).toHaveBeenCalledTimes(2);
+    expect(mockAlarmsClear.mock.calls.filter(([name]) => name === 'miden-tx-processor')).toHaveLength(2);
   });
 
   it('runs no extra pass when nothing kicks during the loop', async () => {
@@ -590,5 +601,113 @@ describe('startTransactionProcessing - module-init timeout honours its own kick 
     await flushAsync();
 
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #924: a run that spends its pass budget on claims queued against a locked vault ends with them still
+// queued, and the unlock's kick is what brings them back. The #907 kick tests above all end through the
+// empty-queue break; this one ends on the budget, the path an unlock actually meets.
+describe('a kick after a run spent its budget on queued claims', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("starts one more full run when it lands in the run's last wait", async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'claim' }]);
+    jest.useFakeTimers();
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 59);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    // The budget is spent and the claim is still queued: the run is in its final wait before it stops.
+    void mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 200);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60 + 60);
+  });
+});
+
+// #1223: a run stops after 60 passes, and a row its guardian backed off can come due only after that. With the popup
+// closed nothing else restarts processing, so the run's end arms a one-shot alarm for the soonest Queued row.
+describe('a one-shot wake for rows still queued when a run ends (#1223)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('arms the wake at the time the helper gives when the run ends at its pass cap', async () => {
+    jest.useFakeTimers();
+    const start = Date.now();
+    const nowSec = Math.floor(start / 1000);
+    const backedOff = {
+      id: 'claim',
+      status: ITransactionStatus.Queued,
+      initiatedAt: nowSec,
+      nextEligibleAt: nowSec + 600
+    };
+    mockGetAllUncompletedTransactions.mockResolvedValue([backedOff]);
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 60);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    expect(mockNextQueuedWakeDelayMs).toHaveBeenCalledWith([backedOff]);
+    expect(mockAlarmsCreate).toHaveBeenCalledWith('miden-tx-queued-wake', { when: start + 5000 * 60 + 90_000 });
+  });
+
+  it('starts processing when the wake fires', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-queued-wake' });
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start processing when the wake fires after the vault locked in the meantime', async () => {
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+
+    // Arm the wake while unlocked, the way a run ending with queued rows does.
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+    mockSafeGenerateTransactionsLoop.mockClear();
+
+    // The vault locks before the alarm fires.
+    lockedWithUnlocked();
+    listener({ name: 'miden-tx-queued-wake' });
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+  });
+
+  it('arms nothing when the run ends with no uncompleted rows', async () => {
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockNextQueuedWakeDelayMs).toHaveBeenCalledWith([]);
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+  });
+
+  it('clears a pending wake before a run starts its first pass', async () => {
+    let clearedBeforeFirstPass = false;
+    mockSafeGenerateTransactionsLoop.mockImplementationOnce(async () => {
+      clearedBeforeFirstPass = mockAlarmsClear.mock.calls.some(([name]) => name === 'miden-tx-queued-wake');
+      return { success: true };
+    });
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(clearedBeforeFirstPass).toBe(true);
+  });
+
+  it('arms no wake while the vault is locked, since unlocking restarts processing (#924)', async () => {
+    lockedWithUnlocked();
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
   });
 });

@@ -17,11 +17,18 @@ if (process.env.TARGET_BROWSER === 'chrome') {
   const chromeApi = (globalThis as any).chrome;
   chromeApi.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
     if (result.sidepanel_mode) {
-      chromeApi.action.setPopup({ popup: '' });
+      chromeApi.action
+        .setPopup({ popup: '' })
+        .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails
-        chromeApi.action.setPopup({ popup: 'popup.html' });
-        chromeApi.storage.local.set({ sidepanel_mode: false });
+        // Restore popup if side panel setup fails. A failed popup restore leaves the action button doing nothing, so it
+        // warns; a failed storage write keeps sidepanel_mode set, so the next start retries the restore.
+        chromeApi.action
+          .setPopup({ popup: 'popup.html' })
+          .catch((popupErr: Error) =>
+            console.warn('[Background] Side panel restore could not restore the popup:', popupErr)
+          );
+        chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });
     }
@@ -48,7 +55,7 @@ browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
     doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
   }
-  // 'miden-tx-processor' alarm is just a keepalive — no action needed
+  // 'miden-tx-processor' and 'miden-guardian-wait-keepalive' are keepalives only: no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
@@ -64,14 +71,20 @@ if (process.env.TARGET_BROWSER === 'safari') {
 }
 
 browser.notifications.onClicked.addListener(notificationId => {
-  browser.notifications.clear(notificationId);
+  browser.notifications
+    .clear(notificationId)
+    .catch((err: Error) => console.warn('[Background] Could not clear the notification:', err));
   // Deep-link to the Activity tab's Pending filter — where an incoming transfer is accepted or
   // declined — matching the mobile handler, not the generic wallet QR/receive page (#467).
-  tabs.create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
+  tabs
+    .create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) })
+    .catch((err: Error) => console.warn('[Background] Could not open the Activity tab:', err));
 });
 
 function openFullPage() {
-  tabs.create({
-    url: runtime.getURL('fullpage.html')
-  });
+  tabs
+    .create({
+      url: runtime.getURL('fullpage.html')
+    })
+    .catch((err: Error) => console.warn('[Background] Could not open the full page:', err));
 }

@@ -10,6 +10,7 @@ import {
   deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
+  getSwapEta,
   getSwapTokens,
   getSwapTokenBySymbol,
   normalizedFaucetId,
@@ -318,5 +319,44 @@ describe('getDefaultSwapPair', () => {
     expect(warm.offer.symbol).toBe(cold.offer.symbol);
     expect(warm.request.symbol).toBe(cold.request.symbol);
     expect(warm.offer.symbol).not.toBe(warm.request.symbol);
+  });
+});
+
+describe('getSwapEta', () => {
+  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+
+  afterEach(() => {
+    jest.useRealTimers();
+    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+    else Reflect.deleteProperty(globalThis, 'fetch');
+  });
+
+  it('bounds the quote body read too, rejecting once the 10 s timeout passes', async () => {
+    jest.useFakeTimers();
+    // Headers arrive, then a body that ends only when the request's signal aborts, as a real stream does.
+    let signal: AbortSignal | undefined;
+    const fetchMock = jest.fn(async (_url: string, init: RequestInit) => {
+      const given = init.signal ?? undefined;
+      signal = given;
+      const json = () =>
+        new Promise((_resolve, reject) => given?.addEventListener('abort', () => reject(given.reason)));
+      return { ok: true, status: 200, json };
+    });
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+    const quote: { outcome: unknown } = { outcome: 'pending' };
+    void getSwapEta(TOKEN_IMIDEN, 1n, TOKEN_IUSDT, 0n).then(
+      () => {
+        quote.outcome = 'resolved';
+      },
+      (error: unknown) => {
+        quote.outcome = error;
+      }
+    );
+
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(quote.outcome).toBe('pending');
+    await jest.advanceTimersByTimeAsync(1);
+
+    expect(quote.outcome).toBe(signal?.reason);
   });
 });
