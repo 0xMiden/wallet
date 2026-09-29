@@ -9,10 +9,12 @@ export const MEET_GUARDIAN_CHECK_TEST_IDS = [
 
 /**
  * Get past onboarding's Meet your Guardian step into the full operator picker: tick each of the
- * three facts, because the flow's specs tick them (Continue needs all three and the chosen operator
- * online; the card and its Change action show from the first probe round), then open the picker with
- * the card's Change action. A box already ticked is left alone, so a retry never unticks one. Specs
- * pick an operator by endpoint on the picker, which is the only screen that lists them.
+ * three facts, then open the picker with the card's Change action (the card and Change show from the
+ * first probe round). The ticks come before the Change click because the onboarding picker goes on
+ * only once all three facts are ticked; until then its Continue returns to Meet your Guardian. Its
+ * Continue also waits for the picked operator to answer online, as Meet's does. A box already ticked
+ * is left alone, so a retry never unticks one. Specs pick an operator by endpoint on the picker,
+ * which is the only screen that lists them.
  */
 export async function openGuardianPickerFromMeetGuardian(page: NoticePage, timeout = 30_000): Promise<void> {
   await page.getByTestId('onboarding-meet-guardian').waitFor({ timeout });
