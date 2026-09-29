@@ -217,8 +217,10 @@ export async function startTransactionProcessing(): Promise<void> {
       const remaining = await getAllUncompletedTransactions();
       if (remaining.length === 0) break;
 
-      // Straight on only after a pass that ran a row, and only toward a row the loop's own pick would take. Any
-      // other pass waits, so a lock held elsewhere or a queue of cooling rows cannot spin through the pass ceiling.
+      // Straight on only after a pass whose row left the queue or was parked, and only toward a row the loop's own
+      // pick would take. A pass whose row was turned away waits, so one refusal is not followed at once by the next
+      // ready row against the same Guardian, and any other pass waits so a lock held elsewhere or a queue of cooling
+      // rows cannot spin through the pass ceiling.
       const nowSec = Math.floor(Date.now() / 1000);
       if (result === 'processed' && remaining.some(row => isQueuedRowReady(row, nowSec))) continue;
 

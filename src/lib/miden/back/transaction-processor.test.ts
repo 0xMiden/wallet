@@ -767,7 +767,7 @@ describe('the wait between passes (#1266)', () => {
     await run;
   });
 
-  it.each(['idle', 'failed'])(
+  it.each(['idle', 'failed', 'requeued'])(
     'waits 5 s after a pass that returned %s, even while a queued row is ready',
     async outcome => {
       jest.useFakeTimers();

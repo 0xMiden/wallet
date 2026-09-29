@@ -171,8 +171,10 @@ jest.mock('../sdk/helpers', () => ({
 
 // The guardian branch wraps generateGuardianTransaction in a per-account lock;
 // run the callback straight through so the branch is exercised without the real
-// navigator.locks-backed serializer.
+// navigator.locks-backed serializer. The error classifiers stay real, so the
+// guardian catch reads a 409 or a 429 as it does in production.
 jest.mock('lib/miden/guardian/serialize', () => ({
+  ...jest.requireActual('lib/miden/guardian/serialize'),
   withGuardianAccountLock: (_key: string, fn: () => Promise<unknown>) => fn(),
   withGuardianConflictRetry: (fn: () => Promise<unknown>) => fn()
 }));
@@ -1396,6 +1398,47 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
     txStore.push(queued('ready'));
     await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('processed');
     expect(seedWaitingProvider.prepareRecoveryTransaction).toHaveBeenCalledWith('ready');
+  });
+
+  // Jest 30 keeps a queued one-shot across clearAllMocks, so a case that stops before its one-shots run drops them
+  // rather than handing them to the next case.
+  const dropOneShots = (mock: jest.Mock): void => {
+    const base = mock.getMockImplementation();
+    mock.mockReset();
+    if (base) mock.mockImplementation(base);
+  };
+
+  // A Guardian send whose multisig service rejects, which happens once its stage reaches creating-proposal.
+  const runGuardianSendRejecting = async (error: unknown) => {
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw error;
+    });
+    txStore.push(queued('guardian-send'));
+    try {
+      return await safeGenerateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    } finally {
+      dropOneShots(gm.isGuardianAccount);
+      dropOneShots(gm.getOrCreateMultisigService);
+    }
+  };
+
+  it.each([
+    {
+      label: 'a 429',
+      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' })
+    },
+    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') }
+  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error }) => {
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(nowSec());
+  });
+
+  it('returns processed when a Guardian send whose submit landed ends Completed', async () => {
+    await expect(runGuardianSendRejecting(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE))).resolves.toBe('processed');
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
   it('returns idle when nothing is queued', async () => {
