@@ -10,6 +10,7 @@
  */
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
+import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { LocalProveOptions, LocalProveRequest } from './local-prove-transport';
 
 const IN_REALM = 'in-realm prove reached';
@@ -638,6 +639,7 @@ describe('the node has the write once submitProven resolves', () => {
 describe('the apply retry at the plain staged sites (#1233)', () => {
   const realOffscreenFlag = process.env.MIDEN_USE_OFFSCREEN_PROVING;
   afterEach(() => {
+    jest.useRealTimers();
     if (realOffscreenFlag === undefined) {
       delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
     } else {
@@ -728,14 +730,22 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
     }));
     return { apply, siteReader };
   };
+  // The retry's waits run on fake timers, so a failed apply costs no real time.
+  const afterApplyRetryWaits = async <T>(pending: Promise<T>): Promise<T> => {
+    await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, ms) => total + ms, 0));
+    return pending;
+  };
 
   it.each(sites)("%s: a failed apply is retried through the site's own client and lands", async (_site, site) => {
     const harness = buildHarness();
     const { apply, siteReader } = arrange(harness, site);
     apply.mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
     const { client, withWasmClientLock } = await site.load(harness);
+    jest.useFakeTimers();
 
-    await expect(withWasmClientLock(async () => site.write(client))).resolves.toBe(harness.result);
+    await expect(afterApplyRetryWaits(withWasmClientLock(async () => site.write(client)))).resolves.toBe(
+      harness.result
+    );
 
     expect(apply).toHaveBeenCalledTimes(2);
     expect(siteReader).toHaveBeenCalledWith('sdk-executed-acct');
@@ -753,6 +763,7 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       });
       const { client, withWasmClientLock, WasmClientPoisonedError } = await site.load(harness);
       const { isApplyAfterSubmitError } = await import('./sdk-error-code');
+      jest.useFakeTimers();
       let writing: Promise<unknown> = Promise.resolve();
 
       const lockError = await withWasmClientLock(async () => {
@@ -760,7 +771,7 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
         return writing;
       }).catch((caught: unknown) => caught);
       // The eviction settles the lock first; the abandoned write keeps running and ends on its own.
-      const abandoned = await writing.catch((caught: unknown) => caught);
+      const abandoned = await afterApplyRetryWaits(writing.catch((caught: unknown) => caught));
 
       expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
       expect(isApplyAfterSubmitError(abandoned)).toBe(true);

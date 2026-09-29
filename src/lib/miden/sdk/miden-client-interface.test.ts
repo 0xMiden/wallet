@@ -941,8 +941,8 @@ describe('MidenClientInterface', () => {
 
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-    const rejection = await client
-      .sendTransaction({
+    const rejection = await settleThroughApplyRetry(() =>
+      client.sendTransaction({
         accountId: 'sender',
         secondaryAccountId: 'recipient',
         faucetId: 'faucet',
@@ -951,7 +951,7 @@ describe('MidenClientInterface', () => {
         extraInputs: {},
         delegateTransaction: true
       } as any)
-      .catch((caught: unknown) => caught);
+    );
     return { rejection, fakeMidenClient, submitCalls: () => submitCalls };
   };
 
@@ -1140,9 +1140,7 @@ describe('MidenClientInterface', () => {
     const { extractSdkErrorCode } = await import('./sdk-error-code');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const error = await client
-      .newTransaction('acc-id', new Uint8Array([1, 2]), true)
-      .catch((caught: unknown) => caught);
+    const error = await settleThroughApplyRetry(() => client.newTransaction('acc-id', new Uint8Array([1, 2]), true));
 
     // A dApp transaction or an Agglayer bridge the node accepted: never re-executed, and reported
     // as landed so the loop catch completes it.
@@ -2637,9 +2635,9 @@ describe('MidenClientInterface', () => {
       const { extractSdkErrorCode } = await import('./sdk-error-code');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const error = await client
-        .newTransaction('mtst1acc', new Uint8Array([0xde, 0xad]))
-        .catch((caught: unknown) => caught);
+      const error = await settleThroughApplyRetry(() =>
+        client.newTransaction('mtst1acc', new Uint8Array([0xde, 0xad]))
+      );
 
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
       expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
