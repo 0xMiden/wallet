@@ -8,6 +8,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  isQueuedRowReady,
   nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
@@ -215,6 +216,11 @@ export async function startTransactionProcessing(): Promise<void> {
 
       const remaining = await getAllUncompletedTransactions();
       if (remaining.length === 0) break;
+
+      // Straight on only after a pass that ran a row, and only toward a row the loop's own pick would take. Any
+      // other pass waits, so a lock held elsewhere or a queue of cooling rows cannot spin through the pass ceiling.
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (result === 'processed' && remaining.some(row => isQueuedRowReady(row, nowSec))) continue;
 
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
