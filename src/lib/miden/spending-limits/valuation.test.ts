@@ -143,9 +143,9 @@ describe('resolveSpendsUsd', () => {
   it('fails closed when the asset cannot be identified at all', async () => {
     mockedMetadata.mockRejectedValue(new Error('rpc down'));
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
-      SpendingLimitPriceUnavailableError
-    );
+    const valued = resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ cause: expect.objectContaining({ message: 'rpc down' }) });
   });
 
   it('fails closed when metadata resolves to the unidentified placeholder instead of rejecting', async () => {
@@ -190,6 +190,7 @@ describe('resolveSpendsUsd', () => {
     const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
     await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
     await expect(valued).rejects.toMatchObject({ symbol: MIDEN_USDC_FAUCET });
+    await expect(valued).rejects.toMatchObject({ cause: expect.objectContaining({ message: 'wasm fetch failed' }) });
     expect(mockedMetadata).not.toHaveBeenCalled();
   });
 

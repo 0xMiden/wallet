@@ -49,8 +49,8 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
   if (first === undefined) return 0n;
   try {
     await ensureSdkWasmReady();
-  } catch {
-    throw new SpendingLimitPriceUnavailableError(first.faucetId);
+  } catch (cause) {
+    throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
   }
   let total = 0n;
   for (const spend of spends) {
@@ -68,8 +68,8 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       symbol = base.symbol;
       decimals = base.decimals;
       scaleKnown = hasKnownScale(base);
-    } catch {
-      throw new SpendingLimitPriceUnavailableError(spend.faucetId);
+    } catch (cause) {
+      throw new SpendingLimitPriceUnavailableError(spend.faucetId, { cause });
     }
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
     const priceSymbol = priceSymbolFor(faucetId, symbol);
