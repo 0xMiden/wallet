@@ -9,6 +9,8 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
 import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
@@ -381,10 +383,7 @@ describe('apply-after-submit on a private send', () => {
 
   // The SDK's numeric note type reads as public to a string compare, and an unreadable one says
   // nothing; either must be flagged, since under-reporting costs the recipient the funds (#1233).
-  it.each([
-    ["the SDK's numeric enum", 0],
-    ['an unreadable value', 'sealed']
-  ])('a landed send whose note type is %s is flagged undelivered (#1233)', async (_label, noteType) => {
+  const queueSendWithNoteType = (noteType: unknown) =>
     txStore.push({
       id: 'tx-apply-odd-type',
       type: 'send',
@@ -397,6 +396,24 @@ describe('apply-after-submit on a private send', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'SEND'
     });
+
+  it("a landed send whose note type is the SDK's numeric enum is flagged undelivered (#1233)", async () => {
+    // The shared SDK mock spells NoteType as strings, under which 0 reaches only the unreadable
+    // fallback; the real enum's values put it on the numeric match.
+    const realEnum = [jest.replaceProperty(NoteType, 'Private', 0), jest.replaceProperty(NoteType, 'Public', 1)];
+    try {
+      queueSendWithNoteType(0);
+      await runLoopWithFailingSend();
+    } finally {
+      realEnum.forEach(property => property.restore());
+    }
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+  });
+
+  it('a landed send whose note type is an unreadable value is flagged undelivered (#1233)', async () => {
+    queueSendWithNoteType('sealed');
 
     await runLoopWithFailingSend();
 
