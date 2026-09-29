@@ -7125,6 +7125,76 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
   });
 
+  // #1233: the retry asks the pipeline's own hold before it touches the client again. The store
+  // still holds the initial account, so only the hold check can stop the second apply.
+  it('Guardian send: an apply whose hold is lost after the first failure is not applied again (#1233)', async () => {
+    const txId = 'send-apply-hold-lost';
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-hold-lost' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    });
+    const result = Object.assign(makeResult(), {
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        accountId: () => 'sdk-guardian-acc',
+        initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
+      })
+    });
+    const apply = jest
+      .fn(async () => {})
+      .mockImplementationOnce(async () => {
+        revokeHold();
+        throw new Error(STORE_APPLY_ERROR_MESSAGE);
+      });
+    const accountsGet = jest.fn(async (_accountId: unknown) => ({
+      to_commitment: () => ({ toHex: () => '0xinitial' })
+    }));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: Object.assign(makeClientApi(result, apply), { accounts: { get: accountsGet } })
+    });
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000'
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+    const landed = warn.mock.calls.find(call => String(call[0]).includes('submit landed but local apply failed'));
+    warn.mockRestore();
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(accountsGet).not.toHaveBeenCalled();
+    expect(landed?.[1]).toMatchObject({ code: 'ApplyTransactionAfterSubmitFailed' });
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Sent');
+  });
+
   it('Guardian send: blocked while guardianSyncStatus is out of sync — fails fast without building a proposal', async () => {
     const txId = 'send-out-of-sync';
     txStore.push({

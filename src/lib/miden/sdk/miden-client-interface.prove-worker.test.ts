@@ -565,16 +565,18 @@ describe('the node has the write once submitProven resolves', () => {
 
   it.each(legs)('a %s whose first apply fails and whose retry lands resolves (#1233)', async (_leg, write) => {
     const harness = buildHarness();
+    // Not the leg's own `sdk-acct`, which the swap leg also reads: only the executed account's id
+    // finds the initial commitment, so a retry that reads any other account fails closed.
     Object.assign(harness.result, {
       executedTransaction: () => ({
         id: () => ({ toHex: () => '0xlanded' }),
-        accountId: () => 'sdk-acct',
+        accountId: () => 'sdk-executed-acct',
         initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
       })
     });
-    harness.fakeClient.accounts.get.mockImplementation(async () => ({
-      to_commitment: () => ({ toHex: () => '0xinitial' })
-    }));
+    harness.fakeClient.accounts.get.mockImplementation(async (accountId?: unknown) =>
+      accountId === 'sdk-executed-acct' ? { to_commitment: () => ({ toHex: () => '0xinitial' }) } : null
+    );
     const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('store abort'));
     harness.submitProven.mockImplementationOnce(async () => {
       harness.order.push('submitProven');
@@ -586,6 +588,7 @@ describe('the node has the write once submitProven resolves', () => {
 
     expect(apply).toHaveBeenCalledTimes(2);
     expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(harness.fakeClient.accounts.get).toHaveBeenCalledWith('sdk-executed-acct');
   });
 });
 
@@ -649,6 +652,30 @@ describe('ProveAttempt worker members', () => {
     await proveWithFallback(record, false, { disposed: false });
 
     expect(seen).toEqual([true, false, false]);
+  });
+
+  it("says the write's hold is not current once another hold owns the lock, with its client live (#1233)", async () => {
+    const harness = buildHarness();
+    const { proveWithFallback, withWasmClientLock } = await load(harness);
+    const attempts: Array<{ holdIsCurrent(): boolean }> = [];
+    await withWasmClientLock(async () =>
+      proveWithFallback(
+        async (_prover, attempt) => {
+          attempts.push(attempt);
+          return null;
+        },
+        false,
+        { disposed: false }
+      )
+    );
+    const seen: boolean[] = [];
+
+    // The attempt keeps its own non-null hold and a live client, so only the owner comparison can say no.
+    await withWasmClientLock(async () => {
+      for (const attempt of attempts) seen.push(attempt.holdIsCurrent());
+    });
+
+    expect(seen).toEqual([false]);
   });
 });
 

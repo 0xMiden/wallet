@@ -3853,6 +3853,44 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
+  it('guardianPipeline: an apply whose hold is evicted after the first failure is not applied again (#1233)', async () => {
+    // The eviction settles the reply with the waiter's poison first, so only the abandoned dispatch
+    // shows the wrap. The store still holds the initial account: only the hold check stops a retry.
+    await loadModule();
+    const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    const miden = jest.requireMock<
+      typeof import('lib/miden/sdk/miden-client') & {
+        __evictHolder: () => void;
+        __lastRunning: () => Promise<unknown> | null;
+      }
+    >('lib/miden/sdk/miden-client');
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    let dispatch: Promise<unknown> | null = null;
+    const apply = jest
+      .fn(async () => {})
+      .mockImplementationOnce(async () => {
+        dispatch = miden.__lastRunning();
+        miden.__evictHolder();
+        throw new Error('IndexedDB transaction aborted');
+      });
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    const abandoned = await Promise.resolve(dispatch).catch((caught: unknown) => caught);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientAccountsGet).not.toHaveBeenCalled();
+    expect(isApplyAfterSubmitError(abandoned)).toBe(true);
+  });
+
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
     await loadModule();
     let signatureSeen: Uint8Array | null = null;
