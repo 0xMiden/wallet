@@ -476,6 +476,10 @@ export const cancelStaleQueuedTransactions = async () => {
  */
 export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
 
+// Keeps one id per row this realm started, for the realm's life: any sweep this realm runs must spare them.
+// One sweep per realm is the norm (runtime.onStartup on the extension, the OrphanedTransactionRecovery latch
+// elsewhere), and a second is documented as safe only because the ids stay. Pruning at terminal writes would
+// couple the sweep to every status writer to save a few bytes per transaction.
 const startedInThisRealm = new Set<string>();
 
 /**
