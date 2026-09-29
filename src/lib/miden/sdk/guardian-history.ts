@@ -9,7 +9,11 @@ import {
 import { z } from 'zod';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  getVerificationBaseFee,
+  isVerificationBaseFeeKnownAbsent
+} from 'lib/miden-chain/native-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { getBech32AddressFromAccountId } from './helpers';
@@ -124,11 +128,11 @@ function fullNote(note: Note): GuardianHistoryNote {
 export async function decodeGuardianSummary(encoded: string): Promise<GuardianSummary> {
   if (encoded.length > 4_000_000) throw new Error('Guardian summary is too large');
   // Load fee metadata in the same realm that separates the output notes.
-  try {
-    await getNativeAssetId();
-    if ((await getVerificationBaseFee()) === null) throw new GuardianHistoryFeeUnavailableError();
-  } catch {
-    throw new GuardianHistoryFeeUnavailableError();
+  await getNativeAssetId();
+  if ((await getVerificationBaseFee()) === null) {
+    // Only the chain's own answer is terminal; a failed lookup is retried with the other sources.
+    if (isVerificationBaseFeeKnownAbsent()) throw new GuardianHistoryFeeUnavailableError();
+    throw new Error('Guardian history fee metadata is not available yet');
   }
   const summary = TransactionSummary.deserialize(b64ToU8(encoded));
   try {

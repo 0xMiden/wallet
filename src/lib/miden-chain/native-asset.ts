@@ -296,6 +296,17 @@ export function getVerificationBaseFeeSync(): number | null {
 }
 
 /**
+ * True only when a block header was read for the current scope and it carried no
+ * usable fee (no accessor, or an implausible value). False before any read, after a
+ * read that threw, during its retry cooldown, and whenever a fee is known, `0` included:
+ * those are "not known yet", which a caller may retry, not an answer from the chain.
+ */
+export function isVerificationBaseFeeKnownAbsent(): boolean {
+  invalidateOnEndpointChange();
+  return feeProbedScope === cacheScope() && feeMemCache === null;
+}
+
+/**
  * Resolves the chain's verification base fee, discovering it if needed.
  *
  * Shares the faucet id's discovery: both come off one block header, so this adds

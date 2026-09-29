@@ -1,10 +1,12 @@
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
 import { decodeGuardianSummary } from './guardian-history';
+import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 let mockAssetId = 'asset';
 let mockNativeLoaded = false;
 let mockFeeLoaded = false;
+let mockFeeKnownAbsent = false;
 const mockAssets = () => ({ fungibleAssets: () => [{ faucetId: () => mockAssetId, amount: () => 17n }] });
 const mockMetadata = () => ({ sender: () => 'sender', noteType: () => 1 });
 let mockStorage: bigint[];
@@ -60,7 +62,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(),
   getVerificationBaseFee: jest.fn(),
   getNativeAssetIdSync: () => (mockNativeLoaded ? 'fee' : null),
-  getVerificationBaseFeeSync: () => (mockFeeLoaded ? 3 : null)
+  getVerificationBaseFeeSync: () => (mockFeeLoaded ? 3 : null),
+  isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent
 }));
 jest.mock('./helpers', () => ({ getBech32AddressFromAccountId: (id: string) => id }));
 jest.mock('lib/shared/helpers', () => ({ b64ToU8: () => new Uint8Array() }));
@@ -70,6 +73,7 @@ beforeEach(() => {
   mockAssetId = 'asset';
   mockNativeLoaded = false;
   mockFeeLoaded = false;
+  mockFeeKnownAbsent = false;
   jest.mocked(getNativeAssetId).mockImplementation(async () => {
     mockNativeLoaded = true;
     return 'fee';
@@ -150,7 +154,23 @@ it('loads fee metadata before decoding a retained summary', async () => {
 
 it('does not decode inflated amounts when fee metadata is unavailable', async () => {
   jest.mocked(getVerificationBaseFee).mockResolvedValue(null);
-  await expect(decodeGuardianSummary('summary')).rejects.toThrow('fee metadata is unavailable');
+  mockFeeKnownAbsent = true;
+  await expect(decodeGuardianSummary('summary')).rejects.toBeInstanceOf(GuardianHistoryFeeUnavailableError);
+  expect(mockFree).not.toHaveBeenCalled();
+});
+
+it('passes a failed native asset lookup through unchanged', async () => {
+  const failure = new Error('rpc down');
+  jest.mocked(getNativeAssetId).mockRejectedValue(failure);
+  await expect(decodeGuardianSummary('summary')).rejects.toBe(failure);
+  expect(mockFree).not.toHaveBeenCalled();
+});
+
+it('reports a fee the chain has not answered for as a retryable failure', async () => {
+  jest.mocked(getVerificationBaseFee).mockResolvedValue(null);
+  const error = await decodeGuardianSummary('summary').catch((reason: unknown) => reason);
+  expect(error).toBeInstanceOf(Error);
+  expect(error).not.toBeInstanceOf(GuardianHistoryFeeUnavailableError);
   expect(mockFree).not.toHaveBeenCalled();
 });
 

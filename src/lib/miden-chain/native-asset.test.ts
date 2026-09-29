@@ -61,7 +61,8 @@ import {
   primeNativeAssetId,
   resetNativeAssetCache,
   getVerificationBaseFee,
-  getVerificationBaseFeeSync
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
 } from './native-asset';
 
 beforeEach(async () => {
@@ -114,6 +115,19 @@ describe('native-asset module', () => {
     await getVerificationBaseFee();
 
     expect(getVerificationBaseFeeSync()).toBe(0);
+  });
+
+  it('does not call the base fee absent before any header was read', async () => {
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  it.each([0, 3])('does not call a known base fee of %s absent', async fee => {
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => fee
+    };
+    await expect(getVerificationBaseFee()).resolves.toBe(fee);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
   it('rehydrates a zero base fee from storage instead of rediscovering it', async () => {
@@ -263,6 +277,10 @@ describe('native-asset module', () => {
     await expect(getVerificationBaseFee()).resolves.toBeNull();
 
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(true);
+    // The answer belongs to the node that gave it.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
   it('asks for the base fee once against a node quoting an implausible one', async () => {
@@ -286,6 +304,7 @@ describe('native-asset module', () => {
     // Never persisted, so it cannot outlive the session either. (The harness reports an
     // absent key as null; a write would have put the number here.)
     expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet']).toBeNull();
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(true);
   });
 
   it('does not re-probe per caller when the fee accessor THROWS', async () => {
@@ -302,11 +321,13 @@ describe('native-asset module', () => {
     };
 
     await expect(getVerificationBaseFee()).resolves.toBeNull();
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
     const afterFirst = _g.__nativeAssetTest.rpcCalls;
     await expect(getVerificationBaseFee()).resolves.toBeNull();
     await expect(getVerificationBaseFee()).resolves.toBeNull();
 
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
   it('drops a discovered base fee when the endpoint changes', async () => {
