@@ -18,7 +18,7 @@ import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
-import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
 import { clearLocalStateNotSaved, findUnsavedSwitchRow } from 'lib/miden/transaction/switch-guardian-residual';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -120,6 +120,11 @@ const selfHealState = new Map<string, SelfHealAttemptState>();
 // inheriting an exhausted one from the first.
 const consecutiveUnknownAccount = new Map<string, number>();
 const missingRegistrationState = new Map<string, SelfHealAttemptState>();
+
+// Monotonic deadline per previous guardian (canonical endpoint) before which the heal's adopt does not
+// contact it again: an adopt that ended in a watchdog eviction held the realm's WASM lock to its
+// ceiling, and the next lap would pay that again. The #777 fuse's interval, lit by one eviction.
+const previousGuardianAdoptPausedUntil = new Map<string, number>();
 
 /**
  * Consecutive unknown-account verdicts required before the first registration
@@ -458,6 +463,7 @@ export function __resetGuardianSyncOutageForTest(): void {
   rateLimitedUntil.clear();
   hardeningChecked.clear();
   missingRegistrationState.clear();
+  previousGuardianAdoptPausedUntil.clear();
   lastGuardianSyncAt.clear();
   syncedGuardianEndpoint.clear();
   // Retire any pass still in flight. Clearing `syncInFlight` alone let a running
@@ -507,7 +513,15 @@ async function adoptFromPreviousGuardian(
 ): Promise<boolean> {
   if (!account.hotPublicKey) return false;
   const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
-  if (!unsaved) return false;
+  // A direct switch fled that operator, so it never received the switch delta, and it may take the
+  // connection and go silent until the watchdog.
+  if (!unsaved || unsaved.switchedDirectly) return false;
+  const previousKey = canonicalGuardianEndpoint(unsaved.previousGuardianEndpoint);
+  const pausedUntil = previousGuardianAdoptPausedUntil.get(previousKey);
+  if (pausedUntil !== undefined) {
+    if (monotonicNowMs() < pausedUntil) return false;
+    previousGuardianAdoptPausedUntil.delete(previousKey);
+  }
   try {
     const sdkAccount = await withWasmClientLock(
       async () => midenClientProxy.getAccount(account.publicKey),
@@ -525,6 +539,9 @@ async function adoptFromPreviousGuardian(
     // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
     return (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
   } catch (error) {
+    if (isSyncWatchdogEviction(error)) {
+      previousGuardianAdoptPausedUntil.set(previousKey, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
+    }
     console.warn(
       `[Guardian Sync] could not adopt ${account.publicKey}'s post-switch state from ${unsaved.previousGuardianEndpoint}:`,
       error

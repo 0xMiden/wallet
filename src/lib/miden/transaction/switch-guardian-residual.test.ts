@@ -47,7 +47,18 @@ describe('findUnsavedSwitchRow (#1233)', () => {
 
     await expect(findUnsavedSwitchRow('acc-1_suffix', NEW)).resolves.toEqual({
       id: 'newer',
-      previousGuardianEndpoint: OLD
+      previousGuardianEndpoint: OLD,
+      switchedDirectly: false
+    });
+  });
+
+  it('reports a switch that took the direct path', async () => {
+    mockRows.push(switchRow('direct', 100, { localStateNotSaved: true, switchedDirectly: true }));
+
+    await expect(findUnsavedSwitchRow('acc-1', NEW)).resolves.toEqual({
+      id: 'direct',
+      previousGuardianEndpoint: OLD,
+      switchedDirectly: true
     });
   });
 

@@ -11,6 +11,8 @@ import { sameWalletAccountId } from '../sdk/helpers';
 export interface UnsavedSwitchRow {
   id: string;
   previousGuardianEndpoint: string;
+  /** The switch fled an unresponsive previous guardian, which never received its delta. */
+  switchedDirectly: boolean;
 }
 
 const isUnsavedSwitchTo = (tx: ITransaction, accountPublicKey: string, endpoint: string): boolean =>
@@ -28,7 +30,12 @@ export async function findUnsavedSwitchRow(
   const rows = await Repo.transactions.filter(tx => isUnsavedSwitchTo(tx, accountPublicKey, endpoint)).toArray();
   const newest = rows.sort((a, b) => b.initiatedAt - a.initiatedAt)[0];
   const previous: unknown = newest?.extraInputs?.previousGuardianEndpoint;
-  return newest && typeof previous === 'string' ? { id: newest.id, previousGuardianEndpoint: previous } : undefined;
+  if (!newest || typeof previous !== 'string') return undefined;
+  return {
+    id: newest.id,
+    previousGuardianEndpoint: previous,
+    switchedDirectly: newest.extraInputs.switchedDirectly === true
+  };
 }
 
 /** Clear the flag on every such row, once this device registered the post-switch state. */

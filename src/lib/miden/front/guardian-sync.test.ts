@@ -2418,7 +2418,11 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     beforeEach(() => {
       adopted = false;
-      mockFindUnsavedSwitchRow.mockResolvedValue({ id: 'switch-row', previousGuardianEndpoint: previousEndpoint });
+      mockFindUnsavedSwitchRow.mockResolvedValue({
+        id: 'switch-row',
+        previousGuardianEndpoint: previousEndpoint,
+        switchedDirectly: false
+      });
       mockAdoptGuardianState.mockReset();
       mockAdoptGuardianState.mockImplementation(async () => {
         adopted = true;
@@ -2472,6 +2476,51 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       await runUntilPersistent();
 
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    // The direct path fled that operator: it never received the switch delta, and an init against it
+    // can hold the realm's WASM lock until the watchdog.
+    it('never contacts the previous guardian for a switch that took the direct path', async () => {
+      mockFindUnsavedSwitchRow.mockResolvedValue({
+        id: 'switch-row',
+        previousGuardianEndpoint: previousEndpoint,
+        switchedDirectly: true
+      });
+
+      await runUntilPersistent();
+
+      expect(mockFindUnsavedSwitchRow).toHaveBeenCalledWith('unregistered-pk', endpoint);
+      expect(mockMultisigInit).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('stops contacting a previous guardian that held the lock to the watchdog until the fuse interval passes', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = performance.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      // The heal is due again and runs (a second key check), but does not reach that operator.
+      dateSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      // Once the interval has passed it tries again, and an operator that answers completes the repair.
+      mockMultisigInit.mockResolvedValue({ adoptGuardianStateOnce: mockAdoptGuardianState });
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
     });
   });
 });
