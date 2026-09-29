@@ -39,6 +39,7 @@ const TST_METADATA = {
 };
 
 const USDC_METADATA = { ...TST_METADATA, symbol: 'USDC', name: 'USDC' };
+const IETH_METADATA = { ...TST_METADATA, decimals: 8, symbol: 'IETH', name: 'IETH' };
 
 const sentinelAccountId = { __brand: 'faucet-account-id' };
 const usdcAccountId = { __brand: 'usdc-faucet-account-id' };
@@ -53,6 +54,10 @@ const BECH32_BY_ACCOUNT_ID = new Map<unknown, string>([
   [ibtcAccountId, TOKEN_IBTC.faucetId]
 ]);
 const ACCOUNT_ID_BY_BECH32 = new Map([...BECH32_BY_ACCOUNT_ID].map(([accountId, bech32]) => [bech32, accountId]));
+// A bech32 id's prefix names its network, so each faucet above has one spelling per network.
+const PREFIX_BY_NETWORK: Record<string, string> = { testnet: 'mtst', devnet: 'mdev' };
+const spelledOn = (bech32: string, network: string): string =>
+  bech32.replace(/^[a-z]+1/, `${PREFIX_BY_NETWORK[network]}1`);
 
 const mockFromHex = jest.fn();
 const mockFromBech32 = jest.fn();
@@ -69,10 +74,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   BasicFungibleFaucetComponent: { fromAccountStorage: jest.fn() }
 }));
 
+// The network a user can switch mid-valuation: the SDK's id encoding (`getNetworkId`) and the
+// canonical-id cache key both follow it, as they do in the wallet.
+let mockNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockNetwork
+}));
+
 jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve()),
   getRpcEndpoint: jest.fn(() => 'mock-endpoint'),
-  getNetworkId: jest.fn(() => 'testnet')
+  getNetworkId: jest.fn(() => mockNetwork)
 }));
 
 jest.mock('lib/miden/assets', () => ({ isMidenAsset: () => false }));
@@ -97,6 +110,7 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     // An earlier case's successful parse would otherwise match the allowlist without the SDK.
     _resetNormalizedFaucetIdsForTest();
     process.env.MIDEN_E2E_TEST = 'true';
+    mockNetwork = 'testnet';
 
     // The metadata cache holds TST under the BECH32 key - the form every wallet-populated cache
     // entry uses (`getBech32AddressFromAccountId`), matching the E2E fixture's own faucet.
@@ -111,12 +125,16 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
       hex === HEX_FAUCET ? sentinelAccountId : hex === MIDEN_USDC_FAUCET ? usdcAccountId : { __brand: 'other' }
     );
     mockFromAccountId.mockImplementation((accountId: unknown, iface: string) => ({
-      toBech32: () => (iface === 'BasicWallet' ? BECH32_BY_ACCOUNT_ID.get(accountId) : undefined) ?? 'unexpected'
+      toBech32: (network: string) => {
+        const bech32 = iface === 'BasicWallet' ? BECH32_BY_ACCOUNT_ID.get(accountId) : undefined;
+        return bech32 === undefined ? 'unexpected' : spelledOn(bech32, network);
+      }
     }));
-    // The real SDK's `Address.fromBech32` rejects a non-bech32 string (a hex id included) rather
-    // than silently accepting it - the RPC-path parse failure this bug goes through.
+    // The real SDK's `Address.fromBech32` parses any network's spelling of an id but rejects a
+    // non-bech32 string (a hex id included) rather than silently accepting it - the RPC-path parse
+    // failure this bug goes through.
     mockFromBech32.mockImplementation((address: string) => {
-      const accountId = ACCOUNT_ID_BY_BECH32.get(address);
+      const accountId = ACCOUNT_ID_BY_BECH32.get(spelledOn(address, 'testnet'));
       if (accountId !== undefined) return { accountId: () => accountId };
       throw new Error(`invalid bech32 address: ${address}`);
     });
@@ -171,6 +189,19 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     );
 
     await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
+  });
+
+  it('values an IETH spend at ETH when the network switches while its metadata loads (#1131 F-006)', async () => {
+    mockFetchFromStorage.mockImplementation(async (key: string) => {
+      if (key === 'usd_price_cache') return { ETH: { priceMicro: '2000000000', fetchedAt: 10 } };
+      // The spend was canonicalized, and its metadata cached, under the network it started on.
+      mockNetwork = 'devnet';
+      return { [TOKEN_IETH.faucetId]: IETH_METADATA };
+    });
+
+    await expect(resolveSpendsUsd([{ faucetId: TOKEN_IETH.faucetId, amount: 100_000_000n }], 10)).resolves.toBe(
+      2_000_000_000n
+    );
   });
 
   it('refuses a USDC spend whose allowlist entry the SDK cannot parse, never counting it as nothing (#1131 F-001)', async () => {

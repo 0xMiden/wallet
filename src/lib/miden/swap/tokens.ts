@@ -191,12 +191,14 @@ export function priceSymbolFor(faucetId: string, symbol: string): string | undef
 }
 
 /**
- * `priceSymbolFor` for the spending cap, over an id `canonicalFaucetId` produced. An allowlist entry
- * the SDK cannot parse throws rather than dropping out of the match, since its raw text would miss
- * the spend and count a priced spend as nothing.
+ * `priceSymbolFor` for the spending cap, over any spelling of the spend's faucet id. The spend's id
+ * and every allowlist entry are canonicalized when it runs, under one network, so an id canonicalized
+ * before a network switch still matches.
+ * Either side the SDK cannot parse throws rather than dropping out of the match, since its raw text
+ * would miss and count a priced spend as nothing.
  */
-export function strictPriceSymbolFor(canonicalId: string, symbol: string): string | undefined {
-  return matchPriceSymbol(canonicalId, symbol, canonicalFaucetId);
+export function strictPriceSymbolFor(faucetId: string, symbol: string): string | undefined {
+  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId);
 }
 
 /**

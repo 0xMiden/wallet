@@ -63,10 +63,11 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
       // several spellings of this faucet into one canonical hex id (the dApp custom path's
       // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
-      // spelling and fail identification for a faucet the wallet has already met. The same
-      // canonical id is what `strictPriceSymbolFor` matches the allowlist against below, so an id
-      // the SDK cannot parse refuses the spend: its raw text would miss the allowlist and count a
-      // priced spend as nothing.
+      // spelling and fail identification for a faucet the wallet has already met. An id the SDK
+      // cannot parse refuses the spend: its raw text would miss the allowlist and count a priced
+      // spend as nothing. `strictPriceSymbolFor` canonicalizes it again at match time, alongside
+      // the allowlist, so a network switch during the metadata await cannot turn a priced spend
+      // into $0.
       faucetId = canonicalFaucetId(spend.faucetId);
       const { base } = await fetchTokenMetadata(faucetId);
       symbol = base.symbol;

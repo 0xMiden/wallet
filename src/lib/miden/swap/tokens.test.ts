@@ -33,12 +33,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: jest.fn()
 }));
 
-// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different. As the
-// SDK's re-encode does, an id already in that form maps to itself.
-const mockFakeBech32 = (id: unknown): string => {
-  const text = String(id);
-  return text.startsWith('bech32:') ? text : `bech32:${text}`;
-};
+// Balances key a faucet by the SDK's bech32 form of its id, whose prefix names the network; make that
+// form visibly different. As the SDK's re-encode does, an id in any network's form re-encodes under
+// the current network, so an id already in the current form maps to itself.
+const mockFakeBech32 = (id: unknown): string => `${getEffectiveNetworkName()}:${String(id).replace(/^\w+:/, '')}`;
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
   accountRefToSdk: (id: string) => id,
@@ -149,7 +147,7 @@ describe('priceSymbolFor', () => {
     ['the Agglayer-bridged ETH', MIDEN_AGGLAYER_FAUCET_ID, 'ETH']
   ])('prices %s under either id encoding', (_name, faucetId, priceSymbol) => {
     expect(priceSymbolFor(faucetId, 'ANY')).toBe(priceSymbol);
-    expect(priceSymbolFor(`bech32:${faucetId}`, 'ANY')).toBe(priceSymbol);
+    expect(priceSymbolFor(`testnet:${faucetId}`, 'ANY')).toBe(priceSymbol);
   });
 
   it('matches a faucet spelled in another encoding than the allowlist entry (hex against bech32)', () => {
@@ -176,7 +174,7 @@ describe('priceSymbolFor', () => {
     expect(priceSymbolFor('mtst1other', 'BTC')).toBeUndefined();
     expect(priceSymbolFor('mtst1other', 'IETH')).toBeUndefined();
     expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBeUndefined();
-    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
+    expect(priceSymbolFor(`testnet:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
   });
 
   it('prices the E2E fixture symbol TST by symbol only in an E2E build', () => {
@@ -207,16 +205,24 @@ describe('strictPriceSymbolFor', () => {
     expect(strictPriceSymbolFor(canonicalFaucetId(TOKEN_IETH.faucetId), 'IETH')).toBe('ETH');
   });
 
+  // #1131 F-006: the cap canonicalizes a spend before its metadata await; a network switch during
+  // that await must not leave the spend spelled for the old network while the entries re-encode.
+  it('matches an id canonicalized before a network switch against the entries as the new network spells them', () => {
+    const spend = canonicalFaucetId(TOKEN_IETH.faucetId);
+    mockNetworkName.mockReturnValue('devnet' as any);
+    expect(strictPriceSymbolFor(spend, 'IETH')).toBe(TOKEN_IETH.priceSymbol);
+  });
+
   it('throws when an allowlist entry it compares cannot be parsed, rather than missing the match', () => {
     usdcEntryFailsToParse();
-    expect(() => strictPriceSymbolFor(`bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toThrow(parseError);
+    expect(() => strictPriceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toThrow(parseError);
   });
 
   it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
     usdcEntryFailsToParse();
     const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
-    expect(priceSymbolFor(`bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
-    expect(tokenQuote({ USDC: usdc }, `bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
+    expect(priceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
+    expect(tokenQuote({ USDC: usdc }, `testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
   });
 });
 
@@ -247,7 +253,7 @@ describe('tokenQuote', () => {
 
 describe('canonicalFaucetId', () => {
   it("returns the SDK's form of an id", () => {
-    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
   });
 
   it('throws when the SDK cannot parse the id, and caches nothing', () => {
@@ -256,16 +262,16 @@ describe('canonicalFaucetId', () => {
       throw parseError;
     });
     expect(() => canonicalFaucetId(TOKEN_IETH.faucetId)).toThrow(parseError);
-    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
-    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
     expect(mockToBech32).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('normalizedFaucetId', () => {
   it('converts an id once per network', () => {
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
     expect(mockToBech32).toHaveBeenCalledTimes(1);
   });
 
@@ -284,7 +290,7 @@ describe('normalizedFaucetId', () => {
       throw new Error('wasm not ready');
     });
     expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(TOKEN_IETH.faucetId);
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
   });
 });
 
