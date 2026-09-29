@@ -970,6 +970,25 @@ describe('local-prove window markers without a transport', () => {
     ]);
   });
 
+  it('a local in-realm consume proves between the window markers (the leg all four plain writes share)', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const trail: string[] = [];
+    jest.doMock('./prove-telemetry', () => ({
+      ...jest.requireActual<typeof import('./prove-telemetry')>('./prove-telemetry'),
+      recordProveMarker: (line: string) => trail.push(line)
+    }));
+    const harness = buildHarness();
+    harness.inRealm.onLocalProve = () => trail.push('in-realm prove');
+    const { client, withWasmClientLock } = await load(harness, false);
+    await withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)));
+    const bracket = trail.filter(line => line.includes('local-prove-window') || line === 'in-realm prove');
+    expect(bracket).toEqual([
+      '[prove-timing] local-prove-window open',
+      'in-realm prove',
+      '[prove-timing] local-prove-window close'
+    ]);
+  });
+
   it('emits no local-prove-window markers for a delegated attempt or a disposed client', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
     const trail: string[] = [];
