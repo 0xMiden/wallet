@@ -72,6 +72,7 @@ import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
+  landedValueRowFields,
   markMayHaveSubmitted,
   setTransactionStage,
   updateTransactionStatus
@@ -252,57 +253,6 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
   if (tx.type === 'earn-deposit') return true;
   if (tx.type === 'bridged-send') return bridgeProviderOf(tx) === RESULT_AWAITING_BRIDGE_PROVIDER;
   return false;
-};
-
-/**
- * Activity label for a row, Guardian or not, whose submit LANDED on chain but whose
- * local reconcile failed. There is no `TransactionResult` here, so the label is the one
- * the type's normal completion writes, derived from the row alone:
- * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
- * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
- * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
- * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
- * `completeCustomTransaction` reads its label off the result, so a landed execute takes
- * the one it writes when the result shows no single direction, "Executed".
- */
-const applyLandedDisplayMessage = (tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>): string => {
-  switch (tx.type) {
-    case 'consume':
-      return compareAccountIds(tx.accountId, tx.secondaryAccountId ?? '') ? 'Reclaimed' : 'Received';
-    case 'swap':
-      return 'Swapped';
-    case 'bridged-send':
-      return 'Bridged to EVM';
-    case 'execute':
-      return 'Executed';
-    default:
-      return 'Sent';
-  }
-};
-
-/**
- * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
- * on either catch (#1233). A PRIVATE send's note reaches its recipient only through
- * `completeSendTransaction`'s relay, which never ran and which no sync repairs, so the row says the
- * note was not delivered. `isPrivateNoteType` and not a string compare, since a row can hold the
- * SDK's numeric note type; an unreadable one counts as private, because under-reporting costs the
- * funds while over-reporting costs a stale warning.
- */
-const landedValueRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId'>
-): { displayMessage: string; noteDelivery?: 'undelivered' } => {
-  let privateSend = tx.type === 'send';
-  if (privateSend) {
-    try {
-      privateSend = isPrivateNoteType(tx.noteType);
-    } catch {
-      privateSend = true;
-    }
-  }
-  const displayMessage = applyLandedDisplayMessage(tx);
-  return privateSend
-    ? { displayMessage: `${displayMessage} - the private note could not be delivered`, noteDelivery: 'undelivered' }
-    : { displayMessage };
 };
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
