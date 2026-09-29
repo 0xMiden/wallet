@@ -255,8 +255,8 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
 };
 
 /**
- * Activity label for a guardian row whose submit LANDED on chain but whose local
- * reconcile failed. There is no `TransactionResult` here, so the label is derived
+ * Activity label for a row, Guardian or not, whose submit LANDED on chain but whose
+ * local reconcile failed. There is no `TransactionResult` here, so the label is derived
  * from the type alone and must match what the happy-path completion handler would
  * have written: `completeConsumeTransaction` → "Claimed",
  * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
@@ -265,6 +265,31 @@ const applyLandedDisplayMessage = (type: ITransactionType): string => {
   if (type === 'consume') return 'Claimed';
   if (type === 'bridged-send') return 'Bridged to EVM';
   return 'Sent';
+};
+
+/**
+ * The Completed fields for a value-moving row whose submit landed and whose local apply did not,
+ * on either catch (#1233). A PRIVATE send's note reaches its recipient only through
+ * `completeSendTransaction`'s relay, which never ran and which no sync repairs, so the row says the
+ * note was not delivered. `isPrivateNoteType` and not a string compare, since a row can hold the
+ * SDK's numeric note type; an unreadable one counts as private, because under-reporting costs the
+ * funds while over-reporting costs a stale warning.
+ */
+const landedValueRowFields = (
+  tx: Pick<ITransaction, 'type' | 'noteType'>
+): { displayMessage: string; noteDelivery?: 'undelivered' } => {
+  let privateSend = tx.type === 'send';
+  if (privateSend) {
+    try {
+      privateSend = isPrivateNoteType(tx.noteType);
+    } catch {
+      privateSend = true;
+    }
+  }
+  const displayMessage = applyLandedDisplayMessage(tx.type);
+  return privateSend
+    ? { displayMessage: `${displayMessage} - the private note could not be delivered`, noteDelivery: 'undelivered' }
+    : { displayMessage };
 };
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -1281,7 +1306,7 @@ const generateTransactionWithProvider = async (
         );
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: applyLandedDisplayMessage(transaction.type),
+            ...landedValueRowFields(transaction),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -1300,7 +1325,7 @@ const generateTransactionWithProvider = async (
         console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: applyLandedDisplayMessage(transaction.type),
+            ...landedValueRowFields(transaction),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -3559,35 +3584,10 @@ export const generateTransactionsLoop = async (
         // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
         // next sync reconciles via ConsumedExternal.
         //
-        // A PRIVATE send reaching here has strictly worse consequences than "the next
-        // sync reconciles it", and they are invisible from the row alone. The apply
-        // threw, so `completeSendTransaction` never ran — and that is the only code
-        // that hands a private note to the transport. The transaction is on chain and
-        // its note was never relayed to anyone, which no amount of syncing repairs:
-        // sync reconciles what the CHAIN knows, and the chain holds a commitment, not
-        // the note body the recipient needs. Marking this Completed with a bare
-        // "Completed" is therefore the same silent loss this field exists to expose.
-        //
-        // There is nothing to retry from here — the apply threw before a
-        // `TransactionResult` could be captured, so the note bytes are gone with the
-        // call frame — which is exactly why it has to be surfaced rather than
-        // absorbed.
-        // `isPrivateNoteType`, not a bare compare against the string enum: a row can
-        // hold the SDK's NUMERIC note type, which a string compare reads as public —
-        // and that would report this exact loss as a clean "Completed". Unreadable
-        // values resolve toward private, since over-reporting a delivery problem
-        // costs a stale warning while under-reporting costs the funds.
-        let isPrivateSend = tx.type === 'send';
-        if (isPrivateSend) {
-          try {
-            isPrivateSend = isPrivateNoteType(tx.noteType);
-          } catch {
-            isPrivateSend = true;
-          }
-        }
+        // A private send's note was never relayed, and the row says so (`landedValueRowFields`, which
+        // the Guardian catch shares so the two cannot disagree about one landed send).
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: isPrivateSend ? 'Completed — the private note could not be delivered' : 'Completed',
-          ...(isPrivateSend ? { noteDelivery: 'undelivered' as const } : {}),
+          ...landedValueRowFields(tx),
           completedAt: Math.floor(Date.now() / 1000)
         });
       }

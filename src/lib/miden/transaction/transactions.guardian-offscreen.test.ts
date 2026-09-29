@@ -2651,6 +2651,31 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       expect(complete).not.toHaveBeenCalled();
     }
   );
+
+  it('send: a canonicalization refusal on a private send completes it with its note undelivered (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+          'local nonce 4 but commitments differ for account 0xacc'
+      )
+    );
+    const row = {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private'
+    };
+    arrange('refusal-private-send', row);
+
+    await generateTransaction(buildTx('refusal-private-send', row) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'refusal-private-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.noteDelivery).toBe('undelivered');
+    expect(finalRow.displayMessage).toBe('Sent - the private note could not be delivered');
+  });
 });
 
 // ─── Structural guardian types (issue #260, slice 6b) ────────────────────────

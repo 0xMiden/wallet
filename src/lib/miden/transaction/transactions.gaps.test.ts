@@ -376,7 +376,32 @@ describe('apply-after-submit on a private send', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     // ...but not as an unqualified success.
     expect(txStore[0]!.noteDelivery).toBe('undelivered');
-    expect(txStore[0]!.displayMessage).toBe('Completed — the private note could not be delivered');
+    expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
+  });
+
+  // The SDK's numeric note type reads as public to a string compare, and an unreadable one says
+  // nothing; either must be flagged, since under-reporting costs the recipient the funds (#1233).
+  it.each([
+    ["the SDK's numeric enum", 0],
+    ['an unreadable value', 'sealed']
+  ])('a landed send whose note type is %s is flagged undelivered (#1233)', async (_label, noteType) => {
+    txStore.push({
+      id: 'tx-apply-odd-type',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend();
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
   });
 });
 
@@ -403,7 +428,7 @@ describe('apply-after-submit on a public send', () => {
 
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
-    expect(txStore[0]!.displayMessage).toBe('Completed');
+    expect(txStore[0]!.displayMessage).toBe('Sent');
   });
 
   // The receiver the send site's own wrap reaches (#1233): a raw store failure carries neither the
@@ -429,7 +454,7 @@ describe('apply-after-submit on a public send', () => {
     // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
-    expect(txStore[0]!.displayMessage).toBe('Completed');
+    expect(txStore[0]!.displayMessage).toBe('Sent');
   });
 });
 

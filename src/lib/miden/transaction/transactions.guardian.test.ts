@@ -7058,6 +7058,7 @@ describe('generateTransaction — Guardian routing', () => {
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
       expect(row.displayMessage).toBe('Sent');
+      expect(row.noteDelivery).toBeUndefined();
     }
   );
 
@@ -7123,6 +7124,53 @@ describe('generateTransaction — Guardian routing', () => {
     // Written by `completeSendTransaction` from the result, which no landed arm has.
     expect(row.transactionId).toBe('exec-tx-hash');
     expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  it('Guardian private send whose apply fails after submit is Completed with its note undelivered (#1233)', async () => {
+    const txId = 'send-private-apply-fail';
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-private' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw new Error(STORE_APPLY_ERROR_MESSAGE);
+        })
+      )
+    });
+    const queued = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private'
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued });
+
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    // Only `completeSendTransaction` relays a private note to its recipient, and it never ran.
+    expect(row.noteDelivery).toBe('undelivered');
+    expect(row.displayMessage).toBe('Sent - the private note could not be delivered');
   });
 
   // #1233: the retry asks the pipeline's own hold before it touches the client again. The store

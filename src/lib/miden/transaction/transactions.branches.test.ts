@@ -940,6 +940,7 @@ describe('generateTransactionsLoop error paths', () => {
     // offer a retry for a consume that already happened. Accepting either
     // terminal status here made the test's own name unfalsifiable.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).toBe('Claimed');
 
     sdk.withWasmClientLock = origLock;
   });
@@ -1013,6 +1014,7 @@ describe('generateTransactionsLoop error paths', () => {
     const row = txStore.find(t => t.id === 'tx-agglayer-apply-fail');
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.status).not.toBe(ITransactionStatus.Failed);
+    expect(row.displayMessage).toBe('Bridged to EVM');
 
     sdk.withWasmClientLock = origLock;
   });
