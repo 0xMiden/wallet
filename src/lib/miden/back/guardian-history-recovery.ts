@@ -38,6 +38,17 @@ type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsuppo
 
 export const MAX_HISTORY_ENTRIES_PER_SOURCE = 10_000;
 
+/** Sessions an operator the account may never have used can answer "no history" before its source ends empty. */
+export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
+
+// Checkpoints answered unsupported since the backend started or the wallet last locked. A pass is counted once per
+// session, so a deferral restart cannot spend the cap.
+const unsupportedHistorySources = new Set<string>();
+
+export function forgetUnsupportedHistorySources(): void {
+  unsupportedHistorySources.clear();
+}
+
 export interface GuardianHistoryRecoveryContext {
   createClient: (
     account: WalletAccount,
@@ -91,12 +102,14 @@ export async function hasFailedGuardianHistory(account: WalletAccount): Promise<
 
 export async function recoverGuardianHistory(account: WalletAccount, context: GuardianHistoryRecoveryContext) {
   if (await hasFailedGuardianHistory(account)) {
-    return { deferred: false, sourceFailures: 1, restored: 0, failed: true };
+    return { deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 };
   }
   const network = getEffectiveNetworkName();
   const canonicalAccountId = canonicalWalletAccountId(account.publicKey);
   const initialState = await readGuardianHistoryState();
-  if (initialState.generation !== context.generation) return { deferred: true, sourceFailures: 0, restored: 0 };
+  if (initialState.generation !== context.generation) {
+    return { deferred: true, sourceFailures: 0, restored: 0, deferredSources: 0 };
+  }
   const local = await transactions.where('accountId').equals(account.publicKey).toArray();
   const current = await resolveGuardianEndpoint(account);
   // Guardian history and backup files can name any host, so only rows this wallet made add operators.
@@ -115,6 +128,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     if ((await readGuardianHistoryGeneration()) !== context.generation) throw new HistoryInterrupted();
   };
   let sourceFailures = 0;
+  let deferredSources = 0;
   let restored = local.filter(row => row.recovered && row.recovery?.network === network).length;
   const commitments = new Map<string, string>();
   // Only a clean notes pass reaches this phase, so a retry may resume here.
@@ -142,6 +156,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         restored: 0
       };
       if (checkpoint.completed) continue;
+      if (unsupportedHistorySources.has(id) && checkpoint.failure === 'unsupported') {
+        deferredSources++;
+        continue;
+      }
       try {
         await check();
         const { guardian, guardianAccountId } = await context.createClient(account, operator);
@@ -164,8 +182,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                   if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
                     if (error.code === 'account_not_found')
                       return { kind: 'page', page: { entries: [], nextCursor: undefined } };
-                    // An operator the account may never have used must not hold the pending flag,
-                    // but stays unfinished so a later pass asks again once it serves history.
+                    // An operator the account may never have used is a deferred source, asked again in later
+                    // sessions up to MAX_UNSUPPORTED_HISTORY_PASSES and then completed empty.
                     if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported')
                       return { kind: 'unsupported' };
                   }
@@ -175,8 +193,14 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             check
           );
           if (outcome.kind === 'unsupported') {
-            checkpoint = { ...checkpoint, failure: 'unsupported' };
+            const unsupportedPasses = (checkpoint.unsupportedPasses ?? 0) + 1;
+            const exhausted = unsupportedPasses >= MAX_UNSUPPORTED_HISTORY_PASSES;
+            checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted };
             if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
+            if (!exhausted) {
+              unsupportedHistorySources.add(id);
+              deferredSources++;
+            }
             break;
           }
           const { page } = outcome;
@@ -314,7 +338,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
           await saveGuardianHistoryCheckpoint(context.generation, { ...checkpoint, failure: 'fee-metadata' });
-          return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true };
+          return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
         sourceFailures++;
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
@@ -328,9 +352,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       error instanceof OperationAbortedError ||
       error instanceof WasmClientPoisonedError
     ) {
-      return { deferred: true, sourceFailures, restored };
+      return { deferred: true, sourceFailures, restored, deferredSources };
     }
     throw error;
   }
-  return { deferred: false, sourceFailures, restored };
+  return { deferred: false, sourceFailures, restored, deferredSources };
 }

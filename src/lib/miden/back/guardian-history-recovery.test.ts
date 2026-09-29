@@ -21,6 +21,7 @@ import {
 import { exportDb, importDb, transactions } from '../repo';
 import {
   classifyHistoryFailure,
+  forgetUnsupportedHistorySources,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
   recoverGuardianHistory
 } from './guardian-history-recovery';
@@ -117,6 +118,7 @@ function source(endpoint: string, pages: HistoryPage[]) {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  forgetUnsupportedHistorySources();
   await transactions.clear();
   await clearGuardianHistoryCheckpoints();
   clients = new Map();
@@ -132,7 +134,7 @@ beforeEach(async () => {
 });
 
 it('paginates current source first, removes duplicate operators, and merges duplicate deltas', async () => {
-  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 3 });
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 3, deferredSources: 0 });
   expect(createClient.mock.calls.map(call => call[1])).toEqual(['https://one', 'https://two']);
   const rows = await transactions.toArray();
   expect(rows).toHaveLength(3);
@@ -469,7 +471,7 @@ it('treats an absent account on another Guardian as an empty completed source', 
     .spyOn(client, 'getDeltaHistory')
     .mockReset()
     .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
-  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2 });
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 0 });
   const checkpoint = Object.values((await readGuardianHistoryState()).checkpoints).find(
     value => value.operator === 'https://two'
   );
@@ -504,22 +506,48 @@ it('defers a run whose generation was read before the key was removed', async ()
   expect(await transactions.count()).toBe(0);
 });
 
-it('asks an operator the account never used again when it does not serve history yet', async () => {
+it('defers an operator the account never used while it serves no history, once per session and up to a cap', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 1 });
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 1 });
+  expect(jest.mocked(reportGuardianNoteRecoveryProgress).mock.calls.every(([progress]) => progress.sourcesClean)).toBe(
+    true
+  );
+
+  // A deferral restart in the same session skips it without spending a pass.
+  createClient.mockClear();
+  expect((await run()).deferredSources).toBe(1);
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('https://two');
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+
+  forgetUnsupportedHistorySources();
+  expect((await run()).deferredSources).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 2 });
+
+  forgetUnsupportedHistorySources();
+  expect((await run()).deferredSources).toBe(0);
+  expect(await twoCheckpoint()).toMatchObject({ completed: true, failure: 'unsupported', unsupportedPasses: 3 });
+
+  forgetUnsupportedHistorySources();
+  createClient.mockClear();
+  await run();
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('https://two');
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(3);
+});
+
+it('asks a deferred operator again in the next session and restores what it serves then', async () => {
   const client = source('https://two', []);
   jest
     .spyOn(client, 'getDeltaHistory')
     .mockRejectedValueOnce(new GuardianHttpError(404, 'Not Found', ''))
     .mockResolvedValueOnce({ entries: [entry(3)] });
-  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2 });
-  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported' });
-  expect(jest.mocked(reportGuardianNoteRecoveryProgress).mock.calls.every(([progress]) => progress.sourcesClean)).toBe(
-    true
-  );
-  createClient.mockClear();
-  expect((await run()).sourceFailures).toBe(0);
-  expect(createClient.mock.calls.map(call => call[1])).toEqual(['https://two']);
+  expect((await run()).deferredSources).toBe(1);
+  forgetUnsupportedHistorySources();
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 3, deferredSources: 0 });
   expect(await transactions.count()).toBe(3);
   expect(await twoCheckpoint()).toMatchObject({ completed: true });
+  expect((await twoCheckpoint())?.failure).toBeUndefined();
 });
 
 it('counts the same answer from the current operator as a failed source', async () => {
@@ -529,15 +557,31 @@ it('counts the same answer from the current operator as a failed source', async 
     .spyOn(client, 'getDeltaHistory')
     .mockReset()
     .mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
-  expect((await run()).sourceFailures).toBe(1);
+  const result = await run();
+  expect(result.sourceFailures).toBe(1);
+  expect(result.deferredSources).toBe(0);
 });
 
 it('counts the same answer from an operator a local switch left as a failed source', async () => {
   await localSwitch('https://two');
   const client = source('https://two', []);
   jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
-  expect((await run()).sourceFailures).toBe(1);
+  const result = await run();
+  expect(result.sourceFailures).toBe(1);
+  expect(result.deferredSources).toBe(0);
   expect((await twoCheckpoint())?.failure).toBe('unsupported');
+});
+
+it('counts the same answer on a later page as a failed source', async () => {
+  const client = source('https://two', []);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockResolvedValueOnce({ entries: [entry(3)], nextCursor: 'b' })
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+  const result = await run();
+  expect(result.sourceFailures).toBe(1);
+  expect(result.deferredSources).toBe(0);
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', cursor: 'b' });
 });
 
 it('does not treat a missing delta for a listed entry as an empty source', async () => {

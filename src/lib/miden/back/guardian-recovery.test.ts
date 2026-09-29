@@ -1,4 +1,4 @@
-import { GuardianHttpClient } from '@openzeppelin/guardian-client';
+import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-client';
 
 import {
   clearGuardianNoteRecoveryProgress,
@@ -44,8 +44,32 @@ jest.mock('@openzeppelin/guardian-client', () => ({
     setSigner: jest.fn(),
     getDeltaProposals: jest.fn().mockResolvedValue([]),
     getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' })
-  }))
+  })),
+  GuardianHttpError: class extends Error {
+    code: string | null;
+    constructor(
+      public status: number,
+      public statusText: string,
+      public body: string
+    ) {
+      super(body);
+      this.code = body === 'account_not_found' ? body : null;
+    }
+  }
 }));
+// Only the case that runs the real history pass reads this list.
+jest.mock('lib/miden-chain/constants', () => {
+  const actual = jest.requireActual('lib/miden-chain/constants');
+  return {
+    ...actual,
+    MIDEN_GUARDIAN_ENDPOINTS: new Map(
+      Object.values(actual.MIDEN_NETWORK_NAME).map(network => [
+        network,
+        ['https://builtin.test', 'https://guardian.test']
+      ])
+    )
+  };
+});
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
@@ -60,8 +84,11 @@ jest.mock('lib/miden/guardian/history-storage', () => ({
   readGuardianHistoryGeneration: jest.fn()
 }));
 jest.mock('./guardian-history-recovery', () => ({
+  ...jest.requireActual('./guardian-history-recovery'),
   hasFailedGuardianHistory: jest.fn().mockResolvedValue(false),
-  recoverGuardianHistory: jest.fn().mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0 })
+  recoverGuardianHistory: jest
+    .fn()
+    .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 })
 }));
 
 const mockUncompleted = jest.mocked(getAllUncompletedTransactions);
@@ -266,7 +293,34 @@ describe('detached recovery run', () => {
 
   it('keeps the flag set and reports a partial history when a history source fails', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
-    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 2 });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: false,
+      sourceFailures: 1,
+      restored: 2,
+      deferredSources: 0
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledWith({
+      accountId: account.publicKey,
+      step: 'history-partial',
+      restored: 2,
+      sourcesClean: true,
+      historyGeneration: 'gen-1'
+    });
+  });
+
+  it('keeps the flag set and reports a partial history when a history source is deferred', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: false,
+      sourceFailures: 0,
+      restored: 2,
+      deferredSources: 1
+    });
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
@@ -1058,7 +1112,12 @@ describe('release on lock', () => {
 
   it('retries a run that kept the flag for a failed history source after the next lock', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
-    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0 });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: false,
+      sourceFailures: 1,
+      restored: 0,
+      deferredSources: 0
+    });
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
@@ -1108,7 +1167,7 @@ describe('release on lock', () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest
       .mocked(recoverGuardianHistory)
-      .mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0, failed: true });
+      .mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 });
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
@@ -1139,7 +1198,12 @@ describe('release on lock', () => {
   it('retries a partial history whose progress write finishes after the lock', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     const write = pending();
-    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0 });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: false,
+      sourceFailures: 1,
+      restored: 0,
+      deferredSources: 0
+    });
     mockReportProgress.mockImplementation(async progress => {
       if (progress.step === 'history-partial') await write.promise;
     });
@@ -1171,6 +1235,63 @@ describe('release on lock', () => {
   });
 });
 
+describe('an operator the account may never have used', () => {
+  /** The real pass reads IndexedDB and storage, which settle on macrotasks the microtask drain never reaches. */
+  async function settleRealHistory(done: () => boolean) {
+    for (let i = 0; i < 500 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 0));
+    await drainDetachedRun();
+  }
+
+  it('keeps the flag while it does not serve history, and asks it again after the next lock', async () => {
+    const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
+    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+      'lib/miden/guardian/history-storage'
+    );
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const histories = new Map([
+      ['https://guardian.test', jest.fn().mockResolvedValue({ entries: [] })],
+      [
+        'https://builtin.test',
+        jest
+          .fn()
+          .mockRejectedValueOnce(new GuardianHttpError(404, 'Not Found', ''))
+          .mockResolvedValue({ entries: [] })
+      ]
+    ]);
+    jest.mocked(GuardianHttpClient).mockImplementation(
+      (endpoint: string) =>
+        ({
+          setSigner: jest.fn(),
+          getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+          getDeltaProposals: jest.fn().mockResolvedValue([]),
+          getDeltaHistory: histories.get(endpoint)
+        }) as never
+    );
+    mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
+    jest.mocked(recoverGuardianHistory).mockImplementation(actual.recoverGuardianHistory);
+    const steps = () => mockReportProgress.mock.calls.map(([progress]) => progress.step);
+    try {
+      await maybeStartGuardianRecovery(account);
+      await settleRealHistory(() => steps().includes('history-partial') || setPendingFlag.mock.calls.length > 0);
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      expect(steps()).toContain('history-partial');
+      expect(histories.get('https://builtin.test')).toHaveBeenCalledTimes(1);
+
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await settleRealHistory(() => setPendingFlag.mock.calls.length > 0);
+
+      expect(histories.get('https://builtin.test')).toHaveBeenCalledTimes(2);
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+});
+
 it('does not start recovery after a persisted fee-metadata failure', async () => {
   jest.mocked(hasFailedGuardianHistory).mockResolvedValue(true);
   await expect(maybeStartGuardianRecovery(pendingAccount())).resolves.toBe(false);
@@ -1182,7 +1303,8 @@ it('reports a terminal history failure without clearing the account as recovered
     deferred: false,
     sourceFailures: 1,
     restored: 0,
-    failed: true
+    failed: true,
+    deferredSources: 0
   });
   await maybeStartGuardianRecovery(pendingAccount({ coldPublicKey: '0xcold' }));
   await drainDetachedRun();

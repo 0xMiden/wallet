@@ -18,7 +18,11 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
-import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
+import {
+  forgetUnsupportedHistorySources,
+  hasFailedGuardianHistory,
+  recoverGuardianHistory
+} from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
@@ -680,8 +684,9 @@ const startedRecoveries = new Set<string>();
 
 /**
  * Accounts whose finished run kept its `startedRecoveries` entry with the flag
- * still set because a source failed. Only these are released on lock: a run
- * queued or in flight yields to the lock through `shouldYield` on its own.
+ * still set because a source failed or was deferred. Only these are released
+ * on lock: a run queued or in flight yields to the lock through `shouldYield`
+ * on its own.
  */
 const failedRecoveries = new Set<string>();
 
@@ -691,12 +696,14 @@ let lockEpoch = 0;
 /**
  * The backend's lock hook. Frees every account a failed source held, so the
  * provider offers it again after the next unlock, as the partial-history card
- * promises.
+ * promises, and starts a new session for the history sources that answered
+ * unsupported, so that pass asks them again.
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;
   for (const publicKey of failedRecoveries) startedRecoveries.delete(publicKey);
   failedRecoveries.clear();
+  forgetUnsupportedHistorySources();
 }
 
 /**
@@ -783,7 +790,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
 
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   const epoch = lockEpoch;
-  // Set on each exit that keeps the reservation with the flag set for a failed source.
+  // Set on each exit that keeps the reservation with the flag set for a failed or deferred source.
   let failed = false;
   try {
     // Read once, first: the notes pass's resume point, every history write and the flag clear
@@ -825,7 +832,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       });
       return;
     }
-    if (history.sourceFailures > 0) {
+    // A deferred source (an operator that does not serve history yet) keeps the flag and retries here too.
+    if (history.sourceFailures > 0 || history.deferredSources > 0) {
       failed = true;
       await reportGuardianNoteRecoveryProgress({
         accountId: account.publicKey,

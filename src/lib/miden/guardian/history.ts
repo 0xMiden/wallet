@@ -52,6 +52,8 @@ export interface GuardianHistoryCheckpoint {
   restored: number;
   lowestNonce?: number;
   entryCount?: number;
+  /** Sessions in which an operator the account may never have used answered that it serves no history. */
+  unsupportedPasses?: number;
   failure?: GuardianHistoryFailure;
 }
 
