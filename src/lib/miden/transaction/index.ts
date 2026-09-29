@@ -3548,7 +3548,7 @@ export const generateTransactionsLoop = async (
         // next sync reconciles via ConsumedExternal.
         //
         // A private send's note was never relayed, and the row says so (`landedValueRowFields`, which
-        // the Guardian catch shares so the two cannot disagree about one landed send).
+        // every landed writer shares so none can disagree about one landed send).
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           ...landedValueRowFields(tx),
           completedAt: Math.floor(Date.now() / 1000)
