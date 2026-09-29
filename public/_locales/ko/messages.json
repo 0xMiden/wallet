@@ -4392,8 +4392,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "약 6시간",
-    "englishSource": "~6 hours"
+    "message": "약 30분",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "입금 중입니다",

@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "Reçu sur $network$ · arrive sous la forme $symbol$",
   "noFee": "Pas de frais de pont",
   "fastArrival": "environ 30 secondes",
-  "slowArrival": "environ 6 heures",
+  "slowArrival": "environ 30 minutes",
   "youAreDepositing": "Vous effectuez un dépôt",
   "confirmDeposit": "Confirmer le versement",
   "bridgeDepositProcessing": "Confirmation d’un dépôt via un pont",

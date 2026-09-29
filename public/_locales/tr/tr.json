@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "$network$'da al · $symbol$ adresine gönderilir",
   "noFee": "Köprü ücreti yoktur",
   "fastArrival": "~30 sn",
-  "slowArrival": "~6 saat",
+  "slowArrival": "~30 dakika",
   "youAreDepositing": "Para yatırıyorsunuz",
   "confirmDeposit": "Para Yatırma İşlemini Onayla",
   "bridgeDepositProcessing": "Köprü yatırımı onayı",

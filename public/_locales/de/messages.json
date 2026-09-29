@@ -4392,8 +4392,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "ca. 6 Stunden",
-    "englishSource": "~6 hours"
+    "message": "ca. 30 Minuten",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Sie tätigen eine Einzahlung",

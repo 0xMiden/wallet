@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "在 $network$ 上接收 · 收件網址為 $symbol$",
   "noFee": "無橋接手續費",
   "fastArrival": "約 30 秒",
-  "slowArrival": "約 6 小時",
+  "slowArrival": "約 30 分鐘",
   "youAreDepositing": "您正在存入款項",
   "confirmDeposit": "確認存款",
   "bridgeDepositProcessing": "確認跨鏈存入",

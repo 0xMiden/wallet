@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "Подписывайтесь на $network$ · письма приходят с адреса $symbol$",
   "noFee": "Комиссия за перевод через мост отсутствует",
   "fastArrival": "~30 сек",
-  "slowArrival": "~6 часов",
+  "slowArrival": "~30 минут",
   "youAreDepositing": "Вы вносите депозит",
   "confirmDeposit": "Подтвердить депозит",
   "bridgeDepositProcessing": "Подтверждение депозита через мост",

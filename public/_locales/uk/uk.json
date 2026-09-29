@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "Отримуйте на $network$ · надходить як $symbol$",
   "noFee": "Комісія за переказ відсутня",
   "fastArrival": "~30 секунд",
-  "slowArrival": "~6 годин",
+  "slowArrival": "~30 хвилин",
   "youAreDepositing": "Ви здійснюєте внесок",
   "confirmDeposit": "Підтвердити депозит",
   "bridgeDepositProcessing": "Підтвердження депозиту через міст",

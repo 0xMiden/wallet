@@ -4392,8 +4392,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 годин",
-    "englishSource": "~6 hours"
+    "message": "~30 хвилин",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Ви здійснюєте внесок",

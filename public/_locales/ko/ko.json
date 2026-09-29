@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "$network$에서 수신 · $symbol$으로 도착",
   "noFee": "브리지 수수료 없음",
   "fastArrival": "약 30초",
-  "slowArrival": "약 6시간",
+  "slowArrival": "약 30분",
   "youAreDepositing": "입금 중입니다",
   "confirmDeposit": "입금 확인",
   "bridgeDepositProcessing": "브리지 입금 확인",

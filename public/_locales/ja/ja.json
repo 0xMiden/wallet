@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "$network$ で受信 · 配信先：$symbol$",
   "noFee": "ブリッジ手数料はかかりません",
   "fastArrival": "約30秒",
-  "slowArrival": "約6時間",
+  "slowArrival": "約30分",
   "youAreDepositing": "現在、入金しています",
   "confirmDeposit": "入金確認",
   "bridgeDepositProcessing": "ブリッジへの預入確認",

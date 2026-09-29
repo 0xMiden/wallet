@@ -4392,8 +4392,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "約6時間",
-    "englishSource": "~6 hours"
+    "message": "約30分",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "現在、入金しています",

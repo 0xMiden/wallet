@@ -41,16 +41,17 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
     type="button"
     data-testid={testId}
     onClick={onSelect}
+    aria-pressed={selected}
     className={clsx(
-      'flex w-full items-center rounded-2xl border bg-pure-white px-4 py-6 transition-colors text-base',
-      selected ? ACCENT_CLASSES[accent].border : 'border-[#E8E8E8]'
+      'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink',
+      selected ? ACCENT_CLASSES[accent].border : 'border-hairline'
     )}
   >
     <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].ink)}>{label}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-center text-ink font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
-    <div className="flex flex-1 items-center justify-end text-base font-medium text-[#808080]">{eta}</div>
+    <div className="flex flex-1 items-center justify-end text-base font-medium text-muted">{eta}</div>
   </button>
 );
 
@@ -107,7 +108,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         testId="bridge-route-slow"
         accent={accent}
       />
-      {notice && <p className="text-xs text-ink/60">{notice}</p>}
+      {notice && <p className="text-xs text-muted">{notice}</p>}
     </div>
   );
 };
@@ -131,7 +132,7 @@ export const Route: React.FC<RouteStepProps> = ({
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
+        <span className="font-heading text-2xl leading-none font-bold text-muted">{t('route')}</span>
 
         <RouteOptions
           route={route}

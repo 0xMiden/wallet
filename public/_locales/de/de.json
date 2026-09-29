@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "Empfangen unter $network$ · wird als $symbol$ zugestellt",
   "noFee": "Keine Brückengebühr",
   "fastArrival": "~30 Sek.",
-  "slowArrival": "ca. 6 Stunden",
+  "slowArrival": "ca. 30 Minuten",
   "youAreDepositing": "Sie tätigen eine Einzahlung",
   "confirmDeposit": "Einzahlung bestätigen",
   "bridgeDepositProcessing": "Bestätigung der Bridge-Einzahlung",

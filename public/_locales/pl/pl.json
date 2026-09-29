@@ -999,7 +999,7 @@
   "receiveOnArrivesAs": "Otrzymuj na $network$ · wiadomości przychodzą jako $symbol$",
   "noFee": "Brak opłaty za most",
   "fastArrival": "~30 sek.",
-  "slowArrival": "~6 godzin",
+  "slowArrival": "~30 minut",
   "youAreDepositing": "Dokonujesz wpłaty",
   "confirmDeposit": "Potwierdź wpłatę",
   "bridgeDepositProcessing": "Potwierdzanie wpłaty na most",
