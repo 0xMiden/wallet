@@ -153,7 +153,7 @@ describe('what is not a failure', () => {
   ])('reports nothing when %s', async (_why, reason) => {
     // Counting these would put a floor under the error rate that no amount of
     // fixing could lower, and the startup sweep alone would dominate it: it
-    // fails every in-progress row on every cold start.
+    // fails every in-progress row an earlier session left, on every cold start.
     const tx = row(`not-a-failure-${reason}`);
     await Repo.transactions.add(tx);
 
