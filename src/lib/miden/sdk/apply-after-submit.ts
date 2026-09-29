@@ -54,10 +54,10 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
     report(options, error);
   }
   for (const delayMs of APPLY_RETRY_DELAYS_MS) {
-    if (!(await storeHoldsInitialAccount(options))) break;
+    // Wait first: a transient that broke the apply can break an immediate read too, and the compare
+    // belongs right before the write it guards.
     await sleep(delayMs);
-    // The wait parked, and an eviction during it hands the client to a successor.
-    if (!options.holdIsCurrent()) break;
+    if (!(await storeHoldsInitialAccount(options))) break;
     try {
       await options.apply();
       return;
@@ -79,6 +79,7 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
 
 /** Fails closed: an evicted hold, a missing or unreadable account, or any other commitment refuses. */
 async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<boolean> {
+  // The wait parked, and an eviction during it hands the client to a successor.
   if (!options.holdIsCurrent()) return false;
   try {
     const executed = options.result.executedTransaction();

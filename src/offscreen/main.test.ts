@@ -3696,6 +3696,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
   });
 
+  // #1233: a failed apply waits in real time before its retry reads the account, so every reply
+  // after one comes later than a flush.
+  const waitForReply = async (sendResponse: jest.Mock) => {
+    for (let i = 0; i < 60 && sendResponse.mock.calls.length === 0; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+
   it('guardianPipeline: an apply failure after submit replies with the apply-after-submit code (#1233)', async () => {
     await loadModule();
     const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
@@ -3716,7 +3725,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
-    await flush();
+    await waitForReply(sendResponse);
 
     expect(G.__off.guardianSubmitted).toBe(true);
     const resp = sendResponse.mock.calls[0][0];
@@ -3773,7 +3782,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
-    await flush();
+    await waitForReply(sendResponse);
 
     expect(sendResponse.mock.calls[0][0]).toMatchObject({
       ok: false,
@@ -3783,7 +3792,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // #1233: the apply retry runs in this realm's own hold, off the executed result's initial account
-  // commitment. Its first wait is real time, so these poll for the reply.
+  // commitment.
   const retryableResult = () => ({
     serialize: () => new Uint8Array([55, 66, 77]),
     executedTransaction: () => ({
@@ -3792,12 +3801,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
     })
   });
-  const waitForReply = async (sendResponse: jest.Mock) => {
-    for (let i = 0; i < 60 && sendResponse.mock.calls.length === 0; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-  };
   const callGuardianPipeline = (sendResponse: jest.Mock) =>
     capturedListener!(
       callReq({

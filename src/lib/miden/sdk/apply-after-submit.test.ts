@@ -55,13 +55,21 @@ describe('applyAfterSubmit (#1233)', () => {
     const apply = jest.fn(async () => {
       throw noteWrite;
     });
-    const sleep = jest.fn(async (_ms: number) => {});
-    const options = arrange({ apply, sleep }, FINAL);
+    const calls: string[] = [];
+    const sleep = jest.fn(async (_ms: number) => {
+      calls.push('sleep');
+    });
+    const readLocalAccount = jest.fn(async (_accountId: string) => {
+      calls.push('read');
+      return withCommitment(FINAL);
+    });
+    const options = arrange({ apply, sleep, readLocalAccount });
 
     const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
 
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(sleep).not.toHaveBeenCalled();
+    // The one wait comes before the read, so the compare sits right before the write it guards.
+    expect(calls).toEqual(['sleep', 'read']);
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(error).toHaveProperty('cause', noteWrite);
   });
@@ -111,7 +119,8 @@ describe('applyAfterSubmit (#1233)', () => {
     const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
 
     expect(toCommitment).not.toHaveBeenCalled();
-    expect(sleep).not.toHaveBeenCalled();
+    // The wait before the read, and no second one after the refusal.
+    expect(sleep).toHaveBeenCalledTimes(1);
     expect(apply).toHaveBeenCalledTimes(1);
     expect(isApplyAfterSubmitError(error)).toBe(true);
   });
