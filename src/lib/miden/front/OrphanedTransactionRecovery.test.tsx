@@ -89,10 +89,12 @@ describe('OrphanedTransactionRecovery', () => {
   });
 
   it('never re-runs the age-independent sweep after a REMOUNT in the same process', async () => {
-    // The latch is module scope, not a component ref, precisely because
-    // `failInterruptedTransactions` fails every in-progress row regardless of age:
-    // a second run inside a live app process would kill a transaction that is
-    // actively processing right now.
+    // The module-scope latch saves a redundant sweep and kick when the provider
+    // remounts inside a live app process. A second run would still be safe,
+    // because `failInterruptedTransactions` spares this realm's rows by id
+    // (`markStartedInThisRealm`) and rows another realm of this session started
+    // by a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the
+    // sweep's clock.
     mockGetAllUncompleted.mockResolvedValue([{ id: 'tx-orphan' }]);
 
     const first = render(<OrphanedTransactionRecovery />);
