@@ -340,6 +340,18 @@ export const setTransactionStage = async (
   });
 };
 
+const UNDELIVERED_SEPARATOR = ' - ';
+
+/**
+ * The label of a landed row whose private notes could not be delivered: `base` plus the wording.
+ * Omit `notes` for a send, whose single note is "the private note"; pass the count where a row
+ * can carry several.
+ */
+export const undeliveredDisplayMessage = (base: string, notes?: number): string => {
+  const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
+  return `${base}${UNDELIVERED_SEPARATOR}${phrase} could not be delivered`;
+};
+
 /**
  * Record the delivery state of this row's private output note, plus the evidence
  * needed to reason about it after the fact.
@@ -424,7 +436,7 @@ export const landedValueRowFields = (
   }
   const displayMessage = applyLandedDisplayMessage(tx);
   return privateSend
-    ? { displayMessage: `${displayMessage} - the private note could not be delivered`, noteDelivery: 'undelivered' }
+    ? { displayMessage: undeliveredDisplayMessage(displayMessage), noteDelivery: 'undelivered' }
     : { displayMessage };
 };
 

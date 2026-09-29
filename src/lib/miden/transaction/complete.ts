@@ -16,7 +16,7 @@ import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
-import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
+import { recordNoteDelivery, setTransactionStage, undeliveredDisplayMessage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -202,10 +202,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // spends again. What is wrong is the DELIVERY, and the row is the only place
     // the user would ever learn about it — `error` is rendered for failed rows
     // only, so the label is what carries it.
-    updatedTransaction.displayMessage =
-      undeliveredNotes === 1
-        ? 'Completed - a private note could not be delivered'
-        : `Completed - ${undeliveredNotes} private notes could not be delivered`;
+    updatedTransaction.displayMessage = undeliveredDisplayMessage('Completed', undeliveredNotes);
   }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
@@ -1002,7 +999,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
-      displayMessage: noteDelivery === 'undelivered' ? 'Sent - the private note could not be delivered' : 'Sent',
+      displayMessage: noteDelivery === 'undelivered' ? undeliveredDisplayMessage('Sent') : 'Sent',
       transactionId: executedTx.id().toHex(),
       outputNoteIds,
       noteDelivery,
