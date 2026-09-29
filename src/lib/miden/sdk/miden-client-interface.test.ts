@@ -848,82 +848,86 @@ describe('MidenClientInterface', () => {
   // classification: the retry's error replaced the original, so
   // `isApplyAfterSubmitError` stopped firing and a transfer that IS on chain was
   // marked Failed → the user's Retry then sent a third time.
-  it.each([
-    [
-      'submit rejects (the node may still have accepted it)',
-      new Error('network error while submitting'),
-      'submit' as const
-    ],
-    [
-      'apply rejects after a successful submit',
-      new Error(
-        "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed."
-      ),
-      'apply' as const
-    ]
-  ])(
-    'does not re-run the send pipeline when the delegated attempt already reached submit — %s',
-    async (_l, err, failAt) => {
-      let submitCalls = 0;
-      const fakeMidenClient = buildFakeMidenClient({
-        transactions: {
-          executeRequest: jest.fn(async () => ({
-            id: 'tx-id',
-            result: fakeTransactionResult,
-            prove: jest.fn(async () => ({
-              submit: jest.fn(async () => {
-                submitCalls += 1;
-                if (failAt === 'submit') throw err;
-                return { apply: jest.fn(async () => Promise.reject(err)) };
-              })
-            }))
+  const runDelegatedSendFailingAt = async (failAt: 'submit' | 'apply', err: Error) => {
+    let submitCalls = 0;
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        executeRequest: jest.fn(async () => ({
+          id: 'tx-id',
+          result: fakeTransactionResult,
+          prove: jest.fn(async () => ({
+            submit: jest.fn(async () => {
+              submitCalls += 1;
+              if (failAt === 'submit') throw err;
+              return { apply: jest.fn(async () => Promise.reject(err)) };
+            })
           }))
-        }
-      });
+        }))
+      }
+    });
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
 
-      jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id),
-        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
-      }));
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        NoteType: { Private: 0, Public: 1 },
-        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
-        getWasmOrThrow: async () => ({
-          AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
-          NoteType: { Public: 'public', Private: 'private' }
-        })
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const rejection = await client
+      .sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {},
+        delegateTransaction: true
+      } as any)
+      .catch((caught: unknown) => caught);
+    return { rejection, fakeMidenClient, submitCalls: () => submitCalls };
+  };
 
-      const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+  it('does not re-run the send pipeline when the delegated attempt already reached submit - submit rejects (the node may still have accepted it)', async () => {
+    const err = new Error('network error while submitting');
 
-      // The ORIGINAL error propagates — `generateTransactionsLoop`'s
-      // apply-after-submit classification reads the immediate error's message chain.
-      await expect(
-        client.sendTransaction({
-          accountId: 'sender',
-          secondaryAccountId: 'recipient',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(1),
-          extraInputs: {},
-          delegateTransaction: true
-        } as any)
-      ).rejects.toBe(err);
+    const { rejection, fakeMidenClient, submitCalls } = await runDelegatedSendFailingAt('submit', err);
 
-      // Exactly one execute and one submit: no second broadcast.
-      expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
-      expect(submitCalls).toBe(1);
-    }
-  );
+    // A rejected submit propagates as itself: the node may not have the write.
+    expect(rejection).toBe(err);
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(submitCalls()).toBe(1);
+  });
+
+  it('does not re-run the send pipeline when the delegated attempt already reached submit - apply rejects after a successful submit (#1233)', async () => {
+    // A raw store failure, which is what a staged apply rejects with: only the site's own wrap can
+    // say the node already has the write.
+    const storeAbort = new Error(
+      'IndexedDB transaction aborted while applying the transaction update: QuotaExceededError'
+    );
+
+    const { rejection, fakeMidenClient, submitCalls } = await runDelegatedSendFailingAt('apply', storeAbort);
+    const { extractSdkErrorCode } = await import('./sdk-error-code');
+
+    expect(extractSdkErrorCode(rejection)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(rejection).toHaveProperty('cause', storeAbort);
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(submitCalls()).toBe(1);
+  });
 
   it('sendTransaction throws a friendly error when _withInnerWebClient is missing', async () => {
     const fakeMidenClient = buildFakeMidenClient({ _withInnerWebClient: undefined });
@@ -1075,6 +1079,41 @@ describe('MidenClientInterface', () => {
 
     await expect(client.newTransaction('acc-id', new Uint8Array([1, 2]), true)).rejects.toBe(submitErr);
 
+    expect(executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a newTransaction whose apply fails after its submit as submitted, with the store error as its cause (#1233)', async () => {
+    const storeAbort = new Error('IndexedDB transaction aborted while applying the transaction update');
+    const executeRequest = jest.fn(async () => ({
+      id: 'tx-id',
+      result: fakeTransactionResult,
+      prove: jest.fn(async () => ({
+        submit: jest.fn(async () => ({ apply: jest.fn(async () => Promise.reject(storeAbort)) }))
+      }))
+    }));
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest } });
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { extractSdkErrorCode } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const error = await client
+      .newTransaction('acc-id', new Uint8Array([1, 2]), true)
+      .catch((caught: unknown) => caught);
+
+    // A dApp transaction or an Agglayer bridge the node accepted: never re-executed, and reported
+    // as landed so the loop catch completes it.
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(error).toHaveProperty('cause', storeAbort);
     expect(executeRequest).toHaveBeenCalledTimes(1);
   });
 
@@ -2485,6 +2524,37 @@ describe('MidenClientInterface', () => {
           extraInputs: {}
         } as any)
       ).rejects.toThrow(/execute failed/);
+    });
+
+    it('reports an apply that fails after the offscreen-proved submit as submitted, with the store error as its cause (#1233)', async () => {
+      const fakeWasm = buildWasmStub();
+      const storeAbort = new Error('IndexedDB transaction aborted while applying the transaction update');
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => Promise.reject(storeAbort)),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs();
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { extractSdkErrorCode } = await import('./sdk-error-code');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const error = await client
+        .newTransaction('mtst1acc', new Uint8Array([0xde, 0xad]))
+        .catch((caught: unknown) => caught);
+
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+      expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+      expect(error).toHaveProperty('cause', storeAbort);
     });
   });
 

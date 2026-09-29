@@ -1523,7 +1523,14 @@ export class MidenClientInterface {
         // would build a fresh request (new note serial) and submit a SECOND send.
         attempt.markSubmitting();
         const submitted = await proven.submit();
-        await submitted.apply();
+        // The node has the transfer now: a failed apply is retried while that is safe, and one
+        // that outlasts the retries classifies as submitted, so Retry cannot pay twice (#1233).
+        await applyAfterSubmit({
+          apply: () => submitted.apply(),
+          result: executed.result,
+          readLocalAccount: accountId => this.client.accounts.get(accountId),
+          holdIsCurrent: () => attempt.holdIsCurrent()
+        });
         return executed.result;
       },
       dbTransaction.delegateTransaction,
@@ -1788,7 +1795,14 @@ export class MidenClientInterface {
         attempt.markSubmitting();
         const submitted = await proven.submit();
         recordProveTiming('newTransaction delegated: submit returned; applying');
-        await submitted.apply();
+        // Same rule as the send's apply (#1233): a dApp transaction or an Agglayer bridge the node
+        // accepted must not end Failed, which reports failure to the dApp or hides the L1 claim.
+        await applyAfterSubmit({
+          apply: () => submitted.apply(),
+          result: executed.result,
+          readLocalAccount: accountId => this.client.accounts.get(accountId),
+          holdIsCurrent: () => attempt.holdIsCurrent()
+        });
         recordProveTiming('newTransaction delegated: apply returned');
         return executed.result;
       },
@@ -1925,7 +1939,14 @@ export class MidenClientInterface {
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
-        await inner.applyTransaction(txResult, height);
+        // Same rule as the staged applies (#1233). This block holds the SDK lock and the wallet's,
+        // re-taken after the prove's yield, so the retry reads the account on this inner client.
+        await applyAfterSubmit({
+          apply: () => inner.applyTransaction(txResult, height),
+          result: txResult,
+          readLocalAccount: accountId => inner.getAccount(accountId),
+          holdIsCurrent: () => attempt.holdIsCurrent()
+        });
         recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
       console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);

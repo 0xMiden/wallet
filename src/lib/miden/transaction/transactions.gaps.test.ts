@@ -11,6 +11,7 @@
 
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
+import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 import {
   completeCustomTransaction,
@@ -332,14 +333,14 @@ describe('apply-after-submit on a private send', () => {
     });
   };
 
-  const runLoopWithFailingSend = async () => {
+  const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmitError) => {
     installLocks();
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(),
       sendTransaction: jest.fn(async () => {
-        throw applyAfterSubmitError();
+        throw makeError();
       })
     });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -397,6 +398,31 @@ describe('apply-after-submit on a private send', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
     expect(txStore[0]!.displayMessage).toBe('Completed');
+  });
+
+  // The receiver the send site's own wrap reaches (#1233): a raw store failure carries neither the
+  // SDK's code nor its mempool text, so only the wrap says the node has it.
+  it('completes a PUBLIC send whose site reported a raw store failure after submit as landed (#1233)', async () => {
+    txStore.push({
+      id: 'tx-apply-wrapped',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend(
+      () => new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted while applying the transaction update'))
+    );
+
+    // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
   });
 });
 
