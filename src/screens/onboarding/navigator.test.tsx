@@ -512,18 +512,23 @@ describe('OnboardingFlow — action wiring per screen', () => {
 
   it('Confirmation: forwards status props and wires submit / switch-to-password', () => {
     const onAction = jest.fn();
-    renderFlow({
+    const props = {
       step: OnboardingStep.Confirmation,
       isLoading: true,
       biometricAttempts: 3,
       biometricError: 'boom',
       confirmCreating: true,
       onAction
-    });
+    };
+    const { rerender } = renderFlow({ ...props, onboardingType: OnboardingType.Create });
     expect(mockCaptured.confirmation.isLoading).toBe(true);
     expect(mockCaptured.confirmation.biometricAttempts).toBe(3);
     expect(mockCaptured.confirmation.biometricError).toBe('boom');
     expect(mockCaptured.confirmation.creating).toBe(true);
+    expect(mockCaptured.confirmation.onboardingType).toBe(OnboardingType.Create);
+    // The flow type picks the screen's create or restore copy.
+    rerender(<OnboardingFlow {...baseProps} {...props} onboardingType={OnboardingType.Import} />);
+    expect(mockCaptured.confirmation.onboardingType).toBe(OnboardingType.Import);
 
     act(() => mockCaptured.confirmation.onSubmit());
     expect(onAction).toHaveBeenLastCalledWith({ id: 'confirmation' });

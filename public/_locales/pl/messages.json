@@ -2419,6 +2419,18 @@
     "message": "Tworzenie portfela…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Przywracanie portfela…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Konfiguracja portfela…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Otwórz portfel, aby zakończyć jego przywracanie.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Wprowadź hasło",
     "englishSource": "Enter password"

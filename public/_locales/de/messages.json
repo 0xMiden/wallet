@@ -2419,6 +2419,18 @@
     "message": "Ihre Geldbörse wird erstellt…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Wiederherstellung Ihrer Wallet…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Einrichten Ihrer Wallet…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Öffne deine Wallet, um die Wiederherstellung abzuschließen.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Passwort eingeben",
     "englishSource": "Enter password"
