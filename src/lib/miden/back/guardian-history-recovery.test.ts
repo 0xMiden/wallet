@@ -852,6 +852,45 @@ it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
   expect(await hasFailedGuardianHistory(account)).toBe(false);
 });
 
+const saveOlderVersionCheckpoint = async (operator: string, fields: Partial<GuardianHistoryCheckpoint>) => {
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id: historyCheckpointId('testnet', 'account', operator),
+    network: 'testnet',
+    accountId: 'account',
+    operator,
+    version: GUARDIAN_HISTORY_VERSION - 1,
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    ...fields
+  });
+};
+
+it('starts fresh over a checkpoint of another history version, so a fee failure saves one the stop matches', async () => {
+  await saveOlderVersionCheckpoint('https://one', { failure: 'fee-metadata', feeScope: 'rpc-a|testnet' });
+  const decode = jest.mocked(midenClientProxy.decodeGuardianHistory);
+  decode.mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
+  try {
+    expect((await run()).failed).toBe(true);
+    expect(await hasFailedGuardianHistory(account)).toBe(true);
+    expect((await operatorCheckpoint('https://one'))?.version).toBe(GUARDIAN_HISTORY_VERSION);
+    createClient.mockClear();
+    expect((await run()).failed).toBe(true);
+    expect(createClient).not.toHaveBeenCalled();
+  } finally {
+    // An unconsumed one-shot would answer the next test's decode.
+    decode.mockReset();
+  }
+});
+
+it('reads a completed checkpoint of another history version again', async () => {
+  await saveOlderVersionCheckpoint('https://two', { completed: true });
+  expect((await run()).restored).toBe(3);
+  expect(createClient.mock.calls.map(call => call[1])).toContain('https://two');
+  expect(await transactions.count()).toBe(3);
+});
+
 it('fills missing Guardian-switch endpoints from a richer copy on another source', async () => {
   const first = source('https://one', [{ entries: [entry(2)] }]);
   const second = source('https://two', [{ entries: [entry(2)] }]);

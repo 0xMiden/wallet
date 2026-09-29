@@ -171,16 +171,21 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   try {
     for (const operator of operators) {
       const id = historyCheckpointId(network, canonicalAccountId, operator);
-      let checkpoint: GuardianHistoryCheckpoint = initialState.checkpoints[id] ?? {
-        id,
-        network,
-        accountId: canonicalAccountId,
-        operator,
-        version: GUARDIAN_HISTORY_VERSION,
-        seenCursors: [],
-        completed: false,
-        restored: 0
-      };
+      const stored = initialState.checkpoints[id];
+      // Only a current-version checkpoint resumes, so every save carries the version the fee stop matches.
+      let checkpoint: GuardianHistoryCheckpoint =
+        stored?.version === GUARDIAN_HISTORY_VERSION
+          ? stored
+          : {
+              id,
+              network,
+              accountId: canonicalAccountId,
+              operator,
+              version: GUARDIAN_HISTORY_VERSION,
+              seenCursors: [],
+              completed: false,
+              restored: 0
+            };
       if (checkpoint.completed) continue;
       if (unsupportedHistorySources.has(id) && checkpoint.failure === 'unsupported') {
         deferredSources++;
