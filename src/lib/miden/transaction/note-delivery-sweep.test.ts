@@ -630,6 +630,7 @@ describe('the undelivered label', () => {
       type: 'execute',
       outputNoteIds: ['0xpublic', '0xprivate'],
       relayNoteIds: ['0xprivate'],
+      relayRecipientId: 'mtst1recipient',
       noteDelivery: 'undelivered',
       displayMessage: UNDELIVERED_CUSTOM
     });
@@ -671,6 +672,29 @@ describe('the undelivered label', () => {
     await sweepNoteDeliveries();
 
     expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      displayMessage: UNDELIVERED_CUSTOM
+    });
+  });
+
+  // Its `secondaryAccountId` is the consumed note's sender, a third party the note was never for.
+  it('stays on a custom row whose dApp named no recipient, which the sweep neither re-pushes nor records', async () => {
+    rows.push(
+      row({
+        type: 'consume',
+        secondaryAccountId: 'mtst1sender',
+        relayNoteIds: ['0xnote'],
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED_CUSTOM
+      })
+    );
+
+    await sweepNoteDeliveries();
+
     expect(mockRelayById).not.toHaveBeenCalled();
     expect(mockRecord).not.toHaveBeenCalled();
     expect(rows[0]).toMatchObject({

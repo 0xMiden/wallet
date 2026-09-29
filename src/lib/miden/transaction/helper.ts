@@ -361,11 +361,12 @@ export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputN
 
 /**
  * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
- * row records it apart, because reading its result as a consume puts the input note's sender there instead.
+ * row records it apart with its `relayNoteIds`, because reading its result as a consume puts the input note's
+ * sender there instead. So a custom row whose dApp named no recipient has none, never that sender.
  */
 export const relayRecipientOf = (
-  row: Pick<ITransaction, 'relayRecipientId' | 'secondaryAccountId'>
-): string | undefined => row.relayRecipientId ?? row.secondaryAccountId;
+  row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
+): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
 
 /** `label`'s base when {@link undeliveredDisplayMessage} built it, else `label` unchanged. */
 const withoutUndeliveredWording = (label: string): string => {
