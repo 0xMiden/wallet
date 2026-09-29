@@ -48,12 +48,12 @@ const UNDELIVERED = 'Sent - the private note could not be delivered';
 // recorded never had it relayed; a recorded outcome is the relay's own and must survive (#1233).
 const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undefined, string][] = [
   ['a private send with no delivery recorded', { noteType: NoteTypeEnum.Private }, 'undelivered', UNDELIVERED],
-  ['a public send', { noteType: NoteTypeEnum.Public }, undefined, 'Completed'],
+  ['a public send', { noteType: NoteTypeEnum.Public }, undefined, 'Sent'],
   [
     'a private send whose relay was recorded',
     { noteType: NoteTypeEnum.Private, noteDelivery: 'relayed' },
     'relayed',
-    'Completed'
+    'Sent'
   ],
   [
     'a private send whose relay was recorded as failed',
@@ -61,6 +61,14 @@ const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undef
     'undelivered',
     UNDELIVERED
   ]
+];
+
+// Retry's landed row reads as the landed catches write one: the label the type's normal completion
+// writes (#1233).
+const LABEL_CASES: [string, Partial<ITransaction>, string][] = [
+  ['swap', { type: 'swap' }, 'Swapped'],
+  ['execute', { type: 'execute' }, 'Executed'],
+  ['Agglayer bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }, 'Bridged to EVM']
 ];
 
 beforeEach(async () => {
@@ -81,7 +89,7 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
 
     const row = await Repo.transactions.where({ id: 'tx-landed' }).first();
     expect(row?.status).toBe(ITransactionStatus.Completed);
-    expect(row?.displayMessage).toBe('Completed');
+    expect(row?.displayMessage).toBe('Sent');
     expect(row?.completedAt).toEqual(expect.any(Number));
     // The stale failure text must not survive onto a Completed row.
     expect(row?.error).toBeUndefined();
@@ -100,6 +108,21 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
       expect(row?.status).toBe(ITransactionStatus.Completed);
       expect(row?.noteDelivery).toBe(delivery);
       expect(row?.displayMessage).toBe(message);
+    }
+  );
+
+  it.each(LABEL_CASES)(
+    'completes a landed %s under its completion label (#1233)',
+    async (_label, overrides, message) => {
+      await Repo.transactions.put(failedSend({ id: 'tx-landed-label', ...overrides }));
+      mockVerifySendLanded.mockResolvedValue('landed');
+
+      await requeueFailedTransaction('tx-landed-label');
+
+      const row = await Repo.transactions.where({ id: 'tx-landed-label' }).first();
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+      expect(row?.displayMessage).toBe(message);
+      expect(row?.noteDelivery).toBeUndefined();
     }
   );
 

@@ -386,7 +386,9 @@ export const recordNoteDelivery = async (
  * `completeCustomTransaction` reads its label off the result, so a landed execute takes
  * the one it writes when the result shows no single direction, "Executed".
  */
-const applyLandedDisplayMessage = (tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>): string => {
+export const applyLandedDisplayMessage = (
+  tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>
+): string => {
   switch (tx.type) {
     case 'consume':
       return compareAccountIds(tx.accountId, tx.secondaryAccountId ?? '') ? 'Reclaimed' : 'Received';
