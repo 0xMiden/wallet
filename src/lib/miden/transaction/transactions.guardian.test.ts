@@ -7036,7 +7036,8 @@ describe('generateTransaction — Guardian routing', () => {
         status: ITransactionStatus.Queued,
         secondaryAccountId: 'recipient',
         faucetId: 'faucet',
-        amount: '1000'
+        amount: '1000',
+        noteType: 'public'
       });
 
       await generateTransaction(
@@ -7047,6 +7048,7 @@ describe('generateTransaction — Guardian routing', () => {
           secondaryAccountId: 'recipient',
           faucetId: 'faucet',
           amount: '1000',
+          noteType: 'public',
           delegateTransaction: false
         } as never,
         jest.fn(async () => new Uint8Array([2])),
