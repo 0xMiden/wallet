@@ -186,6 +186,10 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   })
 }));
 
+jest.mock('./native-http');
+const { mockProbeVerdicts, registerGuardianOrigin, resetMockProbes } =
+  jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
+
 describe('getSignerDetailsFromAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -411,6 +415,7 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMockProbes();
     mockIsExtension.mockReturnValue(false);
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
@@ -528,6 +533,42 @@ describe('createGuardianAccount', () => {
     await expect(createGuardianAccount(webClient as never, new Uint8Array(32))).rejects.toThrow(
       'Failed to create Guardian account'
     );
+  });
+
+  // Not yet bound to an account, so on mobile the endpoint stays routed only once it serves a Guardian key.
+  describe('a user-supplied endpoint', () => {
+    const create = () =>
+      createGuardianAccount(makeWebClient() as never, new Uint8Array(32), false, 'https://override.guardian');
+
+    it('stays routed once it serves a Guardian key, never registered ahead of the read', async () => {
+      multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: `0x${'ab'.repeat(32)}`, pubkey: 'g-pubkey' });
+      multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+      await create();
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', true]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+    });
+
+    it('is released when its pubkey request fails, and no account is built', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(new Error('HTTP 404'));
+
+      await expect(create()).rejects.toThrow('Failed to create Guardian account');
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('is released when it serves a key that is not a Guardian key', async () => {
+      multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: '0xdeadbeef', pubkey: 'g-pubkey' });
+      multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+      await create();
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+    });
   });
 
   describe('a guardian answering 429 (#906)', () => {

@@ -12,7 +12,7 @@ import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
 import { isGuardianKeyCommitment } from './key-commitment';
-import { registerGuardianOrigin } from './native-http';
+import { withGuardianProbe } from './native-http';
 import { withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
@@ -360,7 +360,6 @@ export async function createGuardianAccount(
     // never inherit a stale global pointer.
     const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
 
-    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {
       guardianEndpoint,
       midenRpcEndpoint: getEffectiveRpcUrl()
@@ -370,9 +369,17 @@ export async function createGuardianAccount(
     // GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS, one deadline for both calls (#906).
     const rateLimitDeadline = monotonicNowMs() + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS;
     const afterWait = () => assertLive('after a guardian 429 wait');
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianRateLimitRetry(
-      () => client.guardianClient.getPubkey('ecdsa'),
-      { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
+    // Not yet bound to an account: on mobile its origin routes through native HTTP
+    // while its key is read, and for the session only once that key is a Guardian's.
+    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianProbe(
+      guardianEndpoint,
+      () =>
+        withGuardianRateLimitRetry(() => client.guardianClient.getPubkey('ecdsa'), {
+          deadlineMs: rateLimitDeadline,
+          sleepFn: sleepKeepingWorkerAlive,
+          afterWait
+        }),
+      ({ commitment }) => isGuardianKeyCommitment(commitment)
     );
     assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
