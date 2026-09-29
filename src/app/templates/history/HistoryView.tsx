@@ -251,8 +251,9 @@ function buildRowProps(
 
   let amount: ActivityRowProps['amount'];
   const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-  if (entry.txType === 'earn-deposit' && entry.amount !== undefined) {
-    // The amount typed, as its Review showed it: the row's generic 3-decimal pass would cut 10.6555 to 10.655.
+  if ((entry.txType === 'earn-deposit' || entry.txType === 'bridged-send') && entry.amount !== undefined) {
+    // The amount typed, as its Review showed it: the row's generic 3-decimal pass would cut 10.6555 to 10.655. A
+    // bridge-out reaches here only when cancelled, and its detail hero shows the same typed amount.
     amount = {
       value: `${sign}${formatMoneyAmount(entry.amount, 'typed')}`,
       symbol: entry.token,

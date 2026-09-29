@@ -298,11 +298,14 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
   // Once received (a consume row always is) the row's own amount is what was credited. In flight
-  // the stored "you receive" amount is what was typed, on either route.
+  // the stored "you receive" amount is what was typed, on either route; a row without one shows its
+  // own amount, which is the typed amount on Slow and the quote's tokenOut on any other route.
+  const fallbackKind = entry.bridgeInProvider === 'agglayer' ? 'typed' : 'receives';
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
-      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ?? entry.amount);
+      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
+        formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };

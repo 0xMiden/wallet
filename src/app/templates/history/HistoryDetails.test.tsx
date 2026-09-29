@@ -1038,6 +1038,18 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
 
+    // The estimate prices the figure the hero prints, rounded down to 1234.567, not the unrounded amount.
+    it('prices a send at the amount its hero shows', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({ ...baseSendTx, amount: 1_234_567_891n }); // 1234.567891 at the mocked faucet's 6 decimals.
+      await renderAndLoad();
+
+      expect(screen.getByText('1234.567 MID')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.13')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2469.14')).not.toBeInTheDocument();
+    });
+
     it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {
       const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
       mockGetTokenMetadata.mockResolvedValue({ symbol: 'IETH', decimals: 8 });
@@ -1481,6 +1493,20 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();
     });
+
+    // A claim's hero is its badge, which prints the amount at full precision, so that is what is priced.
+    it('prices a claim at the full amount its badge shows', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      act(() =>
+        mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Mid', symbol: 'MID', decimals: 6 } } })
+      );
+      setMockRow(consumeTx({ amount: 1_234_567_891n })); // 1234.567891 at 6 decimals.
+      await renderAndLoad();
+
+      expect(screen.getByText('1234.567891 MID')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
+    });
   });
 
   describe('swap order tracking', () => {
@@ -1523,6 +1549,24 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
+    });
+
+    // The swap hero prints the offered amount unrounded, so that is what is priced, whether or not the order
+    // carries a requested amount (without one the summary badge has no content).
+    it.each([
+      ['an order', { requestedAmount: 1000n }],
+      ['an order with no requested amount', {}]
+    ])('prices %s at the offered amount its hero shows', async (_label, requested) => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', ...requested }),
+        amount: 1_234_567_891n // 1234.567891 at the mocked faucet's 6 decimals.
+      });
+      await renderAndLoad();
+
+      expect(within(screen.getByTestId('swap-order-hero')).getByText('1234.567891')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
     });
 
     it('does not call an unsettled order Confirmed while the list calls it Pending', async () => {
@@ -2723,6 +2767,29 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(screen.getAllByText('0.015')).toHaveLength(2);
+    });
+
+    // A user-cancelled bridge-out falls out of the bridge hero, so the plain hero shows its typed Miden-side amount.
+    it('shows a cancelled bridge-out amount as typed, and prices that amount', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 1_234_567n, // 1.234567 at 6 decimals.
+        status: 3,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        error: 'Transaction was cancelled by user',
+        rawError: undefined
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
+      expect(screen.getByText('1.234567')).toBeInTheDocument();
+      expect(screen.queryByText('1.234')).not.toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$1.23')).toBeInTheDocument();
     });
 
     it('rounds a Fast-route bridge-out quote down, without padding', async () => {

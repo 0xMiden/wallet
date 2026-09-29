@@ -834,6 +834,33 @@ describe('bridgeInRowDisplay', () => {
     expect(inFlight(12n)).toBe('12');
   });
 
+  // With no stored "you receive" the row's own amount shows: a Slow row's is the typed amount, any other row's
+  // (a row with no provider reads as Epoch) is the quote's tokenOut, which rounds down.
+  describe('an in-flight bridge-in with no stored "you receive"', () => {
+    const fallback = (bridgeInProvider: IHistoryEntry['bridgeInProvider'], amount: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount,
+          bridgeInOutputSymbol: 'USDC',
+          bridgeInProvider
+        })
+      ).outAmount;
+
+    it('rounds a Fast row down', () => {
+      expect(fallback('epoch', '9.987654')).toBe('9.98');
+    });
+
+    it('rounds a row with no provider down, as Fast', () => {
+      expect(fallback(undefined, '9.987654')).toBe('9.98');
+    });
+
+    it('shows a Slow row as typed', () => {
+      expect(fallback('agglayer', '1.234567')).toBe('1.234567');
+    });
+  });
+
   // Rows written before the fix carry the allocator's token `name` as a symbol,
   // which for Sepolia USDC is the contract address.
   it('ignores a stored symbol that is an EVM contract address', () => {

@@ -757,6 +757,35 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     }
   });
 
+  // A cancelled bridge-out falls through to the plain row, whose generic pass would round the typed amount again.
+  it.each([
+    ['the unscoped list', undefined],
+    ['a token-scoped list', 'faucet-usdc']
+  ])('shows a cancelled bridge-out amount as typed in %s', (_label, tokenId) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            amount: '1.234567',
+            token: 'USDC',
+            faucetId: 'faucet-usdc'
+          })
+        ]}
+        fullHistory
+        tokenId={tokenId}
+      />
+    );
+
+    const row = rowByTitle('cancelled');
+    expect(row).toHaveAttribute('data-amount-value', '1.234567');
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
   it('renders the receive row with a short (<=12) address returned verbatim', () => {
     renderFull();
     const row = rowByTitle('Received');

@@ -588,13 +588,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // and vanish between renders as metadata lands, which is worse than absent.
   // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
-  // A bridge-in hero shows its out side, not the row's own amount (the quote in flight, the unrounded
-  // credit once received), so the estimate prices the figure the hero shows.
-  const pricedAmount = entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : entry?.amount;
-  const approximateUsdAmount =
-    pricedAmount !== undefined && entry?.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, pricedAmount, entry.faucetId, entry.token, tokenPrices)
-      : undefined;
   // One entry per faucet the claim swept up, each with the asset and quantity
   // that faucet contributed. Resolved through the SAME helper as the hero badge
   // over it, so the two cannot disagree about what a faucet is called - and
@@ -603,29 +596,39 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     spansMultipleAssets && transaction
       ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
       : [];
-  // The hero and the badge print one amount. An Earn withdrawal's is already formatted
-  // and an Earn deposit's is the amount typed, each as its Activity row shows it.
+  // The hero and the badge print one amount. An Earn withdrawal's is already formatted, and an
+  // Earn deposit's and a (cancelled) bridge-out's are the amount typed, each as its Activity row shows it.
   const historyAmount =
     entry?.amount === undefined
       ? undefined
       : entry.txType === 'earn-withdraw'
         ? entry.amount
-        : entry.txType === 'earn-deposit'
+        : entry.txType === 'earn-deposit' || entry.txType === 'bridged-send'
           ? formatMoneyAmount(entry.amount, 'typed')
           : formatDisplayAmount(entry.amount);
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
+  const badgeShowsHistoryAmount =
+    entry?.txType === 'send' || entry?.txType === 'bridged-send' || entry?.txType === 'earn-deposit';
   const historySummaryBadgeContent =
-    transactionSummaryBadgeContent &&
-    historyAmount !== undefined &&
-    entry?.token &&
-    (entry.txType === 'send' || entry.txType === 'bridged-send' || entry.txType === 'earn-deposit')
+    transactionSummaryBadgeContent && historyAmount !== undefined && entry?.token && badgeShowsHistoryAmount
       ? {
           ...transactionSummaryBadgeContent,
           lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
+  // The estimate prices the figure the hero prints: a bridge-in's out side, the row's own amount on
+  // SwapDetail and on a badge that prints it (a claim's, at full precision), and historyAmount otherwise.
+  const heroPrintsRowAmount =
+    (entry?.txType === 'swap' && requestedToken !== null) ||
+    (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
+  const pricedAmount =
+    entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+  const approximateUsdAmount =
+    pricedAmount !== undefined && entry?.token && !spansMultipleAssets
+      ? formatFiatDisplayAmount(t, pricedAmount, entry.faucetId, entry.token, tokenPrices)
+      : undefined;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
