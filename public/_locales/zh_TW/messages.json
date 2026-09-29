@@ -2419,6 +2419,18 @@
     "message": "正在建立您的錢包……",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "還原您的錢包……",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "設定您的錢包……",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "開啟您的錢包以完成還原程序。",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "輸入密碼",
     "englishSource": "Enter password"

@@ -2419,6 +2419,18 @@
     "message": "Создание кошелька…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Восстановление кошелька…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Настройка кошелька…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Откройте кошелек, чтобы завершить его восстановление.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Введите пароль",
     "englishSource": "Enter password"

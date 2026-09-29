@@ -2419,6 +2419,18 @@
     "message": "지갑 생성 중…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "지갑 복원 중…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "지갑 설정하기…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "지갑을 열어 복원을 완료하십시오.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "비밀번호를 입력하세요",
     "englishSource": "Enter password"
