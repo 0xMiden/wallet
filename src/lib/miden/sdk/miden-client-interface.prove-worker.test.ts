@@ -575,7 +575,17 @@ describe('swap (site 8)', () => {
 
 type LoadedClient = Awaited<ReturnType<typeof load>>['client'];
 
+/** Runs the apply retry's waits on fake timers, so a failed apply costs no real time (#1233). */
+async function afterApplyRetryWaits<T>(pending: Promise<T>): Promise<T> {
+  await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, ms) => total + ms, 0));
+  return pending;
+}
+
 describe('the node has the write once submitProven resolves', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   const legs: Array<[string, (client: LoadedClient) => Promise<unknown>]> = [
     ['send', client => client.sendTransaction(sendTx(false))],
     ['consume', client => client.consumeNoteId(consumeTx(false))],
@@ -589,7 +599,10 @@ describe('the node has the write once submitProven resolves', () => {
     harness.applyFailure.error = storeQuota;
     const { client, withWasmClientLock } = await load(harness);
     const { extractSdkErrorCode, isApplyAfterSubmitError } = await import('./sdk-error-code');
-    const error = await withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught);
+    jest.useFakeTimers();
+    const error = await afterApplyRetryWaits(
+      withWasmClientLock(async () => write(client)).catch((caught: unknown) => caught)
+    );
     expect(harness.submitProven).toHaveBeenCalledTimes(1);
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
@@ -627,8 +640,9 @@ describe('the node has the write once submitProven resolves', () => {
       return { apply };
     });
     const { client, withWasmClientLock } = await load(harness);
+    jest.useFakeTimers();
 
-    await expect(withWasmClientLock(async () => write(client))).resolves.toBe(harness.result);
+    await expect(afterApplyRetryWaits(withWasmClientLock(async () => write(client)))).resolves.toBe(harness.result);
 
     expect(apply).toHaveBeenCalledTimes(2);
     expect(harness.submitProven).toHaveBeenCalledTimes(1);
@@ -729,11 +743,6 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       to_commitment: () => ({ toHex: () => '0xother-client' })
     }));
     return { apply, siteReader };
-  };
-  // The retry's waits run on fake timers, so a failed apply costs no real time.
-  const afterApplyRetryWaits = async <T>(pending: Promise<T>): Promise<T> => {
-    await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, ms) => total + ms, 0));
-    return pending;
   };
 
   it.each(sites)("%s: a failed apply is retried through the site's own client and lands", async (_site, site) => {
