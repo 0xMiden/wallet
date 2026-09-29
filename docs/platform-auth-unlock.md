@@ -33,9 +33,10 @@ Owner decisions, all taken on #846:
 2. Accept the OS password or PIN as equal to Touch ID or Windows Hello,
    which the wallet cannot tell apart.
 3. No periodic password check: platform unlock works until the user disables it.
-4. The ceremony runs in the side panel, where the wallet lives, and in the
-   confirm window for a dApp request; the Unlock page in the toolbar popup and
-   the full-page tab keeps only the password form.
+4. Every ceremony, enrollment and unlock, runs in the side panel, where the
+   wallet lives, and unlock also runs in the confirm window for a dApp request.
+   In the toolbar popup and the full-page tab the Unlock page keeps only the
+   password form, and Settings points to the side panel for enrollment.
 
 ## Today's vault
 
@@ -299,8 +300,10 @@ still opens it.
 
 ### Where the ceremony runs
 
-- In the side panel or the confirm window (owner decision 4; Surfaces and focus,
-  below). The popup and the full-page tab keep only the password form.
+- In the side panel, and for unlock also in the confirm window (owner decision
+  4; Surfaces and focus, below). The popup and the full-page tab run no
+  ceremony: their Unlock page keeps only the password form, and their Settings
+  row points to the side panel (First implementation scope, milestone 2).
 - Never in the service worker. `CredentialsContainer` is exposed on `Window`
   only ([Credential Management][credman], editor's draft, read 2026-09-28),
   and the probe found `'credentials' in navigator` false in an MV3 service
@@ -589,20 +592,21 @@ shows no UI:
   panel is not reported for up to 30 seconds
   ([MetaMask help][metamask-help], read 2026-09-28, secondary).
 
-### The tab or window fallback
+### The confirm window and the full-page tab
 
-- A full-page tab or a `windows.create({ type: 'popup' })` window, as the
-  confirm window already is, runs the ceremony in an ordinary browser window.
-  The ceremony has to start there: a new tab opened during a request fails it
-  ([`webauthn_focus_interactive_uitest.cc`][cr-focus-test]).
-- The repo already moves one flow this way: Forgot password opens the full
-  page and closes the compact window (`src/app/pages/Unlock.tsx:392-402`,
-  `src/app/env.ts:136-148`).
-- Prior art does the same: Bitwarden forces a popout for passkey login on
-  Linux ([`platform-popout.guard.ts`][bitwarden-guard], secondary), and
-  MetaMask points side-panel users to full screen and caps side-panel
-  ceremonies at 30 seconds ([`passkey-ceremony.ts`][metamask-ceremony],
-  secondary).
+- The confirm window is a `windows.create({ type: 'popup' })` window (Where
+  unlock can run, above): an ordinary browser window, not the toolbar's
+  extension popup whose closing rules are listed above. Whether a ceremony
+  there completes with the native OS sheets is question 26.
+- The full-page tab is an ordinary browser window too, but under owner
+  decision 4 it runs no ceremony (Mechanism, Where the ceremony runs).
+- Prior art moves ceremonies out of compact surfaces: Bitwarden forces a popout
+  for passkey login on Linux ([`platform-popout.guard.ts`][bitwarden-guard],
+  secondary), and MetaMask points side-panel users to full screen and caps
+  side-panel ceremonies at 30 seconds
+  ([`passkey-ceremony.ts`][metamask-ceremony], secondary). Whether a
+  side-panel ceremony completes is also question 26; Go/no-go says what a
+  failure there does.
 
 ## Lifecycle
 
@@ -874,9 +878,12 @@ re-read for this doc argues against it.
   path there, and the feature is then not Windows Hello unlock.
 - The ceremony runs in the side panel and the confirm window (owner decision 4),
   so the popup's behaviour with the native OS sheets (Surfaces and focus) does
-  not decide the go. A wallet whose toolbar action still opens the popup (its
-  side-panel handoff did not run or failed, or its side-panel restore failed at
-  startup, `src/background.ts:18-33`) unlocks there with the password.
+  not decide the go. If question 26 fails on an OS (a ceremony from the side
+  panel or the confirm window does not complete with that OS's native sheet),
+  the work stops on that OS and the choice of surface goes back to the owner. A
+  wallet whose toolbar action still opens the popup (its side-panel handoff did
+  not run or failed, or its side-panel restore failed at startup,
+  `src/background.ts:18-33`) unlocks there with the password.
 
 ### First implementation scope
 
@@ -898,12 +905,16 @@ re-read for this doc argues against it.
    ([manifest `key`][chrome-manifest-key]) gives it the store id, needed only to
    re-check on a device that a Web Store reinstall reaches the same credential
    (Lifecycle, uninstall row). It settles Open questions 1 to 8 and 26 and
-   decides, per OS, whether to continue. The owner runs it on a Mac with Touch
-   ID and a Windows 11 PC as part of the implementation PR.
-2. **Enrollment in Settings, behind the password.** A row in Settings'
-   Security group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment
-   flow in Mechanism, offered only when `vault_key_password` exists. The row
-   shows whether the credential syncs, from the BE flag read at enrollment.
+   decides, per OS, whether to continue, by the rules in Go/no-go. The owner
+   runs it on a Mac with Touch ID and a Windows 11 PC as part of the
+   implementation PR.
+2. **Enrollment in Settings, behind the password.** A row in Settings' Security
+   group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment flow in
+   Mechanism, offered only when `vault_key_password` exists. It starts
+   enrollment only in the side panel (owner decision 4; `useAppEnv`'s
+   `sidePanel`, `src/app/env.ts:39`); in the popup and the full-page tab the row
+   shows its state and points to the side panel. The row shows whether the
+   credential syncs, from the BE flag read at enrollment.
    - Crash-report redaction, in place before the first PRF output crosses the
      port: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
