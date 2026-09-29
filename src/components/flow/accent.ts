@@ -112,6 +112,7 @@ export function accentForTransactionType(type: ITransactionType | undefined): Fl
       return 'send';
     case 'consume':
     case 'bridged-receive':
+    case 'buy':
       return 'receive';
     case 'earn-deposit':
     case 'earn-withdraw':

@@ -27,7 +27,8 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'buy';
 
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
@@ -47,6 +48,55 @@ export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+/**
+ * Lifecycle of a tracked fiat buy row. The order is the display order of the
+ * progress steps. `failed` can follow any phase before `completed`.
+ */
+export type IBuyPhase =
+  | 'payment'
+  | 'funds-arriving'
+  | 'bridge-sent'
+  | 'bridging'
+  | 'consuming'
+  | 'completed'
+  | 'failed';
+
+/** The forward order of the buy phases. `failed` is not in it. */
+export const BUY_PHASES: readonly IBuyPhase[] = [
+  'payment',
+  'funds-arriving',
+  'bridge-sent',
+  'bridging',
+  'consuming',
+  'completed'
+];
+
+/** Metadata persisted on a tracked fiat buy row. */
+export interface IBuyExtraInputs {
+  /** The backend order id. It is also the Transak `partnerOrderId`. */
+  orderId: string;
+  provider: 'transak';
+  /** Fiat amount that the user typed, as a decimal string. */
+  fiatAmount: string;
+  fiatCurrency: 'USD';
+  /** Symbol of the token that the provider delivers on Ethereum. */
+  tokenSymbol: string;
+  /** Delivered token amount, in base units. */
+  tokenAmount?: string;
+  tokenDecimals?: number;
+  /** Sepolia transaction that sent the signed bridge batch. */
+  relayTxHash?: string;
+  /** Miden-side claim of the Agglayer deposit. */
+  claimTxHash?: string;
+  midenNoteId?: string;
+  /** Local `consume` row that claims the bridged note. */
+  consumeTxId?: string;
+  phase: IBuyPhase;
+  /** First time the row reached each phase, in Unix milliseconds. */
+  phaseTimestamps: Partial<Record<IBuyPhase, number>>;
+  error?: string;
+}
 
 /** One faucet's summed amount inside a batch consume. */
 export interface IConsumedAssetTotal {
@@ -311,6 +361,8 @@ export interface IBridgeInInfo {
   earnWithdrawTxId?: string;
   /** Tracking-only `bridged-receive` row this consumed note completes. */
   bridgeReceiveTxId?: string;
+  /** Tracking-only `buy` row this consumed note completes. */
+  buyTxId?: string;
 }
 
 /** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
@@ -1213,6 +1265,44 @@ export class BridgedReceiveTransaction implements ITransaction {
       outputAmount,
       outputSymbol,
       phase: 'submitting'
+    };
+  }
+}
+
+/**
+ * Tracking-only fiat buy row. It is born Completed so the Miden prove/submit
+ * FIFO never sees it; `extraInputs.phase` owns its live state.
+ */
+export class BuyTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt: number;
+  displayMessage: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IBuyExtraInputs;
+
+  constructor(accountId: string, extraInputs: Pick<IBuyExtraInputs, 'orderId' | 'fiatAmount' | 'tokenSymbol'>) {
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1000);
+    this.id = uuid();
+    this.type = 'buy';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayMessage = 'Buying';
+    this.displayIcon = 'RECEIVE';
+    this.extraInputs = {
+      orderId: extraInputs.orderId,
+      provider: 'transak',
+      fiatAmount: extraInputs.fiatAmount,
+      fiatCurrency: 'USD',
+      tokenSymbol: extraInputs.tokenSymbol,
+      phase: 'payment',
+      phaseTimestamps: { payment: nowMs }
     };
   }
 }

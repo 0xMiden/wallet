@@ -51,10 +51,21 @@ jest.mock('lib/onramp/transak-webview', () => ({
   openTransakWidget: (input: WidgetInput) => mockOpenWidget(input)
 }));
 
+const mockInitiateBuy = jest.fn<Promise<string>, [string, { orderId: string; fiatAmount: string; tokenSymbol: string }]>();
+jest.mock('lib/miden/activity', () => ({
+  initiateBuyTransaction: (accountId: string, input: { orderId: string; fiatAmount: string; tokenSymbol: string }) =>
+    mockInitiateBuy(accountId, input)
+}));
+jest.mock('lib/onramp/buy-batch', () => ({
+  midenAccountIdToHex: (id: string) => `hex:${id}`
+}));
+
 const mockLeavePage = jest.fn();
+const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({
   ...jest.requireActual('lib/woozie'),
-  goBack: () => mockLeavePage()
+  goBack: () => mockLeavePage(),
+  navigate: (to: string) => mockNavigate(to)
 }));
 
 let mockBackHandler: () => boolean | void;
@@ -177,6 +188,9 @@ describe('Cash provider checkout', () => {
     mockOpenWidget.mockReset();
     mockCreateSession.mockResolvedValue({ widgetUrl: 'https://global.transak.com/?sessionId=s', partnerOrderId: 'n' });
     mockOpenWidget.mockResolvedValue(undefined);
+    mockInitiateBuy.mockReset();
+    mockInitiateBuy.mockResolvedValue('buy-tx-1');
+    mockNavigate.mockReset();
   });
 
   afterAll(() => {
@@ -236,6 +250,7 @@ describe('Cash provider checkout', () => {
     expect(mockCreateSession).toHaveBeenCalledWith({
       apiUrl: 'https://backend.test',
       midenAccountPublicKey: 'miden-pk',
+      midenAccountHex: 'hex:miden-pk',
       evmAddress: EVM_ADDRESS,
       fiatAmount: '12.5'
     });
@@ -243,6 +258,43 @@ describe('Cash provider checkout', () => {
       url: 'https://global.transak.com/?sessionId=s',
       expected: { evmAddress: EVM_ADDRESS, fiatAmount: '12.5' }
     });
+    view.unmount();
+  });
+
+  it('creates the buy row with the partner order id and opens its status page when the widget closes', async () => {
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    expect(mockInitiateBuy).toHaveBeenCalledWith('miden-pk', { orderId: 'n', fiatAmount: '12.5', tokenSymbol: 'USDC' });
+    const [buyOrder = Infinity] = mockInitiateBuy.mock.invocationCallOrder;
+    const [widgetOrder = -Infinity] = mockOpenWidget.mock.invocationCallOrder;
+    expect(buyOrder).toBeLessThan(widgetOrder);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    act(() => widgetInput().onClosed());
+    expect(mockNavigate).toHaveBeenCalledWith('/buy-status/buy-tx-1');
+    view.unmount();
+  });
+
+  it('does not open the status page when the widget closes after an address mismatch', async () => {
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
+    act(() => widgetInput().onMismatch());
+    act(() => widgetInput().onClosed());
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('cash-address-mismatch')).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('shows the generic error line and does not open the widget when the buy row cannot be made', async () => {
+    mockInitiateBuy.mockRejectedValueOnce(new Error('db'));
+    const view = await openProviders();
+    fireEvent.click(screen.getByRole('radio', { name: 'Transak' }));
+    fireEvent.click(continueButton());
+    expect(await screen.findByText('cashCheckoutError')).toBeInTheDocument();
+    expect(mockOpenWidget).not.toHaveBeenCalled();
     view.unmount();
   });
 

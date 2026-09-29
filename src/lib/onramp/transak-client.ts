@@ -37,8 +37,12 @@ export interface CreateTransakBuySessionInput {
   apiUrl: string;
   midenAccountPublicKey: string;
   evmAddress: `0x${string}`;
+  /** The Miden account that receives the bridged funds, from `midenAccountIdToHex` in `buy-batch.ts`. */
+  midenAccountHex: string;
   fiatAmount: string;
 }
+
+const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/;
 
 /** The latest `expiresAt` the wallet accepts, in seconds after now. The backend gives 5 min. */
 const MAX_CHALLENGE_TTL_SECONDS = 10 * 60;
@@ -158,17 +162,22 @@ function checkWidgetParams(
 export async function createTransakBuySession(input: CreateTransakBuySessionInput): Promise<TransakBuySession> {
   const baseUrl = input.apiUrl.replace(/\/$/, '');
   const address = getAddress(input.evmAddress);
+  const midenAccountHex = input.midenAccountHex.toLowerCase();
+  if (!MIDEN_ACCOUNT_HEX.test(midenAccountHex)) {
+    throw requestFailed('Miden account ID is not valid');
+  }
 
   const challenge = await postJson(
     `${baseUrl}/transak/challenge`,
-    { evmAddress: address, fiatAmount: input.fiatAmount },
+    { evmAddress: address, midenAccountHex, fiatAmount: input.fiatAmount },
     challengeSchema
   );
 
-  // Sign only text that names this wallet and this amount.
+  // Sign only text that names this wallet, this Miden account and this amount.
   const expectedMessage = buildChallengeMessage({
     fiatAmount: input.fiatAmount,
     address,
+    midenAccountHex,
     nonce: challenge.nonce,
     expiresAt: challenge.expiresAt
   });

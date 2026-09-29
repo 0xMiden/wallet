@@ -85,7 +85,8 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   consume: 'RECEIVE',
   swap: 'SWAP',
   'bridged-send': 'SEND',
-  execute: 'DEFAULT'
+  execute: 'DEFAULT',
+  buy: 'RECEIVE'
 };
 
 /**

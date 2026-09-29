@@ -17,6 +17,18 @@ export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aqu8zjdwvcgkeug5a67k
  * tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
+/**
+ * TRNSK on Sepolia: the ERC-20 that Transak staging delivers for a "USDC on ethereum" buy. The buy flow bridges it
+ * to Miden through the Agglayer bridge.
+ */
+export const TRNSK_SEPOLIA_ADDRESS = '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b';
+export const TRNSK_DECIMALS = 18;
+export const TRNSK_SYMBOL = 'TRNSK';
+/**
+ * Miden faucet (bech32) that mints bridged TRNSK. It is not known until the first testnet deposit. While it is
+ * `undefined`, the buy watcher matches the bridged note by its amount only.
+ */
+export const AGGLAYER_TRNSK_FAUCET_ID: string | undefined = undefined;
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);

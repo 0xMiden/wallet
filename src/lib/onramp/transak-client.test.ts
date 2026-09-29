@@ -18,6 +18,8 @@ jest.mock('lib/epoch/evm-account', () => ({
 const EVM_ADDRESS = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
 const OTHER_ADDRESS = '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359';
 const NONCE = '0123456789abcdef0123456789abcdef';
+const MIDEN_HEX = '0x' + '0a'.repeat(15);
+const OTHER_MIDEN_HEX = '0x' + '0b'.repeat(15);
 const NOW_SECONDS = 1_790_000_000;
 const EXPIRES_AT = NOW_SECONDS + 300;
 const SIGNATURE = '0xsigned';
@@ -57,12 +59,21 @@ function jsonResponse(body: object, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+function goodMessage(expiresAt: number): string {
+  return buildChallengeMessage({
+    fiatAmount: '50',
+    address: EVM_ADDRESS,
+    midenAccountHex: MIDEN_HEX,
+    nonce: NONCE,
+    expiresAt
+  });
+}
+
 function challengeBody(message?: string): object {
   return {
     nonce: NONCE,
     expiresAt: EXPIRES_AT,
-    message:
-      message ?? buildChallengeMessage({ fiatAmount: '50', address: EVM_ADDRESS, nonce: NONCE, expiresAt: EXPIRES_AT })
+    message: message ?? goodMessage(EXPIRES_AT)
   };
 }
 
@@ -79,6 +90,7 @@ const input = {
   apiUrl: 'https://backend.example/',
   midenAccountPublicKey: 'miden-pk',
   evmAddress: EVM_ADDRESS,
+  midenAccountHex: MIDEN_HEX,
   fiatAmount: '50'
 } satisfies Parameters<typeof createTransakBuySession>[0];
 
@@ -115,7 +127,10 @@ describe('createTransakBuySession', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       'https://backend.example/transak/challenge',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ evmAddress: EVM_ADDRESS, fiatAmount: '50' }) })
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ evmAddress: EVM_ADDRESS, midenAccountHex: MIDEN_HEX, fiatAmount: '50' })
+      })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -125,7 +140,7 @@ describe('createTransakBuySession', () => {
     expect(mockBuildClient).toHaveBeenCalledWith('miden-pk', EVM_ADDRESS);
     expect(signMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: buildChallengeMessage({ fiatAmount: '50', address: EVM_ADDRESS, nonce: NONCE, expiresAt: EXPIRES_AT })
+        message: goodMessage(EXPIRES_AT)
       })
     );
   });
@@ -141,12 +156,42 @@ describe('createTransakBuySession', () => {
   it('refuses a message for another address, before it signs', async () => {
     mockServer({
       challenge: challengeBody(
-        buildChallengeMessage({ fiatAmount: '50', address: OTHER_ADDRESS, nonce: NONCE, expiresAt: EXPIRES_AT })
+        buildChallengeMessage({
+          fiatAmount: '50',
+          address: OTHER_ADDRESS,
+          midenAccountHex: MIDEN_HEX,
+          nonce: NONCE,
+          expiresAt: EXPIRES_AT
+        })
       )
     });
 
     await expectFailure('mismatch');
     expect(signMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a message for another Miden account, before it signs', async () => {
+    mockServer({
+      challenge: challengeBody(
+        buildChallengeMessage({
+          fiatAmount: '50',
+          address: EVM_ADDRESS,
+          midenAccountHex: OTHER_MIDEN_HEX,
+          nonce: NONCE,
+          expiresAt: EXPIRES_AT
+        })
+      )
+    });
+
+    await expectFailure('mismatch');
+    expect(signMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Miden account ID that is not 15 bytes, before any request', async () => {
+    await expect(createTransakBuySession({ ...input, midenAccountHex: '0x1234' })).rejects.toBeInstanceOf(
+      TransakSessionError
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('refuses an expired challenge', async () => {
@@ -155,7 +200,7 @@ describe('createTransakBuySession', () => {
       challenge: {
         nonce: NONCE,
         expiresAt,
-        message: buildChallengeMessage({ fiatAmount: '50', address: EVM_ADDRESS, nonce: NONCE, expiresAt })
+        message: goodMessage(expiresAt)
       }
     });
 
@@ -169,7 +214,7 @@ describe('createTransakBuySession', () => {
       challenge: {
         nonce: NONCE,
         expiresAt,
-        message: buildChallengeMessage({ fiatAmount: '50', address: EVM_ADDRESS, nonce: NONCE, expiresAt })
+        message: goodMessage(expiresAt)
       }
     });
 

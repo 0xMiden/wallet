@@ -16,10 +16,13 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { isEvmAddress } from 'lib/epoch/evm-address';
 import { toLocalFormat } from 'lib/i18n/numbers';
+import { initiateBuyTransaction } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
+import { midenAccountIdToHex } from 'lib/onramp/buy-batch';
 import { createTransakBuySession, TransakSessionError } from 'lib/onramp/transak-client';
 import { openTransakWidget } from 'lib/onramp/transak-webview';
 import { isMobile } from 'lib/platform';
+import { navigate } from 'lib/woozie';
 
 export type CashAction = 'buy' | 'sell';
 type Provider = 'stripe' | 'transak';
@@ -47,6 +50,9 @@ const actionCopy = (action: CashAction): ActionCopy => {
       return { titleKey: 'cashSellingUsdc', subtitleKey: 'cashProviderPayout', unit: 'USDCx' };
   }
 };
+
+/** The token that the Transak checkout buys on Ethereum. The bridge then brings it to Miden. */
+const BUY_TOKEN_SYMBOL = 'USDC';
 
 const PROVIDERS: { id: Provider; name: string; logo: string; comingSoon: boolean }[] = [
   { id: 'stripe', name: 'Stripe', logo: stripeLogoUrl, comingSoon: true },
@@ -84,20 +90,32 @@ const CashProviders = ({ action, amount, onBack }: CashProvidersProps) => {
     setError(null);
     try {
       // Each tap makes a new session: a widget URL is single use.
-      const { widgetUrl } = await createTransakBuySession({
+      const { widgetUrl, partnerOrderId } = await createTransakBuySession({
         apiUrl: backendUrl,
         midenAccountPublicKey: account.publicKey,
+        midenAccountHex: midenAccountIdToHex(account.publicKey),
         evmAddress,
         fiatAmount: amount
       });
+      // Make the tracking row before the widget opens, so that the status screen has a row to
+      // show when the widget closes. The poller moves the row forward from the backend order.
+      const txId = await initiateBuyTransaction(account.publicKey, {
+        orderId: partnerOrderId,
+        fiatAmount: amount,
+        tokenSymbol: BUY_TOKEN_SYMBOL
+      });
+      // A mismatch also closes the widget. The mismatch screen must stay, so do not navigate then.
+      let mismatched = false;
       await openTransakWidget({
         url: widgetUrl,
         expected: { evmAddress, fiatAmount: amount },
         onMismatch: () => {
+          mismatched = true;
           if (mounted.current) setAddressMismatch(true);
         },
         onClosed: () => {
-          // Nothing to do: the page stays on the provider step.
+          if (mismatched || !mounted.current) return;
+          navigate(`/buy-status/${encodeURIComponent(txId)}`);
         }
       });
     } catch (cause) {
