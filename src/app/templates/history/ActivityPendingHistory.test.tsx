@@ -29,9 +29,10 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
 // the way the hook publishes a change, so the memoized list sees it.
 const mockState = { items: mockItems, isLoadingNotes: false, isLoadingHistory: false };
 let mockRecovery: GuardianNoteRecoveryProgress | null = null;
+let mockRecoveryPending: boolean | undefined = true;
 jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
-  useGuardianNoteRecoveryProgress: () => mockRecovery
+  useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
 }));
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
@@ -49,7 +50,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
     isLoadingNotes: mockState.isLoadingNotes,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
-    account: { publicKey: 'account' }
+    account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
@@ -157,6 +158,7 @@ beforeEach(() => {
   mockState.isLoadingNotes = false;
   mockState.isLoadingHistory = false;
   mockRecovery = null;
+  mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
   mockConfirm.mockResolvedValue(true);
@@ -209,6 +211,13 @@ it('uses one progress bar for notes, history rows, and Guardian recovery', () =>
   view.rerender(<ActivityPendingHistory search="" filter="all" />);
   expect(screen.getByRole('status')).toBeEmptyDOMElement();
   view.unmount();
+});
+
+it('shows no recovery progress for an account whose recovery flag is not set', () => {
+  mockRecoveryPending = undefined;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 });
 
 it('requires confirmation before hiding a transfer', async () => {

@@ -290,14 +290,29 @@ it('retries a transient failure only once and stops repeated cursors', async () 
     .spyOn(client, 'getDeltaHistory')
     .mockReset()
     .mockRejectedValueOnce(new GuardianHttpError(503, 'Unavailable', 'network'))
-    .mockResolvedValueOnce({ entries: [entry(1)], nextCursor: 'loop' })
+    .mockResolvedValueOnce({ entries: [entry(3)], nextCursor: 'loop' })
     .mockResolvedValue({ entries: [entry(2)], nextCursor: 'loop' });
   expect((await run()).sourceFailures).toBe(1);
   expect(client.getDeltaHistory).toHaveBeenCalledTimes(3);
+  expect(client.getDelta).toHaveBeenCalledTimes(1);
+  expect((await operatorCheckpoint('https://one'))?.failure).toBe('invalid-data');
 });
 
-const twoCheckpoint = async () =>
-  Object.values((await readGuardianHistoryState()).checkpoints).find(value => value.operator === 'https://two');
+const operatorCheckpoint = async (operator: string) =>
+  Object.values((await readGuardianHistoryState()).checkpoints).find(value => value.operator === operator);
+const twoCheckpoint = () => operatorCheckpoint('https://two');
+
+it('stops a cursor that returns after another one', async () => {
+  const client = source('https://two', [
+    { entries: [entry(6)], nextCursor: 'a' },
+    { entries: [entry(5)], nextCursor: 'b' },
+    { entries: [entry(4)], nextCursor: 'a' }
+  ]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(3);
+  expect(client.getDelta).toHaveBeenCalledTimes(2);
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
 
 it('fails a source whose empty page still carries a cursor', async () => {
   const client = source('https://two', [
@@ -324,7 +339,7 @@ it('fails a source whose later page does not fall below the nonces it already re
   expect((await twoCheckpoint())?.failure).toBe('invalid-data');
 });
 
-it('keeps the entry cap and nonce bound across a resumed pass', async () => {
+it('keeps the entry cap across a resumed pass', async () => {
   const id = historyCheckpointId('testnet', 'account', 'https://two');
   const { generation } = await readGuardianHistoryState();
   await saveGuardianHistoryCheckpoint(generation, {
@@ -341,6 +356,29 @@ it('keeps the entry cap and nonce bound across a resumed pass', async () => {
     entryCount: MAX_HISTORY_ENTRIES_PER_SOURCE - 1
   });
   const client = source('https://two', [{ entries: [entry(50), entry(49)] }]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledWith('account', { limit: 50, cursor: 'resume' });
+  expect(client.getDelta).not.toHaveBeenCalled();
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('keeps the nonce bound across a resumed pass', async () => {
+  const id = historyCheckpointId('testnet', 'account', 'https://two');
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id,
+    network: 'testnet',
+    accountId: 'account',
+    operator: 'https://two',
+    version: GUARDIAN_HISTORY_VERSION,
+    cursor: 'resume',
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    lowestNonce: 100,
+    entryCount: 0
+  });
+  const client = source('https://two', [{ entries: [entry(150)] }]);
   expect((await run()).sourceFailures).toBe(1);
   expect(client.getDeltaHistory).toHaveBeenCalledWith('account', { limit: 50, cursor: 'resume' });
   expect(client.getDelta).not.toHaveBeenCalled();
