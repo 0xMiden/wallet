@@ -345,11 +345,21 @@ const UNDELIVERED_SEPARATOR = ' - ';
 /**
  * The label of a landed row whose private notes could not be delivered: `base` plus the wording.
  * Omit `notes` for a send, whose single note is "the private note"; pass the count where a row
- * can carry several.
+ * can carry several. {@link recordNoteDelivery} takes the wording off again once they arrive.
  */
 export const undeliveredDisplayMessage = (base: string, notes?: number): string => {
   const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
   return `${base}${UNDELIVERED_SEPARATOR}${phrase} could not be delivered`;
+};
+
+/** `label`'s base when {@link undeliveredDisplayMessage} built it, else `label` unchanged. */
+const withoutUndeliveredWording = (label: string): string => {
+  const at = label.lastIndexOf(UNDELIVERED_SEPARATOR);
+  if (at < 0) return label;
+  const base = label.slice(0, at);
+  const count = Number(label.slice(at + UNDELIVERED_SEPARATOR.length).split(' ', 1)[0]);
+  // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
+  return [undefined, 1, count].some(notes => undeliveredDisplayMessage(base, notes) === label) ? base : label;
 };
 
 /**
@@ -382,6 +392,10 @@ export const recordNoteDelivery = async (
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.noteDelivery = noteDelivery;
+    // History renders the label, not `noteDelivery`, so a delivered note must retire its warning there too.
+    if ((noteDelivery === 'relayed' || noteDelivery === 'confirmed') && tx.displayMessage) {
+      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
+    }
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
   });
