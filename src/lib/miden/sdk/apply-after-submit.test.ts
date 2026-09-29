@@ -94,6 +94,39 @@ describe('applyAfterSubmit (#1233)', () => {
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
+  it('a hold evicted during the read does not touch the account it returned', async () => {
+    let current = true;
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    // The account is a borrow of the client, which an eviction during the read hands to a successor.
+    const toCommitment = jest.fn(() => ({ toHex: () => INITIAL }));
+    const readLocalAccount = jest.fn(async (_accountId: string) => {
+      current = false;
+      return { to_commitment: toCommitment };
+    });
+    const sleep = jest.fn(async (_ms: number) => {});
+    const options = arrange({ apply, readLocalAccount, sleep, holdIsCurrent: () => current });
+
+    const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
+
+    expect(toCommitment).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+  });
+
+  it('waits 250 ms and then 1 s before the two retries', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const sleep = jest.fn(async (_ms: number) => {});
+
+    await applyAfterSubmit(arrange({ apply, sleep })).catch(() => undefined);
+
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([250, 1000]);
+  });
+
   it('a missing account does not re-apply', async () => {
     const apply = jest.fn(async () => {
       throw new Error('IndexedDB transaction aborted');
