@@ -156,6 +156,14 @@ replace_line "$r" '## 1.16.3 (TBD)' '## 1.16.3 (2026-09-30)'
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 expect 0 'a release pull request dating its heading and adding an entry under it passes' "$r"
 
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2 v1.16.3)
+replace_line "$r" '## 1.16.3 (TBD)' '## 1.16.3 (2026-09-30)'
+expect 0 'dating a heading whose version is already tagged passes' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+replace_line "$r" '## 1.15.13 (TBD)' '## 1.15.13 (2026-07-01)'
+expect 0 'dating the stale released (TBD) heading passes' "$r"
+
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 delete_line "$r" '- [FIX][all] Released entry (#2).'
 expect 0 'a pure deletion from a released section passes' "$r"
@@ -342,6 +350,27 @@ expect 0 'moving an entry between unreleased sections passes' "$r"
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Released entry (#2).'
 expect 0 'the same text added under the open section while the released copy stays passes' "$r"
+
+# --- a released version keeps its heading, even with no entry left under it to move ---
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+delete_line "$r" '## 1.15.13 (TBD)'
+delete_line "$r" '- [FIX][all] A section that shipped and was never dated (#4).'
+base_heading_line=$(base_changelog | grep -n -x -F -- '## 1.15.13 (TBD)' | cut -d: -f1)
+expect 1 'deleting a released section with its entries fails' "$r"
+require_line 'deleting a released section with its entries fails' "CHANGELOG.md:${base_heading_line} at the merge base: " \
+  'a released heading was renamed or deleted: ## 1.15.13 (TBD)'
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] A section that shipped and was never dated (#4).' \
+  "$(printf '\n## 1.15.12 (2026-07-01)\n\nA maintenance release with no user-facing change.')"
+git -C "$r" commit -q -am 'a released section of prose'
+git -C "$r" update-ref refs/remotes/origin/main HEAD
+replace_line "$r" '## 1.15.12 (2026-07-01)' '## 1.16.4 (TBD)'
+expect 1 'renaming a released heading over prose fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+replace_line "$r" '## 1.16.3 (TBD)' '## 1.17.0 (TBD)'
+expect 0 'renaming the open heading to another unreleased version passes' "$r"
 
 # --- the release notes read sections through the same parser ---
 notes="$repo_root/scripts/changelog-notes.sh"

@@ -103,7 +103,10 @@ echo "The \"CHANGELOG.md\" file has been updated."
 # X.Y.Z version (the release notes match a full version, so it would never be published); an added
 # entry fails in the preamble or outside every section, where prose is fine. An entry that leaves a
 # released version and appears under another fails too: that is what a renamed, inserted or deleted
-# heading, or a cut and paste, does to a published entry.
+# heading, or a cut and paste, does to a published entry. A released version that heads a section at
+# the merge base must head one in the working file, so a released heading renamed or deleted fails
+# even with no entry under it; the version is compared, not the heading's text, so dating a heading
+# passes, and a released entry deleted on its own still passes.
 awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefile="${work}/base" '
     function text() { return substr($0, length($1) + length($2) + length($3) + 4) }
     function xyz(v) { return v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ }
@@ -119,6 +122,10 @@ awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefil
         printf "%s:%d: %s: %s\n", file, hline[i], reason, htext[i]
         bad = 1
     }
+    $3 == "heading" && released($2) {
+        if (FILENAME != basefile) hver[$2] = 1
+        else if (!($2 in bheading)) { bheading[$2] = ++nb; bver[nb] = $2; bline[nb] = $1; btext[nb] = text() }
+    }
     $3 == "heading" || $3 == "separator" { next }
     { t = text() }
     t ~ /^[ \t]*$/ { next }
@@ -126,6 +133,11 @@ awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefil
     FILENAME == basefile { base[g, t]++; next }
     { n++; hline[n] = $1; hgroup[n] = g; htext[n] = t; head[g, t]++ }
     END {
+        for (j = 1; j <= nb; j++) {
+            if (bver[j] in hver) continue
+            printf "%s:%d at the merge base: a released heading was renamed or deleted: %s\n", file, bline[j], btext[j]
+            bad = 1
+        }
         # Copies of each entry that left released versions: base count minus working count, per
         # released version, where positive. An entry gained elsewhere while one left moved out.
         for (k in base) {
@@ -151,9 +163,9 @@ placement_status=$?
 if [ "${placement_status}" -eq 1 ]; then
     >&2 echo
     >&2 echo "Entries belong under a \"## <version> (TBD)\" heading whose version is newer than the latest"
-    >&2 echo "release, v${latest_release} (open one at the top if there is none). A released heading is never"
-    >&2 echo "renamed, moved or deleted. A deliberate correction to notes already published can take the"
-    >&2 echo "\"no changelog\" label."
+    >&2 echo "release, v${latest_release} (open one at the top if there is none). A released heading's version is"
+    >&2 echo "never changed or removed, though dating it is fine, and a released entry never moves under another"
+    >&2 echo "heading. A deliberate correction to notes already published can take the \"no changelog\" label."
     exit 1
 elif [ "${placement_status}" -ne 0 ]; then
     >&2 echo "The placement check could not run (exit ${placement_status})."
