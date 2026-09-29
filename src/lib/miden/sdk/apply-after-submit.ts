@@ -14,7 +14,10 @@ import { ApplyAfterSubmitError } from './sdk-error-code';
 /** The waits before the second and the third attempt. */
 export const APPLY_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
-/** The parts of the submitted transaction's result a retry reads. */
+/**
+ * The parts of the submitted transaction's result the helper reads: a retry reads the account id and
+ * its initial header, and `id()` is read later, for the error.
+ */
 export interface SubmittedResult<Id> {
   executedTransaction(): {
     id(): { toHex(): string };
