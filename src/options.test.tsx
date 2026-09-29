@@ -84,7 +84,7 @@ beforeEach(() => {
   mockConfirm.mockReset();
   mockAlert.mockReset();
   mockResetStorage.mockReset();
-  reloadMock.mockClear();
+  reloadMock.mockReset();
 });
 
 const getResetButton = () => screen.getByRole('button', { name: 'resetExtension' });
@@ -128,17 +128,60 @@ describe('src/options.tsx', () => {
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it('surfaces an alert with the error message when reset throws', async () => {
+  it('still reloads once, and shows no alert, when the wipe rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
-    mockResetStorage.mockRejectedValue(new Error('boom'));
+    const wipeError = new Error('boom');
+    mockResetStorage.mockRejectedValue(wipeError);
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
+    warn.mockRestore();
+  });
+
+  it('shows the error in the alert when the reload cannot start', async () => {
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    reloadMock.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
 
     await act(async () => {
       fireEvent.click(getResetButton());
     });
 
     await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'boom' });
-    expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'reload failed' });
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a second Reset pressed while the wipe is still running', async () => {
+    mockConfirm.mockResolvedValue(true);
+    const releaseWipes: Array<() => void> = [];
+    mockResetStorage.mockImplementation(() => new Promise<void>(resolve => releaseWipes.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(mockResetStorage).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        releaseWipes.forEach(release => release());
+      });
+    }
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
   });
 
   it('is re-entrancy guarded: a second click while confirm is pending is ignored', async () => {

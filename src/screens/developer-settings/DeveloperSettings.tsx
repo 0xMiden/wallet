@@ -245,14 +245,14 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // wallet is gone and leave onboarding on the endpoints being reset.
       await resetStorageDestructive({ keepEndpointOverride: false });
     } catch (err) {
-      // The wipe deletes the database first, which closes every storage handle, and only a reload
-      // reopens them: a failure anywhere in it reloads as a finished wipe does, and the app starts
-      // from whatever the wipe left.
+      // The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
+      // a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
+      // and drops in-memory state, so every caller reloads once the wipe has begun.
       console.warn('[developer-settings] Could not wipe the wallet storage', err);
     }
     try {
-      // Mirrors the canonical reset in src/options.tsx. Only the reload drops what this realm
-      // still holds in memory, the resolver's override cache among it.
+      // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
+      // Reset does. The reload also drops the resolver's override cache this realm holds in memory.
       if (isExtension()) {
         // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
         // `chrome.runtime.id` is absent, so it must not be a top-level import - this

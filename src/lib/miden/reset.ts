@@ -81,9 +81,14 @@ export async function clearStorage(clearDb: boolean = true) {
  *
  * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
  * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
- * The database delete comes first and closes every storage handle, so once this has been called,
- * whether it resolved or rejected, only a reload reopens the handles, and the app then starts from
- * whatever the wipe left.
+ *
+ * The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
+ * a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
+ * and drops in-memory state, so every caller reloads once the wipe has begun.
+ *
+ * Every caller follows one contract: once it has called this it reloads, whether the call resolved or
+ * rejected, and it reports an error only when the reload itself cannot start; its re-entry guard stays
+ * set until the call has settled and the reload has been attempted.
  */
 export async function resetStorageDestructive({
   keepEndpointOverride = true

@@ -80,25 +80,31 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
   if (resetting) return;
   resetting = true;
 
-  const confirmed = await confirm({
-    title: getMessage('actionConfirmation'),
-    children: <ResetExtensionConfirmation />,
-    confirmLabel: getMessage('resetExtension'),
-    destructive: true
-  });
-  if (confirmed) {
-    (async () => {
-      try {
-        await resetStorageDestructive();
-        browser.runtime.reload();
-      } catch (err: any) {
-        await customAlert({
-          title: getMessage('error'),
-          children: err.message
-        });
-      }
-    })();
-  }
+  try {
+    const confirmed = await confirm({
+      title: getMessage('actionConfirmation'),
+      children: <ResetExtensionConfirmation />,
+      confirmLabel: getMessage('resetExtension'),
+      destructive: true
+    });
+    if (!confirmed) return;
 
-  resetting = false;
+    // resetStorageDestructive's caller contract: once the wipe has begun, reload whether it resolved or
+    // rejected, and report an error only when the reload itself cannot start.
+    try {
+      await resetStorageDestructive();
+    } catch (err) {
+      console.warn('[options] Could not wipe the wallet storage', err);
+    }
+    try {
+      browser.runtime.reload();
+    } catch (err) {
+      await customAlert({
+        title: getMessage('error'),
+        children: err instanceof Error ? err.message : String(err)
+      });
+    }
+  } finally {
+    resetting = false;
+  }
 }

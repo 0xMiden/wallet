@@ -589,8 +589,9 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  // The wipe deletes the database first, which closes every storage handle, and only a reload
-  // reopens them.
+  // The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
+  // a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
+  // and drops in-memory state, so every caller reloads once the wipe has begun.
   it('reloads and shows no error when the wipe fails partway', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
