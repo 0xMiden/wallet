@@ -6468,7 +6468,8 @@ describe('generateTransaction — Guardian routing', () => {
           serialize: () => new Uint8Array([1]),
           authArg: () => undefined
         })),
-        abandonCandidate: jest.fn(async () => {})
+        abandonCandidate: jest.fn(async () => {}),
+        reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
       };
       mockBuildColdMultisigService.mockResolvedValue(coldService);
       // ensureGuardianProcedureThresholds (run inside completeReplaceHotKeyTransaction)
@@ -6520,9 +6521,60 @@ describe('generateTransaction — Guardian routing', () => {
       expect(coldService.abandonCandidate).not.toHaveBeenCalled();
       // #618: completion stamps the terminal stage through the real complete* layer.
       expect(row.stage).toBe('complete');
+      // The landed reconcile pushes nothing: the local store still holds the pre-rotation account
+      // and allowlist, and the guardian's canonicalization re-derives both (#1233).
+      expect(coldService.reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(false);
       expect(row.transactionId).toBe('exec-tx-hash');
     }
   );
+
+  it('replace-hot-key landed: swaps the key on the stored composite account the bare row names (#1233)', async () => {
+    const txId = 'replace-apply-fail-suffix';
+    const coldService = {
+      createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeSuffixGuardianProvider(),
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey
+    };
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw new Error(STORE_APPLY_ERROR_MESSAGE);
+        })
+      )
+    });
+    txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'acc-1', status: ITransactionStatus.Queued });
+
+    await generateTransaction(
+      { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false, extraInputs: {} } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The vault record is keyed by the stored composite id, which the re-register loop used to
+    // resolve and the landed path now resolves on its own.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(coldService.reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+    expect((txStore.find(r => r.id === txId) as Record<string, unknown>).status).toBe(ITransactionStatus.Completed);
+  });
 
   // #619 gap (1): a failed best-effort re-register is recorded (observable-only)
   // but never fails the on-chain-successful rotation.

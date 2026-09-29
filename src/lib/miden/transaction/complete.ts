@@ -468,7 +468,14 @@ export const completeReplaceHotKeyTransaction = async (
     let reRegisterFailed = false;
     let reRegisterError: unknown;
     let storedAccountId = tx.accountId;
-    for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+    // The landed reconcile pushes nothing (#1233): the apply failed, so the local store still holds
+    // the pre-rotation account and allowlist, and a push landing after canonicalization would put
+    // the guardian back on them, so every hot-signed request 401s with no cold self-heal. The
+    // guardian's canonicalization of the rotation re-derives both; a hot-signed request in the
+    // seconds before it fails and is retried by its caller.
+    const reRegisterAttempts = landed ? 0 : POST_ROTATION_REREGISTER_ATTEMPTS;
+    if (landed) storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
+    for (let attempt = 1; attempt <= reRegisterAttempts; attempt++) {
       try {
         const accounts = await guardianProvider.getAccounts();
         const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
