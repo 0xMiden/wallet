@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { markOnboardingFinishing, ONBOARDING_FINISH_BUDGET_MS } from 'app/onboarding-finish';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -1023,6 +1024,68 @@ describe('HotKeyRotationGate', () => {
       render(<HotKeyRotationGate />);
       expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    // The mark is module-global, so each test releases its own after unmounting the gate, and no rotation starts
+    // after the test.
+    it("renders nothing and starts no rotation at '/' while the onboarding tab finishes, and gates once the mark is released", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+
+        act(() => mark.release());
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
+    });
+
+    it("gates once the finishing mark's budget runs out", async () => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mark = markOnboardingFinishing();
+      try {
+        mark.arm();
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        act(() => {
+          jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS - 1);
+        });
+        expect(container).toBeEmptyDOMElement();
+
+        act(() => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    it("renders the gate at '/' while the onboarding tab finishes without a side panel", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        mockHandoffAvailable = false;
+        render(<HotKeyRotationGate />);
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
     });
   });
 });
