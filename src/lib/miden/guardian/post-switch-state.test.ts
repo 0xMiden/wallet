@@ -72,7 +72,7 @@ describe('readPostSwitchLocalState (#1233)', () => {
     mockCheckEndpointCommitment.mockResolvedValue(verdict);
 
     await expect(readPostSwitchLocalState('acc', NEW)).resolves.toBe(expected);
-    expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(NEW, 'localkey');
+    expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(NEW, 'localkey', undefined);
   });
 
   it.each([
@@ -95,6 +95,15 @@ describe('readPostSwitchLocalState (#1233)', () => {
     await expect(readPostSwitchLocalState('acc', NEW)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
   });
+
+  it("leaves the operator check on its tick default when no timeout is given (the heal's case)", async () => {
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('localkey');
+    mockCheckEndpointCommitment.mockResolvedValue('match');
+
+    await readPostSwitchLocalState('acc', NEW);
+    expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(1);
+    expect(mockCheckEndpointCommitment.mock.calls[0]![2]).toBeUndefined();
+  });
 });
 
 describe('adoptPostSwitchState (#1233)', () => {
@@ -109,6 +118,21 @@ describe('adoptPostSwitchState (#1233)', () => {
     await expect(adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep })).resolves.toBe('post-switch');
     expect(adoptOnce).toHaveBeenCalledTimes(1);
     expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the new operator's /pubkey the one-shot 20 s budget on every read", async () => {
+    let adopted = false;
+    const adoptOnce = jest.fn(async () => {
+      adopted = true;
+    });
+    localNamesNewKeyWhen(() => adopted);
+    const { now, sleep } = fakeClock();
+
+    await adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep });
+    expect(mockCheckEndpointCommitment.mock.calls).toEqual([
+      [NEW, 'oldkey', 20_000],
+      [NEW, 'newkey', 20_000]
+    ]);
   });
 
   it('gives up past the deadline with the local copy still pre-switch', async () => {

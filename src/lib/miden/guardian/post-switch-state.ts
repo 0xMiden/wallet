@@ -22,10 +22,17 @@ export type PostSwitchLocalState = 'post-switch' | 'pre-switch' | 'unknown';
 export const POST_SWITCH_ADOPT_DEADLINE_MS = 75_000;
 /** Between adopts: canonicalization runs every 3 s at first and every 10 s after. */
 export const POST_SWITCH_ADOPT_POLL_MS = 5_000;
+/**
+ * The reconcile's `/pubkey` budget for the new operator. It asks once, so a slow operator gets the
+ * one-shot budget `USER_ENDPOINT_CHECK_TIMEOUT_MS` has, not the tick's 5 s.
+ */
+export const POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS = 20_000;
 
+/** `timeoutMs` omitted keeps `checkEndpointCommitment`'s tick default, which only a repeating caller can afford. */
 export async function readPostSwitchLocalState(
   accountPublicKey: string,
-  newGuardianEndpoint: string
+  newGuardianEndpoint: string,
+  timeoutMs?: number
 ): Promise<PostSwitchLocalState> {
   const localGuardian = await withWasmClientLock(
     async hold => {
@@ -37,7 +44,7 @@ export async function readPostSwitchLocalState(
     { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'post-switch-state-read' }
   );
   if (!localGuardian) return 'unknown';
-  const verdict = await checkEndpointCommitment(newGuardianEndpoint, localGuardian);
+  const verdict = await checkEndpointCommitment(newGuardianEndpoint, localGuardian, timeoutMs);
   if (verdict === 'match') return 'post-switch';
   return verdict === 'mismatch' ? 'pre-switch' : 'unknown';
 }
@@ -57,7 +64,11 @@ export async function adoptPostSwitchState(
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
   const deadline = now() + (options.deadlineMs ?? POST_SWITCH_ADOPT_DEADLINE_MS);
   for (;;) {
-    const state = await readPostSwitchLocalState(accountPublicKey, newGuardianEndpoint);
+    const state = await readPostSwitchLocalState(
+      accountPublicKey,
+      newGuardianEndpoint,
+      POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS
+    );
     if (state !== 'pre-switch' || !adoptOnce || now() >= deadline) return state;
     // Until it canonicalizes, the outgoing guardian holds the pre-switch state, which imports nothing;
     // a refusal or a failed read is the same "not yet".
