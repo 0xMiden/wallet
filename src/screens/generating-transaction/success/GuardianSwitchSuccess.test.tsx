@@ -314,6 +314,54 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
     });
 
+    // #1233: the switch reached the network, but its local apply failed and this device could not
+    // save the account's new state. Sharper than the unconfirmed state, whose body advises running
+    // the switch again, which a device holding the pre-switch account cannot do.
+    it('says the new state is not saved on this device, and never advises running the switch again', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedTitle');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+    });
+
+    it('outranks every other warning and still names an unsaved address', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              endpointPersistFailed: true,
+              registerFailed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+    });
+
     it('outranks the post-commit warnings, whose copy asserts the confirmation it lacks', () => {
       render(
         <GuardianSwitchSuccess
