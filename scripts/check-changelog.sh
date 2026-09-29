@@ -2,12 +2,19 @@
 set -uo pipefail
 
 CHANGELOG_FILE="${1:-CHANGELOG.md}"
+
+if [ -z "${BASE_REF:-}" ] || [ -z "${NO_CHANGELOG_LABEL:-}" ]; then
+    >&2 echo "BASE_REF and NO_CHANGELOG_LABEL must be set."
+    exit 2
+fi
+
 scripts_dir=$(dirname "$0")
 
 # Every heading and section is read through scripts/changelog-sections.awk, the definition the release
-# notes use too (scripts/changelog-notes.sh), so a line is judged where it would be published. The
-# labelled files go to a temporary directory, never through $(...), which would drop trailing blank
-# lines. Exit 0: the change passes. Exit 1: a rule failed. Exit 2: the gate could not judge.
+# notes use too (scripts/changelog-notes.sh), so a line is judged where it would be published. The base
+# CHANGELOG is written to a file by git show, never read through $(...), which would drop its trailing
+# blank lines and make an unchanged file read as edited. Exit 0: the change passes. Exit 1: a rule
+# failed. Exit 2: the gate could not judge.
 work=$(mktemp -d) || exit 2
 trap 'rm -rf "${work}"' EXIT
 

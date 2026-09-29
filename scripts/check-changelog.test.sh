@@ -113,6 +113,19 @@ expect() {
   fi
 }
 
+# require_line <case> <prefix> <needle>: fail <case> (bumping the shared tally) unless the last
+# `expect` call's captured output ("$work/out") has a line containing <prefix>, that same line
+# also containing <needle>. Pins the report line itself, not just that the gate failed.
+require_line() {
+  local name=$1 prefix=$2 needle=$3 line
+  line=$(grep -F -- "$prefix" "$work/out" | head -1) || true
+  if [ -z "$line" ] || [[ "$line" != *"$needle"* ]]; then
+    printf 'FAIL          %s: no output line has "%s" ... "%s"\n' "$name" "$prefix" "$needle"
+    sed 's/^/     | /' "$work/out"
+    printf '%s\n' "$(( $(cat "$tally") + 1 ))" > "$tally"
+  fi
+}
+
 ENTRY='- [FIX][all] New entry (#10).'
 
 # --- placement: judged by the heading that governs each added line ---
@@ -122,7 +135,9 @@ expect 0 'an entry under the open (TBD) heading passes' "$r"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Released entry (#2).' "$ENTRY"
+entry_line=$(grep -n -F -- "$ENTRY" "$r/CHANGELOG.md" | head -1 | cut -d: -f1)
 expect 1 'an entry under a released, dated heading fails' "$r"
+require_line 'an entry under a released, dated heading fails' "CHANGELOG.md:${entry_line}: " "$ENTRY"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] A section that shipped and was never dated (#4).' "$ENTRY"
@@ -183,6 +198,12 @@ expect 1 'a duplicated version heading fails' "$r"
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 expect 2 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
+
+# BASE_REF= overrides expect()'s own BASE_REF=main (env keeps the later of two assignments to the
+# same name), so the gate sees it empty, same as unset for a bash 3.2 caller with no `env -u`.
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+expect 2 'an unset BASE_REF does not pass' "$r" BASE_REF=
 
 r=$(new_repo)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
@@ -277,7 +298,9 @@ expect 1 'a new heading inserted inside a released section fails' "$r"
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 delete_line "$r" '- [FIX][all] Released entry (#2).'
 insert_after "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Released entry (#2).'
+pasted_line=$(grep -n -F -- '- [FIX][all] Released entry (#2).' "$r/CHANGELOG.md" | head -1 | cut -d: -f1)
 expect 1 'a released entry cut and pasted under the open section fails' "$r"
+require_line 'a released entry cut and pasted under the open section fails' "CHANGELOG.md:${pasted_line}: " 'moved out of 1.16.2'
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 delete_line "$r" '## 1.15.14 (2026-07-29)'

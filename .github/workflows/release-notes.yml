@@ -59,6 +59,11 @@ jobs:
           TAG='${{ steps.tag.outputs.tag }}'
           VERSION='${{ steps.tag.outputs.version }}'
 
+          if ! git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+            echo "Tag ${TAG} not found" >&2
+            exit 1
+          fi
+
           if ! git show "refs/tags/${TAG}:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md" 2>/dev/null; then
             echo "No CHANGELOG.md at this ref; skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
