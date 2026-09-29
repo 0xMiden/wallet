@@ -615,6 +615,41 @@ const readTransactionResultFields = (
   }
 };
 
+/**
+ * Point a discarded switch's account back at its previous guardian (#1233), retried like the terminal
+ * status write. The write needs an unlocked wallet, and one that stays locked outlasts the attempts,
+ * so false (or no previous endpoint on the row) is what the Failed row then names.
+ */
+const restorePreviousGuardianEndpoint = async (
+  guardianProvider: GuardianAccountProvider,
+  storedAccountId: string,
+  previousGuardianEndpoint: string | undefined
+): Promise<boolean> => {
+  if (!previousGuardianEndpoint) {
+    console.error('The node discarded the guardian switch, and the row records no previous endpoint to restore');
+    return false;
+  }
+  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      await withTimeout(
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, previousGuardianEndpoint)),
+        ENDPOINT_PERSIST_TIMEOUT_MS,
+        'restoring the previous guardian endpoint'
+      );
+      return true;
+    } catch (restoreError) {
+      console.error(
+        `Could not restore the previous guardian endpoint (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+        restoreError
+      );
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+      }
+    }
+  }
+  return false;
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
@@ -759,26 +794,18 @@ export const completeSwitchGuardianTransaction = async (
         })
       : 'post-switch';
     // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
-    // guardian then never holds a post-switch state. Ask the node about the transaction, as the
-    // direct path does: a discard means the switch did not happen, so the endpoint persisted above
-    // goes back to the previous guardian and the caller fails the row. No verdict keeps the flag.
-    const askNodeAbout = localState === 'pre-switch' ? landed?.transactionId : undefined;
+    // guardian then never holds a post-switch state, and an unknown copy may be either. Ask the node
+    // about the transaction, as the direct path does: a discard means the switch did not happen, so
+    // the endpoint persisted above goes back to the previous guardian and the caller fails the row.
+    // No verdict keeps the flag.
+    const askNodeAbout = localState === 'post-switch' ? undefined : landed?.transactionId;
     if (askNodeAbout !== undefined && (await didDirectSwitchLand(askNodeAbout)) === false) {
-      const { previousGuardianEndpoint } = tx.extraInputs;
-      try {
-        if (!previousGuardianEndpoint) throw new Error('the row records no previous guardian endpoint');
-        await withTimeout(
-          Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, previousGuardianEndpoint)),
-          ENDPOINT_PERSIST_TIMEOUT_MS,
-          'restoring the previous guardian endpoint'
-        );
-      } catch (restoreError) {
-        console.error(
-          'The node discarded the guardian switch, and restoring the previous endpoint failed:',
-          restoreError
-        );
-      }
-      throw new GuardianSwitchDiscardedError(askNodeAbout);
+      const restored = await restorePreviousGuardianEndpoint(
+        guardianProvider,
+        storedAccountId,
+        tx.extraInputs.previousGuardianEndpoint
+      );
+      throw new GuardianSwitchDiscardedError(askNodeAbout, restored ? undefined : newGuardianEndpoint);
     }
     try {
       if (localState === 'pre-switch') {

@@ -555,10 +555,18 @@ export const GUARDIAN_SWITCH_DISCARDED = 'GuardianSwitchDiscardedError';
 /**
  * The node discarded a landed switch whose local apply failed (#1233), so the switch did not happen.
  * Thrown out of completion for its caller to fail the row, as the direct path fails its own discard.
+ * `strandedEndpoint` is the new guardian's endpoint when it could not be taken back off the account,
+ * so the Failed row says the stored endpoint still names it.
  */
 export class GuardianSwitchDiscardedError extends Error {
-  constructor(transactionId: string) {
-    super(`Guardian switch ${transactionId} did not land: the node discarded it.`);
+  constructor(transactionId: string, strandedEndpoint?: string) {
+    super(
+      `Guardian switch ${transactionId} did not land: the node discarded it.` +
+        (strandedEndpoint === undefined
+          ? ''
+          : ` The stored guardian endpoint still names the new guardian (${strandedEndpoint}) and could not be ` +
+            'set back to the previous one.')
+    );
     this.name = GUARDIAN_SWITCH_DISCARDED;
   }
 }
