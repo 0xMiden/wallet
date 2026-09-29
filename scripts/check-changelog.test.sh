@@ -178,6 +178,41 @@ printf '#!/bin/sh\nexit 2\n' > "$shim/awk"
 chmod +x "$shim/awk"
 expect nonzero 'a failing awk does not pass' "$r" PATH="$shim:$PATH"
 
+# --- the release notes read sections through the same parser ---
+notes="$repo_root/scripts/changelog-notes.sh"
+
+# notes_is <case> <file> <version> <want-status> <want-text>: run the notes script and compare both.
+notes_is() {
+  local name=$1 file=$2 version=$3 want_status=$4 want=$5 got_status=0 got
+  got=$(bash "$notes" "$version" "$file" 2> "$work/notes-err") || got_status=$?
+  if [ "$got_status" = "$want_status" ] && [ "$got" = "$want" ]; then
+    printf 'ok   exit=%s  %s\n' "$got_status" "$name"
+  else
+    printf 'FAIL exit=%s want=%s  %s\n' "$got_status" "$want_status" "$name"
+    printf '%s\n' "$got" | sed 's/^/     got  | /'
+    printf '%s\n' "$want" | sed 's/^/     want | /'
+    sed 's/^/     err  | /' "$work/notes-err"
+    printf '%s\n' "$(( $(cat "$tally") + 1 ))" > "$tally"
+  fi
+}
+
+f="$work/notes.md"
+printf '%s\n' '# Changelog' '' '## 1.2.6 (TBD)' '' '- open' '' '---' '' '- after the line' '' \
+  $'\t## 1.2.5 (2026-01-02)' '' '- tab heading' '' '  ## 1.2.4 (2026-01-01)' '' '### Fixes' '' \
+  $'- has\ta tab' '' '## 1.2.4 (again)' '' '- second copy' '' > "$f"
+notes_is 'the notes stop at a --- line' "$f" 1.2.6 0 '- open'
+notes_is 'the notes read a tab-led heading' "$f" 1.2.5 0 '- tab heading'
+notes_is 'the notes take the first section with a version, trimmed' "$f" 1.2.4 0 "$(printf '### Fixes\n\n- has\ta tab')"
+notes_is 'keeps a tab inside a line' "$f" 1.2.4 0 "$(printf '### Fixes\n\n- has\ta tab')"
+notes_is 'the notes are empty for a version with no section' "$f" 9.9.9 0 ''
+notes_is 'the notes cannot read a missing file' "$work/no-such.md" 1.2.4 2 ''
+if out=$(bash "$notes" 1.16.2 "$repo_root/CHANGELOG.md") && [ -n "$out" ]; then
+  printf 'ok   exit=0  %s\n' "the real CHANGELOG's 1.16.2 notes are non-empty"
+else
+  printf 'FAIL  %s\n' "the real CHANGELOG's 1.16.2 notes are non-empty"
+  printf '%s\n' "$(( $(cat "$tally") + 1 ))" > "$tally"
+fi
+
 failures=$(cat "$tally")
 if [ "$failures" -ne 0 ]; then
   printf '\n%s check(s) failed\n' "$failures" >&2
