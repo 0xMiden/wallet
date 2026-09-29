@@ -940,7 +940,7 @@ describe('generateTransactionsLoop error paths', () => {
     // offer a retry for a consume that already happened. Accepting either
     // terminal status here made the test's own name unfalsifiable.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-    expect(txStore[0]!.displayMessage).toBe('Claimed');
+    expect(txStore[0]!.displayMessage).toBe('Received');
 
     sdk.withWasmClientLock = origLock;
   });
@@ -1019,22 +1019,25 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
-  // The loop catch labels a landed row as the Guardian catch does (#1233), so a landed swap or dApp
-  // execute reads 'Sent', never the bare 'Completed' it wrote before.
+  // The loop catch has no result to label from, so a landed row takes the label its type's normal
+  // completion writes, the one the Guardian catch gives it too (#1233).
   it.each([
+    ['self-reclaim consume', { type: 'consume', secondaryAccountId: 'acc-1' }, 'Reclaimed'],
     [
       'swap',
       {
+        type: 'swap',
         faucetId: 'faucet-1',
         amount: '5',
         requestBytes: new Uint8Array([7]),
         extraInputs: { requestedFaucetId: 'faucet-2', requestedAmount: '10' }
-      }
+      },
+      'Swapped'
     ],
-    ['execute', { requestBytes: new Uint8Array([8]) }]
+    ['execute', { type: 'execute', requestBytes: new Uint8Array([8]) }, 'Executed']
   ])(
-    'marks a landed %s Completed with the Sent label on the apply-after-submit error (#1233)',
-    async (type, fields) => {
+    'labels a landed %s as its completion handler would on the apply-after-submit error (#1233)',
+    async (_label, fields, label) => {
       const sdk = require('../sdk/miden-client');
       const origLock = sdk.withWasmClientLock;
       let callCount = 0;
@@ -1046,8 +1049,7 @@ describe('generateTransactionsLoop error paths', () => {
         return fn();
       });
       txStore.push({
-        id: `tx-${type}-apply-fail`,
-        type,
+        id: 'tx-landed-label',
         status: ITransactionStatus.Queued,
         initiatedAt: Math.floor(Date.now() / 1000),
         accountId: 'acc-1',
@@ -1060,9 +1062,9 @@ describe('generateTransactionsLoop error paths', () => {
       } finally {
         sdk.withWasmClientLock = origLock;
       }
-      const row = txStore.find(t => t.id === `tx-${type}-apply-fail`);
+      const row = txStore.find(t => t.id === 'tx-landed-label');
       expect(row.status).toBe(ITransactionStatus.Completed);
-      expect(row.displayMessage).toBe('Sent');
+      expect(row.displayMessage).toBe(label);
     }
   );
 

@@ -256,15 +256,28 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
 
 /**
  * Activity label for a row, Guardian or not, whose submit LANDED on chain but whose
- * local reconcile failed. There is no `TransactionResult` here, so the label is derived
- * from the type alone and must match what the happy-path completion handler would
- * have written: `completeConsumeTransaction` → "Claimed",
- * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
+ * local reconcile failed. There is no `TransactionResult` here, so the label is the one
+ * the type's normal completion writes, derived from the row alone:
+ * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
+ * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
+ * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
+ * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
+ * `completeCustomTransaction` reads its label off the result, so a landed execute takes
+ * the one it writes when the result shows no single direction, "Executed".
  */
-const applyLandedDisplayMessage = (type: ITransactionType): string => {
-  if (type === 'consume') return 'Claimed';
-  if (type === 'bridged-send') return 'Bridged to EVM';
-  return 'Sent';
+const applyLandedDisplayMessage = (tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>): string => {
+  switch (tx.type) {
+    case 'consume':
+      return compareAccountIds(tx.accountId, tx.secondaryAccountId ?? '') ? 'Reclaimed' : 'Received';
+    case 'swap':
+      return 'Swapped';
+    case 'bridged-send':
+      return 'Bridged to EVM';
+    case 'execute':
+      return 'Executed';
+    default:
+      return 'Sent';
+  }
 };
 
 /**
@@ -276,7 +289,7 @@ const applyLandedDisplayMessage = (type: ITransactionType): string => {
  * funds while over-reporting costs a stale warning.
  */
 const landedValueRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType'>
+  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId'>
 ): { displayMessage: string; noteDelivery?: 'undelivered' } => {
   let privateSend = tx.type === 'send';
   if (privateSend) {
@@ -286,7 +299,7 @@ const landedValueRowFields = (
       privateSend = true;
     }
   }
-  const displayMessage = applyLandedDisplayMessage(tx.type);
+  const displayMessage = applyLandedDisplayMessage(tx);
   return privateSend
     ? { displayMessage: `${displayMessage} - the private note could not be delivered`, noteDelivery: 'undelivered' }
     : { displayMessage };

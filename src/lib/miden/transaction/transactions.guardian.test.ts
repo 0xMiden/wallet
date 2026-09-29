@@ -6997,7 +6997,7 @@ describe('generateTransaction — Guardian routing', () => {
     // note state via ConsumedExternal), NOT cancelled/Failed.
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Claimed');
+    expect(row.displayMessage).toBe('Received');
   });
 
   it.each([
