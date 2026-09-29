@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -3913,5 +3914,29 @@ describe('HomePrompts', () => {
 
       await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
     });
+
+    // A terminal record is written once and stays until its card is dismissed, so the live-record age rule skips it.
+    it.each(['history-failed', 'history-partial'] as const)(
+      'keeps a %s card up after the live-record window has passed',
+      async step => {
+        const writtenAt = Date.now() - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 1_000;
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(writtenAt);
+        try {
+          await reportGuardianNoteRecoveryProgress({
+            accountId: account.publicKey,
+            step,
+            restored: 2,
+            sourcesClean: true
+          });
+        } finally {
+          clock.mockRestore();
+        }
+        renderCard();
+
+        expect(
+          await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' })
+        ).toBeInTheDocument();
+      }
+    );
   });
 });

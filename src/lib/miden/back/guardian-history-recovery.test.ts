@@ -22,6 +22,7 @@ import { exportDb, importDb, transactions } from '../repo';
 import {
   classifyHistoryFailure,
   forgetUnsupportedHistorySources,
+  GUARDIAN_HISTORY_PROGRESS_REFRESH_MS,
   hasFailedGuardianHistory,
   MAX_HISTORY_CURSOR_LENGTH,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
@@ -550,6 +551,100 @@ it('records the history step before its first yield check', async () => {
     historyGeneration: await storedGeneration()
   });
   expect(createClient).not.toHaveBeenCalled();
+});
+
+const historyWrites = (operator: string) => {
+  const report = jest.mocked(reportGuardianNoteRecoveryProgress).mock;
+  return report.calls
+    .map(([progress], index) => ({ progress, order: report.invocationCallOrder[index]! }))
+    .filter(({ progress }) => progress.operator === operator);
+};
+
+// Each op moves the clock by exactly the interval, which rewrites the record only under an inclusive comparison.
+const tickPerCall = () => {
+  let now = Date.now();
+  const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+  return { clock, tick: () => (now += GUARDIAN_HISTORY_PROGRESS_REFRESH_MS) };
+};
+
+it('rewrites the live history record once the refresh interval has passed, before each decode', async () => {
+  const { clock, tick } = tickPerCall();
+  try {
+    const client = source('https://one', [{ entries: [entry(4), entry(3), entry(2)] }]);
+    jest.spyOn(client, 'getDelta').mockImplementation(async (_account, nonce) => {
+      tick();
+      return delta(nonce);
+    });
+    await run();
+    const [firstDelta] = jest.mocked(client.getDelta).mock.invocationCallOrder;
+    const twoStarts = createClient.mock.invocationCallOrder[1]!;
+    const report = jest.mocked(reportGuardianNoteRecoveryProgress).mock;
+    const refreshes = report.calls.filter((_call, index) => {
+      const order = report.invocationCallOrder[index]!;
+      return order > firstDelta! && order < twoStarts;
+    });
+    expect(refreshes.length).toBeGreaterThanOrEqual(2);
+    for (const [progress] of refreshes) {
+      expect(progress).toMatchObject({
+        step: 'history',
+        operator: 'https://one',
+        sourcesClean: true,
+        historyGeneration: await storedGeneration()
+      });
+    }
+    // A decode waits on the WASM lock with no deadline off the offscreen path, so the record is rewritten after each
+    // delta answer and before that entry's decode.
+    const deltaOrder = jest.mocked(client.getDelta).mock.invocationCallOrder;
+    const decodeOrder = jest.mocked(midenClientProxy.decodeGuardianHistory).mock.invocationCallOrder;
+    const writes = historyWrites('https://one');
+    for (const [index, answered] of deltaOrder.entries()) {
+      expect(writes.some(({ order }) => order > answered && order < decodeOrder[index]!)).toBe(true);
+    }
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it('writes the live history record per page, not per entry, while the refresh interval has not passed', async () => {
+  source('https://one', [{ entries: [entry(4), entry(3), entry(2)] }]);
+  await run();
+  expect(historyWrites('https://one')).toHaveLength(2);
+});
+
+it('rewrites the live history record after a slow decode, before the next delta and commitment op', async () => {
+  const { clock, tick } = tickPerCall();
+  try {
+    await transactions.add({
+      id: 'local-send',
+      type: 'send',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      resultBytes: new Uint8Array([1])
+    });
+    const client = source('https://one', [{ entries: [entry(4), entry(3), entry(2)] }]);
+    const decode = jest.mocked(midenClientProxy.decodeGuardianHistory);
+    const decodeSummary = decode.getMockImplementation()!;
+    decode.mockImplementation(async encoded => {
+      tick();
+      return decodeSummary(encoded);
+    });
+    await run();
+    const deltaOrder = jest.mocked(client.getDelta).mock.invocationCallOrder;
+    const decodeOrder = decode.mock.invocationCallOrder;
+    const [commitmentOrder] = jest.mocked(midenClientProxy.getGuardianResultCommitment).mock.invocationCallOrder;
+    const writes = historyWrites('https://one');
+    const writtenBetween = (after: number, before: number) =>
+      writes.some(({ progress, order }) => progress.step === 'history' && order > after && order < before);
+    for (let index = 1; index < 3; index++) {
+      expect(writtenBetween(decodeOrder[index - 1]!, deltaOrder[index]!)).toBe(true);
+      expect(writtenBetween(decodeOrder[index - 1]!, decodeOrder[index]!)).toBe(true);
+    }
+    expect(writtenBetween(decodeOrder[2]!, commitmentOrder!)).toBe(true);
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('defers a run whose generation was read before the key was removed', async () => {

@@ -26,11 +26,16 @@ export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY = 'guardian_note_recove
 const MAX_TRACKED_ACCOUNTS = 20;
 
 /**
- * A record not refreshed within this window is treated as abandoned. The
- * orchestrator rewrites it on every step and after every backfill chunk (each
- * bounded by a 60s op deadline), so a longer gap means the run died with the
- * realm — and without this bound the card, being non-dismissible, would stay
- * on screen forever.
+ * A live record ('transport', 'proposals', 'public' or 'history') not refreshed
+ * within this window is treated as abandoned. The orchestrator rewrites it on
+ * every step, after every backfill chunk (each bounded by a 60s op deadline)
+ * and after every proposal-import batch, and the history phase rewrites it at
+ * the interval GUARDIAN_HISTORY_PROGRESS_REFRESH_MS, so a longer gap means the
+ * run died with the realm; without this bound its card, being non-dismissible,
+ * would stay on screen forever. The terminal 'history-partial' and
+ * 'history-failed' records never age out: each is written once, its card is
+ * dismissible, and dismissing the card (which clears a 'history-failed' record
+ * and hides a 'history-partial' one) or the next run's first write removes it.
  */
 export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS = 180_000;
 
@@ -123,12 +128,14 @@ export function normalizeGuardianNoteRecoveryProgress(
  * writer stamps `updatedAt`, so a record without one cannot be from a live run
  * and is stale by definition — treating it as fresh instead would leave a
  * permanent non-dismissible card with nothing able to clear it.
+ * Only a live step ages out; a terminal record stays until its card is dismissed or the next run replaces it.
  */
 export function isGuardianNoteRecoveryProgressStale(
   progress: GuardianNoteRecoveryProgress,
   now: number = Date.now()
 ): boolean {
   if (progress.updatedAt === undefined) return true;
+  if (progress.step === 'history-partial' || progress.step === 'history-failed') return false;
   return now - progress.updatedAt > GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS;
 }
 

@@ -37,6 +37,15 @@ class HistoryInterrupted extends Error {}
 
 type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported' };
 
+/**
+ * How old the history phase lets its live progress record get before it writes it again, checked before each getDelta,
+ * decodeGuardianHistory and getGuardianResultCommitment. Between two writes a pass then does at most one history
+ * request (15 s, one retry), one decode or commitment op, the merge and a checkpoint save, or a createClient, so the
+ * record stays well inside GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS. A decode or commitment op has a 15 s deadline on
+ * the offscreen path; inline, on mobile and desktop, it waits on the WASM lock with no deadline.
+ */
+export const GUARDIAN_HISTORY_PROGRESS_REFRESH_MS = 30_000;
+
 export const MAX_HISTORY_ENTRIES_PER_SOURCE = 10_000;
 export const MAX_HISTORY_CURSOR_LENGTH = 1024;
 // The repeat check catches a loop of up to this many pages; termination rests on the entry cap and falling nonces.
@@ -142,17 +151,23 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   let deferredSources = 0;
   let restored = local.filter(row => row.recovered && row.recovery?.network === network).length;
   const commitments = new Map<string, string>();
-  // Only a clean notes pass reaches this phase, so a retry may resume here.
-  if (operators[0] !== undefined) {
+  let lastHistoryWrite = 0;
+  const reportHistory = async (operator: string) => {
+    lastHistoryWrite = Date.now();
     await reportGuardianNoteRecoveryProgress({
       accountId: account.publicKey,
       step: 'history',
-      operator: operators[0],
+      operator,
       restored,
       sourcesClean: true,
       historyGeneration: context.generation
     });
-  }
+  };
+  const refreshHistory = async (operator: string) => {
+    if (Date.now() - lastHistoryWrite >= GUARDIAN_HISTORY_PROGRESS_REFRESH_MS) await reportHistory(operator);
+  };
+  // Only a clean notes pass reaches this phase, so a retry may resume here.
+  if (operators[0] !== undefined) await reportHistory(operators[0]);
   try {
     for (const operator of operators) {
       const id = historyCheckpointId(network, canonicalAccountId, operator);
@@ -177,14 +192,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         await check();
         const { guardian, guardianAccountId } = await context.createClient(account, operator);
         while (!checkpoint.completed) {
-          await reportGuardianNoteRecoveryProgress({
-            accountId: account.publicKey,
-            step: 'history',
-            operator,
-            restored,
-            sourcesClean: true,
-            historyGeneration: context.generation
-          });
+          await reportHistory(operator);
           const pageCheckpoint = checkpoint;
           // A timed-out attempt can settle after its retry starts, so each reports only through its own value.
           const outcome = await historyRequest(
@@ -238,7 +246,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
           const records: ITransaction[] = [];
           for (const entry of page.entries) {
+            await refreshHistory(operator);
             const delta = await historyRequest(() => guardian.getDelta(guardianAccountId, entry.nonce), check);
+            await refreshHistory(operator);
             await check();
             const summary = await midenClientProxy.decodeGuardianHistory(delta.deltaPayload.txSummary.data);
             const record = recoveredHistoryRecord(
@@ -255,6 +265,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           // Decode local results outside the database transaction and between yield checks.
           for (const row of local) {
             if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
+            await refreshHistory(operator);
             await check();
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));

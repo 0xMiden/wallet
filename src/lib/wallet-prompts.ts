@@ -655,10 +655,12 @@ export function __resetInFlightFaucetRequestsForTest(): void {
 }
 
 /**
- * Live progress of the post-seed-recovery pending-note scan, or null when no
- * scan is running. Extension surfaces get push updates via storage change
- * events (the SW writes through the same storage area); mobile/desktop have no
- * storage events, so a light poll keeps the card advancing there too.
+ * The live progress record of the post-seed-recovery pending-note scan, or a
+ * terminal 'history-partial'/'history-failed' record until its card is
+ * dismissed or the next run replaces it; null otherwise. Extension surfaces
+ * get push updates via storage change events (the SW writes through the same
+ * storage area); mobile/desktop have no storage events, so a light poll keeps
+ * the card advancing there too.
  *
  * Pass the viewed account's id only while its `guardianNoteRecoveryPending`
  * flag is set, and null otherwise. That gate is the whole reason this hook can
@@ -674,9 +676,10 @@ export function useGuardianNoteRecoveryProgress(accountId: string | null): Guard
   const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
   const cancelledRef = useRef(false);
 
-  // A run that died with its realm stops refreshing the record. The card is
-  // non-dismissible, so without ageing the record out it would sit on screen
-  // forever.
+  // The age rule drops only a live-step record whose run died with its realm:
+  // that card is non-dismissible, so without it the card would sit on screen
+  // forever. A terminal record stays until its card is dismissed or the next
+  // run replaces it.
   const accept = useCallback((next: GuardianNoteRecoveryProgress | null) => {
     if (cancelledRef.current) return;
     setProgress(next && isGuardianNoteRecoveryProgressStale(next) ? null : next);

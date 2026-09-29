@@ -158,8 +158,26 @@ describe('guardian note recovery progress', () => {
     ).toBe(true);
   });
 
+  it('never ages out a terminal history record, while a live history record of the same age is stale', () => {
+    const now = 1_700_000_000_000;
+    const updatedAt = now - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 1;
+
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-partial', updatedAt }, now)).toBe(
+      false
+    );
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-failed', updatedAt }, now)).toBe(
+      false
+    );
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history', updatedAt }, now)).toBe(true);
+  });
+
   it('ages out a record with no timestamp, since every live writer stamps one', () => {
     expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'transport' })).toBe(true);
+  });
+
+  it('ages out a terminal record with no timestamp too, since its dismissal is keyed on one', () => {
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-partial' })).toBe(true);
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'history-failed' })).toBe(true);
   });
 
   it('clears only the finishing account, leaving the rest of the map', async () => {
