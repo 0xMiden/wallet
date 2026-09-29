@@ -243,64 +243,70 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     setError(null);
     // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
     let reloaded = false;
-    try {
-      // The override goes in the wipe's own blanket clear, so no separate step can fail after the
-      // wallet is gone and leave onboarding on the endpoints being reset.
-      await resetStorageDestructive({ keepEndpointOverride: false });
-    } catch (err) {
-      // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
-      // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
-      // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
-      // reports a reload that cannot start. The reload does not depend on the page staying open: on the extension,
-      // where closing the page leaves the service worker running, a caller also reloads on `pagehide` while it
-      // reports, and the extension reloads once either way.
-      console.warn('[developer-settings] Could not wipe the wallet storage', err);
-      // The popup that hosts this page closes when it loses focus, and nothing after the alert's await runs
-      // then. The polyfill is fetched first because a pagehide listener cannot wait for an import.
-      let reloadOnce: (() => void) | undefined;
-      if (isExtension()) {
-        try {
-          const browser = (await import('webextension-polyfill')).default;
-          reloadOnce = () => {
-            browser.runtime.reload();
-            reloaded = true;
-          };
-          window.addEventListener('pagehide', reloadOnce, { once: true });
-        } catch (importErr) {
-          // The alert still shows; the reload below imports again or reports that it could not start.
-          console.warn('[developer-settings] Could not load the polyfill before the alert', importErr);
-        }
-      }
+    // The popup that hosts this page closes when it loses focus, and nothing after the await it is in runs then,
+    // the wipe's or the alert's, so the pagehide reload is armed before the wipe. The polyfill is fetched first
+    // because a pagehide listener cannot wait for an import. Dynamic import: `webextension-polyfill` throws at
+    // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
+    // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
+    // it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+    let reloadOnce: (() => void) | undefined;
+    if (isExtension()) {
       try {
-        await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
-      } finally {
-        if (reloadOnce) window.removeEventListener('pagehide', reloadOnce);
+        const browser = (await import('webextension-polyfill')).default;
+        reloadOnce = () => {
+          browser.runtime.reload();
+          reloaded = true;
+        };
+        window.addEventListener('pagehide', reloadOnce, { once: true });
+      } catch (importErr) {
+        // The reset still runs; the reload below imports again or reports that it could not start.
+        console.warn('[developer-settings] Could not load the polyfill before the wipe', importErr);
       }
     }
     try {
-      // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
-      // Reset does. The reload also drops the resolver's override cache this realm holds in memory.
-      if (isExtension()) {
-        // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
-        // `chrome.runtime.id` is absent, so it must not be a top-level import - this
-        // screen is statically imported by PageRouter and evaluates on every platform
-        // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
-        // A listener reload that threw left the flag down, so this one retries and reports.
-        if (!reloaded) {
-          const browser = (await import('webextension-polyfill')).default;
-          browser.runtime.reload();
-        }
-      } else {
-        // mobile/desktop: no background worker to resync with, just reload in place.
-        window.location.reload();
+      try {
+        // The override goes in the wipe's own blanket clear, so no separate step can fail after the
+        // wallet is gone and leave onboarding on the endpoints being reset.
+        await resetStorageDestructive({ keepEndpointOverride: false });
+      } catch (err) {
+        // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+        // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+        // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+        // reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
+        // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
+        // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+        console.warn('[developer-settings] Could not wipe the wallet storage', err);
+        await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
       }
-    } catch (err) {
-      // No reload started, so the closed handles and the in-memory override outlive the wipe:
-      // the reset did not finish.
-      console.warn('[developer-settings] Could not reload after the reset', err);
-      setError(t('resetDidNotFinish'));
+      try {
+        // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
+        // Reset does. The reload also drops the resolver's override cache this realm holds in memory.
+        if (isExtension()) {
+          // A listener reload that threw left the flag down, so this one retries and reports. The module fetched
+          // before the wipe is reused, so no await separates a finished wipe from its reload; only when that
+          // fetch failed is it imported again.
+          if (!reloaded) {
+            if (reloadOnce) {
+              reloadOnce();
+            } else {
+              const browser = (await import('webextension-polyfill')).default;
+              browser.runtime.reload();
+            }
+          }
+        } else {
+          // mobile/desktop: no background worker to resync with, just reload in place.
+          window.location.reload();
+        }
+      } catch (err) {
+        // No reload started, so the closed handles and the in-memory override outlive the wipe:
+        // the reset did not finish.
+        console.warn('[developer-settings] Could not reload after the reset', err);
+        setError(t('resetDidNotFinish'));
+      } finally {
+        setPending(false);
+      }
     } finally {
-      setPending(false);
+      if (reloadOnce) window.removeEventListener('pagehide', reloadOnce);
     }
   };
 

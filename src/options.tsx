@@ -91,34 +91,35 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
 
     // resetStorageDestructive's caller contract: report a rejected wipe and then reload, and report a reload
     // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault. The reload does
-    // not depend on the page staying open: the tab can close while the report is up, and nothing after its
-    // await runs then, so pagehide reloads too, and whichever comes first is the one reload.
+    // not depend on the page staying open at any point: the tab can close during the wipe or the report, and
+    // nothing after that await runs then, so pagehide, armed before the wipe, reloads too, and whichever comes
+    // first is the one reload.
     let reloaded = false;
     const reloadOnce = () => {
       browser.runtime.reload();
       reloaded = true;
     };
+    window.addEventListener('pagehide', reloadOnce, { once: true });
     try {
-      await resetStorageDestructive();
-    } catch (err) {
-      console.warn('[options] Could not wipe the wallet storage', err);
-      window.addEventListener('pagehide', reloadOnce, { once: true });
       try {
-        await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
-      } finally {
-        window.removeEventListener('pagehide', reloadOnce);
-      }
-    }
-    // A listener reload that threw left the flag down, so this one retries and reports.
-    if (!reloaded) {
-      try {
-        reloadOnce();
+        await resetStorageDestructive();
       } catch (err) {
-        await customAlert({
-          title: getMessage('error'),
-          children: err instanceof Error ? err.message : String(err)
-        });
+        console.warn('[options] Could not wipe the wallet storage', err);
+        await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
       }
+      // A listener reload that threw left the flag down, so this one retries and reports.
+      if (!reloaded) {
+        try {
+          reloadOnce();
+        } catch (err) {
+          await customAlert({
+            title: getMessage('error'),
+            children: err instanceof Error ? err.message : String(err)
+          });
+        }
+      }
+    } finally {
+      window.removeEventListener('pagehide', reloadOnce);
     }
   } finally {
     resetting = false;

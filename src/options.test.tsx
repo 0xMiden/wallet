@@ -165,8 +165,34 @@ describe('src/options.tsx', () => {
     expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
   });
 
-  // Closing the Options tab runs nothing after the alert's await, and the service worker would keep its
-  // unlocked vault over the storage the wipe cleared, so the page's pagehide reloads instead.
+  // Closing the Options tab runs nothing after the await it is in, the wipe's or the alert's, and the service
+  // worker would keep its unlocked vault over the storage the wipe cleared, so the page's pagehide reloads instead.
+  it('reloads once when the page closes while the wipe runs', async () => {
+    mockConfirm.mockResolvedValue(true);
+    const releaseWipes: Array<() => void> = [];
+    mockResetStorage.mockImplementation(() => new Promise<void>(resolve => releaseWipes.push(resolve)));
+
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        releaseWipes.forEach(release => release());
+        // A macrotask, so every step the finished wipe resumes has run before the count below.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+    }
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reloads once when the page closes while the did-not-finish alert is open', async () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
