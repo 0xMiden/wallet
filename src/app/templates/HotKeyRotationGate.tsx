@@ -325,7 +325,9 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
               baseFee,
               balances.find(balance => balance.tokenId === feeFaucetId)
             )}
-            claimError={gate.failedClaim?.error}
+            // A row keeps `rawError` only when a classifier rewrote its error, so only then is `error` a message.
+            claimMessage={gate.failedClaim?.rawError !== undefined ? gate.failedClaim.error : undefined}
+            claimDetails={gate.failedClaim?.rawError ?? gate.failedClaim?.error}
             onRetryClaim={() => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}

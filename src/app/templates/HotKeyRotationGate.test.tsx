@@ -879,6 +879,7 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() =>
         expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
       );
+      fireEvent.click(screen.getByText('showFullError'));
       expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
       fireEvent.click(screen.getByTestId('hot-key-rotation-funding-claim-retry'));
       await waitFor(() =>
@@ -904,7 +905,34 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() =>
         expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
       );
+      expect(screen.queryByText(error)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
       expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere');
+    });
+
+    it('shows a classified claim failure with its raw error behind Show full error', async () => {
+      const raw = 'RuntimeError: unreachable';
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', {
+          status: ITransactionStatus.Failed,
+          error: 'Local proving failed. Please try again.',
+          rawError: raw,
+          noteIds: ['n1']
+        })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByText('Local proving failed. Please try again.')).toBeInTheDocument();
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText(raw)).toBeInTheDocument();
     });
 
     it('gives Try again and Check again a light haptic', async () => {
