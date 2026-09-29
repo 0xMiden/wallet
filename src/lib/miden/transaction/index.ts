@@ -1148,7 +1148,6 @@ const generateTransactionWithProvider = async (
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
-  if (transaction.recovered) return;
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // Errors propagate to the loop, which requeues ordinary transient failures
