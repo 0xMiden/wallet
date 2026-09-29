@@ -3,6 +3,7 @@ import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-cl
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
+  type GuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
@@ -908,6 +909,73 @@ describe('detached recovery run', () => {
     expect(mockAccountsUpdated).not.toHaveBeenCalled();
     unlocked();
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  // Only a written flag ends the record: an unwritten one keeps the history checkpoint, so the retry skips the notes
+  // backfill the clean pass already did.
+  describe('when the terminal flag write does not land', () => {
+    async function resumesAtHistory(loseTheWrite: () => void, lostWrites: number) {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      const records = new Map<string, GuardianNoteRecoveryProgress>();
+      mockReportProgress.mockImplementation(async progress => {
+        records.set(progress.accountId, { ...progress, updatedAt: Date.now() });
+      });
+      mockClearProgress.mockImplementation(async accountId => {
+        records.delete(accountId);
+      });
+      mockFetchProgress.mockImplementation(async accountId => records.get(accountId) ?? null);
+      jest.mocked(recoverGuardianHistory).mockImplementationOnce(async walletAccount => {
+        await reportGuardianNoteRecoveryProgress({
+          accountId: walletAccount.publicKey,
+          step: 'history',
+          operator: 'https://guardian.test',
+          restored: 0,
+          sourcesClean: true,
+          historyGeneration: 'gen-1'
+        });
+        loseTheWrite();
+        return { deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 };
+      });
+      try {
+        await maybeStartGuardianRecovery(account);
+        await drainDetachedRun();
+
+        const historyStarted = jest.mocked(recoverGuardianHistory).mock.invocationCallOrder[0]!;
+        expect(setPendingFlag).toHaveBeenCalledTimes(lostWrites);
+        expect(mockClearProgress.mock.invocationCallOrder.filter(order => order > historyStarted)).toEqual([]);
+        expect(records.get(account.publicKey)).toMatchObject({ step: 'history' });
+
+        unlocked();
+        await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+        await drainDetachedRun();
+
+        expect(recoverGuardianHistory).toHaveBeenCalledTimes(2);
+        expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledTimes(1);
+        expect(mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'proposals')).toHaveLength(1);
+        const written = setPendingFlag.mock.invocationCallOrder.at(-1)!;
+        expect(setPendingFlag).toHaveBeenLastCalledWith(account.publicKey, false);
+        expect(mockClearProgress.mock.invocationCallOrder.some(order => order > written)).toBe(true);
+        expect(records.has(account.publicKey)).toBe(false);
+      } finally {
+        mockReportProgress.mockReset();
+        mockClearProgress.mockReset();
+        jest
+          .mocked(recoverGuardianHistory)
+          .mockReset()
+          .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+      }
+    }
+
+    it('keeps the history record when the wallet locks before the write, and the retry resumes at history', async () => {
+      await resumesAtHistory(locked, 0);
+      expect(setPendingFlag).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the history record when the write fails, and the retry resumes at history', async () => {
+      setPendingFlag.mockRejectedValueOnce(new Error('encrypt failed'));
+      await resumesAtHistory(() => {}, 1);
+      expect(setPendingFlag).toHaveBeenCalledTimes(2);
+    });
   });
 
   // Whoever debugs a stuck recovery reads these lines to decide whether a

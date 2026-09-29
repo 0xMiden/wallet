@@ -860,8 +860,10 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       });
       return;
     }
-    // A replaced wallet owns the progress record now, so it stays.
-    if (!(await clearPendingFlag(account, generation))) return;
+    // Only a written flag ends the record. On 'retry' the history record this
+    // run last wrote stays, so the next offer resumes at history instead of
+    // re-running the notes backfill; on 'replaced' the new wallet owns it.
+    if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
     await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
     failed = true;
@@ -882,16 +884,19 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
  * two writes.
  *
  * Never throws, and releases the account's reservation on every path that
- * leaves the flag set — the pass itself succeeded, so the only thing standing
- * between the user and a finished recovery is this write, and holding the
- * reservation would make the account unstartable for the rest of this
- * backend's lifetime with nothing left to clear it.
+ * leaves the flag set: the pass is over, so the only thing standing between
+ * the user and a finished recovery is this write, and holding the reservation
+ * would make the account unstartable for the rest of this backend's lifetime
+ * with nothing left to clear it.
  *
- * Resolves false only when the history generation moved under the run: the
- * wallet was replaced, so nothing is written and the flag is the new wallet's.
+ * Resolves 'cleared' once the flag is written, whatever the broadcast then
+ * does; 'retry' when the wallet is locked at the write or the write fails
+ * before it lands, so the flag stays set for the next offer; and 'replaced'
+ * when the history generation moved under the run: the wallet was replaced,
+ * so nothing is written and the flag is the new wallet's.
  */
-async function clearPendingFlag(account: WalletAccount, generation: string): Promise<boolean> {
-  let current = true;
+async function clearPendingFlag(account: WalletAccount, generation: string): Promise<'cleared' | 'retry' | 'replaced'> {
+  let outcome: 'cleared' | 'retry' | 'replaced' = 'retry';
   try {
     await getAccountsWriteQueue().add(async () => {
       const vault = liveVault();
@@ -901,12 +906,13 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
         return;
       }
       if ((await readGuardianHistoryGeneration()) !== generation) {
-        current = false;
+        outcome = 'replaced';
         startedRecoveries.delete(account.publicKey);
         console.warn(`[GuardianRecovery] The wallet changed before clearing the flag for ${account.publicKey}`);
         return;
       }
       const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
+      outcome = 'cleared';
       // A lock between the write and the broadcast would merge accounts back
       // into the state `locked` just reset; the flag is already persisted, so
       // dropping the broadcast is the safe half to lose.
@@ -917,5 +923,5 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
     startedRecoveries.delete(account.publicKey);
     console.warn(`[GuardianRecovery] Failed to clear the recovery flag for ${account.publicKey}; will retry:`, error);
   }
-  return current;
+  return outcome;
 }
