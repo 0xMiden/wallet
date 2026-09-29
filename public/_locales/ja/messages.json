@@ -2371,6 +2371,18 @@
     "message": "ウォレットの作成中…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "ウォレットの復元…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "ウォレットの設定…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "ウォレットを開いて、復元を完了させてください。",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "パスワードを入力してください",
     "englishSource": "Enter password"

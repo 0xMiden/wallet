@@ -2371,6 +2371,18 @@
     "message": "Creating your wallet…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Restoring your wallet…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Setting up your wallet…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Open your wallet to finish restoring it.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Enter password",
     "englishSource": "Enter password"

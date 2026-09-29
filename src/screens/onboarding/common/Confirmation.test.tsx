@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { OnboardingType } from 'screens/onboarding/types';
+
 import { ConfirmationScreen } from './Confirmation';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +95,20 @@ describe('ConfirmationScreen', () => {
 
       expect(screen.getByTestId('creating-panel')).toHaveTextContent('creatingYourWallet');
     });
+
+    it('shows the restoring copy, not the creating copy, for an import', () => {
+      renderComponent({ creating: true, onboardingType: OnboardingType.Import });
+
+      expect(screen.getByText('restoringYourWallet')).toBeInTheDocument();
+      expect(screen.queryByText('creatingYourWallet')).not.toBeInTheDocument();
+    });
+
+    it('keeps the creating copy for an explicit Create onboardingType', () => {
+      renderComponent({ creating: true, onboardingType: OnboardingType.Create });
+
+      expect(screen.getByText('creatingYourWallet')).toBeInTheDocument();
+      expect(screen.queryByText('restoringYourWallet')).not.toBeInTheDocument();
+    });
   });
 
   describe('ready state (default, no error)', () => {
@@ -113,6 +129,21 @@ describe('ConfirmationScreen', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
       expect(screen.getByText('recoveryPhraseDailyReminder')).toBeInTheDocument();
+    });
+
+    it('tells an import that opening the wallet finishes the restore, with no create reminder', () => {
+      renderComponent({ onboardingType: OnboardingType.Import });
+
+      expect(screen.getByText('finishRestoringOnOpen')).toBeInTheDocument();
+      expect(screen.queryByText('recoveryPhraseSevenDayReminder')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
+    });
+
+    it('keeps the create reminder copy for an explicit Create onboardingType', () => {
+      renderComponent({ onboardingType: OnboardingType.Create });
+
+      expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
+      expect(screen.getByTestId('onboarding-confirmation-reminder')).toBeInTheDocument();
     });
 
     it('renders a single primary submit button titled "openWallet"', () => {

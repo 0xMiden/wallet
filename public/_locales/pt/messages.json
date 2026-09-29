@@ -2371,6 +2371,18 @@
     "message": "Criando sua carteira…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Restaurando sua carteira…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Configurando sua carteira…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Abra sua carteira para concluir a restauração.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Digite a senha",
     "englishSource": "Enter password"

@@ -62,7 +62,7 @@ export interface OnboardingFlowProps {
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
-  /** Side panel handoff (Chrome): wallet is being created in the background. */
+  /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
   /**
    * The import flow is running on a pasted hot key rather than a seed phrase:
@@ -377,6 +377,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricError={biometricError}
             recoveryError={recoveryError}
             creating={confirmCreating}
+            onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -405,7 +406,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
     confirmCreating,
-    importViaKey
+    importViaKey,
+    onboardingType
   ]);
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right

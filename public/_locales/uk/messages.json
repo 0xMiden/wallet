@@ -2371,6 +2371,18 @@
     "message": "Створення вашого гаманця…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Відновлення вашого гаманця…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Налаштування гаманця…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Відкрийте свій гаманець, щоб завершити його відновлення.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Введіть пароль",
     "englishSource": "Enter password"

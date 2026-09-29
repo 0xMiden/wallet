@@ -2371,6 +2371,18 @@
     "message": "正在创建您的钱包……",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "正在恢复您的钱包……",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "设置您的钱包……",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "打开您的钱包以完成恢复。",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "输入密码",
     "englishSource": "Enter password"

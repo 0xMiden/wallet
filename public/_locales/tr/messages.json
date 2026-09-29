@@ -2371,6 +2371,18 @@
     "message": "Cüzdanınız oluşturuluyor…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Cüzdanınızı geri yükleme…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Cüzdanınızı kurmak…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Cüzdanınızı açarak geri yükleme işlemini tamamlayın.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Şifreyi girin",
     "englishSource": "Enter password"

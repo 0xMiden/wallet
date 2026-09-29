@@ -2371,6 +2371,18 @@
     "message": "Creando tu monedero…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Restaurar tu monedero…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Configuración de tu monedero…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Abre tu monedero para terminar de restaurarlo.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Introduce la contraseña",
     "englishSource": "Enter password"
