@@ -119,7 +119,6 @@ describe('AssetRow', () => {
 
   it('renders a positive 24h delta with a "+" prefix, positive direction, and status-positive sparkline color', () => {
     tokenPrices = { BTC: priceInfo({ price: 100, percentageChange24h: 5.256 }) };
-    mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
 
     render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={tokenPrices} />);
 
@@ -128,7 +127,7 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-delta')).toHaveTextContent('+5.26%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
 
-    // Real points (length > 1) => the actual points and the positive color.
+    // Real points (length > 1) => the actual points and the positive color; the beforeEach series.
     const spark = screen.getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', JSON.stringify([10, 20, 30]));
     expect(spark).toHaveAttribute('data-color', 'var(--status-positive)');
@@ -286,7 +285,7 @@ describe('AssetRow', () => {
   describe('a token whose scale is unknown', () => {
     function unknownAsset(): TokenBalanceData {
       return {
-        tokenId: TOKEN_IBTC.faucetId,
+        ...makeAsset(),
         tokenSlug: 'slug-unknown',
         metadata: {
           symbol: 'Unknown',
@@ -294,9 +293,7 @@ describe('AssetRow', () => {
           decimals: 6,
           scaleIsUnknown: true
         } as TokenBalanceData['metadata'],
-        balance: 1234.5,
-        fiatPrice: 0,
-        change24h: 0
+        balance: 1234.5
       };
     }
 
@@ -308,10 +305,10 @@ describe('AssetRow', () => {
     });
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
-      // Quoted, so the unknown scale is the only thing that can withhold the figure.
-      tokenPrices = { BTC: priceInfo() };
       render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
 
+      // The beforeEach BTC quote is what makes the row quoted, so the unknown scale is the only
+      // thing that can withhold the figure.
       expect(screen.getByTestId('row-delta')).toBeInTheDocument();
       expect(screen.queryByTestId('row-price')).toBeNull();
     });
