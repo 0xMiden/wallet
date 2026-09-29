@@ -666,15 +666,38 @@ export async function recoverPendingNotes(
 /**
  * Accounts whose pending-note recovery has started in this process. A pass
  * that FAILED a source keeps its entry, so an account gets at most one such
- * attempt per backend lifetime: the flag stays set for the next backend start
+ * attempt per unlock: the flag stays set for the next unlock or backend start
  * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
  * drain/backfill in a loop against a persistently failing source.
  *
  * Entries are released again only where the run never really got its turn — a
  * refused start, a rejected eligibility query, or a wallet lock — since those
- * are transient and should be retried within this same backend lifetime.
+ * are transient and should be retried within this same backend lifetime; and
+ * a failed pass's entry is released by the next lock
+ * (`releaseGuardianRecoveriesOnLock`).
  */
 const startedRecoveries = new Set<string>();
+
+/**
+ * Accounts whose finished run kept its `startedRecoveries` entry with the flag
+ * still set because a source failed. Only these are released on lock: a run
+ * queued or in flight yields to the lock through `shouldYield` on its own.
+ */
+const failedRecoveries = new Set<string>();
+
+/** Bumped by every lock, so a run that ends after one knows its entry is already due for release. */
+let lockEpoch = 0;
+
+/**
+ * The backend's lock hook. Frees every account a failed source held, so the
+ * provider offers it again after the next unlock, as the partial-history card
+ * promises.
+ */
+export function releaseGuardianRecoveriesOnLock(): void {
+  lockEpoch++;
+  for (const publicKey of failedRecoveries) startedRecoveries.delete(publicKey);
+  failedRecoveries.clear();
+}
 
 /**
  * Recoveries run one at a time. They are long, they monopolize the single
@@ -744,8 +767,8 @@ async function isSafeToRunNow(): Promise<boolean> {
 /**
  * The detached recovery itself. Never throws. The pending flag is only
  * cleared after a pass in which every source succeeded, so a failed or
- * interrupted run leaves it set and a later backend start retries — every
- * source is idempotent (imports and syncs, no destructive step).
+ * interrupted run leaves it set and a later unlock or backend start retries;
+ * every source is idempotent (imports and syncs, no destructive step).
  */
 async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   // Re-check at the head of the queue, not just at kickoff: this entry may
@@ -759,6 +782,9 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   }
 
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
+  const epoch = lockEpoch;
+  // Set on each exit that keeps the reservation with the flag set for a failed source.
+  let failed = false;
   try {
     // Read once, first: the notes pass's resume point, every history write and the flag clear
     // all belong to the wallet this generation names.
@@ -773,9 +799,10 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       return;
     }
     if (result.sourceFailures > 0) {
+      failed = true;
       console.warn(
         `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
-          `${result.sourceFailures} source(s) failed; will retry on the next session`
+          `${result.sourceFailures} source(s) failed; will retry on the next unlock or backend start`
       );
       return;
     }
@@ -799,6 +826,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       return;
     }
     if (history.sourceFailures > 0) {
+      failed = true;
       await reportGuardianNoteRecoveryProgress({
         accountId: account.publicKey,
         step: 'history-partial',
@@ -812,7 +840,14 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     if (!(await clearPendingFlag(account, generation))) return;
     await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
+    failed = true;
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
+  } finally {
+    if (failed) {
+      // A lock that landed during the run has already released the set, so this run releases itself.
+      if (lockEpoch !== epoch) startedRecoveries.delete(account.publicKey);
+      else failedRecoveries.add(account.publicKey);
+    }
   }
 }
 

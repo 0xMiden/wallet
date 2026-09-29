@@ -11,7 +11,7 @@ import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
-import { maybeStartGuardianRecovery } from './guardian-recovery';
+import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
@@ -1042,6 +1042,132 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
 
     expect(peak).toBe(1);
+  });
+});
+
+// A failed source keeps the flag and the reservation, and the history-partial card promises a
+// retry at the next unlock; locking the wallet is what releases the reservation for it.
+describe('release on lock', () => {
+  function pending<T = void>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>(settle => {
+      resolve = settle;
+    });
+    return { promise, resolve };
+  }
+
+  it('retries a run that kept the flag for a failed history source after the next lock', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0 });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+    expect(recoverGuardianHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a run that kept the flag for a failed notes source after the next lock', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.recoverPublicNotesRange.mockRejectedValueOnce(new Error('node unavailable'));
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 10 } as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the reservation of a run still in flight when the wallet locks', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const drain = pending();
+    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(() => drain.promise as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    try {
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    } finally {
+      // Runs are serialized, so a run left open would hold every later test's run behind it.
+      drain.resolve();
+      await drainDetachedRun();
+    }
+  });
+
+  it('leaves a run that ended history-failed reserved', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest
+      .mocked(recoverGuardianHistory)
+      .mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0, failed: true });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('retries a notes pass that fails a source and finishes after the lock', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const sync = pending();
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+    mockDoSync.mockImplementationOnce(() => sync.promise as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    try {
+      expect(mockDoSync).toHaveBeenCalledTimes(1);
+      releaseGuardianRecoveriesOnLock();
+    } finally {
+      sync.resolve();
+      await drainDetachedRun();
+    }
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('retries a partial history whose progress write finishes after the lock', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const write = pending();
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 0 });
+    mockReportProgress.mockImplementation(async progress => {
+      if (progress.step === 'history-partial') await write.promise;
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    try {
+      expect(mockReportProgress).toHaveBeenCalledWith(expect.objectContaining({ step: 'history-partial' }));
+      releaseGuardianRecoveriesOnLock();
+    } finally {
+      write.resolve();
+      await drainDetachedRun();
+      mockReportProgress.mockReset();
+    }
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('retries a run that threw after the lock', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockRejectedValueOnce(new Error('storage unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    releaseGuardianRecoveriesOnLock();
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 });
 
