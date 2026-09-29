@@ -56,6 +56,18 @@ const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undef
     'Sent'
   ],
   [
+    'a private send whose relay was recorded as pending',
+    { noteType: NoteTypeEnum.Private, noteDelivery: 'pending' },
+    'pending',
+    'Sent'
+  ],
+  [
+    'a private send whose delivery was recorded as confirmed',
+    { noteType: NoteTypeEnum.Private, noteDelivery: 'confirmed' },
+    'confirmed',
+    'Sent'
+  ],
+  [
     'a private send whose relay was recorded as failed',
     { noteType: NoteTypeEnum.Private, noteDelivery: 'undelivered' },
     'undelivered',
