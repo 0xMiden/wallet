@@ -12,6 +12,7 @@ import {
   nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
+import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
@@ -20,17 +21,22 @@ import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
-// `globalThis.chrome?.runtime?.id` is undefined (non-extension
-// context like a mobile WebView or the desktop Tauri host). This
-// module is statically reachable from `mobile-adapter → actions →
-// dapp → transaction-processor`, so a plain `import browser from
-// 'webextension-polyfill'` breaks the mobile bundle at load time
-// and leaves the wallet stuck on the splash screen.
+// `globalThis.chrome?.runtime?.id` is undefined (the desktop Tauri host has
+// no chrome runtime at all). This module is statically reachable from
+// `mobile-adapter → actions → dapp → transaction-processor`, so a plain
+// `import browser from 'webextension-polyfill'` breaks the desktop bundle
+// at load time and leaves the wallet stuck on the splash screen.
 //
-// Fix: load the polyfill lazily and ONLY from within the functions
-// that actually need it. Those functions are service-worker-only
-// code paths that never run on mobile / desktop, so the await
-// never happens outside the extension build.
+// Fix: load the polyfill lazily and ONLY from within the functions that
+// actually need it, so the rejection is caught there instead of crashing
+// module init.
+//
+// Mobile does NOT hit that throw: vite.mobile.config.ts aliases
+// `webextension-polyfill` to `src/lib/webextension-polyfill-mock.js`, whose
+// `alarms` calls are no-ops, so the await below resolves a non-null
+// `browser` there too. `browser !== null` is therefore true on both
+// extension and mobile; code that must run only in the extension's service
+// worker gates on `isExtension()` from `lib/platform` instead.
 type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
@@ -221,8 +227,13 @@ export async function startTransactionProcessing(): Promise<void> {
       // pick would take. A pass whose row was turned away waits, so one refusal is not followed at once by the next
       // ready row against the same Guardian, and any other pass waits so a lock held elsewhere or a queue of cooling
       // rows cannot spin through the pass ceiling.
+      //
+      // And only in the extension's service worker: `isExtension()`, never `browser !== null`, because the mobile
+      // build's polyfill alias makes `browser` non-null there too. Every in-realm run - mobile (the mock loads) and
+      // desktop (the import or the alarms calls throw) - keeps the 5 s wait after every pass, because there the
+      // processor shares the WASM lock with the UI's sync and balance reads.
       const nowSec = Math.floor(Date.now() / 1000);
-      if (result === 'processed' && remaining.some(row => isQueuedRowReady(row, nowSec))) continue;
+      if (isExtension() && result === 'processed' && remaining.some(row => isQueuedRowReady(row, nowSec))) continue;
 
       await new Promise(resolve => setTimeout(resolve, 5000));
     }

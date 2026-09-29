@@ -74,6 +74,11 @@ jest.mock('lib/miden/repo', () => ({
   db: { open: (...args: unknown[]) => mockDbOpen(...args) }
 }));
 
+const mockIsExtension = jest.fn();
+jest.mock('lib/platform', () => ({
+  isExtension: (...args: unknown[]) => mockIsExtension(...args)
+}));
+
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
@@ -106,6 +111,9 @@ beforeEach(() => {
   mockCancelStuckTransactions.mockResolvedValue(undefined);
   mockNextQueuedWakeDelayMs.mockReturnValue(undefined);
   mockIsQueuedRowReady.mockReturnValue(false);
+  // Extension-context by default: matches the pre-existing tests in this file, which assume `browser`
+  // resolves non-null (the default polyfill mock doesn't throw) and drive the service worker's own behavior.
+  mockIsExtension.mockReturnValue(true);
   mockDbOpen.mockResolvedValue(undefined);
   mockStorageGet.mockResolvedValue({});
   mockStorageSet.mockResolvedValue(undefined);
@@ -797,5 +805,38 @@ describe('the wait between passes (#1266)', () => {
     await jest.advanceTimersByTimeAsync(5000);
     await run;
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+  });
+
+  it('mobile: still waits 5 s after a processed pass with a ready row (polyfill mock loads, isExtension() false)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    const ready = queuedRow('ready');
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    await run;
+  });
+
+  it('desktop: still waits 5 s after a processed pass with a ready row (alarms.create throws, isExtension() false)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    mockAlarmsCreate.mockImplementationOnce(() => {
+      throw new Error('no alarms API');
+    });
+    const ready = queuedRow('ready');
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    await run;
   });
 });
