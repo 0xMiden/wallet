@@ -736,6 +736,43 @@ it('does not record an unsupported answer that settles after a lock in the sessi
   expect(await twoCheckpoint()).toMatchObject({ completed: true });
 });
 
+it('records an unsupported answer to a request issued after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+  // A lock and unlock land while operator one is read, before operator two is asked.
+  const lockingCreateClient = jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
+    if (endpoint === 'https://one') forgetUnsupportedHistorySources();
+    return createClient(walletAccount, endpoint);
+  });
+  const generation = await storedGeneration();
+  expect(
+    (await recoverGuardianHistory(account, { createClient: lockingCreateClient, shouldYield, generation }))
+      .deferredSources
+  ).toBe(1);
+
+  expect((await run()).deferredSources).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 1 });
+});
+
+it('records an unsupported answer to a retry issued after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  let attempts = 0;
+  jest.spyOn(client, 'getDeltaHistory').mockImplementation(async () => {
+    // A lock and unlock land while the first attempt is in flight, so its retry is issued in the new session.
+    if (attempts++ === 0) {
+      forgetUnsupportedHistorySources();
+      throw new GuardianHttpError(503, 'Unavailable', 'network');
+    }
+    throw new GuardianHttpError(404, 'Not Found', '');
+  });
+  expect((await run()).deferredSources).toBe(1);
+
+  expect((await run()).deferredSources).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 1 });
+});
+
 it('asks a deferred operator again in the next session and restores what it serves then', async () => {
   const client = source('https://two', []);
   jest

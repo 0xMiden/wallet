@@ -35,7 +35,7 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
-type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported' };
+type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported'; session: number };
 
 /**
  * How old the history phase lets its live progress record get before it writes it again, checked before each
@@ -57,7 +57,7 @@ export const MAX_HISTORY_SEEN_CURSORS = 64;
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
 
 // Checkpoints answered unsupported since the backend started or the wallet last locked. A pass is counted once per
-// session, so a deferral restart cannot spend the cap. An answer that settles after a lock is left out of it.
+// session, so a deferral restart cannot spend the cap. An answer to an attempt issued before a lock is left out of it.
 const unsupportedHistorySources = new Set<string>();
 let unsupportedHistorySession = 0;
 
@@ -125,7 +125,6 @@ export async function hasFailedGuardianHistory(account: WalletAccount): Promise<
 }
 
 export async function recoverGuardianHistory(account: WalletAccount, context: GuardianHistoryRecoveryContext) {
-  const session = unsupportedHistorySession;
   if (await hasFailedGuardianHistory(account)) {
     return { deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 };
   }
@@ -206,31 +205,31 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           await reportHistory(operator);
           const pageCheckpoint = checkpoint;
           // A timed-out attempt can settle after its retry starts, so each reports only through its own value.
-          const outcome = await historyRequest(
-            () =>
-              guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).then(
-                (page): HistoryPageOutcome => ({ kind: 'page', page }),
-                (error): HistoryPageOutcome => {
-                  if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
-                    if (error.code === 'account_not_found')
-                      return { kind: 'page', page: { entries: [], nextCursor: undefined } };
-                    // An operator the account may never have used is a deferred source, asked again in later
-                    // sessions up to MAX_UNSUPPORTED_HISTORY_PASSES and then completed empty.
-                    if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported')
-                      return { kind: 'unsupported' };
-                  }
-                  throw error;
+          // eslint-disable-next-line no-loop-func -- each attempt reads the session current when it is issued
+          const outcome = await historyRequest(() => {
+            const session = unsupportedHistorySession;
+            return guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).then(
+              (page): HistoryPageOutcome => ({ kind: 'page', page }),
+              (error): HistoryPageOutcome => {
+                if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
+                  if (error.code === 'account_not_found')
+                    return { kind: 'page', page: { entries: [], nextCursor: undefined } };
+                  // An operator the account may never have used is a deferred source, asked again in later
+                  // sessions up to MAX_UNSUPPORTED_HISTORY_PASSES and then completed empty.
+                  if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported')
+                    return { kind: 'unsupported', session };
                 }
-              ),
-            check
-          );
+                throw error;
+              }
+            );
+          }, check);
           if (outcome.kind === 'unsupported') {
             const unsupportedPasses = (checkpoint.unsupportedPasses ?? 0) + 1;
             const exhausted = unsupportedPasses >= MAX_UNSUPPORTED_HISTORY_PASSES;
             checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted };
             if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
             if (!exhausted) {
-              if (session === unsupportedHistorySession) unsupportedHistorySources.add(id);
+              if (outcome.session === unsupportedHistorySession) unsupportedHistorySources.add(id);
               deferredSources++;
             }
             break;
