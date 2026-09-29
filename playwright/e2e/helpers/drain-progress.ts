@@ -31,11 +31,16 @@ export function drainProgress(prev: DrainSnapshot | null, next: DrainSnapshot | 
   return prev !== null && next !== null && next.completedCount > prev.completedCount;
 }
 
-/** A claim drain's deadline, fed one snapshot per lap. */
+/**
+ * A claim drain's deadline, fed one snapshot per lap and judged right after each read, so a completion that landed
+ * during the previous lap is seen before the queue is judged.
+ */
 export interface DrainDeadline {
   /** Records one lap's read. `null` changes nothing: the last readable snapshot stays the base for the next one. */
   observe(snapshot: DrainSnapshot | null): void;
   verdict(): DrainVerdict;
+  /** Observes `snapshot`, then returns the verdict: the drain's one way to judge a lap. */
+  check(snapshot: DrainSnapshot | null): DrainVerdict;
   elapsedMs(): number;
 }
 
@@ -65,24 +70,30 @@ export function startDrainDeadline(
   let last: DrainSnapshot | null = null;
   let lastProgressAt: number | null = null;
   let overrunFired = false;
+  const observe = (snapshot: DrainSnapshot | null): void => {
+    if (snapshot === null) return;
+    if (drainProgress(last, snapshot)) lastProgressAt = now();
+    last = snapshot;
+  };
+  const verdict = (): DrainVerdict => {
+    const at = now();
+    const elapsed = at - startedAt;
+    if (elapsed < budgetMs) return 'continue';
+    const moving = lastProgressAt !== null && at - lastProgressAt < DRAIN_STALL_WINDOW_MS;
+    if (!moving) return 'stalled';
+    if (elapsed >= drainCapMs(budgetMs)) return 'cap';
+    if (!overrunFired) {
+      overrunFired = true;
+      onOverrun?.();
+    }
+    return 'continue';
+  };
   return {
-    observe(snapshot) {
-      if (snapshot === null) return;
-      if (drainProgress(last, snapshot)) lastProgressAt = now();
-      last = snapshot;
-    },
-    verdict() {
-      const at = now();
-      const elapsed = at - startedAt;
-      if (elapsed < budgetMs) return 'continue';
-      const moving = lastProgressAt !== null && at - lastProgressAt < DRAIN_STALL_WINDOW_MS;
-      if (!moving) return 'stalled';
-      if (elapsed >= drainCapMs(budgetMs)) return 'cap';
-      if (!overrunFired) {
-        overrunFired = true;
-        onOverrun?.();
-      }
-      return 'continue';
+    observe,
+    verdict,
+    check(snapshot) {
+      observe(snapshot);
+      return verdict();
     },
     elapsedMs: () => now() - startedAt
   };

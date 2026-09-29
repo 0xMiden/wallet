@@ -118,6 +118,21 @@ describe('startDrainDeadline', () => {
     expect(deadline.verdict()).toBe('stalled');
   });
 
+  it('checks a read by observing it first, so a completion in it counts before a stall-window-old queue is judged', () => {
+    const clock = fakeClock();
+    // A budget whose cap sits well past every assertion below, so only the stall window is ever in play.
+    const budgetMs = 400_000;
+    const deadline = startDrainDeadline(budgetMs, clock.now);
+    const twin = startDrainDeadline(budgetMs, clock.now);
+    for (const each of [deadline, twin]) each.observe(completed(3));
+    clock.advance(budgetMs + 10_000);
+    for (const each of [deadline, twin]) each.observe(completed(4));
+    clock.advance(DRAIN_STALL_WINDOW_MS + 5_000);
+    expect(deadline.check(completed(5))).toBe('continue');
+    expect(twin.verdict()).toBe('stalled');
+    expect(twin.check(completed(4))).toBe('stalled');
+  });
+
   it('compares across an unreadable lap with the last readable snapshot', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(60_000, clock.now);

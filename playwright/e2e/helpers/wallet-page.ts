@@ -2305,11 +2305,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     let lastPending = -1;
     let stuckSameCountIters = 0;
     let drainingIters = 0;
+    let verdict: DrainVerdict = 'continue';
 
-    while (stableZero < STABLE_ZERO_THRESHOLD && drain.verdict() === 'continue') {
+    while (
+      stableZero < STABLE_ZERO_THRESHOLD &&
+      (verdict = drain.check(await readDrainSnapshot(this.page))) === 'continue'
+    ) {
       iteration++;
       await this.triggerSync();
-      drain.observe(await readDrainSnapshot(this.page));
 
       const pending = await readPendingCount();
 
@@ -2404,8 +2407,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.waitForTimeout(3_000);
     }
 
-    // The loop leaves short of two zero reads only on a final verdict, and a verdict never returns to 'continue'.
-    const verdict = drain.verdict();
+    // The loop leaves short of two zero reads only on a final verdict, taken on the read at its head; judging again
+    // here would read nothing new, and past the budget could fire onOverrun on a drained exit.
     if (stableZero >= STABLE_ZERO_THRESHOLD || verdict === 'continue') {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     } else {
