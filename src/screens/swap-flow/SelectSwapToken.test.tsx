@@ -48,10 +48,12 @@ jest.mock('lib/miden/front', () => ({
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
 let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
-// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different.
+// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
+// the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
 }));
 
 jest.mock('lib/store', () => ({
