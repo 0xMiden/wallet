@@ -129,6 +129,12 @@ export interface ISwitchGuardianExtraInputs {
   // endpoint. The receipt is the last place the user can be told, which is why
   // this is persisted rather than merely logged.
   commitUnconfirmed?: boolean;
+  // `localStateNotSaved`: the switch reached the network, but its local apply failed and the
+  // reconcile could not bring this device's copy of the account to the post-switch state, so it did
+  // not register it on the new operator, which refuses a copy naming the old one (#1233). The
+  // background self-heal adopts that state from `previousGuardianEndpoint`, registers it and clears
+  // this. `registerFailed` is not set on its own for this case: its self-heal cannot repair it.
+  localStateNotSaved?: boolean;
 }
 
 /**

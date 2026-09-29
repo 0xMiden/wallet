@@ -175,6 +175,16 @@ jest.mock('lib/miden/guardian/direct-switch', () => ({
   didDirectSwitchLand: (...a: unknown[]) => mockDidDirectSwitchLand(...(a as []))
 }));
 
+// The landed switch reconcile's adopt (#1233), covered on its own in
+// guardian/post-switch-state.test.ts. Default: the local copy already names the new guardian.
+const mockAdoptPostSwitchState = jest.fn(
+  async (_adoptOnce?: () => Promise<void>, _accountPublicKey?: string, _endpoint?: string): Promise<string> =>
+    'post-switch'
+);
+jest.mock('lib/miden/guardian/post-switch-state', () => ({
+  adoptPostSwitchState: (...a: unknown[]) => mockAdoptPostSwitchState(...(a as []))
+}));
+
 // The lock hands its callback a HOLD, and the guardian pipeline re-checks ownership
 // of that hold before proving and before submit (#777). Model both here: a mock that
 // passes no hold would make those checks fire on the happy path, and a mock with no
@@ -576,6 +586,7 @@ describe('completeSwitchGuardianTransaction', () => {
     // #618: completion stamps the terminal stage through the real complete* layer.
     expect(row.stage).toBe('complete');
     expect(row.displayMessage).toBe('Guardian switched');
+    expect(mockAdoptPostSwitchState).not.toHaveBeenCalled();
   });
 
   it('persists the endpoint and evicts the cache under the stored id when the row was queued under another spelling', async () => {
@@ -980,6 +991,88 @@ describe('completeSwitchGuardianTransaction', () => {
     await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
 
     expect(calls).toEqual(['persist', 'register']);
+  });
+
+  // #1233: the landed reconcile's path. The apply failed, so the local copy may still be pre-switch.
+  describe('landed (the apply failed after submit)', () => {
+    const landedSwitch = () => {
+      const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false, 'https://old.guardian');
+      txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+      const multisigService = {
+        finalizeGuardianSwitch: jest.fn(async () => {}),
+        adoptGuardianStateOnce: jest.fn(async () => {})
+      };
+      const setGuardianEndpoint = jest.fn(async () => {});
+      const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
+      const row = () => txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+      return { tx, multisigService, setGuardianEndpoint, provider, row };
+    };
+    const landed = { transactionId: '0xswitch' };
+
+    it('adopts the post-switch state from the outgoing guardian, then registers it', async () => {
+      const { tx, multisigService, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockImplementationOnce(async (adoptOnce?: () => Promise<void>) => {
+        await adoptOnce?.();
+        return 'post-switch';
+      });
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(expect.any(Function), 'acc-1', 'https://new.guardian');
+      expect(multisigService.adoptGuardianStateOnce).toHaveBeenCalledTimes(1);
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+      expect(row().extraInputs).toMatchObject({ localStateNotSaved: false, registerFailed: false });
+    });
+
+    it('skips a registration the new guardian can only refuse and flags the row, keeping both endpoints', async () => {
+      const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(multisigService.finalizeGuardianSwitch).not.toHaveBeenCalled();
+      expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1', 'https://new.guardian');
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().displayMessage).toBe('Guardian switch submitted');
+      // Not `registerFailed` on its own: its self-heal cannot repair a pre-switch copy.
+      expect(row().extraInputs).toMatchObject({
+        previousGuardianEndpoint: 'https://old.guardian',
+        localStateNotSaved: true,
+        registerFailed: false,
+        commitUnconfirmed: true
+      });
+      expect(row().transactionId).toBe('0xswitch');
+    });
+
+    it('registers an unknown local state as before, and flags nothing when that lands', async () => {
+      const { tx, multisigService, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockResolvedValueOnce('unknown');
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledTimes(1);
+      expect(row().extraInputs).toMatchObject({ localStateNotSaved: false, registerFailed: false });
+    });
+
+    it('flags an unknown local state whose registration then fails', async () => {
+      const { tx, multisigService, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockResolvedValueOnce('unknown');
+      multisigService.finalizeGuardianSwitch.mockRejectedValueOnce(new Error('configure refused'));
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(row().extraInputs).toMatchObject({ localStateNotSaved: true, registerFailed: true });
+    });
+
+    it('treats a read that throws as unknown, and still registers', async () => {
+      const { tx, multisigService, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockRejectedValueOnce(new Error('client poisoned'));
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledTimes(1);
+      expect(row().status).toBe(ITransactionStatus.Completed);
+    });
   });
 });
 
@@ -6809,6 +6902,8 @@ describe('generateTransaction — Guardian routing', () => {
       ...provider,
       signWord: expect.any(Function)
     });
+    // No outgoing service to adopt from on the direct path: the reconcile only reads (#1233).
+    expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(undefined, 'guardian-acc', 'https://new.guardian');
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(row.status).toBe(ITransactionStatus.Completed);
     // This exit is reached from an apply-after-submit failure: the node accepted

@@ -11,6 +11,7 @@ import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
+import { adoptPostSwitchState, type PostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -656,6 +657,7 @@ export const completeSwitchGuardianTransaction = async (
   // clean switch on the two states the user most needs told about.
   let endpointPersistFailed = false;
   let registerFailed = false;
+  let localStateNotSaved = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -735,14 +737,35 @@ export const completeSwitchGuardianTransaction = async (
       );
     }
 
+    // A landed switch (#1233): the apply failed, so this device's copy may still be the pre-switch
+    // account, whose guardian slot names the outgoing operator, and the new one refuses to register
+    // that. Adopt the post-switch state from the outgoing guardian first (it holds it once it
+    // canonicalizes the delta pushed after submit), and skip a registration that can only be refused.
+    // A read that throws counts as unknown: nothing here may select the Failed path.
+    const outgoing = multisigService;
+    const localState: PostSwitchLocalState = landed
+      ? await adoptPostSwitchState(
+          outgoing ? () => outgoing.adoptGuardianStateOnce() : undefined,
+          storedAccountId,
+          newGuardianEndpoint
+        ).catch((adoptError: unknown): PostSwitchLocalState => {
+          console.warn('Could not read the post-switch local state; registering as before:', adoptError);
+          return 'unknown';
+        })
+      : 'post-switch';
     try {
-      if (multisigService) {
+      if (localState === 'pre-switch') {
+        localStateNotSaved = true;
+      } else if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
         await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;
+      // Refused, maybe, for a copy nobody could show was post-switch: the self-heal that adopts
+      // one has to know.
+      if (localState === 'unknown') localStateNotSaved = true;
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
           'unknown to the new operator until the guardian-sync self-heal lands a registration:',
@@ -766,7 +789,7 @@ export const completeSwitchGuardianTransaction = async (
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed, localStateNotSaved },
       // On the landed reconcile path there is no local TransactionResult, so the row takes the id
       // the failure carried, if any (#1233); the switch is on chain either way.
       ...(resultFields ?? landedTransactionIdFields(landed))
@@ -802,7 +825,7 @@ export const completeSwitchGuardianTransaction = async (
     const completedPayload = {
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed, localStateNotSaved },
       ...(resultFields ?? landedTransactionIdFields(landed))
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {

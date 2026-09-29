@@ -921,10 +921,11 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   store still holds the pre-update account, and pushing it would put the
  *   guardian behind the chain. The guardian learns the update when the
  *   co-signed candidate canonicalizes.
- * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
- *   re-syncs the post-switch account state itself) + persist the per-account
- *   endpoint. The replace-hot-key and switch-guardian completion handlers
- *   tolerate a missing TransactionResult.
+ * switch-guardian → rebuild the outgoing service, which completion uses to adopt
+ *   the post-switch state before `finalizeGuardianSwitch` registers the LOCAL
+ *   account (after a failed apply that is the pre-switch state, #1233) + persist
+ *   the per-account endpoint. The replace-hot-key and switch-guardian completion
+ *   handlers tolerate a missing TransactionResult.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
