@@ -204,6 +204,30 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     );
   });
 
+  // #1131 F-009: strictPriceSymbolFor re-canonicalizes the spend id, not just the allowlist
+  // entries, once the network has switched during the metadata await. A parse failure there must
+  // still refuse the spend - the symbol on the rejection is 'USDC' (from the already-resolved
+  // metadata), proving the throw came from the re-canonicalization, not the first pass (which
+  // parsed fine on testnet) or the metadata stage (which succeeded from cache).
+  it('refuses a bech32 USDC spend the allowlist match cannot re-canonicalize after a network switch (#1131 F-009)', async () => {
+    const parseError = new Error('cannot parse the switched-network USDC spend');
+    const parseBech32 = mockFromBech32.getMockImplementation()!;
+    mockFromBech32.mockImplementation((address: string) => {
+      if (address === USDC_BECH32 && mockNetwork === 'devnet') throw parseError;
+      return parseBech32(address);
+    });
+    mockFetchFromStorage.mockImplementation(async (key: string) => {
+      if (key === 'usd_price_cache') return { USDC: { priceMicro: '1000000', fetchedAt: 10 } };
+      // The spend was canonicalized, and its metadata cached, under the network it started on.
+      mockNetwork = 'devnet';
+      return { [USDC_BECH32]: USDC_METADATA };
+    });
+
+    const valued = resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ symbol: 'USDC', cause: parseError });
+  });
+
   it('refuses a USDC spend whose allowlist entry the SDK cannot parse, never counting it as nothing (#1131 F-001)', async () => {
     const parseError = new Error('cannot parse the USDC entry');
     const parseHex = mockFromHex.getMockImplementation()!;

@@ -218,6 +218,19 @@ describe('strictPriceSymbolFor', () => {
     expect(() => strictPriceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toThrow(parseError);
   });
 
+  // #1131 F-009: the spend side must throw on an id it cannot parse the same way an entry does -
+  // a lenient fallback there would count an unidentifiable spend as an uncovered $0 instead of
+  // refusing it.
+  it('throws when the spend id itself cannot be parsed, rather than matching nothing', () => {
+    const spendId = '0xspendonly';
+    const spendParseError = new Error('cannot parse the spend id');
+    mockToBech32.mockImplementation((id: any) => {
+      if (id === spendId) throw spendParseError;
+      return mockFakeBech32(id);
+    });
+    expect(() => strictPriceSymbolFor(spendId, 'IETH')).toThrow(spendParseError);
+  });
+
   it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
     usdcEntryFailsToParse();
     const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
