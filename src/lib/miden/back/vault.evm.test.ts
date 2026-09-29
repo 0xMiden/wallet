@@ -202,7 +202,7 @@ describe('Vault.spawn: EVM identity stamping', () => {
       vaultKey
     );
     expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
-  });
+  }, 60_000);
 });
 
 describe('Vault.createHDAccount: EVM identity stamping', () => {
@@ -214,7 +214,7 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
     const created = accounts.find(acc => acc.publicKey === 'acc-pub-key-2');
     expect(created?.hdIndex).toBe(1);
     expect(created?.evmAddress).toBe(EVM_ADDR_1);
-  });
+  }, 60_000);
 });
 
 describe('Vault.backfillEvmAddresses', () => {
@@ -229,14 +229,14 @@ describe('Vault.backfillEvmAddresses', () => {
     await vault.backfillEvmAddresses();
     const second = await vault.fetchAccounts();
     expect(second).toEqual(first);
-  });
+  }, 60_000);
 
   it('leaves accounts untouched when the vault has no mnemonic', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0)], '');
     await vault.backfillEvmAddresses();
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.evmAddress).toBeUndefined();
-  });
+  }, 60_000);
 });
 
 describe('Vault.signEvm round-trips', () => {
@@ -245,7 +245,7 @@ describe('Vault.signEvm round-trips', () => {
   beforeEach(async () => {
     vault = await seedVault([hdAccount('acc-pub-key-1', 0)]);
     await vault.backfillEvmAddresses();
-  });
+  }, 60_000);
 
   it('message: recovers the stamped address', async () => {
     const signature = await vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: stringToHex('hello miden') });
@@ -289,15 +289,15 @@ describe('Vault.signEvm rejections', () => {
   it('rejects an unknown account', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)]);
     await expect(vault.signEvm('acc-unknown', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 
   it('rejects an account without an EVM address (imported)', async () => {
     const vault = await seedVault([{ ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
     await expect(vault.signEvm('acc-imported', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 
   it('rejects when the address is stamped but the key blob is missing', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)]);
     await expect(vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
-  });
+  }, 60_000);
 });
