@@ -290,6 +290,26 @@ it('keeps the entry cap and nonce bound across a resumed pass', async () => {
   expect((await twoCheckpoint())?.failure).toBe('invalid-data');
 });
 
+it('retries a page request that never answers once, then files it as a network failure', async () => {
+  // Dexie runs on the real microtask queue; advancing the clock also runs its zero-delay timers.
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+  try {
+    const client = source('https://two', []);
+    jest.spyOn(client, 'getDeltaHistory').mockImplementation(() => new Promise<HistoryPage>(() => {}));
+    let result: Awaited<ReturnType<typeof run>> | undefined;
+    const pending = run().then(value => {
+      result = value;
+    });
+    for (let i = 0; i < 1_000 && !result; i++) await jest.advanceTimersByTimeAsync(100);
+    await pending;
+    expect(result?.sourceFailures).toBe(1);
+    expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+    expect((await twoCheckpoint())?.failure).toBe('network');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 it('clears checkpoints on import and retains recovered records in backups', async () => {
   await run();
   const before = await transactions.toArray();

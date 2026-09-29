@@ -10,6 +10,7 @@ import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import type { ITransaction } from '../db/types';
 import { resolveGuardianEndpoint } from '../guardian/account';
+import { withTimeout } from '../guardian/discover';
 import {
   GUARDIAN_HISTORY_VERSION,
   GuardianHistoryCheckpoint,
@@ -59,28 +60,14 @@ export function classifyHistoryFailure(error: Error): GuardianHistoryFailure {
   }
 }
 
-async function boundedRequest<T>(request: () => Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      request(),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('Guardian history request timed out')), 15_000);
-      })
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function historyRequest<T>(request: () => Promise<T>, check: () => Promise<void>): Promise<T> {
   await check();
   try {
-    return await boundedRequest(request);
+    return await withTimeout(request(), 15_000, 'Guardian history request');
   } catch (error) {
     if (error instanceof GuardianHttpError && error.status < 500 && error.status !== 429) throw error;
     await check();
-    return boundedRequest(request);
+    return withTimeout(request(), 15_000, 'Guardian history request');
   }
 }
 
