@@ -6668,6 +6668,7 @@ describe('generateTransaction — Guardian routing', () => {
         })),
         finalizeGuardianSwitch,
         abandonCandidate: jest.fn(async () => {}),
+        pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
         sync: jest.fn(async () => {})
       };
       // Used for both the main proposal AND rebuilt in the reconcile for completion.
@@ -6719,6 +6720,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       // The reconcile re-registered on the new guardian and persisted the per-account endpoint.
       expect(finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+      expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop-switch');
       expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);

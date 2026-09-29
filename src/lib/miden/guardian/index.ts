@@ -372,6 +372,19 @@ export class MultisigService {
     await this.multisig.abandonCandidate(nonce);
   }
 
+  /**
+   * Hand the guardian this service still talks to the executed switch-guardian delta, as upstream
+   * `executeProposal` does after its submit (#1233). Without it that operator keeps the pre-switch
+   * state and never releases the account; with it, it canonicalizes the switch once the block lands,
+   * releases the account, and keeps serving reads of the post-switch state. Only after the switch's
+   * submit resolved, and before `finalizeGuardianSwitch` repoints this service.
+   */
+  async pushSwitchDelta(proposalId: string): Promise<void> {
+    const guardian = this.client.guardianClient;
+    const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
+    await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
+  }
+
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
     const proposal = await this.multisig.signProposal(id);
     if (proposal.metadata.proposalType === 'custom') {

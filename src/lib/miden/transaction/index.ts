@@ -2264,6 +2264,27 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
   });
 
 /**
+ * Hand the outgoing guardian the executed switch delta (#1233), so it canonicalizes the switch,
+ * releases the account and serves the post-switch state, which the landed reconcile and the
+ * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
+ * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
+ */
+const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<void> => {
+  try {
+    await withOutgoingGuardianDeadline(
+      () => service.pushSwitchDelta(proposalId),
+      'pushing the executed switch delta to the outgoing guardian'
+    );
+  } catch (error) {
+    console.warn(
+      '[Guardian] the outgoing guardian did not take the executed switch delta; it keeps the pre-switch ' +
+        'state until it reconciles (non-fatal):',
+      error
+    );
+  }
+};
+
+/**
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
@@ -3205,6 +3226,12 @@ const generateGuardianTransaction = async (
     // releases the account onto stale state for up to a minute. Only a failure that cannot show
     // the submit resolved (a kill, a pre-submit error) abandons.
     const submitResolved = isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error);
+    // The same hand-over as the success path below, for a switch whose submit resolved and whose
+    // local apply or sync then failed (#1233); never after a kill or a pre-submit failure, whose
+    // delta the chain may never see.
+    if (submitResolved && transaction.type === 'switch-guardian') {
+      await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+    }
     if (!submitResolved) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
@@ -3288,6 +3315,10 @@ const generateGuardianTransaction = async (
   // round-trip (slice 5b). Byte-identical to the former
   // `submittedTransaction.id.toHex()`.
   const id = result.executedTransaction().id().toHex();
+
+  // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
+  // block lands (#1233).
+  if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so

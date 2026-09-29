@@ -2754,6 +2754,7 @@ const makeStructuralService = () => ({
     authArg: () => undefined
   })),
   abandonCandidate: jest.fn(async () => {}),
+  pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
   sync: jest.fn(async () => {})
 });
 
@@ -3195,5 +3196,98 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.displayMessage).not.toBe('Sent');
     expect(complete).not.toHaveBeenCalled();
+  });
+});
+
+describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => {
+  const switchRow = { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } };
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])('pushes the executed switch delta after submit and before the commit wait (flag $flag)', async ({ on }) => {
+    if (on) {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    }
+    const { service, provider: sp } = arrangeStructural(`push-ok-${on}`, switchRow);
+
+    await generateTransaction(buildTx(`push-ok-${on}`, switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+    const pushed = service.pushSwitchDelta.mock.invocationCallOrder[0]!;
+    expect(pushed).toBeLessThan(mockProxyWaitForCommit.mock.invocationCallOrder[0]!);
+    expect(pushed).toBeLessThan(mockComplete.switchGuardian.mock.invocationCallOrder[0]!);
+  });
+
+  it.each([
+    [
+      'an apply failure',
+      () =>
+        Object.assign(new Error('local apply failed after submit'), { errorCode: 'ApplyTransactionAfterSubmitFailed' })
+    ],
+    [
+      'a canonicalization refusal',
+      () =>
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming commitment does " +
+            'not match on-chain commitment for account 0xacc'
+        )
+    ]
+  ])('pushes the delta after a landed submit reported as %s', async (_label, makeError) => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(makeError());
+    const { service, provider: sp } = arrangeStructural('push-landed', switchRow);
+
+    await generateTransaction(buildTx('push-landed', switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+    expect(mockComplete.switchGuardian).toHaveBeenCalledTimes(1);
+  });
+
+  // Review Focus 5: a delta the chain may never see must not reach the outgoing guardian, and the
+  // candidate is still abandoned.
+  it.each([
+    ['a kill', () => new OperationAbortedError('op-kill', 'deadline')],
+    [
+      'a node refusal at submit',
+      () =>
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
+            'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+    ]
+  ])(
+    'switch-guardian: a killed or pre-submit-failed switch pushes no delta and still abandons (%s) (#1233)',
+    async (_label, makeError) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(makeError());
+      const { service, provider: sp } = arrangeStructural('push-none', switchRow);
+
+      await generateTransaction(buildTx('push-none', switchRow) as never, signCallback, false, sp as never);
+
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('a push the outgoing guardian refuses leaves the switch to complete as before', async () => {
+    const { service, provider: sp } = arrangeStructural('push-refused', switchRow);
+    service.pushSwitchDelta.mockRejectedValueOnce(new Error('409 a pending delta exists'));
+
+    await generateTransaction(buildTx('push-refused', switchRow) as never, signCallback, false, sp as never);
+
+    expect(mockComplete.switchGuardian).toHaveBeenCalledTimes(1);
+  });
+
+  it('a hot-key rotation pushes no switch delta', async () => {
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    const { service, provider: sp } = arrangeStructural('push-rotation', row);
+
+    await generateTransaction(buildTx('push-rotation', row) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
   });
 });

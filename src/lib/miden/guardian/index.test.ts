@@ -454,6 +454,51 @@ describe('MultisigService', () => {
     });
   });
 
+  describe('pushSwitchDelta (#1233)', () => {
+    it('pushes the executed switch delta to the guardian the service loaded from, with its summary as the payload', async () => {
+      const txSummary = { data: 'txs-b64' };
+      const delta = {
+        accountId: 'acc-id',
+        nonce: 7,
+        prevCommitment: '0xprev',
+        newCommitment: '0xnew',
+        deltaPayload: { txSummary, signatures: [] },
+        status: { status: 'pending' }
+      };
+      const getDeltaProposal = jest.fn(async () => delta);
+      const pushDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7 }));
+      const service = new MultisigService(
+        makeMultisig() as never,
+        { guardianClient: { getDeltaProposal, pushDelta } } as never,
+        'https://old.guardian'
+      );
+
+      await service.pushSwitchDelta('0xprop');
+
+      expect(getDeltaProposal).toHaveBeenCalledWith('acc-id', '0xprop');
+      expect(pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: txSummary });
+    });
+
+    it('surfaces a failed fetch to its caller, which treats the push as best-effort', async () => {
+      const pushDelta = jest.fn();
+      const service = new MultisigService(
+        makeMultisig() as never,
+        {
+          guardianClient: {
+            getDeltaProposal: jest.fn(async () => {
+              throw new Error('proposal not found');
+            }),
+            pushDelta
+          }
+        } as never,
+        'https://old.guardian'
+      );
+
+      await expect(service.pushSwitchDelta('0xprop')).rejects.toThrow('proposal not found');
+      expect(pushDelta).not.toHaveBeenCalled();
+    });
+  });
+
   describe('sync retry logic', () => {
     it('resets retry count after a successful sync', async () => {
       const multisig = makeMultisig();
