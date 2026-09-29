@@ -245,7 +245,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     let reloaded = false;
     // The popup that hosts this page closes when it loses focus, and nothing after the await it is in runs then,
     // the wipe's or the alert's, so the pagehide reload is armed before the wipe. The polyfill is fetched first
-    // because a pagehide listener cannot wait for an import. Dynamic import: `webextension-polyfill` throws at
+    // because a pagehide listener cannot wait for an import, and a fetch that fails stops the reset before the
+    // wipe, so nothing is wiped without its reload armed. Dynamic import: `webextension-polyfill` throws at
     // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
     // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
     // it, unlike mobile). Mirrors src/lib/miden/reset.ts.
@@ -259,8 +260,11 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         };
         window.addEventListener('pagehide', reloadOnce, { once: true });
       } catch (importErr) {
-        // The reset still runs; the reload below imports again or reports that it could not start.
+        // Stopped before the wipe, so the wallet is untouched and the reset reports that it did not finish.
         console.warn('[developer-settings] Could not load the polyfill before the wipe', importErr);
+        setError(t('resetDidNotFinish'));
+        setPending(false);
+        return;
       }
     }
     try {
@@ -281,18 +285,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       try {
         // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
         // Reset does. The reload also drops the resolver's override cache this realm holds in memory.
-        if (isExtension()) {
-          // A listener reload that threw left the flag down, so this one retries and reports. The module fetched
-          // before the wipe is reused, so no await separates a finished wipe from its reload; only when that
-          // fetch failed is it imported again.
-          if (!reloaded) {
-            if (reloadOnce) {
-              reloadOnce();
-            } else {
-              const browser = (await import('webextension-polyfill')).default;
-              browser.runtime.reload();
-            }
-          }
+        if (reloadOnce) {
+          // Set exactly on the extension, where it is the only reload, so no await separates a finished wipe from
+          // it. A listener reload that threw left the flag down, so this one retries and reports.
+          if (!reloaded) reloadOnce();
         } else {
           // mobile/desktop: no background worker to resync with, just reload in place.
           window.location.reload();

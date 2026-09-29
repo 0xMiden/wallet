@@ -41,7 +41,7 @@ jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: { runtime: { reload: () => runtimeReload() } }
 }));
-// The suite's own mock, kept so a test that makes its next load fail can have it put back.
+// The suite's own mock, kept so a test can count its loads and afterEach can put it back after a test swaps it.
 const polyfill: unknown = jest.requireMock('webextension-polyfill');
 
 const mockNavigate = jest.fn();
@@ -197,6 +197,7 @@ beforeEach(() => {
   ]) {
     service.mockReset().mockResolvedValue(undefined);
   }
+  runtimeReload.mockReset();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
@@ -627,17 +628,8 @@ describe('DeveloperSettings', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  // A loaded module stays cached, so the polyfill fails its next load only in a fresh registry; the
-  // failing factory puts the suite's mock back before it throws, so the load after it succeeds.
-  const failNextPolyfillLoad = () => {
-    jest.resetModules();
-    jest.doMock('webextension-polyfill', () => {
-      jest.doMock('webextension-polyfill', () => polyfill);
-      throw new Error('webextension-polyfill failed to load');
-    });
-  };
-
-  // The load before the wipe and the reload's own both fail, until afterEach puts the suite's mock back.
+  // A loaded module stays cached, so the load before the wipe fails only in a fresh registry. Every reset's load
+  // fails until afterEach puts the suite's mock back.
   const failEveryPolyfillLoad = () => {
     jest.resetModules();
     jest.doMock('webextension-polyfill', () => {
@@ -747,25 +739,7 @@ describe('DeveloperSettings', () => {
     );
   });
 
-  it('still says the reset did not finish, then reloads, when the polyfill fails to load before the wipe', async () => {
-    jest.spyOn(console, 'warn').mockImplementation();
-    mockIsExtension.value = true;
-    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
-    failNextPolyfillLoad();
-    let closeAlert!: () => void;
-    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
-    render(<DeveloperSettings readOnly />);
-    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
-
-    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-
-    closeAlert();
-    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
-  });
-
-  it('says the reset did not finish when the extension reload cannot be started', async () => {
+  it('refuses to wipe when the polyfill cannot load before the wipe', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     failEveryPolyfillLoad();
@@ -773,29 +747,45 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('resetDidNotFinish');
-    expect(runtimeReload).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    // Checked once the reset has ended, since straight after the click no wipe has started either way.
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+  });
+
+  it('says the reset did not finish when the extension reload cannot be started', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('resetDidNotFinish');
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
   });
 
   it('clears the reset error when a new reset starts', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
-    failEveryPolyfillLoad();
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
     await screen.findByRole('alert');
 
-    // The suite's mock back, so the new reset can reload. Held in the wipe, so the error is gone before any of
-    // the reset has finished.
-    jest.doMock('webextension-polyfill', () => polyfill);
+    // Held in the wipe, so the error is gone before any of the reset has finished.
     let finishWipe!: () => void;
     resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
-    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
 
     finishWipe();
-    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(2));
   });
 
   it('ignores a second Reset press while the reset runs', async () => {
