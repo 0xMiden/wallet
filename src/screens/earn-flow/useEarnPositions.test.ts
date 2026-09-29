@@ -573,6 +573,17 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(1);
         // And no timer left waiting to start one.
         expect(jest.getTimerCount()).toBe(0);
+
+        // Back on screen a read begins and re-arms every hook registered for the key; covered again, none is left.
+        onScreen = true;
+        rerender();
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        onScreen = false;
+        rerender();
+        await advance(3_100);
+        expect(jest.getTimerCount()).toBe(0);
       });
 
       it('an unmounted page starts no read', async () => {
@@ -585,7 +596,7 @@ describe('useEarnPositions', () => {
             both ? page(true, () => undefined) : null,
             page(true, earn => (showing = earn))
           );
-        const { rerender } = render(pages(true));
+        const { rerender, unmount } = render(pages(true));
         await advance(10_000);
         expect(reads()).toBe(1);
 
@@ -599,6 +610,11 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(2);
         await advance(20_100);
         expect(reads()).toBe(3);
+
+        // The remaining page leaves too, after reads that re-armed every hook registered for the key: none is left.
+        unmount();
+        await advance(3_100);
+        expect(jest.getTimerCount()).toBe(0);
       });
 
       it('an account switch re-arms from the new key', async () => {
