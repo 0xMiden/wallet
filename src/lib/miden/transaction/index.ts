@@ -104,6 +104,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
+import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -125,7 +126,6 @@ import {
 import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
-  ApplyAfterSubmitError,
   errorMessageParts,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
@@ -2133,13 +2133,15 @@ const runGuardianPipeline = async (
     await setStage('submitting');
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
-    // A rejected submit stays as it is: the node may not have the write. Once submit resolved
-    // it does, so a failed local apply must classify as submitted (#1233).
-    try {
-      await submittedTx.apply();
-    } catch (error) {
-      throw new ApplyAfterSubmitError(error);
-    }
+    // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
+    // does, so a failed local apply is retried in this hold while that is safe, and one that
+    // outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submittedTx.apply(),
+      result: executedTx.result,
+      readLocalAccount: accountId => midenClient.client.accounts.get(accountId),
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold
+    });
     return executedTx.result;
   });
 };

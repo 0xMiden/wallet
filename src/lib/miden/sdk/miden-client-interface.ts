@@ -53,6 +53,7 @@ import { reportProve } from 'lib/telemetry/report-operation';
 import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
 import { WalletType } from 'screens/onboarding/types';
 
+import { applyAfterSubmit } from './apply-after-submit';
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -68,7 +69,7 @@ import { getLocalProveTransport, proveInWorker, recordProveTiming } from './loca
 import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { ApplyAfterSubmitError, isApplyAfterSubmitError } from './sdk-error-code';
+import { isApplyAfterSubmitError } from './sdk-error-code';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
@@ -1827,12 +1828,14 @@ export class MidenClientInterface {
     await onStage?.('submitting');
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
-    try {
-      await submitted.apply();
-    } catch (error) {
-      // The node already has the transaction, so this must classify as submitted.
-      throw new ApplyAfterSubmitError(error);
-    }
+    // The node already has the transaction: a failed apply is retried while that is safe, and one
+    // that outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
     return executed.result;
   }
 
@@ -2073,6 +2076,12 @@ export interface ProveAttempt {
    * an evicted flow's entry hold may already be its successor's.
    */
   proveInWorker(result: Pick<TransactionResult, 'serialize'>): Promise<ProvenTransaction>;
+  /**
+   * True while this write still owns the WASM lock it took and its client is live: what a retry
+   * after a parking await has to ask before its next WASM call (#1233). False for a write that
+   * holds no lock, for the reason `proveInWorker` refuses one.
+   */
+  holdIsCurrent(): boolean;
 }
 
 /**
@@ -2200,7 +2209,8 @@ export async function proveWithFallback<T>(
     proveInWorker: result =>
       liveness.disposed || hold === null
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
-        : proveInWorker(result, hold)
+        : proveInWorker(result, hold),
+    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold
   };
 
   const startedAt = performance.now();

@@ -72,7 +72,7 @@ function buildHarness() {
       consume: allInOne('delegated consume'),
       submit: allInOne('delegated swap submit')
     },
-    accounts: { get: jest.fn(async () => ({ account: true })) },
+    accounts: { get: jest.fn(async (_accountId?: unknown): Promise<unknown> => ({ account: true })) },
     sync: jest.fn(async () => ({ blockNum: () => 1 })),
     _withInnerWebClient: jest.fn(async (fn: (client: typeof inner) => Promise<unknown>) => fn(inner)),
     terminate: jest.fn()
@@ -562,6 +562,31 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toBe(refused);
     expect(isApplyAfterSubmitError(error)).toBe(false);
   });
+
+  it.each(legs)('a %s whose first apply fails and whose retry lands resolves (#1233)', async (_leg, write) => {
+    const harness = buildHarness();
+    Object.assign(harness.result, {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xlanded' }),
+        accountId: () => 'sdk-acct',
+        initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
+      })
+    });
+    harness.fakeClient.accounts.get.mockImplementation(async () => ({
+      to_commitment: () => ({ toHex: () => '0xinitial' })
+    }));
+    const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('store abort'));
+    harness.submitProven.mockImplementationOnce(async () => {
+      harness.order.push('submitProven');
+      return { apply };
+    });
+    const { client, withWasmClientLock } = await load(harness);
+
+    await expect(withWasmClientLock(async () => write(client))).resolves.toBe(harness.result);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('ProveAttempt worker members', () => {
@@ -608,6 +633,22 @@ describe('ProveAttempt worker members', () => {
       { disposed: false }
     );
     expect(seen).toEqual([false, false]);
+  });
+
+  it("says the write's hold is current only inside its lock and while its client is live (#1233)", async () => {
+    const harness = buildHarness();
+    const { proveWithFallback, withWasmClientLock } = await load(harness);
+    const seen: boolean[] = [];
+    const record = async (_prover: unknown, attempt: { holdIsCurrent(): boolean }) => {
+      seen.push(attempt.holdIsCurrent());
+      return null;
+    };
+
+    await withWasmClientLock(async () => proveWithFallback(record, false, { disposed: false }));
+    await withWasmClientLock(async () => proveWithFallback(record, false, { disposed: true }));
+    await proveWithFallback(record, false, { disposed: false });
+
+    expect(seen).toEqual([true, false, false]);
   });
 });
 

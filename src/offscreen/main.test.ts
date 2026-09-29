@@ -430,6 +430,9 @@ function resetControl() {
     guardianProveFailureMessage: 'remote prover deadline expired',
     guardianSubmitted: false,
     guardianApplied: false,
+    // #1233: the apply retry's read of the local account, on the raw client the pipeline drives.
+    // Default: no such account, so a retry fails closed and the older tests keep wrapping.
+    clientAccountsGet: jest.fn(async (_accountId: unknown): Promise<unknown> => null),
     deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
     // #945: a worker proof is submitted through submitProven with the result it proves.
     guardianSubmitProven: jest.fn(async (_proof: unknown, _result: unknown) => {
@@ -529,6 +532,7 @@ function resetControl() {
           syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
           getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
           sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
+          accounts: { get: (...a: any[]) => (globalThis as any).__off.clientAccountsGet(...a) },
           pswap: {
             lineage: (orderId: string) => G.__off.clientLineage(orderId),
             lineages: () => G.__off.clientLineages()
@@ -3775,6 +3779,77 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       ok: false,
       errorCode: 'ApplyTransactionAfterSubmitFailed',
       errorName: 'ApplyAfterSubmitError'
+    });
+  });
+
+  // #1233: the apply retry runs in this realm's own hold, off the executed result's initial account
+  // commitment. Its first wait is real time, so these poll for the reply.
+  const retryableResult = () => ({
+    serialize: () => new Uint8Array([55, 66, 77]),
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => '0xlanded' }),
+      accountId: () => 'sdk-guardian',
+      initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
+    })
+  });
+  const waitForReply = async (sendResponse: jest.Mock) => {
+    for (let i = 0; i < 60 && sendResponse.mock.calls.length === 0; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+  const callGuardianPipeline = (sendResponse: jest.Mock) =>
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+
+  it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(G.__off.clientAccountsGet).toHaveBeenCalledWith('sdk-guardian');
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
+  });
+
+  it('guardianPipeline: an apply whose account write landed is not applied again (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    const apply = jest.fn(async () => {
+      throw new Error('note update failed');
+    });
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    // The store's account already moved to the post-transaction state.
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xfinal' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
     });
   });
 

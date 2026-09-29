@@ -68,6 +68,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
@@ -87,7 +88,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { ApplyAfterSubmitError, extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -1042,22 +1043,17 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent(context, 'submitting');
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
-    // Same rule as the inline pipeline: once submit resolved the node has the write, so a failed
-    // local apply crosses back as submitted. Its code survives the crossing; its cause does not
-    // (#1233).
-    try {
-      await submittedTx.apply();
-    } catch (error) {
-      // The wrapper's text replaces this error on handleCall's FAILED marker, so this is the one
-      // record of the store's reason the harness can read. Guarded: an unreadable error must not
-      // cost the verdict.
-      try {
-        recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`);
-      } catch {
-        /* the rethrow below still carries the landed code */
-      }
-      throw new ApplyAfterSubmitError(error);
-    }
+    // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
+    // the write, so a failed local apply is retried in this hold while that is safe, and one that
+    // outlasts the retries crosses back as submitted. Its code survives the crossing and its cause
+    // does not, so each failed attempt names the store's reason on the harness's own record.
+    await applyAfterSubmit({
+      apply: () => submittedTx.apply(),
+      result: txResult,
+      readLocalAccount: accountId => client.client.accounts.get(accountId),
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
+    });
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
