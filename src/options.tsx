@@ -89,12 +89,13 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     });
     if (!confirmed) return;
 
-    // resetStorageDestructive's caller contract: once the wipe has begun, reload whether it resolved or
-    // rejected, and report an error only when the reload itself cannot start.
+    // resetStorageDestructive's caller contract: report a rejected wipe and then reload, and report a reload
+    // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault.
     try {
       await resetStorageDestructive();
     } catch (err) {
       console.warn('[options] Could not wipe the wallet storage', err);
+      await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
     }
     try {
       browser.runtime.reload();

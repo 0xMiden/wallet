@@ -76,6 +76,16 @@ beforeEach(() => {
   (isExtension as jest.Mock).mockReturnValue(false);
   mockFetchFromStorage.mockResolvedValue(null);
   mockPutToStorage.mockResolvedValue(undefined);
+  // clearAllMocks keeps queued once-values, so one a failing test never used would reach the next.
+  for (const step of [
+    mockDbDelete,
+    mockDbOpen,
+    mockTransactionsClear,
+    mockSpendingLimitsClear,
+    mockBrowserStorageClear
+  ]) {
+    step.mockReset().mockResolvedValue(undefined);
+  }
 });
 
 describe('clearStorage', () => {
@@ -194,6 +204,49 @@ describe('resetStorageDestructive', () => {
 
     expect(mockBrowserStorageClear).toHaveBeenCalled();
     expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
+  // The key-value store holds the vault, so clearing it first leaves no wallet to unlock after a
+  // later step rejects.
+  it('clears the key-value store before it deletes the database', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+
+    await resetStorageDestructive();
+
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('rejects without deleting the database when the key-value clear rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    const clearError = new Error('storage clear failed');
+    mockBrowserStorageClear.mockRejectedValueOnce(clearError);
+
+    await expect(resetStorageDestructive()).rejects.toBe(clearError);
+
+    expect(mockDbDelete).not.toHaveBeenCalled();
+  });
+
+  it('clears the transactions and spending limits when the delete rejects', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
+    expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('still clears the spending limits and rethrows the delete error when the cleanup steps reject', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+    mockDbOpen.mockRejectedValueOnce(new Error('open failed'));
+    mockTransactionsClear.mockRejectedValueOnce(new Error('clear failed'));
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
   });
 });
 

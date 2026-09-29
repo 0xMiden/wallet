@@ -82,20 +82,31 @@ export async function clearStorage(clearDb: boolean = true) {
  * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
  * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
  *
- * The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
- * a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
- * and drops in-memory state, so every caller reloads once the wipe has begun.
+ * The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+ * this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+ * no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+ * reports a reload that cannot start.
  *
- * Every caller follows one contract: once it has called this it reloads, whether the call resolved or
- * rejected, and it reports an error only when the reload itself cannot start; its re-entry guard stays
- * set until the call has settled and the reload has been attempted.
+ * It fails closed. The vault lives in the key-value store, so a step after the clear that rejects leaves no
+ * wallet to unlock, and a clear that rejects leaves the database untouched. A delete or reopen that rejects
+ * would leave the old rows to whatever runs next (a restore from an encrypted file keeps the tables), so it
+ * reopens the database and clears the transactions and spending limits, each step best effort, then rethrows
+ * the original error. A caller's re-entry guard stays set through its report until the reload has been
+ * attempted.
  */
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
-  await Repo.db.delete();
-  await Repo.db.open();
   await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : []);
+  try {
+    await Repo.db.delete();
+    await Repo.db.open();
+  } catch (err) {
+    await Repo.db.open().catch(() => {});
+    await Repo.transactions.clear().catch(() => {});
+    await Repo.spendingLimits.clear().catch(() => {});
+    throw err;
+  }
   await resetNativeAssetCache();
 }
 

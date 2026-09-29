@@ -28,7 +28,7 @@ import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
-import { useConfirm } from 'lib/ui/dialog';
+import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
@@ -109,6 +109,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const customAlert = useAlert();
   const initial = useMemo<EndpointOverride>(
     () => getActiveOverride() ?? buildDefaultOverrideFor(getEffectiveNetworkName()),
     []
@@ -245,10 +246,12 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // wallet is gone and leave onboarding on the endpoints being reset.
       await resetStorageDestructive({ keepEndpointOverride: false });
     } catch (err) {
-      // The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
-      // a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
-      // and drops in-memory state, so every caller reloads once the wipe has begun.
+      // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+      // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+      // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+      // reports a reload that cannot start.
       console.warn('[developer-settings] Could not wipe the wallet storage', err);
+      await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
     }
     try {
       // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
@@ -268,7 +271,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // No reload started, so the closed handles and the in-memory override outlive the wipe:
       // the reset did not finish.
       console.warn('[developer-settings] Could not reload after the reset', err);
-      setError(t('devEndpointResetFailed'));
+      setError(t('resetDidNotFinish'));
     } finally {
       setPending(false);
     }

@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
-import { useConfirm } from 'lib/ui/dialog';
+import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
 
@@ -61,12 +61,16 @@ jest.mock('lib/woozie', () => ({
 // The destructive reset is gated behind the app's standard confirm dialog
 // (same `useConfirm()` hook `options.tsx`'s "Reset Wallet" uses) — mocked the
 // same way `AddressBook.test.tsx`/`DAppSettings.test.tsx` mock it, so the
-// resolved value drives whether the wipe proceeds.
+// resolved value drives whether the wipe proceeds. `useAlert()` is how a wipe
+// that rejected is reported.
 jest.mock('lib/ui/dialog', () => ({
-  useConfirm: jest.fn()
+  useConfirm: jest.fn(),
+  useAlert: jest.fn()
 }));
 const mockUseConfirm = useConfirm as jest.Mock;
 const confirm = jest.fn();
+const mockUseAlert = jest.mocked(useAlert);
+let alert: jest.Mock;
 
 const applyEndpointOverride = jest.fn();
 const clearEndpointOverride = jest.fn();
@@ -196,6 +200,8 @@ beforeEach(() => {
   mockWalletState.status = WalletStatus.Idle;
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
+  alert = jest.fn().mockResolvedValue(undefined);
+  mockUseAlert.mockReturnValue(alert);
 });
 
 // Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
@@ -589,17 +595,29 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  // The delete closes every storage handle; when the delete succeeds this realm reopens its own at once;
-  // a reload reopens the other realms' handles (and this realm's, when the delete or the reopen rejected)
-  // and drops in-memory state, so every caller reloads once the wipe has begun.
-  it('reloads and shows no error when the wipe fails partway', async () => {
+  // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+  // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+  // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+  // reports a reload that cannot start.
+  it('says the reset did not finish, then reloads, when the wipe fails partway', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
     resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    // While the alert is open nothing reloads, and the reset stays pending.
+    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    closeAlert();
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(alert.mock.invocationCallOrder[0]!).toBeLessThan(runtimeReload.mock.invocationCallOrder[0]!);
+    // The inline error is only for a reload that cannot start.
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -621,7 +639,7 @@ describe('DeveloperSettings', () => {
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointResetFailed');
+    expect(await screen.findByRole('alert')).toHaveTextContent('resetDidNotFinish');
     expect(runtimeReload).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
   });

@@ -128,18 +128,35 @@ describe('src/options.tsx', () => {
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it('still reloads once, and shows no alert, when the wipe rejects', async () => {
+  it('tells the user the reset did not finish, then reloads once, when the wipe rejects', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockConfirm.mockResolvedValue(true);
     const wipeError = new Error('boom');
     mockResetStorage.mockRejectedValue(wipeError);
+    const closeAlerts: Array<() => void> = [];
+    mockAlert.mockImplementation(() => new Promise<void>(resolve => closeAlerts.push(resolve)));
 
-    await act(async () => {
-      fireEvent.click(getResetButton());
-    });
+    try {
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
 
+      await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+      expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+      // While the alert is open nothing reloads, and a second Reset is ignored.
+      await act(async () => {
+        fireEvent.click(getResetButton());
+      });
+      expect(mockConfirm).toHaveBeenCalledTimes(1);
+      expect(reloadMock).not.toHaveBeenCalled();
+    } finally {
+      // The guard is module state shared with every later test, so it must be clear when this ends.
+      await act(async () => {
+        closeAlerts.forEach(close => close());
+      });
+    }
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
-    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockAlert.mock.invocationCallOrder[0]!).toBeLessThan(reloadMock.mock.invocationCallOrder[0]!);
     expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
     warn.mockRestore();
   });
