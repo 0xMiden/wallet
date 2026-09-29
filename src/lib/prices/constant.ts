@@ -24,8 +24,12 @@ const E2E_FIXTURE_SYMBOL = 'TST';
 export const isE2eFixtureSymbol = (symbol: string): boolean =>
   process.env.MIDEN_E2E_TEST === 'true' && symbol === E2E_FIXTURE_SYMBOL;
 
-export const KNOWN_SYMBOLS: Record<string, string> = {
-  ETH: 'ETHUSD',
-  BTC: 'BTCUSD',
-  USDC: 'USDCUSD'
+export const PRICE_QUOTES: Record<string, { pair: string; minimumFormatDecimals: number }> = {
+  ETH: { pair: 'ETHUSD', minimumFormatDecimals: 3 },
+  BTC: { pair: 'BTCUSD', minimumFormatDecimals: 3 },
+  USDC: { pair: 'USDCUSD', minimumFormatDecimals: 6 }
 };
+
+export const KNOWN_SYMBOLS: Record<string, string> = Object.fromEntries(
+  Object.entries(PRICE_QUOTES).map(([symbol, quote]) => [symbol, quote.pair])
+);

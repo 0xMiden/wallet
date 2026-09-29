@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import TokenDetail from './TokenDetail';
@@ -284,9 +285,9 @@ function configure(o: Overrides = {}) {
   });
 }
 
-const renderPage = (o?: Overrides) => {
+const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
   configure(o);
-  return render(<TokenDetail tokenId={TOKEN_ID} />);
+  return render(<TokenDetail tokenId={tokenId} />);
 };
 
 beforeEach(() => {
@@ -564,6 +565,24 @@ describe('TokenDetail', () => {
   });
 
   describe('price chart', () => {
+    it.each([
+      [1.0001, '$1.000100'],
+      [0.99999, '$0.999990'],
+      [0.9999995, '$1.000000'],
+      [0.0000001234, '$0.00000012']
+    ])('shows the USDC unit price %p with its quote precision', (price, display) => {
+      renderPage(
+        {
+          balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0, minimumFormatDecimals: 6 } }
+        },
+        MIDEN_USDC_FAUCET
+      );
+
+      expect(within(screen.getByTestId('token-detail-price')).getByText(display)).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.234500')).toBeInTheDocument();
+    });
+
     it('renders a positive 24h change with a plus sign and the formatted price', () => {
       renderPage({ priceInfo: { price: 12.3456, change24h: 3.2 } });
 
@@ -640,9 +659,9 @@ describe('TokenDetail', () => {
       renderPage();
 
       // active + payload with a time -> value + formatted time rendered.
-      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.23')).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.235')).toBeInTheDocument();
       // active + payload without a time -> value only, no time node.
-      expect(within(screen.getByTestId('tt-active-notime')).getByText('$2.50')).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-notime')).getByText('$2.500')).toBeInTheDocument();
       // inactive / empty payload / no payload -> null (nothing rendered).
       expect(screen.getByTestId('tt-inactive')).toBeEmptyDOMElement();
       expect(screen.getByTestId('tt-empty')).toBeEmptyDOMElement();

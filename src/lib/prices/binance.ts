@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import { KNOWN_SYMBOLS } from './constant';
+import { KNOWN_SYMBOLS, PRICE_QUOTES } from './constant';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
 
@@ -8,6 +8,7 @@ export interface TokenPriceInfo {
   price: number;
   change24h: number;
   percentageChange24h: number;
+  minimumFormatDecimals?: number;
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
@@ -54,7 +55,12 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
       const percentageChange24h = parseFloat(ticker.priceChangePercent);
 
       if (!isNaN(price) && !isNaN(change24h) && !isNaN(percentageChange24h)) {
-        prices[walletSymbol] = { price, change24h, percentageChange24h };
+        prices[walletSymbol] = {
+          price,
+          change24h,
+          percentageChange24h,
+          minimumFormatDecimals: PRICE_QUOTES[walletSymbol]?.minimumFormatDecimals ?? 3
+        };
       }
     }
 
