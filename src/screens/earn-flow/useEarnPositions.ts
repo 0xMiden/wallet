@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -72,8 +72,9 @@ export function useEarnPositions(): {
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
   /**
-   * The vault read's failure: the request's, or every owner failing so no vault loaded. A read with any
-   * vault is not failed, though one owner's positions may be.
+   * The read's failure: the request's, or every queried owner failing (the catalog query when there are none). Vaults
+   * carried from an earlier load may show beside it. A read in which some owner loaded is not failed, though another
+   * owner's positions may be.
    */
   loadError?: string;
   /**
@@ -100,14 +101,16 @@ export function useEarnPositions(): {
     mutate
   } = useRetryableSWR(
     onScreen ? key : null,
-    async () => {
+    async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
       reads.at = Date.now();
       reads.rearms.forEach(rearm => rearm());
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
-      return fetchEarnPositions({ accountId: account.publicKey, owners });
+      // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
+      // SWR calls the fetcher of the last render.
+      return carryForward(data, await fetchEarnPositions({ accountId: account.publicKey, owners }));
     },
     {
       revalidateIfStale: due,
@@ -152,9 +155,13 @@ export function useEarnPositions(): {
   const isLoading = data === undefined && !swrError;
 
   return useMemo(() => {
-    // Owner queries never reject: a full outage resolves with only errors and no vaults, which is a failed
-    // vault load too. Any vault makes the per-owner errors positions-only.
-    const outage = data && data.vaults.length === 0 ? data.errors[0]?.error : undefined;
+    // Owner queries never reject, so a full outage resolves with every queried owner failed, while what they loaded
+    // before may still show. Any owner that loaded makes the other owners' errors positions-only.
+    const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
+    const everyOwnerFailed =
+      data !== undefined &&
+      (data.owners.length > 0 ? data.owners.every(owner => failedOwners.has(owner)) : data.errors.length > 0);
+    const outage = everyOwnerFailed ? data?.errors[0]?.error : undefined;
     const loadError = swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : outage;
     return {
       positions: (data?.positions ?? []).map(mapEarnPosition),

@@ -38,7 +38,7 @@ export {
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
 export { EPOCH_POSITIONS_URL } from './config';
-export { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
+export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';
 export {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,

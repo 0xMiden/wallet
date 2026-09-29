@@ -1,4 +1,11 @@
-import { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
+import {
+  carryForward,
+  type EarnPosition,
+  type EarnPositionsResult,
+  type EarnVaultInfo,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses
+} from './positions';
 
 jest.mock('./earn', () => ({
   EARN_DESTINATION_CHAIN_ID: 11155111,
@@ -230,6 +237,73 @@ describe('fetchEarnPositions', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('carryForward', () => {
+  const OTHER = '0x2222222222222222222222222222222222222222';
+  const position = (owner: string, depositsUSD: number): EarnPosition => ({
+    owner,
+    marketUid: 'DUMMY_LENDING:11155111:0xasset',
+    lenderKey: 'DUMMY_LENDING',
+    lenderName: 'Dummy Lending',
+    chainId: '11155111',
+    deposits: String(depositsUSD),
+    withdrawable: String(depositsUSD),
+    depositsUSD,
+    depositApr: 2,
+    symbol: 'USDC',
+    underlyingAddress: '0xasset',
+    decimals: 6,
+    priceUsd: 1
+  });
+  const vault = (lenderKey: string, apr = 2): EarnVaultInfo => ({
+    lenderKey,
+    lenderName: lenderKey,
+    logoUri: '',
+    chainId: '11155111',
+    apr,
+    depositApr: apr
+  });
+  const read = (over: Partial<EarnPositionsResult>): EarnPositionsResult => ({
+    positions: [],
+    vaults: [],
+    totalDepositsUSD: 0,
+    owners: [OWNER, OTHER],
+    errors: [],
+    ...over
+  });
+
+  it("brings back a failed owner's positions and the vaults the read lacks, from what was loaded before", () => {
+    const previous = read({
+      positions: [position(OWNER, 5), position(OTHER, 7)],
+      vaults: [vault('DUMMY_LENDING', 1), vault('OTHER_LENDING')],
+      totalDepositsUSD: 12
+    });
+    const next = read({
+      positions: [position(OWNER, 6)],
+      vaults: [vault('DUMMY_LENDING')],
+      totalDepositsUSD: 6,
+      errors: [{ owner: OTHER, error: 'positions request failed (429)' }]
+    });
+
+    const carried = carryForward(previous, next);
+
+    // The owner that loaded shows this read's positions and vaults alone.
+    expect(carried.positions).toEqual([position(OWNER, 6), position(OTHER, 7)]);
+    expect(carried.vaults).toEqual([vault('DUMMY_LENDING'), vault('OTHER_LENDING')]);
+    expect(carried.totalDepositsUSD).toBe(13);
+    expect(carried.owners).toBe(next.owners);
+    expect(carried.errors).toBe(next.errors);
+  });
+
+  it('returns the read as it is when no owner failed, or nothing was loaded before', () => {
+    const previous = read({ positions: [position(OTHER, 7)], vaults: [vault('OTHER_LENDING')], totalDepositsUSD: 7 });
+    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('DUMMY_LENDING')], totalDepositsUSD: 6 });
+    const failed = read({ errors: [{ owner: OWNER, error: 'positions request failed (429)' }] });
+
+    expect(carryForward(previous, loaded)).toBe(loaded);
+    expect(carryForward(undefined, failed)).toBe(failed);
   });
 });
 

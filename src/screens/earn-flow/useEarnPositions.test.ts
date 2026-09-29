@@ -20,6 +20,7 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('lib/epoch', () => ({
+  carryForward: jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions').carryForward,
   fetchEarnPositions: jest.fn(),
   getEarnDepositEvmAddresses: jest.fn()
 }));
@@ -115,6 +116,21 @@ describe('useEarnPositions', () => {
 
     expect(result.current.loadError).toBe('owner unavailable');
     expect(result.current.error).toBe('owner unavailable');
+  });
+
+  it('reports a failed load only when every queried owner failed, whatever vaults it shows', () => {
+    const twoOwners = { ...liveResult, owners: ['0xabcdef', '0xother'] };
+    mockUseRetryableSWR.mockReturnValue({ data: twoOwners, isLoading: false });
+    const { result, rerender } = renderHook(() => useEarnPositions());
+
+    expect(result.current.loadError).toBeUndefined();
+
+    const bothFailed = [...liveResult.errors, { owner: '0xabcdef', error: 'positions request failed (429)' }];
+    mockUseRetryableSWR.mockReturnValue({ data: { ...twoOwners, errors: bothFailed }, isLoading: false });
+    rerender();
+
+    expect(result.current.vaults).toHaveLength(1);
+    expect(result.current.loadError).toBe('owner unavailable');
   });
 
   it('reports a request failure as both loadError and error', () => {
@@ -271,7 +287,8 @@ describe('useEarnPositions', () => {
     });
 
     it('retries on the page that is showing when a covered page of the same account mounted first', async () => {
-      jest.mocked(fetchEarnPositions).mockRejectedValueOnce(new Error('positions down')).mockResolvedValue(liveResult);
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       // One cache for both, as the app's pages share one: the covered Earn pane under a slide earn page.
       const cache = new Map();
       let showing: Earn | undefined;
@@ -285,11 +302,11 @@ describe('useEarnPositions', () => {
           )
         );
       });
-      await waitFor(() => expect(showing?.loadError).toBe('positions down'));
-      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(showing?.loadError).toBe('lookup down'));
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
 
       await act(async () => showing?.refetch());
-      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
     });
 
     // One hook whose page each test puts on or off screen, in a cache of its own.
@@ -593,34 +610,56 @@ describe('useEarnPositions', () => {
 
     it('keeps the error and reports no loading while the retry is out', async () => {
       jest
-        .mocked(fetchEarnPositions)
-        .mockRejectedValueOnce(new Error('positions down'))
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
         .mockReturnValue(new Promise(() => undefined));
       const { result } = renderInCache();
-      await waitFor(() => expect(result.current.loadError).toBe('positions down'));
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
       await act(async () => result.current.refetch());
-      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
 
       // SWR's own isLoading is true here (a read out, no data): the hook's is not, since an error is kept.
       expect(result.current.isLoading).toBe(false);
-      expect(result.current.loadError).toBe('positions down');
+      expect(result.current.loadError).toBe('lookup down');
     });
 
     it('sends no second request when Retry is tapped again while its read is out', async () => {
       jest
-        .mocked(fetchEarnPositions)
-        .mockRejectedValueOnce(new Error('positions down'))
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
         .mockReturnValue(new Promise(() => undefined));
       const { result } = renderInCache();
-      await waitFor(() => expect(result.current.loadError).toBe('positions down'));
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
 
       await act(async () => result.current.refetch());
-      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
       await act(async () => result.current.refetch());
       await act(() => new Promise(resolve => setTimeout(resolve, 50)));
 
-      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps what its sole owner last loaded when a Retry finds that owner failed', async () => {
+      jest
+        .mocked(fetchEarnPositions)
+        .mockResolvedValueOnce(liveResult)
+        .mockResolvedValueOnce({
+          positions: [],
+          vaults: [],
+          totalDepositsUSD: 0,
+          owners: ['0xabcdef'],
+          errors: [{ owner: '0xabcdef', error: 'positions request failed (429)' }]
+        });
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.error).toBe('positions request failed (429)'));
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.vaults).toHaveLength(1);
+      expect(result.current.loadError).toBe('positions request failed (429)');
     });
   });
 });

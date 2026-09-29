@@ -124,7 +124,7 @@ export interface EarnVaultInfo {
 }
 
 export interface EarnPositionsResult {
-  /** Non-zero positions across every queried owner address. */
+  /** Non-zero positions across every queried owner address that loaded. */
   positions: EarnPosition[];
   /** All lenders/chains the service reported, deduped — including zero-balance ones. */
   vaults: EarnVaultInfo[];
@@ -132,8 +132,29 @@ export interface EarnPositionsResult {
   totalDepositsUSD: number;
   /** EVM owner addresses that were queried. */
   owners: string[];
-  /** Per-address fetch failures (network / non-2xx / unsuccessful body). */
+  /**
+   * Per-address failures (network / non-2xx / unsuccessful body / an unreadable payload). A failed owner has no
+   * positions or vaults in this result: carrying what it loaded before is the caller's (see `carryForward`).
+   */
   errors: { owner: string; error: string }[];
+}
+
+/**
+ * `next` with what its failed owners last loaded: `previous`'s positions of every owner in `next.errors` and, when
+ * any owner failed, `previous`'s vaults that `next` lacks. Owners and errors stay `next`'s, so the failure is still
+ * reported. With no failed owner, or nothing loaded before, it is `next` itself.
+ */
+export function carryForward(
+  previous: EarnPositionsResult | undefined,
+  next: EarnPositionsResult
+): EarnPositionsResult {
+  if (!previous || next.errors.length === 0) return next;
+  const failed = new Set(next.errors.map(({ owner }) => owner));
+  const positions = [...next.positions, ...previous.positions.filter(({ owner }) => failed.has(owner))];
+  const vaultKey = ({ lenderKey, chainId }: EarnVaultInfo) => `${lenderKey}:${chainId}`;
+  const loaded = new Set(next.vaults.map(vaultKey));
+  const vaults = [...next.vaults, ...previous.vaults.filter(vault => !loaded.has(vaultKey(vault)))];
+  return { ...next, positions, vaults, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
