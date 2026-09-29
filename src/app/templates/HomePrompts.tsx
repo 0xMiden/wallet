@@ -285,7 +285,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
   const noteRecoveryProgress = useGuardianNoteRecoveryProgress(
-    account.guardianNoteRecoveryPending === true ? account.publicKey : null
+    account.publicKey,
+    account.guardianNoteRecoveryPending === true
   );
   // The `updatedAt` of the record whose finished card this account dismissed, tagged with the
   // account like `markerRead`. Until it is read the card stays hidden, so a dismissed card never

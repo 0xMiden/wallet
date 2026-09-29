@@ -8,7 +8,6 @@
   "guardianHistoryAccountSecured": "Konto gesichert",
   "guardianHistoryExecuted": "Ausgeführt",
   "guardianHistoryProgress": "Wiederherstellung des Verlaufs von $operator$. Transaktionen unter $count$ wurden wiederhergestellt.",
-  "guardianHistoryFailed": "Die Wiederherstellung des Transaktionsverlaufs ist fehlgeschlagen, da keine Informationen zu den Netzwerkgebühren verfügbar sind. Die Wiederherstellung wird nicht automatisch erneut versucht.",
   "guardianHistoryPartial": "$count$ Transaktionen wurden wiederhergestellt. Einige „Guardian“-Quellen konnten nicht gelesen werden. Die Wiederherstellung wird beim nächsten Entsperren der Wallet erneut versucht.",
   "payload": "Nutzlast",
   "bridgeDepositTitle": "Miden Bridge",

@@ -53,7 +53,10 @@ export const MAX_HISTORY_CURSOR_LENGTH = 1024;
 // The repeat check catches a loop of up to this many pages; termination rests on the entry cap and falling nonces.
 export const MAX_HISTORY_SEEN_CURSORS = 64;
 
-/** Sessions an operator the account may never have used can answer "no history" before its source ends empty. */
+/**
+ * Sessions a source can answer "no history" before it ends: empty for an operator the account may never have used,
+ * and as a terminal failure for one it used. A source whose data fails a check in this many sessions is terminal too.
+ */
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
 
 // Checkpoints answered unsupported since the backend started or the wallet last locked. A pass is counted once per
@@ -192,7 +195,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             };
       if (checkpoint.completed) continue;
       if (unsupportedHistorySources.has(id) && checkpoint.failure === 'unsupported') {
-        deferredSources++;
+        if (ownOperators.includes(operator)) sourceFailures++;
+        else deferredSources++;
         continue;
       }
       try {
@@ -214,23 +218,28 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                 if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
                   if (error.code === 'account_not_found')
                     return { kind: 'page', page: { entries: [], nextCursor: undefined } };
-                  // An operator the account may never have used is a deferred source, asked again in later
-                  // sessions up to MAX_UNSUPPORTED_HISTORY_PASSES and then completed empty.
-                  if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported')
-                    return { kind: 'unsupported', session };
+                  if (classifyHistoryFailure(error) === 'unsupported') return { kind: 'unsupported', session };
                 }
                 throw error;
               }
             );
           }, check);
           if (outcome.kind === 'unsupported') {
+            // Asked once per session up to MAX_UNSUPPORTED_HISTORY_PASSES: an operator the account may never have
+            // used is a deferred source and then completes empty, while one it used is a failed source and then
+            // stops recovery as the fee stop does.
+            const own = ownOperators.includes(operator);
             const unsupportedPasses = (checkpoint.unsupportedPasses ?? 0) + 1;
             const exhausted = unsupportedPasses >= MAX_UNSUPPORTED_HISTORY_PASSES;
-            checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted };
+            checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted && !own };
             if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
+            if (exhausted && own) {
+              return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
+            }
             if (!exhausted) {
               if (outcome.session === unsupportedHistorySession) unsupportedHistorySources.add(id);
-              deferredSources++;
+              if (own) sourceFailures++;
+              else deferredSources++;
             }
             break;
           }
@@ -385,8 +394,18 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         }
         sourceFailures++;
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
-        await saveGuardianHistoryCheckpoint(context.generation, { ...checkpoint, failure });
+        // Data that fails a check fails the same way on every retry, so it is terminal once it repeats up to the
+        // cap. A failed source is offered again only after the next lock, so each run here is a new session.
+        const invalidDataPasses = failure === 'invalid-data' ? (checkpoint.invalidDataPasses ?? 0) + 1 : undefined;
+        await saveGuardianHistoryCheckpoint(context.generation, {
+          ...checkpoint,
+          failure,
+          invalidDataPasses: invalidDataPasses ?? checkpoint.invalidDataPasses
+        });
         console.warn(`[GuardianHistory] Source failed (${failure}): ${operator}`, error);
+        if (invalidDataPasses !== undefined && invalidDataPasses >= MAX_UNSUPPORTED_HISTORY_PASSES) {
+          return { deferred: false, sourceFailures, restored, failed: true, deferredSources };
+        }
       }
     }
   } catch (error) {

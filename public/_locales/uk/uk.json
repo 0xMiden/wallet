@@ -8,7 +8,6 @@
   "guardianHistoryAccountSecured": "Рахунок захищений",
   "guardianHistoryExecuted": "Виконано",
   "guardianHistoryProgress": "Відновлення історії з $operator$. Транзакції $count$ відновлено.",
-  "guardianHistoryFailed": "Відновлення історії транзакцій не вдалося, оскільки інформація про комісію мережі недоступна. Система не буде автоматично повторювати спробу відновлення.",
   "guardianHistoryPartial": "$count$ Транзакції відновлено. Деякі джерела Guardian не вдалося прочитати. Відновлення буде повторено під час наступного розблокування гаманця.",
   "payload": "Корисне навантаження",
   "bridgeDepositTitle": "Miden Bridge",

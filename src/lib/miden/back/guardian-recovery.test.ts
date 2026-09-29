@@ -6,16 +6,23 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
+import {
+  hasFailedGuardianHistory,
+  MAX_HISTORY_ENTRIES_PER_SOURCE,
+  recoverGuardianHistory
+} from './guardian-history-recovery';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
+import { GUARDIAN_HISTORY_VERSION, historyCheckpointId } from '../guardian/history';
 import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 // The orchestrator's own decisions are what these tests are about — the gating,
@@ -1181,8 +1188,8 @@ describe('release on lock', () => {
     }
   });
 
-  // The terminal answer is the gate's to keep, so a history-failed run holds no reservation, and it is
-  // never in the release set either: a lock must not free a later run of the same account in flight.
+  // A history-failed run clears the flag and keeps its reservation as a clean run does, and never joins the
+  // release set, so a lock does not offer it again.
   it('keeps a run that ended history-failed out of the lock release', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest
@@ -1191,20 +1198,10 @@ describe('release on lock', () => {
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
-    const drain = pending();
-    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(() => drain.promise as never);
-    try {
-      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
-      await drainDetachedRun();
-      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(2);
-      releaseGuardianRecoveriesOnLock();
-      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
-    } finally {
-      drain.resolve();
-      await drainDetachedRun();
-      // An unconsumed one-shot would answer the next test's drain.
-      mockProxy.drainPrivateNoteTransport.mockReset();
-    }
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
   });
 
   it('retries a notes pass that fails a source and finishes after the lock', async () => {
@@ -1325,7 +1322,7 @@ describe('an operator the account may never have used', () => {
 });
 
 describe('a node that reports no fee', () => {
-  it('stops recovery for that node only, and a switch to another node is offered again at once', async () => {
+  it('stops recovery and clears the flag, keeping the failed record', async () => {
     const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
     const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
       'lib/miden/guardian/history-storage'
@@ -1369,28 +1366,123 @@ describe('a node that reports no fee', () => {
     const steps = () => mockReportProgress.mock.calls.map(([progress]) => progress.step);
 
     await maybeStartGuardianRecovery(account);
-    await settleRealHistory(() => steps().some(step => step === 'history-failed' || step === 'history-partial'));
+    await settleRealHistory(() => setPendingFlag.mock.calls.length > 0 || steps().includes('history-partial'));
     expect(steps()).toContain('history-failed');
+    const reportedAt = mockReportProgress.mock.invocationCallOrder[steps().indexOf('history-failed')]!;
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    expect(setPendingFlag.mock.invocationCallOrder[0]).toBeGreaterThan(reportedAt);
+    expect(mockClearProgress.mock.invocationCallOrder.every(order => order < reportedAt)).toBe(true);
 
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
     await drainDetachedRun();
     expect(recoverGuardianHistory).toHaveBeenCalledTimes(1);
     expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+  });
+});
 
-    mockFeeScope = 'rpc-b|testnet';
-    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
-    await drainDetachedRun();
-    expect(recoverGuardianHistory).toHaveBeenCalledTimes(2);
+describe('a source failure that repeats every session', () => {
+  async function runSessions(
+    history: jest.Mock,
+    sessions: number,
+    prepare: (account: WalletAccount) => Promise<void> = async () => {}
+  ) {
+    const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
+    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+      'lib/miden/guardian/history-storage'
+    );
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(GuardianHttpClient).mockImplementation(
+      (endpoint: string) =>
+        ({
+          setSigner: jest.fn(),
+          getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+          getDeltaProposals: jest.fn().mockResolvedValue([]),
+          getDeltaHistory: endpoint === 'https://guardian.test' ? history : jest.fn().mockResolvedValue({ entries: [] })
+        }) as never
+    );
+    mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
+    jest.mocked(recoverGuardianHistory).mockImplementation(actual.recoverGuardianHistory);
+    await prepare(account);
+    const ends: string[][] = [];
+    try {
+      for (let session = 0; session < sessions; session++) {
+        const before = mockReportProgress.mock.calls.length;
+        const ended = () =>
+          mockReportProgress.mock.calls
+            .slice(before)
+            .map(([progress]) => progress.step)
+            .filter(step => step === 'history-partial' || step === 'history-failed');
+        await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+        await settleRealHistory(() => ended().length > 0);
+        ends.push(ended());
+        releaseGuardianRecoveriesOnLock();
+      }
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+    return { account, ends };
+  }
+
+  it('stops a current operator that overflows the entry cap on the third session and clears the flag', async () => {
+    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+      'lib/miden/guardian/history-storage'
+    );
+    const history = jest.fn().mockResolvedValue({
+      entries: [50, 49].map(nonce => ({
+        nonce,
+        status: 'canonical',
+        timestamp: '2026-08-01T00:00:00Z',
+        newCommitment: `commitment-${nonce}`,
+        inputNotes: [],
+        outputNotes: [],
+        decodeWarnings: []
+      }))
+    });
+    const { account, ends } = await runSessions(history, 3, async walletAccount => {
+      const network = getEffectiveNetworkName();
+      const accountId = canonicalWalletAccountId(walletAccount.publicKey);
+      await actualStorage.saveGuardianHistoryCheckpoint(await actualStorage.readGuardianHistoryGeneration(), {
+        id: historyCheckpointId(network, accountId, 'https://guardian.test'),
+        network,
+        accountId,
+        operator: 'https://guardian.test',
+        version: GUARDIAN_HISTORY_VERSION,
+        cursor: 'resume',
+        seenCursors: [],
+        completed: false,
+        restored: 0,
+        lowestNonce: 100,
+        entryCount: MAX_HISTORY_ENTRIES_PER_SOURCE - 1
+      });
+    });
+
+    expect(ends).toEqual([['history-partial'], ['history-partial'], ['history-failed']]);
+    expect(history).toHaveBeenCalledTimes(3);
+    expect(setPendingFlag).toHaveBeenCalledTimes(1);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  it('keeps the flag for a current operator that fails with a network error every session', async () => {
+    const history = jest.fn().mockRejectedValue(new Error('offline'));
+    const { ends } = await runSessions(history, 4);
+
+    expect(ends).toEqual([['history-partial'], ['history-partial'], ['history-partial'], ['history-partial']]);
+    expect(setPendingFlag).not.toHaveBeenCalled();
   });
 });
 
 it('does not start recovery after a persisted fee-metadata failure', async () => {
   jest.mocked(hasFailedGuardianHistory).mockResolvedValue(true);
-  await expect(maybeStartGuardianRecovery(pendingAccount())).resolves.toBe(false);
+  const account = pendingAccount();
+  await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
   expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+  expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
 });
 
-it('reports a terminal history failure without clearing the account as recovered', async () => {
+it('reports a terminal history failure, then clears the flag and keeps the failed record', async () => {
+  const account = pendingAccount({ coldPublicKey: '0xcold' });
   jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
     deferred: false,
     sourceFailures: 1,
@@ -1398,8 +1490,14 @@ it('reports a terminal history failure without clearing the account as recovered
     failed: true,
     deferredSources: 0
   });
-  await maybeStartGuardianRecovery(pendingAccount({ coldPublicKey: '0xcold' }));
+  await maybeStartGuardianRecovery(account);
   await drainDetachedRun();
-  expect(mockReportProgress).toHaveBeenCalledWith(expect.objectContaining({ step: 'history-failed' }));
-  expect(setPendingFlag).not.toHaveBeenCalled();
+  const failedReport = mockReportProgress.mock.calls.findIndex(([progress]) => progress.step === 'history-failed');
+  expect(failedReport).toBeGreaterThanOrEqual(0);
+  const reportedAt = mockReportProgress.mock.invocationCallOrder[failedReport]!;
+  expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  expect(setPendingFlag.mock.invocationCallOrder[0]).toBeGreaterThan(reportedAt);
+  // Only the notes pass's own finally clears the record.
+  expect(mockClearProgress).toHaveBeenCalledTimes(1);
+  expect(mockClearProgress.mock.invocationCallOrder[0]).toBeLessThan(reportedAt);
 });

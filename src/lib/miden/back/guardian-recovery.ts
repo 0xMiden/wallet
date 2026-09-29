@@ -680,8 +680,9 @@ export async function recoverPendingNotes(
  * refused start, a rejected eligibility query, or a wallet lock — since those
  * are transient and should be retried within this same backend lifetime; and
  * a failed pass's entry is released by the next lock
- * (`releaseGuardianRecoveriesOnLock`). A terminal history failure keeps no
- * entry: `hasFailedGuardianHistory` is the stop, re-read on every offer.
+ * (`releaseGuardianRecoveriesOnLock`). A terminal history failure ends like a
+ * clean pass: it clears the flag and keeps the entry, so the cleared flag is
+ * the stop, and a flag write that fails releases the entry for the next offer.
  */
 const startedRecoveries = new Set<string>();
 
@@ -743,10 +744,11 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // pass the check above while the first one's Dexie query is in flight.
   startedRecoveries.add(account.publicKey);
   try {
-    // The terminal fee answer is re-read on every offer, so it holds no reservation: a node switch lifts it
-    // within this backend lifetime.
+    // A terminal fee answer whose run could not clear the flag clears it here, so the gate never holds the
+    // flag itself. A fee checkpoint of the current generation exists only after a clean notes pass, so
+    // nothing is left for a run to recover.
     if (await hasFailedGuardianHistory(account)) {
-      startedRecoveries.delete(account.publicKey);
+      await clearPendingFlag(account, await readGuardianHistoryGeneration());
       return false;
     }
     if (!(await isSafeToRunNow())) {
@@ -780,10 +782,11 @@ async function isSafeToRunNow(): Promise<boolean> {
 }
 
 /**
- * The detached recovery itself. Never throws. The pending flag is only
- * cleared after a pass in which every source succeeded, so a failed or
- * interrupted run leaves it set and a later unlock or backend start retries;
- * every source is idempotent (imports and syncs, no destructive step).
+ * The detached recovery itself. Never throws. The pending flag is cleared
+ * after a pass in which every source succeeded, or after a terminal history
+ * failure that no retry can finish; a failed or interrupted run leaves it set
+ * and a later unlock or backend start retries. Every source is idempotent
+ * (imports and syncs, no destructive step).
  */
 async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   // Re-check at the head of the queue, not just at kickoff: this entry may
@@ -821,8 +824,9 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       );
       return;
     }
-    // History shares the seed-restore flag: the flag clears only once every
-    // Guardian source is read, so a failed source retries on the next session.
+    // History shares the seed-restore flag: the flag clears once every Guardian
+    // source is read or history fails terminally, and a failed source retries
+    // in the next session.
     const history = await recoverGuardianHistory(account, {
       createClient: createGuardianClientContext,
       shouldYield,
@@ -833,13 +837,15 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       return;
     }
     if (history.failed) {
+      // Written before the flag so the home card finds it, and kept: it is that card's record. A pass that
+      // can never finish must not hold the flag, which also gates seed-phrase removal, so the cleared flag
+      // is the stop, as on the clean path.
       await reportGuardianNoteRecoveryProgress({
         accountId: account.publicKey,
         step: 'history-failed',
         restored: history.restored
       });
-      // The gate in maybeStartGuardianRecovery is the stop from here, not the reservation.
-      startedRecoveries.delete(account.publicKey);
+      await clearPendingFlag(account, generation);
       return;
     }
     // A deferred source (an operator that does not serve history yet) keeps the flag and retries here too.

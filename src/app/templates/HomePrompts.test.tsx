@@ -3915,6 +3915,48 @@ describe('HomePrompts', () => {
       await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
     });
 
+    // A terminal history failure clears the flag and keeps its record, so the card outlives the flag.
+    it('shows a failed history card after the flag is cleared, and clears the record on dismiss', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+      render(
+        <HomePrompts
+          account={{ ...account, guardianNoteRecoveryPending: false } as WalletAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+
+      await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
+    });
+
+    it('shows no card for a live history record once the flag is cleared', async () => {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history',
+        operator: 'https://guardian.test',
+        restored: 1,
+        sourcesClean: true
+      });
+      render(
+        <HomePrompts
+          account={{ ...account, guardianNoteRecoveryPending: false } as WalletAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await settle();
+
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+    });
+
     // A terminal record is written once and stays until its card is dismissed, so the live-record age rule skips it.
     it.each(['history-failed', 'history-partial'] as const)(
       'keeps a %s card up after the live-record window has passed',
