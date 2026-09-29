@@ -2628,6 +2628,7 @@ describe('generateTransaction — Guardian routing', () => {
     // distinguishing it from both a pre-submit early throw and the Completed fallback.
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalled();
     expect(applyFn).toHaveBeenCalled();
+    expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Failed);
     // Never a Completed-branch success message.
@@ -6466,7 +6467,8 @@ describe('generateTransaction — Guardian routing', () => {
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
           authArg: () => undefined
-        }))
+        })),
+        abandonCandidate: jest.fn(async () => {})
       };
       mockBuildColdMultisigService.mockResolvedValue(coldService);
       // ensureGuardianProcedureThresholds (run inside completeReplaceHotKeyTransaction)
@@ -6515,6 +6517,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(swapHotKey).toHaveBeenCalledWith('guardian-acc', 'new-hot-pub');
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
       // #618: completion stamps the terminal stage through the real complete* layer.
       expect(row.stage).toBe('complete');
       expect(row.transactionId).toBe('exec-tx-hash');
@@ -6612,6 +6615,7 @@ describe('generateTransaction — Guardian routing', () => {
           authArg: () => undefined
         })),
         finalizeGuardianSwitch,
+        abandonCandidate: jest.fn(async () => {}),
         sync: jest.fn(async () => {})
       };
       // Used for both the main proposal AND rebuilt in the reconcile for completion.
@@ -6666,6 +6670,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       // The reconcile knows the node ACCEPTED the transaction and nothing beyond
       // that - no commit wait ran here. Asserted on the coordinated entry too,
       // not just the direct one: with only the direct assertion, narrowing the
@@ -6880,6 +6885,7 @@ describe('generateTransaction — Guardian routing', () => {
     // The local store still holds the pre-update account: nothing may push it to the guardian.
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+    expect(coldService.abandonCandidate).not.toHaveBeenCalled();
   });
 
   it('Guardian earn-deposit: a raw store failure at apply stays Failed and records the landed wrap (#1233)', async () => {
@@ -6957,6 +6963,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
+    expect(coldService.abandonCandidate).not.toHaveBeenCalled();
   });
 
   it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {
@@ -6967,6 +6974,7 @@ describe('generateTransaction — Guardian routing', () => {
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
       })),
+      abandonCandidate: jest.fn(async () => {}),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -7004,6 +7012,7 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Received');
+    expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -7020,6 +7029,7 @@ describe('generateTransaction — Guardian routing', () => {
           serialize: () => new Uint8Array([1]),
           authArg: () => undefined
         })),
+        abandonCandidate: jest.fn(async () => {}),
         sync: jest.fn(async () => {})
       };
       mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -7068,6 +7078,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.displayMessage).toBe('Sent');
       expect(row.noteDelivery).toBeUndefined();
       expect(row.transactionId).toBe('exec-tx-hash');
+      expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
     }
   );
 
@@ -7180,6 +7191,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Only `completeSendTransaction` relays a private note to its recipient, and it never ran.
     expect(row.noteDelivery).toBe('undelivered');
     expect(row.displayMessage).toBe('Sent - the private note could not be delivered');
+    expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
   });
 
   // #1233: only `completeCustomTransaction` relays an execute's private notes, and a landed execute

@@ -347,7 +347,9 @@ export class MultisigService {
    *
    * This records an abandonment intent rather than immediately discarding the
    * candidate. The Guardian first checks that the transaction did not land, so
-   * this is safe to call after ambiguous prover/RPC/submit failures.
+   * this is safe to call after ambiguous prover/RPC/submit failures. Never call it
+   * after a resolved submit (#1233): a transaction still in the mempool passes that
+   * check, and a finalized abandon releases the account onto stale state.
    */
   async abandonCandidate(nonce: number): Promise<void> {
     await this.multisig.abandonCandidate(nonce);

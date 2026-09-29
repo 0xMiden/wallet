@@ -2430,9 +2430,8 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
       const finalRow = txStore.find(r => r.id === id)!;
       expect(finalRow.status).toBe(expected);
       expect(finalRow.transactionId).toBe('0xlanded');
-      // The candidate proposal is abandoned either way — that happens in
-      // `generateGuardianTransaction`'s own catch, before the classification above.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      // No abandon: the submit resolved, so the candidate will land (#1233).
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       // No `TransactionResult` exists on this path, so the completion handler never
       // runs regardless of which terminal status the row lands on.
       expect(complete).not.toHaveBeenCalled();
@@ -2653,9 +2652,9 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       const finalRow = txStore.find(r => r.id === `apply-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Completed);
       expect(finalRow.transactionId).toBe('0xlanded');
-      // The submit-catch still abandoned the candidate (idempotent), and the value-moving
+      // The submit resolved, so the candidate is not abandoned (#1233), and the value-moving
       // completion handler did NOT run (Completed was set directly by the classifier).
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(complete).not.toHaveBeenCalled();
     }
   );
@@ -3055,7 +3054,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       // handler runs (with an UNDEFINED result) to finalize the vault / guardian state
       // rather than cancelling. This proves the errorCode survived the offscreen round-trip
       // and reached the guardian classifier.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
       expect(complete.mock.calls[0]![landedArg]).toEqual({ transactionId: '0xlanded' });
@@ -3080,7 +3079,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     // The node has the update, so the row gets the happy path's finalization without a
     // TransactionResult; the typed completion handler is not called with an undefined one,
     // and no service is built for a re-register (one build, the proposal's).
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
     expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
@@ -3152,7 +3151,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
 
       await generateTransaction(buildTx(`s-refusal-${type}`, row) as never, signCallback, false, sp as never);
 
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
       // A refusal carries no id.

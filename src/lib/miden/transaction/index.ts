@@ -3199,26 +3199,34 @@ const generateGuardianTransaction = async (
       // pending-conflict path reconcile instead (issue #775).
       throw error;
     }
-    try {
-      // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
-      // This call reaches the same operator, over the same transport, that the
-      // failure above may have been its silence — so unbounded it does not delay
-      // the failure, it replaces it with a hang, and moves the wedge fifteen
-      // lines rather than closing it. Worse than the row itself: this runs inside
-      // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
-      // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
-      // the same loop) down with it, so the row is not even reaped.
-      await withOutgoingGuardianDeadline(
-        () => service.abandonCandidate(proposalResult.nonce),
-        'abandoning the guardian candidate after a failed submission'
-      );
-    } catch (abandonError) {
-      // Cleanup must never mask the transaction failure. The abandonment call
-      // is idempotent, so a later recovery path can safely retry it.
-      console.error('Failed to request Guardian candidate abandonment', {
-        nonce: proposalResult.nonce,
-        error: abandonError
-      });
+    // Either landed shape proves the submit resolved (#1233): the node has the write, so this
+    // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
+    // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
+    // releases the account onto stale state for up to a minute. Only a failure that cannot show
+    // the submit resolved (a kill, a pre-submit error) abandons.
+    const submitResolved = isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error);
+    if (!submitResolved) {
+      try {
+        // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
+        // This call reaches the same operator, over the same transport, that the
+        // failure above may have been its silence - so unbounded it does not delay
+        // the failure, it replaces it with a hang, and moves the wedge fifteen
+        // lines rather than closing it. Worse than the row itself: this runs inside
+        // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
+        // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
+        // the same loop) down with it, so the row is not even reaped.
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(proposalResult.nonce),
+          'abandoning the guardian candidate after a failed submission'
+        );
+      } catch (abandonError) {
+        // Cleanup must never mask the transaction failure. The abandonment call
+        // is idempotent, so a later recovery path can safely retry it.
+        console.error('Failed to request Guardian candidate abandonment', {
+          nonce: proposalResult.nonce,
+          error: abandonError
+        });
+      }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
