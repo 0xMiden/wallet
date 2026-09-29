@@ -48,6 +48,14 @@ export interface ChooseGuardianScreenProps {
   // Renders the picker as a pushed page (Rotate Guardian): a header with this
   // back action and the title, instead of an onboarding step's `text-title-tab` heading.
   onBack?: () => void;
+  // The create flow's picker: the operator Meet your Guardian's card shows. When it names a listed
+  // operator that one is pre-selected and badged Default; null (the first probe round still out) or
+  // an unlisted id keeps the first provider.
+  initialId?: string | null;
+  // The create flow's picker goes on only as Meet your Guardian's Continue could: while the selected
+  // listed operator has not answered online (a pending ping included), Continue waits. Its card stays
+  // selectable; the no-guardian item and a custom URL are unaffected.
+  requireOnline?: boolean;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -60,7 +68,9 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   allowCustomEndpoint = false,
   showNoGuardianOption = false,
   error = null,
-  onBack
+  onBack,
+  initialId = null,
+  requireOnline = false
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -101,7 +111,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // the CURRENT operator, so the user has to deliberately pick a different one to
   // switch, never nudging them onto another operator by default. An account on a
   // custom Guardian has no listed operator to pre-select, so nothing is (#1083).
-  // In the create flow (no `currentEndpoint`) default to the first provider.
+  // In the create flow (no `currentEndpoint`) default to the operator Meet your
+  // Guardian's card shows (`initialId`) when it is listed, else the first provider.
+  // It is not passed as `currentEndpoint`, which would badge it Current and stop an
+  // offline default from falling to the first online provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
       // Compared as endpoints: a stored endpoint can differ from the option's literal
@@ -109,8 +122,9 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       // compares them the same way).
       return options.find(o => sameGuardianEndpoint(o.endpoint, currentEndpoint))?.id ?? '';
     }
+    if (initialId && options.some(o => o.id === initialId)) return initialId;
     return options[0]?.id ?? '';
-  }, [currentEndpoint, options]);
+  }, [currentEndpoint, initialId, options]);
 
   // The user's explicit pick, null until they make one. Until then the intent is
   // `defaultId`, so a `currentEndpoint` that resolves after mount (async store
@@ -153,13 +167,18 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     abandonCustomCheck();
   };
 
+  // The listed operator Continue would submit, if the selection is one.
+  const selected = options.find(o => o.id === effectiveSelectedId);
+  const awaitingOnline = requireOnline && selected !== undefined && availability[selected.endpoint] !== 'online';
+
   // Continue has something to submit: a custom URL (validated on tap), the
   // no-guardian sentinel, or a provider not reported offline. It is dead when
   // every provider is offline, when the user's own pick is offline, or in the
   // switch flow when the current operator is offline or is not a listed
   // provider and nothing else is picked; the offline card explains itself,
-  // only where one is offline.
-  const canContinue = isCustom || effectiveSelectedId !== '';
+  // only where one is offline. With `requireOnline` it also waits while the
+  // selected operator has not answered online, as Meet your Guardian's does.
+  const canContinue = isCustom || (effectiveSelectedId !== '' && !awaitingOnline);
 
   const handleContinue = () => {
     // Custom mode first, because it is the mode the SCREEN is in — the cards and
@@ -197,12 +216,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
       return;
     }
-    // Continue is disabled while nothing is selectable (`canContinue`), so a click
-    // lands here with a selectable id and this guard only narrows the type. No
+    // Continue is disabled while nothing is selectable or, with `requireOnline`,
+    // while the selected operator has not answered online (`canContinue`), so a
+    // click lands here with a submittable id and this guard narrows the type and
+    // holds the online rule, as Meet your Guardian's handleContinue does. No
     // `?? options[0]` fallback: it would submit an offline operator, or in the
     // switch flow one the user did not pick.
-    const selected = options.find(o => o.id === effectiveSelectedId);
-    if (!selected) return;
+    if (!selected || awaitingOnline) return;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
 

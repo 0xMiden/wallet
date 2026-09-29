@@ -1,6 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
@@ -144,6 +145,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onBiometricChange,
   onAction
 }) => {
+  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
@@ -257,14 +259,20 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
     // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
-    // The picker goes on only once Meet's three facts are ticked, since otherwise it would skip them; before
-    // that it returns to Meet, whose card shows the pick and whose Continue waits for the facts. A no-guardian
-    // pick is not recorded, so it is dropped there; Meet's own link offers it once the facts are ticked.
+    // The picker, which Change opens on the card's operator, goes on only as Meet's Continue could: once
+    // Meet's three facts are ticked, since otherwise it would skip them, and with an operator that has
+    // answered online (`requireOnline`). Before the facts are ticked it returns to Meet, whose card shows the
+    // pick and whose Continue waits for the facts, so its own Continue reads Select. A no-guardian pick is
+    // not recorded and would be dropped there, so the picker withholds it until then; Meet's own link offers
+    // it once the facts are ticked. A pick is the user's own only when it changed the card's operator.
+    const meetFactsTicked = MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id]);
     const onPickerSubmit = (payload: { guardianId: string; guardianEndpoint: string }) => {
       if (payload.guardianId !== NO_GUARDIAN_ID) {
-        setMeetGuardianProgress(prev => ({ ...prev, chosenId: payload.guardianId, pickedByUser: true }));
+        setMeetGuardianProgress(prev =>
+          prev.chosenId === payload.guardianId ? prev : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
+        );
       }
-      if (MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id])) onChooseGuardianSubmit(payload);
+      if (meetFactsTicked) onChooseGuardianSubmit(payload);
       else onBack();
     };
 
@@ -297,7 +305,15 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onPickerSubmit} showNoGuardianOption={getEffectiveAllowNoGuardian()} />;
+        return (
+          <ChooseGuardianScreen
+            onSubmit={onPickerSubmit}
+            requireOnline
+            initialId={meetGuardianProgress.chosenId}
+            submitLabel={meetFactsTicked ? undefined : t('select')}
+            showNoGuardianOption={meetFactsTicked && getEffectiveAllowNoGuardian()}
+          />
+        );
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -361,6 +377,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
+    t,
     step,
     meetGuardianProgress,
     isLoading,

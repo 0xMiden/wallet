@@ -27,8 +27,9 @@ export interface MeetGuardianPoint {
 }
 
 /**
- * The three facts the step asks the user to tick before it goes on: Continue opens only then, and the
- * picker its Change action opens (`onboarding/navigator`) returns here until they are.
+ * The three facts the step asks the user to tick before it goes on: Continue opens only then. The picker
+ * its Change action opens on the card's operator (`onboarding/navigator`) goes on only as Continue does,
+ * once they are ticked and with an operator that has answered online; until they are, it returns here.
  */
 export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'local-state', titleKey: 'meetGuardianLocalStateTitle', bodyKey: 'meetGuardianLocalStateBody' },
@@ -57,7 +58,9 @@ export interface MeetGuardianScreenProps {
  * switch operator under the user while later rounds re-check the chosen one. An operator that later
  * goes offline closes Continue and says so on the card.
  * The same card says so when none answers, still offering Change; a network with no operator at all
- * says so and offers nothing to pick.
+ * says so and offers nothing to pick. Change opens the full picker on the card's operator, and the picker
+ * goes on only as Continue does: once the three facts are ticked and with an operator that has answered
+ * online. Until the facts are ticked it returns here with the pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   progress,

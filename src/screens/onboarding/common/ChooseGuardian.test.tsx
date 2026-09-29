@@ -1064,6 +1064,89 @@ describe('ChooseGuardianScreen — offline banner', () => {
   });
 });
 
+// The create flow's picker goes on only as Meet your Guardian's Continue could: with an operator that has
+// answered online. A card with no verdict yet stays selectable; only Continue waits for it.
+describe('ChooseGuardianScreen - requireOnline (the create flow)', () => {
+  it('holds Continue while the picked operator has no verdict yet, keeping its card selectable', () => {
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    expect(isHighlighted(ozBtn!)).toBe(true);
+
+    fireEvent.click(gwBtn!);
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+  });
+
+  it('goes on with the picked operator once it has answered online', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
+
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+  });
+
+  it('still goes on with a pending verdict without it (Rotate Guardian)', () => {
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} currentEndpoint={OZ.endpoint} />);
+
+    fireEvent.click(optionButtons(container)[1]!);
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
+  });
+
+  it('leaves the no-guardian item and a custom URL to go on without a verdict', async () => {
+    const onSubmit = jest.fn();
+    const { unmount } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline showNoGuardianOption />);
+    fireEvent.click(screen.getByTestId('choose-no-guardian'));
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenLastCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' });
+    unmount();
+
+    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline allowCustomEndpoint />);
+    enterCustomUrl('https://custom.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith({
+        guardianId: 'custom',
+        guardianEndpoint: 'https://custom.example.com'
+      })
+    );
+  });
+});
+
+// The create flow's picker opens on the operator Meet your Guardian's card shows, not the first listed one.
+describe('ChooseGuardianScreen - initialId (the create flow)', () => {
+  it("pre-selects Meet your Guardian's operator and badges it Default", () => {
+    const { container } = render(<ChooseGuardianScreen initialId={GATEWAY.id} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute(
+      'data-guardian-endpoint',
+      GATEWAY.endpoint
+    );
+    expect(gwBtn).toHaveAccessibleDescription(/^default /);
+    expect(ozBtn).toHaveAccessibleDescription(/^guardianCardMeta/);
+    expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['a null one (the first probe round still out)', null],
+    ['one no listed operator matches', 'not-listed']
+  ])('keeps the first provider as the default for %s', (_, initialId) => {
+    const { container } = render(<ChooseGuardianScreen initialId={initialId} />);
+    const [ozBtn] = optionButtons(container);
+
+    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
+    expect(ozBtn).toHaveAccessibleDescription(/^default /);
+  });
+});
+
 describe('ChooseGuardian — no-guardian option', () => {
   const oneOption = [{ id: 'open-zeppelin', name: 'OZ', operatedBy: 'OZ', location: 'US', endpoint: 'https://g' }];
 

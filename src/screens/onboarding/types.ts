@@ -54,7 +54,9 @@ export enum OnboardingStep {
    * for the user, on a card whose Change action pushes the full picker,
    * `ChooseGuardian`. Change shows from the first probe round unless the
    * network has no operator; Continue opens once the three facts are
-   * ticked and the chosen operator has answered online.
+   * ticked and the chosen operator has answered online. Change opens the
+   * picker on the card's operator, and the picker goes on only under the
+   * same two conditions; until the facts are ticked it returns here.
    */
   MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',

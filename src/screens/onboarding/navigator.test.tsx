@@ -286,10 +286,11 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'setup-passcode' });
   });
 
-  // Ticks the Meet your Guardian facts (all, or the given ones), then opens the picker from that step.
-  const openPickerFromMeet = (checked: Record<string, boolean>, onAction: jest.Mock) => {
+  // Ticks the Meet your Guardian facts (all, or the given ones) with the card on `chosenId`, then opens the
+  // picker from that step.
+  const openPickerFromMeet = (checked: Record<string, boolean>, onAction: jest.Mock, chosenId = 'g1') => {
     const utils = renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
-    act(() => mockCaptured['meet-guardian'].onProgressChange({ checked, chosenId: 'g1', pickedByUser: false }));
+    act(() => mockCaptured['meet-guardian'].onProgressChange({ checked, chosenId, pickedByUser: false }));
     utils.rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
     onAction.mockClear();
     return utils;
@@ -352,16 +353,56 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload: noGuardian });
   });
 
-  // The fully private account is dev-only: every screen that offers it follows the flag both ways.
-  it.each([
-    [OnboardingStep.ChooseGuardian, 'choose-guardian', true],
-    [OnboardingStep.ChooseGuardian, 'choose-guardian', false],
-    [OnboardingStep.MeetGuardian, 'meet-guardian', true],
-    [OnboardingStep.MeetGuardian, 'meet-guardian', false]
-  ])('%s: showNoGuardianOption follows the dev flag (%s, %s)', (step, name, flag) => {
+  // The fully private account is dev-only: every screen that offers it follows the flag both ways (the
+  // picker once the facts are ticked, since before that it returns to Meet).
+  it.each([true, false])(
+    'ChooseGuardian: with the facts ticked, showNoGuardianOption follows the dev flag (%s)',
+    flag => {
+      mockAllowNoGuardian = flag;
+      openPickerFromMeet(ALL_TICKED, jest.fn());
+      expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(flag);
+    }
+  );
+
+  it.each([true, false])('MeetGuardian: showNoGuardianOption follows the dev flag (%s)', flag => {
     mockAllowNoGuardian = flag;
-    renderFlow({ step });
-    expect(mockCaptured[name].showNoGuardianOption).toBe(flag);
+    renderFlow({ step: OnboardingStep.MeetGuardian });
+    expect(mockCaptured['meet-guardian'].showNoGuardianOption).toBe(flag);
+  });
+
+  // Meet's Continue waits for an operator that answered online, so the picker that stands in for it does too.
+  it('ChooseGuardian: the picker goes on only with an operator that has answered online', () => {
+    renderFlow({ step: OnboardingStep.ChooseGuardian });
+    expect(mockCaptured['choose-guardian'].requireOnline).toBe(true);
+  });
+
+  it("ChooseGuardian: opens on the operator Meet your Guardian's card shows", () => {
+    openPickerFromMeet({}, jest.fn(), 'g2');
+    expect(mockCaptured['choose-guardian'].initialId).toBe('g2');
+  });
+
+  it("ChooseGuardian: an unchanged pick goes back as Meet's own, not the user's", () => {
+    const onAction = jest.fn();
+    const { rerender } = openPickerFromMeet({}, onAction, 'g2');
+    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: 'g2', guardianEndpoint: 'https://g2.example' }));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
+
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: false });
+  });
+
+  // Until the facts are ticked the picker's Continue returns to Meet, so it says Select, and the fully private
+  // account it would drop there is not offered.
+  it('ChooseGuardian: reads Select and withholds No guardian until the facts are ticked', () => {
+    mockAllowNoGuardian = true;
+    const unticked = openPickerFromMeet({ 'local-state': true, 'seed-phrase': true }, jest.fn());
+    expect(mockCaptured['choose-guardian'].submitLabel).toBe('select');
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
+    unticked.unmount();
+
+    openPickerFromMeet(ALL_TICKED, jest.fn());
+    expect(mockCaptured['choose-guardian'].submitLabel).toBeUndefined();
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(true);
   });
 
   it('MeetGuardian: submits the picked guardian and opens the picker', () => {
