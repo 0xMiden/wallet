@@ -23,7 +23,11 @@ import {
   sameNonemptyNotes
 } from '../guardian/history';
 import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
-import { readGuardianHistoryState, saveGuardianHistoryCheckpoint } from '../guardian/history-storage';
+import {
+  readGuardianHistoryGeneration,
+  readGuardianHistoryState,
+  saveGuardianHistoryCheckpoint
+} from '../guardian/history-storage';
 import { db, transactions } from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -43,6 +47,8 @@ export interface GuardianHistoryRecoveryContext {
     guardianAccountId: string;
   }>;
   shouldYield: () => Promise<string | null>;
+  /** The history generation the detached run read when it started; every write of this pass is bound to it. */
+  generation: string;
 }
 
 export function classifyHistoryFailure(error: Error): GuardianHistoryFailure {
@@ -90,6 +96,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   const network = getEffectiveNetworkName();
   const canonicalAccountId = canonicalWalletAccountId(account.publicKey);
   const initialState = await readGuardianHistoryState();
+  if (initialState.generation !== context.generation) return { deferred: true, sourceFailures: 0, restored: 0 };
   const local = await transactions.where('accountId').equals(account.publicKey).toArray();
   const current = await resolveGuardianEndpoint(account);
   // Guardian history and backup files can name any host, so only rows this wallet made add operators.
@@ -105,7 +112,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   const check = async () => {
     if (await context.shouldYield()) throw new HistoryInterrupted();
     if (network !== getEffectiveNetworkName()) throw new HistoryInterrupted();
-    if ((await readGuardianHistoryState()).generation !== initialState.generation) throw new HistoryInterrupted();
+    if ((await readGuardianHistoryGeneration()) !== context.generation) throw new HistoryInterrupted();
   };
   let sourceFailures = 0;
   let restored = local.filter(row => row.recovered && row.recovery?.network === network).length;
@@ -117,7 +124,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       step: 'history',
       operator: operators[0],
       restored,
-      sourcesClean: true
+      sourcesClean: true,
+      historyGeneration: context.generation
     });
   }
   try {
@@ -143,7 +151,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             step: 'history',
             operator,
             restored,
-            sourcesClean: true
+            sourcesClean: true,
+            historyGeneration: context.generation
           });
           const pageCheckpoint = checkpoint;
           // A timed-out attempt can settle after its retry starts, so each reports only through its own value.
@@ -167,8 +176,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           );
           if (outcome.kind === 'unsupported') {
             checkpoint = { ...checkpoint, failure: 'unsupported' };
-            if (!(await saveGuardianHistoryCheckpoint(initialState.generation, checkpoint)))
-              throw new HistoryInterrupted();
+            if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
             break;
           }
           const { page } = outcome;
@@ -295,8 +303,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             entryCount,
             failure: undefined
           };
-          if (!(await saveGuardianHistoryCheckpoint(initialState.generation, checkpoint)))
-            throw new HistoryInterrupted();
+          if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
         }
       } catch (error) {
         if (
@@ -306,12 +313,12 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         )
           throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
-          await saveGuardianHistoryCheckpoint(initialState.generation, { ...checkpoint, failure: 'fee-metadata' });
+          await saveGuardianHistoryCheckpoint(context.generation, { ...checkpoint, failure: 'fee-metadata' });
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true };
         }
         sourceFailures++;
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
-        await saveGuardianHistoryCheckpoint(initialState.generation, { ...checkpoint, failure });
+        await saveGuardianHistoryCheckpoint(context.generation, { ...checkpoint, failure });
         console.warn(`[GuardianHistory] Source failed (${failure}): ${operator}`, error);
       }
     }

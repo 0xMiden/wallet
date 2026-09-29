@@ -7,6 +7,7 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -331,7 +332,11 @@ const PUBLIC_BACKFILL_CHUNK_BLOCKS = 200_000;
  */
 type ResumePoint = { step: 'public'; block: number } | { step: 'history' };
 
-function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryProgress | null): ResumePoint | null {
+function resumePointFor(
+  account: WalletAccount,
+  progress: GuardianNoteRecoveryProgress | null,
+  historyGeneration: string
+): ResumePoint | null {
   if (!progress || progress.accountId !== account.publicKey) return null;
   // `sourcesClean` is what makes the watermark trustworthy, and it must be
   // present: the `finally` below only discards a failed pass's record on a
@@ -345,13 +350,20 @@ function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryPr
   // worth resuming: it means the run died rather than finished.
   if (progress.sourcesClean !== true) return null;
   // A history step is written only after a clean notes pass, so its retry skips
-  // straight to history. `history-failed` is terminal and never resumed.
-  if (progress.step === 'history' || progress.step === 'history-partial') return { step: 'history' };
+  // straight to history, but only for the wallet that wrote it: a record from
+  // another history generation (or from before generations were recorded) gets
+  // a full pass. `history-failed` is terminal and never resumed.
+  if (progress.step === 'history' || progress.step === 'history-partial') {
+    return progress.historyGeneration === historyGeneration ? { step: 'history' } : null;
+  }
   if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
   return { step: 'public', block: progress.syncedToBlock };
 }
 
-export async function recoverPendingNotes(account: WalletAccount): Promise<GuardianPendingNoteRecoveryResult> {
+export async function recoverPendingNotes(
+  account: WalletAccount,
+  historyGeneration: string
+): Promise<GuardianPendingNoteRecoveryResult> {
   const result: GuardianPendingNoteRecoveryResult = {
     proposalNotes: 0,
     publicNotes: 0,
@@ -365,7 +377,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
 
   let resume: ResumePoint | null = null;
   try {
-    resume = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey));
+    resume = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey), historyGeneration);
   } catch (error) {
     console.warn(`[GuardianRecovery] Could not read the checkpoint for ${account.publicKey}; starting over:`, error);
   }
@@ -748,7 +760,10 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
 
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   try {
-    const result = await recoverPendingNotes(account);
+    // Read once, first: the notes pass's resume point, every history write and the flag clear
+    // all belong to the wallet this generation names.
+    const generation = await readGuardianHistoryGeneration();
+    const result = await recoverPendingNotes(account, generation);
     if (result.deferred) {
       // Giving way is not a failing source: release the reservation so the
       // provider's poll restarts this account once the wallet is free again,
@@ -768,7 +783,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     // Guardian source is read, so a failed source retries on the next session.
     const history = await recoverGuardianHistory(account, {
       createClient: createGuardianClientContext,
-      shouldYield
+      shouldYield,
+      generation
     });
     if (history.deferred) {
       startedRecoveries.delete(account.publicKey);
@@ -787,11 +803,13 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         accountId: account.publicKey,
         step: 'history-partial',
         restored: history.restored,
-        sourcesClean: true
+        sourcesClean: true,
+        historyGeneration: generation
       });
       return;
     }
-    await clearPendingFlag(account);
+    // A replaced wallet owns the progress record now, so it stays.
+    if (!(await clearPendingFlag(account, generation))) return;
     await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
@@ -809,14 +827,24 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
  * between the user and a finished recovery is this write, and holding the
  * reservation would make the account unstartable for the rest of this
  * backend's lifetime with nothing left to clear it.
+ *
+ * Resolves false only when the history generation moved under the run: the
+ * wallet was replaced, so nothing is written and the flag is the new wallet's.
  */
-async function clearPendingFlag(account: WalletAccount): Promise<void> {
+async function clearPendingFlag(account: WalletAccount, generation: string): Promise<boolean> {
+  let current = true;
   try {
     await getAccountsWriteQueue().add(async () => {
       const vault = liveVault();
       if (!vault) {
         startedRecoveries.delete(account.publicKey);
         console.warn(`[GuardianRecovery] Wallet locked before clearing the flag for ${account.publicKey}; will retry`);
+        return;
+      }
+      if ((await readGuardianHistoryGeneration()) !== generation) {
+        current = false;
+        startedRecoveries.delete(account.publicKey);
+        console.warn(`[GuardianRecovery] The wallet changed before clearing the flag for ${account.publicKey}`);
         return;
       }
       const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
@@ -830,4 +858,5 @@ async function clearPendingFlag(account: WalletAccount): Promise<void> {
     startedRecoveries.delete(account.publicKey);
     console.warn(`[GuardianRecovery] Failed to clear the recovery flag for ${account.publicKey}; will retry:`, error);
   }
+  return current;
 }

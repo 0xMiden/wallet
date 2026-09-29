@@ -61,6 +61,12 @@ export type GuardianNoteRecoveryProgress = {
    * the history phase had no source failure, so a retry may resume at history.
    */
   sourcesClean?: boolean;
+  /**
+   * The Guardian history generation of the run that wrote a `history` or
+   * `history-partial` step. A retry resumes at history only under the same
+   * generation, so a record left by a wallet that was since replaced is not.
+   */
+  historyGeneration?: string;
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -74,6 +80,7 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
   if (typeof accountId !== 'string' || accountId.length === 0) return null;
   if (!['transport', 'proposals', 'public', 'history', 'history-partial', 'history-failed'].includes(step)) return null;
   const operator = Reflect.get(value, 'operator');
+  const historyGeneration = Reflect.get(value, 'historyGeneration');
   return {
     accountId,
     step,
@@ -83,7 +90,8 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
     syncedToBlock: numberOrUndefined(Reflect.get(value, 'syncedToBlock')),
     latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),
     updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt')),
-    sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined
+    sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined,
+    historyGeneration: typeof historyGeneration === 'string' ? historyGeneration : undefined
   };
 }
 

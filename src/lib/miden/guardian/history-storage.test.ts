@@ -2,6 +2,7 @@ import type { GuardianHistoryCheckpoint } from './history';
 import {
   clearGuardianHistoryCheckpoints,
   GUARDIAN_HISTORY_STORAGE_KEY,
+  readGuardianHistoryGeneration,
   readGuardianHistoryState,
   saveGuardianHistoryCheckpoint
 } from './history-storage';
@@ -65,6 +66,17 @@ it('treats a missing generation as a wipe and keeps the fresh one it stores', as
   mockValues.delete('guardian_history_generation_v1');
   expect((await readGuardianHistoryState()).generation).not.toBe(first.generation);
   expect(await saveGuardianHistoryCheckpoint(first.generation, checkpoint)).toBe(false);
+});
+
+it('reads the stored generation, storing a fresh one when the key is missing', async () => {
+  mockValues.set('guardian_history_generation_v1', 'stored');
+  expect(await readGuardianHistoryGeneration()).toBe('stored');
+  mockValues.delete('guardian_history_generation_v1');
+  const fresh = await readGuardianHistoryGeneration();
+  expect(fresh).not.toBe('stored');
+  expect(mockValues.get('guardian_history_generation_v1')).toBe(fresh);
+  expect((await readGuardianHistoryState()).generation).toBe(fresh);
+  expect(await readGuardianHistoryGeneration()).toBe(fresh);
 });
 
 it('starts again when a saved checkpoint is malformed', async () => {

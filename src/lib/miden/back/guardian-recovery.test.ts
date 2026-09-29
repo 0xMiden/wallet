@@ -5,6 +5,7 @@ import {
   fetchGuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
+import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -54,6 +55,10 @@ jest.mock('./store', () => ({
   store: { getState: jest.fn() },
   accountsUpdated: jest.fn()
 }));
+jest.mock('lib/miden/guardian/history-storage', () => ({
+  ...jest.requireActual('lib/miden/guardian/history-storage'),
+  readGuardianHistoryGeneration: jest.fn()
+}));
 jest.mock('./guardian-history-recovery', () => ({
   hasFailedGuardianHistory: jest.fn().mockResolvedValue(false),
   recoverGuardianHistory: jest.fn().mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0 })
@@ -67,6 +72,7 @@ const mockFetchProgress = jest.mocked(fetchGuardianNoteRecoveryProgress);
 const mockReportProgress = jest.mocked(reportGuardianNoteRecoveryProgress);
 const mockProxy = jest.mocked(midenClientProxy);
 const mockDoSync = jest.mocked(doSync);
+const mockReadGeneration = jest.mocked(readGuardianHistoryGeneration);
 
 /** `createdAt` from the mocked Guardian `getState`, in unix seconds. */
 const GUARDIAN_CREATED_AT_SECONDS = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
@@ -174,6 +180,7 @@ beforeEach(() => {
   unlocked();
   mockUncompleted.mockResolvedValue([]);
   mockFetchProgress.mockResolvedValue(null);
+  mockReadGeneration.mockResolvedValue('gen-1');
   mockProxy.getAccount.mockResolvedValue({} as never);
   mockProxy.drainPrivateNoteTransport.mockResolvedValue(undefined as never);
   mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
@@ -240,6 +247,21 @@ describe('detached recovery run', () => {
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
     expect(mockAccountsUpdated).toHaveBeenCalledTimes(1);
     expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
+    expect(mockClearProgress).toHaveBeenCalledTimes(2);
+    expect(mockClearProgress.mock.invocationCallOrder[1]).toBeGreaterThan(setPendingFlag.mock.invocationCallOrder[0]!);
+  });
+
+  it('leaves the flag and the progress record to the new wallet when the history generation moves', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockReadGeneration.mockResolvedValueOnce('gen-1').mockResolvedValue('gen-2');
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    // Only the notes pass's own finally; the clear that follows a flag write is skipped.
+    expect(mockClearProgress).toHaveBeenCalledTimes(1);
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 
   it('keeps the flag set and reports a partial history when a history source fails', async () => {
@@ -254,7 +276,8 @@ describe('detached recovery run', () => {
       accountId: account.publicKey,
       step: 'history-partial',
       restored: 2,
-      sourcesClean: true
+      sourcesClean: true,
+      historyGeneration: 'gen-1'
     });
   });
 
@@ -528,7 +551,8 @@ describe('detached recovery run', () => {
           operator: 'https://guardian.test',
           restored: 1,
           updatedAt: Date.now(),
-          sourcesClean: true
+          sourcesClean: true,
+          historyGeneration: 'gen-1'
         });
 
         await maybeStartGuardianRecovery(account);
@@ -541,10 +565,35 @@ describe('detached recovery run', () => {
         expect(GuardianHttpClient).not.toHaveBeenCalled();
         expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('transport');
         expect(mockDoSync).toHaveBeenCalled();
-        expect(recoverGuardianHistory).toHaveBeenCalledWith(account, expect.anything());
+        expect(recoverGuardianHistory).toHaveBeenCalledWith(account, expect.objectContaining({ generation: 'gen-1' }));
         expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
       }
     );
+
+    // A record written under another history generation belongs to a wallet this one replaced.
+    it.each([
+      ['history', 'gen-0'],
+      ['history-partial', 'gen-0'],
+      ['history', undefined]
+    ] as const)('runs the full pass over a clean %s record from history generation %s', async (step, generation) => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step,
+        operator: 'https://guardian.test',
+        restored: 1,
+        updatedAt: Date.now(),
+        sourcesClean: true,
+        historyGeneration: generation
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(GuardianHttpClient).toHaveBeenCalled();
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
+    });
 
     it.each([
       ['a record written before health was tracked', 'self', undefined],

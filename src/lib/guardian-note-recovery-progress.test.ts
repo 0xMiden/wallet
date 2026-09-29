@@ -58,6 +58,17 @@ describe('guardian note recovery progress', () => {
     });
   });
 
+  it('keeps a string history generation and drops a numeric one', () => {
+    const entry = (historyGeneration: unknown) =>
+      normalizeGuardianNoteRecoveryProgress(
+        { '0xabc': { accountId: '0xabc', step: 'history', sourcesClean: true, historyGeneration } },
+        '0xabc'
+      );
+    expect(entry('gen-1')?.historyGeneration).toBe('gen-1');
+    expect(entry(7)).not.toBeNull();
+    expect(entry(7)?.historyGeneration).toBeUndefined();
+  });
+
   it.each([
     ['not an object', null],
     ['an empty map', {}],

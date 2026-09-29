@@ -102,7 +102,9 @@ const createClient = jest.fn(async (_account: WalletAccount, endpoint: string) =
   if (!guardian) throw new Error(`Missing test source ${endpoint}`);
   return { guardian, guardianAccountId: 'account' };
 });
-const run = () => recoverGuardianHistory(account, { createClient, shouldYield });
+const storedGeneration = async () => (await readGuardianHistoryState()).generation;
+const run = async () =>
+  recoverGuardianHistory(account, { createClient, shouldYield, generation: await storedGeneration() });
 
 function source(endpoint: string, pages: HistoryPage[]) {
   const client = new GuardianHttpClient(endpoint);
@@ -486,9 +488,20 @@ it('records the history step before its first yield check', async () => {
     step: 'history',
     operator: 'https://one',
     restored: 0,
-    sourcesClean: true
+    sourcesClean: true,
+    historyGeneration: await storedGeneration()
   });
   expect(createClient).not.toHaveBeenCalled();
+});
+
+it('defers a run whose generation was read before the key was removed', async () => {
+  const generation = await storedGeneration();
+  await putToStorage('guardian_history_generation_v1', null);
+  expect((await recoverGuardianHistory(account, { createClient, shouldYield, generation })).deferred).toBe(true);
+  expect(reportGuardianNoteRecoveryProgress).not.toHaveBeenCalled();
+  expect(createClient).not.toHaveBeenCalled();
+  expect((await readGuardianHistoryState()).checkpoints).toEqual({});
+  expect(await transactions.count()).toBe(0);
 });
 
 it('asks an operator the account never used again when it does not serve history yet', async () => {
