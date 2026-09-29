@@ -65,7 +65,7 @@ export function useEarnPositions(): {
   positions: EarnPosition[];
   vaults: EarnVault[];
   /**
-   * No data (live or kept) and no error, including while the page is covered. A retry after a failure keeps the
+   * No data and no error, live or kept, including while the page is covered. A retry after a failure keeps the
    * error and reports false.
    */
   isLoading: boolean;
@@ -150,9 +150,17 @@ export function useEarnPositions(): {
     };
   }, [onScreen, cache, id, mutate]);
 
-  const data = useLastData(key, onScreen, liveData);
-  // No data (live or kept) and no error: a page mounted covered reads as loading, not empty.
-  const isLoading = data === undefined && !swrError;
+  // A covered page keeps its key's last data and error together, so a failure notice stays while the page slides out
+  // and while it is covered; another key keeps neither.
+  const shown = useLastData<{ data: EarnPositionsResult | undefined; error: unknown }>(
+    key,
+    onScreen,
+    liveData !== undefined || swrError !== undefined ? { data: liveData, error: swrError } : undefined
+  );
+  const data = shown?.data;
+  const readError = shown?.error;
+  // No data and no error (live or kept): a page mounted covered reads as loading, not empty.
+  const isLoading = data === undefined && !readError;
 
   return useMemo(() => {
     // Owner queries never reject, so a full outage resolves with every queried owner failed, while what they loaded
@@ -162,7 +170,7 @@ export function useEarnPositions(): {
       data !== undefined &&
       (data.owners.length > 0 ? data.owners.every(owner => failedOwners.has(owner)) : data.errors.length > 0);
     const outage = everyOwnerFailed ? data?.errors[0]?.error : undefined;
-    const loadError = swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : outage;
+    const loadError = readError ? (readError instanceof Error ? readError.message : String(readError)) : outage;
     return {
       positions: (data?.positions ?? []).map(mapEarnPosition),
       vaults: (data?.vaults ?? []).map(mapEarnVault),
@@ -179,5 +187,5 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, isLoading, swrError, isValidating, mutate]);
+  }, [data, isLoading, readError, isValidating, mutate]);
 }

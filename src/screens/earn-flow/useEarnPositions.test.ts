@@ -444,6 +444,34 @@ describe('useEarnPositions', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
+    it('keeps showing its error while its page is covered', async () => {
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      onScreen = false;
+      rerender();
+
+      expect(result.current.loadError).toBe('lookup down');
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it("never shows the previous account's error once the account switches", async () => {
+      jest
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
+        .mockReturnValueOnce(new Promise(() => undefined));
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      mockAccount.publicKey = 'another-account';
+      mockAccount.evmAddress = '0x123456';
+      rerender();
+
+      expect(result.current.loadError).toBeUndefined();
+      expect(result.current.isLoading).toBe(true);
+    });
+
     it('reads as loading, not empty, when mounted on a covered page', () => {
       onScreen = false;
       const { result } = renderOnPage();
