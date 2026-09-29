@@ -311,6 +311,41 @@ describe('completeCustomTransaction outer init-error path', () => {
   });
 });
 
+// The private and public apply-after-submit cases below share these: the loop runs one queued send
+// whose client rejects with `makeError()`.
+const applyAfterSubmitError = () =>
+  new Error(
+    "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
+  );
+
+const installLocks = () => {
+  const nav = (globalThis as any).navigator || {};
+  Object.defineProperty(nav, 'locks', {
+    value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
+    writable: true,
+    configurable: true
+  });
+};
+
+const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmitError) => {
+  installLocks();
+  const sdk = require('../sdk/miden-client');
+  const origGetClient = sdk.getMidenClient;
+  sdk.getMidenClient = async () => ({
+    syncState: jest.fn(),
+    sendTransaction: jest.fn(async () => {
+      throw makeError();
+    })
+  });
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+  try {
+    await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+  } finally {
+    sdk.getMidenClient = origGetClient;
+    warnSpy.mockRestore();
+  }
+};
+
 describe('apply-after-submit on a private send', () => {
   // "Submit landed, local apply threw." The row must stay Completed — the
   // transaction is on chain and re-queueing it would spend again — but for a
@@ -319,39 +354,6 @@ describe('apply-after-submit on a private send', () => {
   // that hands the note to the transport. So the note was never relayed, and no
   // amount of syncing fixes it — sync reconciles what the chain knows, and the chain
   // holds a commitment, not the note body the recipient needs.
-  const applyAfterSubmitError = () =>
-    new Error(
-      "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
-    );
-
-  const installLocks = () => {
-    const nav = (globalThis as any).navigator || {};
-    Object.defineProperty(nav, 'locks', {
-      value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
-      writable: true,
-      configurable: true
-    });
-  };
-
-  const runLoopWithFailingSend = async (makeError: () => unknown = applyAfterSubmitError) => {
-    installLocks();
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = async () => ({
-      syncState: jest.fn(),
-      sendTransaction: jest.fn(async () => {
-        throw makeError();
-      })
-    });
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-    try {
-      await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-    } finally {
-      sdk.getMidenClient = origGetClient;
-      warnSpy.mockRestore();
-    }
-  };
-
   it('marks a private send Completed but records the note as undelivered', async () => {
     txStore.push({
       id: 'tx-apply-priv',
@@ -376,7 +378,11 @@ describe('apply-after-submit on a private send', () => {
     expect(txStore[0]!.noteDelivery).toBe('undelivered');
     expect(txStore[0]!.displayMessage).toBe('Completed — the private note could not be delivered');
   });
+});
 
+describe('apply-after-submit on a public send', () => {
+  // A landed public send is a clean Completed however the landing reached the loop: as the SDK's
+  // mempool text or as the site's own wrap.
   it('leaves a PUBLIC send reporting a clean Completed', async () => {
     // A public send carries its whole note on chain, so there was never a relay to
     // miss and a delivery warning here would be pure noise.
@@ -423,6 +429,7 @@ describe('apply-after-submit on a private send', () => {
     // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
+    expect(txStore[0]!.displayMessage).toBe('Completed');
   });
 });
 
