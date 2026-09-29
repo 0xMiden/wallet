@@ -12,6 +12,7 @@
  */
 
 import { Account } from '@miden-sdk/miden-sdk/lazy';
+import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
@@ -866,7 +867,6 @@ describe('MultisigService', () => {
       };
       guardianConfig.getDeltaProposal.mockResolvedValueOnce(delta);
       guardianConfig.pushDelta.mockImplementationOnce(async () => {
-        expect(multisig.setGuardianClient).not.toHaveBeenCalled();
         if (fails) throw new Error('Old Guardian is unavailable');
       });
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
@@ -879,6 +879,15 @@ describe('MultisigService', () => {
       expect(guardianConfig.getDeltaProposal).toHaveBeenCalledWith('acc-id', 'proposal-id');
       expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
       expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+      // Asserted out here: the record's own catch swallows anything thrown inside the push.
+      const [pushedAt] = guardianConfig.pushDelta.mock.invocationCallOrder;
+      expect(pushedAt).toBeLessThan(multisig.setGuardianClient.mock.invocationCallOrder[0] ?? 0);
+      expect(pushedAt).toBeLessThan(multisig.registerOnGuardian.mock.invocationCallOrder[0] ?? 0);
+      const constructed = jest.mocked(GuardianHttpClient).mock;
+      const pushedOn = constructed.results.findIndex(
+        result => result.value === guardianConfig.pushDelta.mock.contexts[0]
+      );
+      expect(constructed.calls[pushedOn]?.[0]).toBe('https://old');
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
