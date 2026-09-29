@@ -526,6 +526,8 @@ describe('the undelivered label', () => {
 
   beforeEach(() => {
     mockRecord.mockImplementation(recordNoteDelivery);
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
   it('drops when the sweep re-pushes an undelivered private send', async () => {
@@ -556,6 +558,16 @@ describe('the undelivered label', () => {
     await recordNoteDelivery('tx-1', 'relayed');
 
     expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('stays on an undelivered send whose re-push fails again', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+    mockRelayById.mockRejectedValue(new Error('transport unreachable'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
   });
 
   it('stays off a clean send the sweep records undelivered', async () => {
