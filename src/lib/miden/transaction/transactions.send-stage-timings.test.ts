@@ -34,7 +34,7 @@
 
 import * as Repo from 'lib/miden/repo';
 
-import { failInterruptedTransactions, SESSION_STARTED_AT } from './cancel';
+import { failInterruptedTransactions, MAX_WAIT_BEFORE_CANCEL, SESSION_STARTED_AT } from './cancel';
 import { generateTransaction } from './index';
 import { ITransactionStatus } from '../db/types';
 
@@ -397,6 +397,56 @@ describe('the cold-start sweep against a row the real writer moved to Generating
       const liveBefore = { ...live };
 
       await failInterruptedTransactions();
+
+      expect(live).toEqual(liveBefore);
+      expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      send.release();
+    }
+    await sending;
+  });
+
+  it('spares the row this realm is sending when its stamp lies beyond the threshold ahead of the sweep clock', async () => {
+    const send = holdNextProxySend();
+    const sending = runSend('tx-live-far-ahead');
+    try {
+      await Promise.race([
+        send.reached,
+        sending.then(() => {
+          throw new Error('send settled before reaching the proxy');
+        })
+      ]);
+
+      const live = txStore.find(r => r.id === 'tx-live-far-ahead')!;
+      expect(live.status).toBe(ITransactionStatus.GeneratingTransaction);
+      const stamp = live.processingStartedAt;
+      if (typeof stamp !== 'number') throw new Error('the writer left no stamp');
+
+      txStore.push({
+        id: 'tx-orphan',
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      });
+      const repo = jest.requireMock<{
+        transactions: {
+          filter: jest.Mock<
+            { toArray: () => Promise<Array<Record<string, unknown>>> },
+            [(row: Record<string, unknown>) => boolean]
+          >;
+        };
+      }>('lib/miden/repo');
+      repo.transactions.filter.mockImplementationOnce(pred => ({ toArray: async () => txStore.filter(pred) }));
+      const liveBefore = { ...live };
+      // Only the id set can spare it: the stamp is past what the sweep's clock allows another realm's row.
+      const clockStepped = jest.spyOn(Date, 'now').mockReturnValue((stamp - MAX_WAIT_BEFORE_CANCEL - 1) * 1000);
+      try {
+        await failInterruptedTransactions();
+      } finally {
+        clockStepped.mockRestore();
+      }
 
       expect(live).toEqual(liveBefore);
       expect(txStore.find(r => r.id === 'tx-orphan')!.status).toBe(ITransactionStatus.Failed);

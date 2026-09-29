@@ -24,6 +24,7 @@ import {
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
+  markStartedInThisRealm,
   SESSION_STARTED_AT,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
@@ -1165,6 +1166,46 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(mockModify).toHaveBeenCalledTimes(1);
+    });
+
+    /** Reaps one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
+    async function reapFarFutureSend(id: string, nowSeconds: number) {
+      const row = {
+        id,
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSeconds - 10,
+        processingStartedAt: nowSeconds + MAX_WAIT_BEFORE_CANCEL + 1
+      };
+      const dbTx: Record<string, unknown> = { ...row };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([row]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: Record<string, unknown>) => unknown) => fn(dbTx))
+      });
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(nowSeconds * 1000);
+      try {
+        await cancelStuckTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+      return { row, dbTx };
+    }
+
+    it('fails a far-future row this realm never started and marks it in flight (#1202)', async () => {
+      // A respawned service worker holds no ids and runs no sweep, so only the reaper can free the queue of it.
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const { dbTx } = await reapFarFutureSend('far-future-not-started-here', nowSeconds);
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(dbTx.cancelledInFlightAt).toBe(nowSeconds);
+    });
+
+    it('leaves the same far-future row alone once this realm started it (#1202)', async () => {
+      markStartedInThisRealm('far-future-started-here');
+      const { row, dbTx } = await reapFarFutureSend('far-future-started-here', Math.floor(Date.now() / 1000));
+
+      expect(dbTx).toEqual(row);
     });
   });
 
