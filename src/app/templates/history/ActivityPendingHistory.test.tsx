@@ -453,6 +453,8 @@ it('offers Restore under the Pending filter while declined transfers can still b
   expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
   fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
+  // The declines the row counted, not 'gone', which no loaded transfer stands for.
+  expect(mockRestore).toHaveBeenCalledWith(['first', 'second']);
 });
 
 it('does not offer Restore when every declined transfer is gone or already claimed', () => {

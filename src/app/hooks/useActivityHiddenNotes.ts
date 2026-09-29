@@ -187,15 +187,11 @@ export function useActivityHiddenNotes(address: string) {
     failed: entry.status === 'unreadable' || entry.saveFailed,
     hide: (id: string) => save(key, hidden => new Set([...hidden, id])),
     /**
-     * Brings back the given notes, or every note this window shows as declined when none are given.
-     * The shown set is read when the change applies, after this window's earlier saves set it, so a
-     * decline another window stored that this one never showed stays declined.
+     * Removes exactly the given ids, so a decline another window stored, or one adopted from an
+     * event for a transfer this window's list has not loaded, stays declined. The caller passes the
+     * ids it counted: this window's set when the change applies can already hold another window's
+     * decline, folded in by a save queued ahead of this one.
      */
-    restore: (ids?: readonly string[]) =>
-      save(key, hidden => {
-        if (ids) return new Set([...hidden].filter(id => !ids.includes(id)));
-        const shown = getEntry(key).ids;
-        return new Set([...hidden].filter(id => !shown.has(id)));
-      })
+    restore: (ids: readonly string[]) => save(key, hidden => new Set([...hidden].filter(id => !ids.includes(id))))
   };
 }

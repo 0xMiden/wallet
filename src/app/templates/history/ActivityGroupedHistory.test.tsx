@@ -208,7 +208,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'pending'), claim('note-open', 'pending')];
-    mockHidden.ids = new Set(['note-declined']);
+    mockHidden.ids = new Set(['note-declined', 'gone']);
     render(<ActivityGroupedHistory search="" />);
 
     expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
@@ -218,6 +218,8 @@ describe('ActivityGroupedHistory', () => {
     ).toBeTruthy();
     fireEvent.click(restore);
     expect(mockRestore).toHaveBeenCalledTimes(1);
+    // The decline the banner counted, not 'gone', which no loaded transfer stands for.
+    expect(mockRestore).toHaveBeenCalledWith(['note-declined']);
   });
 
   it('offers no Restore when no declined transfer can still be accepted', () => {

@@ -24,8 +24,17 @@ interface ActivityPendingHistoryProps {
 
 export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
-  const { representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden, hiddenCount } =
-    useActivityClaimList(search, filter);
+  const {
+    representedItems,
+    listItems,
+    renderPendingItem,
+    acceptMany,
+    account,
+    isLoadingNotes,
+    hidden,
+    declinedIds,
+    hiddenCount
+  } = useActivityClaimList(search, filter);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -116,7 +125,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 size="sm"
                 className="w-auto shrink-0"
                 title={t('activityRestoreTransfers')}
-                onClick={() => hidden.restore()}
+                onClick={() => hidden.restore(declinedIds)}
               />
             )}
             {showAcceptAll && (

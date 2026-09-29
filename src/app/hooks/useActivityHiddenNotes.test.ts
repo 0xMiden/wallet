@@ -82,7 +82,7 @@ it('loads account-specific hidden notes, persists a rejection, and restores them
   expect(stored).toBe(true);
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'new']);
   await act(async () => {
-    await result.current.restore();
+    await result.current.restore(['old', 'new']);
   });
   expect(result.current.ids.size).toBe(0);
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', []);
@@ -112,7 +112,7 @@ it('reports a storage read failure and never overwrites the list it could not re
   expect(result.current.loaded).toBe(false);
   await act(async () => {
     await result.current.hide('new');
-    await result.current.restore();
+    await result.current.restore(['new']);
   });
   expect(write).not.toHaveBeenCalled();
   expect(result.current.ids.size).toBe(0);
@@ -205,7 +205,11 @@ it('ignores saves before the list is read and runs saves made during a write aft
 
   let saves: Promise<unknown> = Promise.resolve();
   act(() => {
-    saves = Promise.all([result.current.hide('first'), result.current.hide('second'), result.current.restore()]);
+    saves = Promise.all([
+      result.current.hide('first'),
+      result.current.hide('second'),
+      result.current.restore(['old', 'first', 'second'])
+    ]);
   });
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'first']);
@@ -242,7 +246,7 @@ it('shows one consumer the set another consumer just wrote', async () => {
   expect([...banner.result.current.ids]).toEqual(['old', 'new']);
 
   await act(async () => {
-    await banner.result.current.restore();
+    await banner.result.current.restore(['old', 'new']);
   });
   expect(decliner.result.current.ids.size).toBe(0);
 });
@@ -407,15 +411,18 @@ it("keeps both windows' declines when one window saves while the other's save is
   expect(stored(KEY)).toEqual(['old', 'popup-note', 'panel-note']);
 });
 
-it("restores every note this window shows and keeps another window's decline it never showed", async () => {
+it("keeps another window's decline that this window's queued hide folded in when it restores the ids it counted", async () => {
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
+  // Unannounced, so the first this window sees of it is the hide's read, which adopts it into the
+  // entry before the queued restore applies.
   storeElsewhere(KEY, ['old', 'theirs'], { announced: false });
 
   await act(async () => {
-    await result.current.restore();
+    await Promise.all([result.current.hide('mine'), result.current.restore(['old', 'mine'])]);
   });
-  expect(write).toHaveBeenLastCalledWith(KEY, ['theirs']);
+  expect(write.mock.calls.map(call => call[1])).toEqual([['old', 'theirs', 'mine'], ['theirs']]);
+  expect(stored(KEY)).toEqual(['theirs']);
   expect([...result.current.ids]).toEqual(['theirs']);
 });
 
