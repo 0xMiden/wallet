@@ -20,6 +20,9 @@ function buildHarness() {
   const order: string[] = [];
   const result = { serialize: jest.fn(() => new Uint8Array([7, 7])) };
   const delegated = { fail: false };
+  const stagedApply = jest.fn(async () => {
+    order.push('apply');
+  });
   const executeRequest = jest.fn(async (_account: string, _request: unknown) => ({
     result,
     prove: jest.fn(async (options: ProveOptions) => {
@@ -29,7 +32,7 @@ function buildHarness() {
       return {
         submit: jest.fn(async () => {
           order.push('delegated submit');
-          return { apply: jest.fn(async () => order.push('apply')) };
+          return { apply: stagedApply };
         })
       };
     })
@@ -56,14 +59,20 @@ function buildHarness() {
       return { txId: 'tx', result };
     });
   const inner = {
-    getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+    getAccount: jest.fn(async (_accountId?: unknown): Promise<unknown> => ({ vault: jest.fn() })),
     getInputNote: jest.fn(
       async (id: string): Promise<{ toNote: () => { note: string } } | undefined> => ({ toNote: () => ({ note: id }) })
     ),
     newConsumeTransactionRequest: jest.fn(async (_notes: unknown[], _account: unknown) => ({
       serialize: () => new Uint8Array([3, 3])
     })),
-    newPswapCreateTransactionRequest: jest.fn(async () => ({ reference: true }))
+    newPswapCreateTransactionRequest: jest.fn(async () => ({ reference: true })),
+    // The offscreen-proved path executes, submits and applies on this inner client.
+    executeTransaction: jest.fn(async (_account: unknown, _request: unknown) => result),
+    submitProvenTransaction: jest.fn(async (_proven: unknown, _result: unknown) => 1),
+    applyTransaction: jest.fn(async (_result: unknown, _height: unknown) => {
+      order.push('apply');
+    })
   };
   const fakeClient = {
     transactions: {
@@ -90,6 +99,7 @@ function buildHarness() {
     result,
     delegated,
     executeRequest,
+    stagedApply,
     submitProven,
     applyFailure,
     fakeClient,
@@ -103,8 +113,8 @@ function buildHarness() {
 
 type Harness = ReturnType<typeof buildHarness>;
 
-function installMocks(harness: Harness) {
-  jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+function sdkLazyMock(harness: Harness) {
+  return {
     MidenClient: { create: jest.fn(async () => harness.fakeClient) },
     NoteFile: { deserialize: jest.fn() },
     AccountFile: { deserialize: jest.fn() },
@@ -119,12 +129,17 @@ function installMocks(harness: Harness) {
     ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) },
     getWasmOrThrow: jest.fn(async () => ({
       AccountId: { fromHex: jest.fn((id: string) => id), fromBech32: jest.fn((id: string) => id) },
-      NoteType: { Public: 'public', Private: 'private' }
+      NoteType: { Public: 'public', Private: 'private' },
+      ProvenTransaction: { deserialize: jest.fn((bytes: Uint8Array) => ({ proofBytes: Array.from(bytes) })) }
     })),
     WasmWebClient: { createClient: jest.fn() },
     exportStore: jest.fn(),
     importStore: jest.fn()
-  }));
+  };
+}
+
+function installMocks(harness: Harness) {
+  jest.doMock('@miden-sdk/miden-sdk/lazy', () => sdkLazyMock(harness));
   jest.doMock('lib/miden-chain/effective-endpoints', () => ({
     getEffectiveNetworkName: () => 'localnet',
     getEffectiveRpcUrl: () => 'rpc-local',
@@ -154,6 +169,30 @@ async function load(harness: Harness, withTransport = true) {
   if (withTransport) installLocalProveTransport(harness.transport);
   const client = await MidenClientInterface.create();
   return { client, proveWithFallback, withWasmClientLock, WasmClientPoisonedError };
+}
+
+/**
+ * The service worker's offscreen-proved path (`proveLocallyViaOffscreen`): no transport in this
+ * realm, and a local attempt proves in the offscreen document between two holds of the lock.
+ */
+async function loadOffscreenProved(harness: Harness) {
+  process.env.MIDEN_USE_OFFSCREEN_PROVING = 'true';
+  installMocks(harness);
+  const lazy = sdkLazyMock(harness);
+  // `isLocalProver` reads the prover's serialized form.
+  jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+    ...lazy,
+    TransactionProver: { ...lazy.TransactionProver, newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) }
+  }));
+  jest.doMock('lib/miden/back/offscreen-prover', () => ({
+    isOffscreenAvailable: () => true,
+    proveViaOffscreen: jest.fn(async () => ({ provenBytes: new Uint8Array([6]).buffer, durationMs: 1 }))
+  }));
+  const { MidenClientInterface } = await import('./miden-client-interface');
+  const { withWasmClientLock } = await import('./miden-client');
+  const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+  const client = await MidenClientInterface.create();
+  return { client, withWasmClientLock, WasmClientPoisonedError };
 }
 
 const sendTx = (delegateTransaction: boolean) =>
@@ -590,6 +629,125 @@ describe('the node has the write once submitProven resolves', () => {
     expect(harness.submitProven).toHaveBeenCalledTimes(1);
     expect(harness.fakeClient.accounts.get).toHaveBeenCalledWith('sdk-executed-acct');
   });
+});
+
+describe('the apply retry at the plain staged sites (#1233)', () => {
+  const realOffscreenFlag = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+  afterEach(() => {
+    if (realOffscreenFlag === undefined) {
+      delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    } else {
+      process.env.MIDEN_USE_OFFSCREEN_PROVING = realOffscreenFlag;
+    }
+  });
+
+  type Loaded = Pick<Awaited<ReturnType<typeof load>>, 'client' | 'withWasmClientLock' | 'WasmClientPoisonedError'>;
+  interface Site {
+    load: (harness: Harness) => Promise<Loaded>;
+    write: (client: LoadedClient) => Promise<unknown>;
+    /** The apply the site retries, the client read it must use, and the other client's read. */
+    parts: (harness: Harness) => { apply: jest.Mock; siteReader: jest.Mock; otherReader: jest.Mock };
+  }
+  const stagedParts = (harness: Harness) => ({
+    apply: harness.stagedApply,
+    siteReader: harness.fakeClient.accounts.get,
+    otherReader: harness.inner.getAccount
+  });
+  // Every write runs under the lock the proxy takes around it, with no transport, as in the service
+  // worker. The two staged legs are delegated; the offscreen-proved one is local.
+  const sites: Array<[string, Site]> = [
+    [
+      'send staged leg',
+      {
+        load: harness => load(harness, false),
+        write: client => client.sendTransaction(sendTx(true)),
+        parts: stagedParts
+      }
+    ],
+    [
+      'newTransaction staged leg',
+      {
+        load: harness => load(harness, false),
+        write: client => client.newTransaction('acct', new Uint8Array([4]), true),
+        parts: stagedParts
+      }
+    ],
+    [
+      'offscreen-proved write',
+      {
+        load: loadOffscreenProved,
+        write: client => client.newTransaction('acct', new Uint8Array([4]), false),
+        parts: harness => ({
+          apply: harness.inner.applyTransaction,
+          siteReader: harness.inner.getAccount,
+          otherReader: harness.fakeClient.accounts.get
+        })
+      }
+    ]
+  ];
+
+  // The executed account's id is none the leg reads for itself, and only the site's own client
+  // holds the initial commitment for it: a retry that reads another id or another client fails
+  // closed, and the write rejects instead of landing.
+  const arrange = (harness: Harness, site: Site) => {
+    Object.assign(harness.result, {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xlanded' }),
+        accountId: () => 'sdk-executed-acct',
+        initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
+      })
+    });
+    const { apply, siteReader, otherReader } = site.parts(harness);
+    siteReader.mockImplementation(async (accountId?: unknown) =>
+      accountId === 'sdk-executed-acct' ? { to_commitment: () => ({ toHex: () => '0xinitial' }) } : null
+    );
+    // `vault` for the send leg's request build, which reads this same inner client.
+    otherReader.mockImplementation(async () => ({
+      vault: jest.fn(),
+      to_commitment: () => ({ toHex: () => '0xother-client' })
+    }));
+    return { apply, siteReader };
+  };
+
+  it.each(sites)("%s: a failed apply is retried through the site's own client and lands", async (_site, site) => {
+    const harness = buildHarness();
+    const { apply, siteReader } = arrange(harness, site);
+    apply.mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+    const { client, withWasmClientLock } = await site.load(harness);
+
+    await expect(withWasmClientLock(async () => site.write(client))).resolves.toBe(harness.result);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(siteReader).toHaveBeenCalledWith('sdk-executed-acct');
+  });
+
+  it.each(sites)(
+    '%s: an apply whose hold is evicted after the first failure is not applied again',
+    async (_site, site) => {
+      const harness = buildHarness();
+      const { apply, siteReader } = arrange(harness, site);
+      // The store still holds the initial account, so only the hold check can stop a second apply.
+      apply.mockImplementationOnce(async () => {
+        window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+        throw new Error('IndexedDB transaction aborted');
+      });
+      const { client, withWasmClientLock, WasmClientPoisonedError } = await site.load(harness);
+      const { isApplyAfterSubmitError } = await import('./sdk-error-code');
+      let writing: Promise<unknown> = Promise.resolve();
+
+      const lockError = await withWasmClientLock(async () => {
+        writing = site.write(client);
+        return writing;
+      }).catch((caught: unknown) => caught);
+      // The eviction settles the lock first; the abandoned write keeps running and ends on its own.
+      const abandoned = await writing.catch((caught: unknown) => caught);
+
+      expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
+      expect(isApplyAfterSubmitError(abandoned)).toBe(true);
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(siteReader).not.toHaveBeenCalledWith('sdk-executed-acct');
+    }
+  );
 });
 
 describe('ProveAttempt worker members', () => {
