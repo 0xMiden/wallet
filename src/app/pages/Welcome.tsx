@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
-import { markOnboardingFinishing } from 'app/onboarding-finish';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
@@ -576,7 +576,7 @@ const Welcome: FC = () => {
         // transition and shows the "Open wallet" button. We do NOT
         // waitForReadyState here; a Ready broadcast that lands first is held
         // off screen by the finishing mark.
-        navigate(postCreationRoute('/finish-side-panel'));
+        navigateOnFromOnboarding(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // A Guardian recovery goes back to its recovery method, which shows the failure, and its resubmit registers
         // here again. A create or a public or private recovery stays on this screen and shows the failure, and its
@@ -847,7 +847,7 @@ const Welcome: FC = () => {
           settleOnboardingFlow(handle => handle.complete());
           // A tapped import or retry hands off to the side panel just like the
           // auto-register effect does, instead of always entering in-tab (#428).
-          navigate(postCreationRoute(postOnboardingRoute()));
+          navigateOnFromOnboarding(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
@@ -960,8 +960,9 @@ const Welcome: FC = () => {
 
   useEffect(() => {
     // While a confirmation attempt runs, any other hash (browser back or forward, an edited URL) is sent back to
-    // Confirmation. The attempt's own navigation is not: its finally ends the attempt before React commits the
-    // location that navigation sets, and this effect runs only after a commit.
+    // Confirmation. The attempt's own navigation commits while the attempt is still in flight
+    // (navigateOnFromOnboarding), and is left alone only because every target leaves Welcome's route: a handoff
+    // screen, or the held root once Ready.
     if (attemptInFlightRef.current) {
       if (hash !== '#confirmation') navigate('/#confirmation');
       return;

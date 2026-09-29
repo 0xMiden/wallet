@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
+import { flushSync } from 'react-dom';
+
+import { navigate } from 'lib/woozie';
+
 /**
  * How long an armed mark may stay held. The clock starts when the hold is first on screen (PageRouter arms the held
  * mark the moment it sees the wallet Ready) or when the holder arms it after registration, whichever comes first; it
@@ -26,9 +30,11 @@ const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 
 /**
- * Held from before registration until the holder has navigated to its post-creation route: Welcome's tap-to-confirm
- * handler, Welcome's Chrome side-panel auto-register, and ForgotPassword's recover confirmation. While held and the
- * wallet is ready, the root shows the loading view instead of Home.
+ * Held from before registration until the holder has navigated to its post-creation route through
+ * navigateOnFromOnboarding: Welcome's tap-to-confirm handler, Welcome's Chrome side-panel auto-register, and
+ * ForgotPassword's recover confirmation. Two readers act on it: while it is held and the wallet is ready, PageRouter
+ * shows the loading view at the root instead of Home, and HotKeyRotationGate leaves the onboarding tab ungated when the
+ * side panel can take the handoff.
  */
 export function markOnboardingFinishing(): OnboardingFinishMark {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -74,3 +80,15 @@ export function subscribeOnboardingFinishing(listener: () => void): () => void {
 
 export const useOnboardingFinishing = () =>
   useSyncExternalStore(subscribeOnboardingFinishing, isOnboardingFinishing, isOnboardingFinishing);
+
+/**
+ * How a holder navigates on, called before it releases its mark. The release notifies a useSyncExternalStore
+ * subscription, a sync-lane update, while woozie's location update is default-lane, so when both fire in one task React
+ * commits the release first: one commit shows neither the mark nor the handoff route, which ungates HotKeyRotationGate
+ * and shows PageRouter's root for that commit. flushSync commits the route before the release can. A caller never
+ * passes one of Welcome's hash steps: Welcome's in-flight hash guard leaves the attempt's own navigation alone only
+ * because every target leaves Welcome's route.
+ */
+export function navigateOnFromOnboarding(to: string): void {
+  flushSync(() => navigate(to));
+}
