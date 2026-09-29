@@ -170,6 +170,31 @@ describe('resetStorageDestructive', () => {
     expect(mockDbOpen).toHaveBeenCalled();
     expect(mockBrowserStorageClear).toHaveBeenCalled();
   });
+
+  // The options page calls it with no options and relies on the override surviving.
+  it('keeps the endpoint override across the wipe by default', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+
+    await resetStorageDestructive();
+
+    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', OVERRIDE);
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockPutToStorage.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('clears the endpoint override when asked not to keep it', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+    mockFetchFromStorage.mockImplementation(async (k: string) => (k === 'endpoint_overrides' ? OVERRIDE : null));
+
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockBrowserStorageClear).toHaveBeenCalled();
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
 });
 
 describe('clearClientStorage', () => {

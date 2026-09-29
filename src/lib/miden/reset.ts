@@ -6,18 +6,19 @@ import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 // Keys that are configuration, NOT wallet data, and must survive a storage
 // reset. The dev-settings endpoint override selects the network the wallet is
-// being created for — and it is set BEFORE creation. Without preserving it,
+// being created for, and it is set BEFORE creation. Without preserving it,
 // creating a wallet on a custom network wipes the override (the wipe below is a
 // blanket `clear()`), so the wallet silently reverts to the build-default
-// network while the account was already minted on the custom one — leaving the
+// network while the account was already minted on the custom one, leaving the
 // account on one network and the client (balances, faucet, native token) on
-// another. The dedicated dev-settings "Reset to defaults" clears it explicitly.
+// another. The dev-settings reset opts out through `keepEndpointOverride: false`
+// rather than clearing the override afterwards.
 const PRESERVED_STORAGE_KEYS = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
-async function clearPlatformKeyValueStorage(): Promise<void> {
+async function clearPlatformKeyValueStorage(preservedKeys: readonly string[] = PRESERVED_STORAGE_KEYS): Promise<void> {
   // Snapshot preserved config before the blanket wipe, restore it after.
   const preserved: Record<string, unknown> = {};
-  for (const key of PRESERVED_STORAGE_KEYS) {
+  for (const key of preservedKeys) {
     const value = await fetchFromStorage(key).catch(() => null);
     if (value != null) preserved[key] = value;
   }
@@ -72,16 +73,24 @@ export async function clearStorage(clearDb: boolean = true) {
 }
 
 /**
- * Hard reset — explicitly what the options-page "Reset Wallet" button wants.
+ * Hard reset - explicitly what the options-page "Reset Wallet" button wants.
  * Deletes the Dexie database (forcing every live handle closed) AND clears
  * the platform key-value store. Callers should only use this when the user
  * has explicitly opted into a full wipe; for wallet creation flows use
  * `clearStorage` above instead.
+ *
+ * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
+ * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
+ * The database delete comes first and closes every storage handle, so once this has been called,
+ * whether it resolved or rejected, only a reload reopens the handles, and the app then starts from
+ * whatever the wipe left.
  */
-export async function resetStorageDestructive() {
+export async function resetStorageDestructive({
+  keepEndpointOverride = true
+}: { keepEndpointOverride?: boolean } = {}) {
   await Repo.db.delete();
   await Repo.db.open();
-  await clearPlatformKeyValueStorage();
+  await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : []);
   await resetNativeAssetCache();
 }
 

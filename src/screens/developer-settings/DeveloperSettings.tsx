@@ -20,7 +20,6 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
   applyEndpointOverride,
   buildDefaultOverrideFor,
-  clearEndpointOverride,
   EndpointOverride,
   getActiveOverride,
   getEffectiveNetworkName
@@ -242,17 +241,18 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     hapticMedium();
     setError(null);
     try {
-      // The wipe goes first: it keeps the override through its blanket clear, so a failed wipe
-      // leaves the live wallet on the endpoints it runs on, and a retry runs it again.
-      await resetStorageDestructive();
-      // The wipe closed the storage handles and only the reload below reopens them, so a failed
-      // clear must not stop it. The override then survives into onboarding, where the editable
-      // screen can set the endpoints back to the defaults.
-      await clearEndpointOverride().catch(err =>
-        console.warn('[developer-settings] Could not clear the endpoint override', err)
-      );
-      // Pair the wipe with a reload so no stale in-memory state (e.g. the resolver's
-      // override cache) can survive it - mirrors the canonical reset in src/options.tsx.
+      // The override goes in the wipe's own blanket clear, so no separate step can fail after the
+      // wallet is gone and leave onboarding on the endpoints being reset.
+      await resetStorageDestructive({ keepEndpointOverride: false });
+    } catch (err) {
+      // The wipe deletes the database first, which closes every storage handle, and only a reload
+      // reopens them: a failure anywhere in it reloads as a finished wipe does, and the app starts
+      // from whatever the wipe left.
+      console.warn('[developer-settings] Could not wipe the wallet storage', err);
+    }
+    try {
+      // Mirrors the canonical reset in src/options.tsx. Only the reload drops what this realm
+      // still holds in memory, the resolver's override cache among it.
       if (isExtension()) {
         // Dynamic import: `webextension-polyfill` throws at module-evaluation time when
         // `chrome.runtime.id` is absent, so it must not be a top-level import - this
@@ -261,18 +261,13 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         const browser = (await import('webextension-polyfill')).default;
         browser.runtime.reload();
       } else {
-        try {
-          // mobile/desktop: no background worker to resync with, just reload in place.
-          window.location.reload();
-        } catch {
-          // window.location.reload can't be relied on in every embedding (and can't be
-          // mocked in jsdom, since `window.location` is a non-configurable getter) -
-          // the storage wipe above already succeeded either way.
-          // no-op
-        }
+        // mobile/desktop: no background worker to resync with, just reload in place.
+        window.location.reload();
       }
     } catch (err) {
-      console.warn('[developer-settings] Could not wipe the wallet storage', err);
+      // No reload started, so the closed handles and the in-memory override outlive the wipe:
+      // the reset did not finish.
+      console.warn('[developer-settings] Could not reload after the reset', err);
       setError(t('devEndpointResetFailed'));
     } finally {
       setPending(false);
