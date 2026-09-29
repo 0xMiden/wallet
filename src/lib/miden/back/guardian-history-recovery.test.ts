@@ -23,7 +23,9 @@ import {
   classifyHistoryFailure,
   forgetUnsupportedHistorySources,
   hasFailedGuardianHistory,
+  MAX_HISTORY_CURSOR_LENGTH,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
+  MAX_HISTORY_SEEN_CURSORS,
   recoverGuardianHistory
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
@@ -392,6 +394,55 @@ it('keeps the nonce bound across a resumed pass', async () => {
   expect(client.getDeltaHistory).toHaveBeenCalledWith('account', { limit: 50, cursor: 'resume' });
   expect(client.getDelta).not.toHaveBeenCalled();
   expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('fails a source whose next cursor is longer than the bound, before reading any delta', async () => {
+  const client = source('https://two', [
+    { entries: [entry(3)], nextCursor: 'x'.repeat(MAX_HISTORY_CURSOR_LENGTH + 1) }
+  ]);
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(client.getDelta).not.toHaveBeenCalled();
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('follows a next cursor exactly at the bound', async () => {
+  const cursor = 'x'.repeat(MAX_HISTORY_CURSOR_LENGTH);
+  const client = source('https://two', [{ entries: [entry(3)], nextCursor: cursor }, { entries: [] }]);
+  expect((await run()).sourceFailures).toBe(0);
+  expect(client.getDeltaHistory).toHaveBeenNthCalledWith(2, 'account', { limit: 50, cursor });
+  expect(await twoCheckpoint()).toMatchObject({ completed: true });
+});
+
+it('fails a resumed source whose saved cursor is longer than the bound, without contacting it', async () => {
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id: historyCheckpointId('testnet', 'account', 'https://two'),
+    network: 'testnet',
+    accountId: 'account',
+    operator: 'https://two',
+    version: GUARDIAN_HISTORY_VERSION,
+    cursor: 'x'.repeat(MAX_HISTORY_CURSOR_LENGTH + 1),
+    seenCursors: [],
+    completed: false,
+    restored: 0
+  });
+  expect((await run()).sourceFailures).toBe(1);
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('https://two');
+  expect((await twoCheckpoint())?.failure).toBe('invalid-data');
+});
+
+it('keeps only the most recent cursors in the checkpoint', async () => {
+  const pages: HistoryPage[] = Array.from({ length: MAX_HISTORY_SEEN_CURSORS + 5 }, (_, index) => ({
+    entries: [entry(1_000 - index)],
+    nextCursor: `cursor-${index}`
+  }));
+  source('https://two', [...pages, { entries: [] }]);
+  expect((await run()).sourceFailures).toBe(0);
+  const checkpoint = await twoCheckpoint();
+  expect(checkpoint).toMatchObject({ completed: true });
+  expect(checkpoint?.seenCursors).toHaveLength(MAX_HISTORY_SEEN_CURSORS);
+  expect(checkpoint?.seenCursors.at(-1)).toBe(`cursor-${MAX_HISTORY_SEEN_CURSORS + 4}`);
 });
 
 it('retries a page request that never answers once, then files it as a network failure', async () => {

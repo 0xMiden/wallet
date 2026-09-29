@@ -38,6 +38,9 @@ class HistoryInterrupted extends Error {}
 type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported' };
 
 export const MAX_HISTORY_ENTRIES_PER_SOURCE = 10_000;
+export const MAX_HISTORY_CURSOR_LENGTH = 1024;
+// The repeat check catches a loop of up to this many pages; termination rests on the entry cap and falling nonces.
+export const MAX_HISTORY_SEEN_CURSORS = 64;
 
 /** Sessions an operator the account may never have used can answer "no history" before its source ends empty. */
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
@@ -169,6 +172,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         continue;
       }
       try {
+        if (checkpoint.cursor && checkpoint.cursor.length > MAX_HISTORY_CURSOR_LENGTH)
+          throw new GuardianHistoryDataError('Saved Guardian history cursor exceeds the length limit');
         await check();
         const { guardian, guardianAccountId } = await context.createClient(account, operator);
         while (!checkpoint.completed) {
@@ -214,6 +219,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           const { page } = outcome;
           if (page.entries.length > 50)
             throw new GuardianHistoryDataError('Guardian history page exceeds the requested limit');
+          if (page.nextCursor && page.nextCursor.length > MAX_HISTORY_CURSOR_LENGTH)
+            throw new GuardianHistoryDataError('Guardian history cursor exceeds the length limit');
           if (
             page.nextCursor &&
             (page.nextCursor === checkpoint.cursor || checkpoint.seenCursors.includes(page.nextCursor))
@@ -325,7 +332,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           checkpoint = {
             ...checkpoint,
             cursor: page.nextCursor,
-            seenCursors: [...checkpoint.seenCursors, ...(checkpoint.cursor ? [checkpoint.cursor] : [])],
+            seenCursors: [...checkpoint.seenCursors, ...(checkpoint.cursor ? [checkpoint.cursor] : [])].slice(
+              -MAX_HISTORY_SEEN_CURSORS
+            ),
             completed: !page.nextCursor,
             restored: checkpoint.restored + added,
             lowestNonce: page.entries.reduce<number | undefined>(
