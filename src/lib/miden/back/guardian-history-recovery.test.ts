@@ -6,6 +6,7 @@ import {
   type HistoryPage
 } from '@openzeppelin/guardian-client';
 
+import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -297,6 +298,55 @@ it('treats an absent account on another Guardian as an empty completed source', 
   createClient.mockClear();
   await run();
   expect(createClient).not.toHaveBeenCalled();
+});
+
+it('records the history step before its first yield check', async () => {
+  shouldYield.mockResolvedValue('transaction in flight');
+  expect((await run()).deferred).toBe(true);
+  expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledWith({
+    accountId: 'account',
+    step: 'history',
+    operator: 'https://one',
+    restored: 0,
+    sourcesClean: true
+  });
+  expect(createClient).not.toHaveBeenCalled();
+});
+
+it('asks an operator the account never used again when it does not serve history yet', async () => {
+  const client = source('https://two', []);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockRejectedValueOnce(new GuardianHttpError(404, 'Not Found', ''))
+    .mockResolvedValueOnce({ entries: [entry(3)] });
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2 });
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported' });
+  expect(jest.mocked(reportGuardianNoteRecoveryProgress).mock.calls.every(([progress]) => progress.sourcesClean)).toBe(
+    true
+  );
+  createClient.mockClear();
+  expect((await run()).sourceFailures).toBe(0);
+  expect(createClient.mock.calls.map(call => call[1])).toEqual(['https://two']);
+  expect(await transactions.count()).toBe(3);
+  expect(await twoCheckpoint()).toMatchObject({ completed: true });
+});
+
+it('counts the same answer from the current operator as a failed source', async () => {
+  const client = clients.get('https://one');
+  if (!client) throw new Error('Missing test source');
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+  expect((await run()).sourceFailures).toBe(1);
+});
+
+it('counts the same answer from an operator a local switch left as a failed source', async () => {
+  await localSwitch('https://two');
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+  expect((await run()).sourceFailures).toBe(1);
+  expect((await twoCheckpoint())?.failure).toBe('unsupported');
 });
 
 it('does not treat a missing delta for a listed entry as an empty source', async () => {

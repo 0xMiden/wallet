@@ -2,7 +2,10 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import {
   clearGuardianNoteRecoveryProgress,
+  dismissGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryDismissal,
   fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   isGuardianNoteRecoveryProgressStale,
@@ -213,5 +216,20 @@ describe('guardian note recovery progress', () => {
 
     expect(warn).toHaveBeenCalledTimes(2);
     warn.mockRestore();
+  });
+
+  it('keeps a card dismissal per account under its own key and drops malformed entries', async () => {
+    mockFetchFromStorage.mockResolvedValue({ '0xother': 5, '0xbad': 'soon' });
+
+    await dismissGuardianNoteRecoveryProgress('0xabc', 1_234);
+
+    expect(mockPutToStorage).toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY, {
+      '0xother': 5,
+      '0xabc': 1_234
+    });
+    await expect(fetchGuardianNoteRecoveryDismissal('0xother')).resolves.toBe(5);
+    await expect(fetchGuardianNoteRecoveryDismissal('0xbad')).resolves.toBeNull();
+    mockFetchFromStorage.mockResolvedValue(null);
+    await expect(fetchGuardianNoteRecoveryDismissal('0xother')).resolves.toBeNull();
   });
 });

@@ -112,6 +112,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     }
   }
   const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
+  const ownOperators = normalizeHistoryOperators([current, ...previous]);
   const check = async () => {
     if (await context.shouldYield()) throw new HistoryInterrupted();
     if (network !== getEffectiveNetworkName()) throw new HistoryInterrupted();
@@ -120,6 +121,16 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   let sourceFailures = 0;
   let restored = local.filter(row => row.recovery?.network === network).length;
   const commitments = new Map<string, string>();
+  // Only a clean notes pass reaches this phase, so a retry may resume here.
+  if (operators[0] !== undefined) {
+    await reportGuardianNoteRecoveryProgress({
+      accountId: account.publicKey,
+      step: 'history',
+      operator: operators[0],
+      restored,
+      sourcesClean: true
+    });
+  }
   try {
     for (const operator of operators) {
       const id = historyCheckpointId(network, canonicalAccountId, operator);
@@ -142,23 +153,33 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             accountId: account.publicKey,
             step: 'history',
             operator,
-            restored
+            restored,
+            sourcesClean: true
           });
           const pageCheckpoint = checkpoint;
+          let unsupported = false;
           const page = await historyRequest(
             () =>
               guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).catch(error => {
-                if (
-                  error instanceof GuardianHttpError &&
-                  error.code === 'account_not_found' &&
-                  !pageCheckpoint.cursor &&
-                  pageCheckpoint.restored === 0
-                )
-                  return { entries: [], nextCursor: undefined };
+                if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
+                  if (error.code === 'account_not_found') return { entries: [], nextCursor: undefined };
+                  // An operator the account may never have used must not hold the pending flag,
+                  // but stays unfinished so a later pass asks again once it serves history.
+                  if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported') {
+                    unsupported = true;
+                    return { entries: [], nextCursor: undefined };
+                  }
+                }
                 throw error;
               }),
             check
           );
+          if (unsupported) {
+            checkpoint = { ...checkpoint, failure: 'unsupported' };
+            if (!(await saveGuardianHistoryCheckpoint(initialState.generation, checkpoint)))
+              throw new HistoryInterrupted();
+            break;
+          }
           if (page.entries.length > 50)
             throw new GuardianHistoryDataError('Guardian history page exceeds the requested limit');
           if (

@@ -57,6 +57,8 @@ export type GuardianNoteRecoveryProgress = {
    * Whether the writing pass had seen zero source failures at the time of the
    * write. Only a clean pass's watermark may be resumed from — see
    * `resumePointFor`. Absent means "unknown", which is treated as not clean.
+   * On a `history` or `history-partial` step it means the notes pass before
+   * the history phase had no source failure, so a retry may resume at history.
    */
   sourcesClean?: boolean;
 };
@@ -166,6 +168,41 @@ function evictOldest(
     delete entries[accountId];
   }
   return entries;
+}
+
+/**
+ * Per-account dismissals of a finished card, each the `updatedAt` of the record
+ * it hid. A `history-partial` record is also the checkpoint a retry resumes
+ * from, so dismissing its card must not delete it; the card returns when a
+ * later write gives the record a new `updatedAt`.
+ */
+export const GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY = 'guardian_note_recovery_dismissed_v1';
+
+async function fetchDismissals(): Promise<Record<string, number>> {
+  const value: unknown = await fetchFromStorage(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY);
+  const dismissals: Record<string, number> = {};
+  if (!value || typeof value !== 'object') return dismissals;
+  for (const [accountId, updatedAt] of Object.entries(value)) {
+    const valid = numberOrUndefined(updatedAt);
+    if (valid !== undefined) dismissals[accountId] = valid;
+  }
+  return dismissals;
+}
+
+/** The `updatedAt` of the record whose card this account dismissed, or null. */
+export async function fetchGuardianNoteRecoveryDismissal(accountId: string): Promise<number | null> {
+  return (await fetchDismissals())[accountId] ?? null;
+}
+
+/** Best-effort, like the progress writes: a failed write leaves the card to show again. */
+export async function dismissGuardianNoteRecoveryProgress(accountId: string, updatedAt: number): Promise<void> {
+  try {
+    const dismissals = await fetchDismissals();
+    dismissals[accountId] = updatedAt;
+    await putToStorage(GUARDIAN_NOTE_RECOVERY_DISMISSED_STORAGE_KEY, dismissals);
+  } catch (error) {
+    console.warn('[GuardianRecovery] Failed to persist a recovery card dismissal:', error);
+  }
 }
 
 /** Drop one account's record, leaving every other account's untouched. */

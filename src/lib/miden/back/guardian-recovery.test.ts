@@ -253,7 +253,8 @@ describe('detached recovery run', () => {
     expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledWith({
       accountId: account.publicKey,
       step: 'history-partial',
-      restored: 2
+      restored: 2,
+      sourcesClean: true
     });
   });
 
@@ -511,6 +512,56 @@ describe('detached recovery run', () => {
       // A full fresh pass: every source re-run, and the range resolved from the
       // creation time rather than from the untrusted watermark.
       expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
+    });
+
+    it.each(['history', 'history-partial'] as const)(
+      'resumes a clean pass recorded at %s at the history phase',
+      async step => {
+        const account = pendingAccount({ coldPublicKey: '0xcold' });
+        guardianOffersProposalNotes(1);
+        mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 1, failures: 0 } as never);
+        mockFetchProgress.mockResolvedValue({
+          accountId: account.publicKey,
+          step,
+          operator: 'https://guardian.test',
+          restored: 1,
+          updatedAt: Date.now(),
+          sourcesClean: true
+        });
+
+        await maybeStartGuardianRecovery(account);
+        await drainDetachedRun();
+
+        expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+        expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+        expect(mockProxy.resolveRecoveryScanRange).not.toHaveBeenCalled();
+        expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+        expect(GuardianHttpClient).not.toHaveBeenCalled();
+        expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('transport');
+        expect(mockDoSync).toHaveBeenCalled();
+        expect(recoverGuardianHistory).toHaveBeenCalledWith(account, expect.anything());
+        expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      }
+    );
+
+    it.each([
+      ['a record written before health was tracked', 'self', undefined],
+      ["another account's record", 'other', true]
+    ] as const)('runs the full pass over %s at the history phase', async (_label, owner, sourcesClean) => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: owner === 'self' ? account.publicKey : 'another-account',
+        step: 'history',
+        updatedAt: Date.now(),
+        sourcesClean
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(GuardianHttpClient).toHaveBeenCalled();
       expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
       expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
     });

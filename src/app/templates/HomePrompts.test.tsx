@@ -3,6 +3,10 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
+import {
+  fetchGuardianNoteRecoveryProgress,
+  reportGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import type { TokenPrices } from 'lib/prices';
@@ -147,6 +151,16 @@ jest.mock('lib/wallet-prompts', () => {
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
+
+// Backs the real note-recovery progress module, whose record and dismissal the recovery card reads.
+const mockStorageValues = new Map<string, unknown>();
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  fetchFromStorage: async (key: string) => mockStorageValues.get(key) ?? null,
+  putToStorage: async (key: string, value: unknown) => {
+    mockStorageValues.set(key, value);
+  }
+}));
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
@@ -3844,5 +3858,60 @@ describe('HomePrompts', () => {
     expect(completePrompt).not.toHaveBeenCalled();
     expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  describe('Guardian history recovery card', () => {
+    const recoveringAccount = { ...account, guardianNoteRecoveryPending: true } as WalletAccount;
+    const renderCard = () =>
+      render(
+        <HomePrompts
+          account={recoveringAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await act(async () => {});
+    };
+
+    beforeEach(() => {
+      mockStorageValues.clear();
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState({ isPromptPending: () => false }));
+    });
+
+    it('hides a dismissed partial history card and keeps the record a retry resumes from', async () => {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history-partial',
+        restored: 2,
+        sourcesClean: true
+      });
+      const { unmount } = renderCard();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+      await settle();
+
+      expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toMatchObject({
+        step: 'history-partial',
+        sourcesClean: true
+      });
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+      unmount();
+      renderCard();
+      await settle();
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+    });
+
+    it('clears a dismissed failed history record', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+      renderCard();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+
+      await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
+    });
   });
 });

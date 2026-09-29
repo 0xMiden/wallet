@@ -329,9 +329,10 @@ const PUBLIC_BACKFILL_CHUNK_BLOCKS = 200_000;
  * let a later clean pass clear the one-shot pending flag over notes that were
  * never imported.
  */
-function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryProgress | null): number | null {
+type ResumePoint = { step: 'public'; block: number } | { step: 'history' };
+
+function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryProgress | null): ResumePoint | null {
   if (!progress || progress.accountId !== account.publicKey) return null;
-  if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
   // `sourcesClean` is what makes the watermark trustworthy, and it must be
   // present: the `finally` below only discards a failed pass's record on a
   // GRACEFUL exit, and the service worker being evicted mid-run is a case the
@@ -343,7 +344,11 @@ function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryPr
   // Staleness is deliberately NOT considered. An old record is exactly the case
   // worth resuming: it means the run died rather than finished.
   if (progress.sourcesClean !== true) return null;
-  return progress.syncedToBlock;
+  // A history step is written only after a clean notes pass, so its retry skips
+  // straight to history. `history-failed` is terminal and never resumed.
+  if (progress.step === 'history' || progress.step === 'history-partial') return { step: 'history' };
+  if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
+  return { step: 'public', block: progress.syncedToBlock };
 }
 
 export async function recoverPendingNotes(account: WalletAccount): Promise<GuardianPendingNoteRecoveryResult> {
@@ -358,15 +363,20 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
   // whether there is anything to resume from. Null until the public step runs.
   let checkpointedBlock: number | null = null;
 
-  let resumeFromBlock: number | null = null;
+  let resume: ResumePoint | null = null;
   try {
-    resumeFromBlock = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey));
+    resume = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey));
   } catch (error) {
     console.warn(`[GuardianRecovery] Could not read the checkpoint for ${account.publicKey}; starting over:`, error);
   }
+  const resumeFromBlock = resume?.step === 'public' ? resume.block : null;
   console.log(
     `[GuardianRecovery] Recovering pending notes for ${account.publicKey}` +
-      (resumeFromBlock === null ? '...' : ` (resuming the public backfill at block ${resumeFromBlock})`)
+      (resume === null
+        ? '...'
+        : resume.step === 'history'
+          ? ' (resuming at the history phase)'
+          : ` (resuming the public backfill at block ${resume.block})`)
   );
 
   try {
@@ -383,9 +393,9 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     // the whole backlog, so repeating it costs almost nothing.
     //
     // The progress write is skipped when resuming: it would downgrade this
-    // account's entry from `public` back to `transport` and lose the very
-    // watermark being resumed from.
-    if (resumeFromBlock === null) {
+    // account's entry from `public` or `history` back to `transport` and lose the
+    // very checkpoint being resumed from.
+    if (resume === null) {
       await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'transport' });
     }
     try {
@@ -413,7 +423,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     // itself mean this source succeeded (a failure here only increments a
     // counter and falls through), so the resume point is gated on the writing
     // pass having been failure-free — see `resumePointFor`.
-    if (resumeFromBlock === null) {
+    if (resume === null) {
       // Source 2: notes embedded in pending consume proposals.
       await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
       try {
@@ -480,7 +490,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     // whole chain, forever, for an account whose cold key or local record is
     // permanently absent. A resumed pass has its range from the checkpoint and
     // does not need the Guardian at all.
-    if (resumeFromBlock === null && !context) {
+    if (resume === null && !context) {
       console.warn(
         `[GuardianRecovery] Skipping the public backfill for ${account.publicKey}: ` +
           'no Guardian client, so the creation block is unknown and the scan would start at genesis'
@@ -488,114 +498,117 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
       return result;
     }
 
-    try {
-      // On a resumed pass only the chain tip is needed, and passing 0 makes the
-      // resolver return it after ONE header read instead of binary-searching
-      // for a creation block the checkpoint already supersedes.
-      const range = await midenClientProxy.resolveRecoveryScanRange(resumeFromBlock === null ? createdAtSeconds : 0);
-      const latestBlock = range.latestBlock;
-      const startBlock = resumeFromBlock === null ? range.startBlock : Math.min(resumeFromBlock, latestBlock);
-      console.log(`[GuardianRecovery] Public backfill for ${account.publicKey}: blocks ${startBlock}-${latestBlock}`);
-      await reportGuardianNoteRecoveryProgress({
-        accountId: account.publicKey,
-        step: 'public',
-        startBlock,
-        syncedToBlock: startBlock,
-        latestBlock,
-        sourcesClean: result.sourceFailures === 0
-      });
-      checkpointedBlock = result.sourceFailures === 0 ? startBlock : null;
-      let scannedToBlock = startBlock;
-      // A work list rather than a fixed stride, because a chunk can come back
-      // `saturated` — too wide for the node, or holding more tag matches than
-      // one op should import. Halves are pushed to the FRONT, so ranges are
-      // still completed in ascending order and `scannedToBlock` stays a true
-      // watermark. Each retry is its own offscreen op, which is the point: the
-      // narrowing happens between ops, not inside one holding the WASM mutex.
-      const pending: Array<[number, number, number]> = [];
-      for (let blockFrom = startBlock; blockFrom <= latestBlock; blockFrom += PUBLIC_BACKFILL_CHUNK_BLOCKS) {
-        pending.push([blockFrom, Math.min(latestBlock, blockFrom + PUBLIC_BACKFILL_CHUNK_BLOCKS - 1), 0]);
-      }
-      while (pending.length > 0) {
-        const [blockFrom, blockTo, noteOffset] = pending.shift()!;
-        const yielded = await shouldYield();
-        if (yielded) {
-          result.deferred = true;
-          console.warn(`[GuardianRecovery] Yielding (${yielded}) mid-backfill for ${account.publicKey}`);
-          return result;
-        }
-        try {
-          const chunk = await midenClientProxy.recoverPublicNotesRange(
-            account.publicKey,
-            blockFrom,
-            blockTo,
-            noteOffset
-          );
-          result.publicNotes += chunk.imported;
-          result.sourceFailures += chunk.failures;
-          if (chunk.saturated && blockTo > blockFrom) {
-            const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
-            pending.unshift([blockFrom, midpoint, 0], [midpoint + 1, blockTo, 0]);
-          } else if (chunk.saturated) {
-            // Unsplittable and still saturated. The flag comes over the realm
-            // boundary as JSON, so this is also the guard that keeps a bogus
-            // `saturated` from looping forever on a one-block range.
-            result.sourceFailures++;
-            console.warn(`[GuardianRecovery] Block ${blockFrom} stayed saturated for ${account.publicKey}; skipping`);
-          } else if (chunk.nextNoteOffset !== undefined && chunk.nextNoteOffset > noteOffset) {
-            // The range fits but its notes do not: same range, next page. The
-            // strict advance is what makes this terminate — the offset crosses
-            // the realm boundary as JSON, and one that failed to move would
-            // re-run this page forever.
-            pending.unshift([blockFrom, blockTo, chunk.nextNoteOffset]);
-          } else {
-            if (chunk.nextNoteOffset !== undefined) {
-              result.sourceFailures++;
-              console.warn(
-                `[GuardianRecovery] Blocks ${blockFrom}-${blockTo} asked to resume at note ` +
-                  `${chunk.nextNoteOffset}, which does not advance past ${noteOffset}; skipping the rest`
-              );
-            }
-            // Only a range that actually completed advances the reported
-            // progress, so the card never claims one it skipped or half-did.
-            scannedToBlock = blockTo;
-          }
-        } catch (error) {
-          if (isAbortedOp(error)) {
-            result.deferred = true;
-            console.warn(
-              `[GuardianRecovery] Backfill chunk ${blockFrom}-${blockTo} aborted with the offscreen realm; ` +
-                `will resume ${account.publicKey} from block ${scannedToBlock}`
-            );
-            return result;
-          }
-          result.sourceFailures++;
-          console.warn(
-            `[GuardianRecovery] Public backfill chunk ${blockFrom}-${blockTo} failed for ${account.publicKey}:`,
-            error
-          );
-        }
+    // A history resume follows a clean notes pass, which already finished the backfill.
+    if (resume?.step !== 'history') {
+      try {
+        // On a resumed pass only the chain tip is needed, and passing 0 makes the
+        // resolver return it after ONE header read instead of binary-searching
+        // for a creation block the checkpoint already supersedes.
+        const range = await midenClientProxy.resolveRecoveryScanRange(resumeFromBlock === null ? createdAtSeconds : 0);
+        const latestBlock = range.latestBlock;
+        const startBlock = resumeFromBlock === null ? range.startBlock : Math.min(resumeFromBlock, latestBlock);
+        console.log(`[GuardianRecovery] Public backfill for ${account.publicKey}: blocks ${startBlock}-${latestBlock}`);
         await reportGuardianNoteRecoveryProgress({
           accountId: account.publicKey,
           step: 'public',
           startBlock,
-          syncedToBlock: scannedToBlock,
+          syncedToBlock: startBlock,
           latestBlock,
-          // Re-stamped per chunk: a failure anywhere in this pass makes the
-          // watermark unusable as a resume point, including for a pass that
-          // never reaches its `finally` because the realm was evicted.
           sourcesClean: result.sourceFailures === 0
         });
-        checkpointedBlock = result.sourceFailures === 0 ? scannedToBlock : null;
+        checkpointedBlock = result.sourceFailures === 0 ? startBlock : null;
+        let scannedToBlock = startBlock;
+        // A work list rather than a fixed stride, because a chunk can come back
+        // `saturated` — too wide for the node, or holding more tag matches than
+        // one op should import. Halves are pushed to the FRONT, so ranges are
+        // still completed in ascending order and `scannedToBlock` stays a true
+        // watermark. Each retry is its own offscreen op, which is the point: the
+        // narrowing happens between ops, not inside one holding the WASM mutex.
+        const pending: Array<[number, number, number]> = [];
+        for (let blockFrom = startBlock; blockFrom <= latestBlock; blockFrom += PUBLIC_BACKFILL_CHUNK_BLOCKS) {
+          pending.push([blockFrom, Math.min(latestBlock, blockFrom + PUBLIC_BACKFILL_CHUNK_BLOCKS - 1), 0]);
+        }
+        while (pending.length > 0) {
+          const [blockFrom, blockTo, noteOffset] = pending.shift()!;
+          const yielded = await shouldYield();
+          if (yielded) {
+            result.deferred = true;
+            console.warn(`[GuardianRecovery] Yielding (${yielded}) mid-backfill for ${account.publicKey}`);
+            return result;
+          }
+          try {
+            const chunk = await midenClientProxy.recoverPublicNotesRange(
+              account.publicKey,
+              blockFrom,
+              blockTo,
+              noteOffset
+            );
+            result.publicNotes += chunk.imported;
+            result.sourceFailures += chunk.failures;
+            if (chunk.saturated && blockTo > blockFrom) {
+              const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
+              pending.unshift([blockFrom, midpoint, 0], [midpoint + 1, blockTo, 0]);
+            } else if (chunk.saturated) {
+              // Unsplittable and still saturated. The flag comes over the realm
+              // boundary as JSON, so this is also the guard that keeps a bogus
+              // `saturated` from looping forever on a one-block range.
+              result.sourceFailures++;
+              console.warn(`[GuardianRecovery] Block ${blockFrom} stayed saturated for ${account.publicKey}; skipping`);
+            } else if (chunk.nextNoteOffset !== undefined && chunk.nextNoteOffset > noteOffset) {
+              // The range fits but its notes do not: same range, next page. The
+              // strict advance is what makes this terminate — the offset crosses
+              // the realm boundary as JSON, and one that failed to move would
+              // re-run this page forever.
+              pending.unshift([blockFrom, blockTo, chunk.nextNoteOffset]);
+            } else {
+              if (chunk.nextNoteOffset !== undefined) {
+                result.sourceFailures++;
+                console.warn(
+                  `[GuardianRecovery] Blocks ${blockFrom}-${blockTo} asked to resume at note ` +
+                    `${chunk.nextNoteOffset}, which does not advance past ${noteOffset}; skipping the rest`
+                );
+              }
+              // Only a range that actually completed advances the reported
+              // progress, so the card never claims one it skipped or half-did.
+              scannedToBlock = blockTo;
+            }
+          } catch (error) {
+            if (isAbortedOp(error)) {
+              result.deferred = true;
+              console.warn(
+                `[GuardianRecovery] Backfill chunk ${blockFrom}-${blockTo} aborted with the offscreen realm; ` +
+                  `will resume ${account.publicKey} from block ${scannedToBlock}`
+              );
+              return result;
+            }
+            result.sourceFailures++;
+            console.warn(
+              `[GuardianRecovery] Public backfill chunk ${blockFrom}-${blockTo} failed for ${account.publicKey}:`,
+              error
+            );
+          }
+          await reportGuardianNoteRecoveryProgress({
+            accountId: account.publicKey,
+            step: 'public',
+            startBlock,
+            syncedToBlock: scannedToBlock,
+            latestBlock,
+            // Re-stamped per chunk: a failure anywhere in this pass makes the
+            // watermark unusable as a resume point, including for a pass that
+            // never reaches its `finally` because the realm was evicted.
+            sourcesClean: result.sourceFailures === 0
+          });
+          checkpointedBlock = result.sourceFailures === 0 ? scannedToBlock : null;
+        }
+      } catch (error) {
+        if (isAbortedOp(error)) {
+          result.deferred = true;
+          console.warn(`[GuardianRecovery] Public backfill aborted with the offscreen realm for ${account.publicKey}`);
+          return result;
+        }
+        result.sourceFailures++;
+        console.warn(`[GuardianRecovery] Public account-tag recovery failed for ${account.publicKey}:`, error);
       }
-    } catch (error) {
-      if (isAbortedOp(error)) {
-        result.deferred = true;
-        console.warn(`[GuardianRecovery] Public backfill aborted with the offscreen realm for ${account.publicKey}`);
-        return result;
-      }
-      result.sourceFailures++;
-      console.warn(`[GuardianRecovery] Public account-tag recovery failed for ${account.publicKey}:`, error);
     }
 
     const yieldedBeforeSync = await shouldYield();
@@ -626,9 +639,11 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
       // it has nothing to resume from — saying otherwise sends whoever reads
       // this looking for a checkpoint that was never written.
       console.log(
-        checkpointedBlock === null
-          ? `[GuardianRecovery] Deferring ${account.publicKey} before the backfill; the next pass starts over`
-          : `[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume from block ${checkpointedBlock}`
+        resume?.step === 'history'
+          ? `[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume at the history phase`
+          : checkpointedBlock === null
+            ? `[GuardianRecovery] Deferring ${account.publicKey} before the backfill; the next pass starts over`
+            : `[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume from block ${checkpointedBlock}`
       );
     } else {
       await clearGuardianNoteRecoveryProgress(account.publicKey);
@@ -771,7 +786,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       await reportGuardianNoteRecoveryProgress({
         accountId: account.publicKey,
         step: 'history-partial',
-        restored: history.restored
+        restored: history.restored,
+        sourcesClean: true
       });
       return;
     }
