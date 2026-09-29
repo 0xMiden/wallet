@@ -281,7 +281,7 @@ const applyLandedDisplayMessage = (tx: Pick<ITransaction, 'type' | 'accountId' |
 };
 
 /**
- * The Completed fields for a value-moving row whose submit landed and whose local apply did not,
+ * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
  * on either catch (#1233). A PRIVATE send's note reaches its recipient only through
  * `completeSendTransaction`'s relay, which never ran and which no sync repairs, so the row says the
  * note was not delivered. `isPrivateNoteType` and not a string compare, since a row can hold the
