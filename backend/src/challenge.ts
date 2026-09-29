@@ -8,6 +8,8 @@ export const CHALLENGE_TTL_SECONDS = 300;
 export interface ChallengeMessageInput {
   fiatAmount: string;
   address: Address;
+  /** The Miden account that receives the bridged funds: lower case `0x` + 30 hex. */
+  midenAccountHex: string;
   nonce: string;
   /** Unix time in seconds. */
   expiresAt: number;
@@ -18,9 +20,15 @@ export interface ChallengeMessageInput {
  * The wallet has a byte-identical twin in `src/lib/onramp/transak-message.ts`.
  * If you change this text, change the twin at the same time.
  */
-export function buildChallengeMessage({ fiatAmount, address, nonce, expiresAt }: ChallengeMessageInput): string {
+export function buildChallengeMessage({
+  fiatAmount,
+  address,
+  midenAccountHex,
+  nonce,
+  expiresAt
+}: ChallengeMessageInput): string {
   const expires = new Date(expiresAt * 1000).toISOString();
-  return `Buy ${fiatAmount} USD of USDC on Ethereum to ${address} via Transak. Nonce ${nonce}, expires ${expires}.`;
+  return `Buy ${fiatAmount} USD of USDC on Ethereum to ${address} for Miden account ${midenAccountHex} via Transak. Nonce ${nonce}, expires ${expires}.`;
 }
 
 export interface ChallengeEntry {
@@ -28,6 +36,8 @@ export interface ChallengeEntry {
   address: Address;
   /** The amount string exactly as the client sent it. */
   fiatAmount: string;
+  /** Lower case `0x` + 30 hex. */
+  midenAccountHex: string;
   /** Unix time in seconds. */
   expiresAt: number;
 }
@@ -49,12 +59,17 @@ export class ChallengeStore {
     return Math.floor(this.now() / 1000);
   }
 
-  issue(address: Address, fiatAmount: string): IssuedChallenge {
+  /** `midenAccountHex` must already be lower case. */
+  issue(address: Address, fiatAmount: string, midenAccountHex: string): IssuedChallenge {
     this.prune();
     const nonce = randomBytes(16).toString('hex');
     const expiresAt = this.nowSeconds() + CHALLENGE_TTL_SECONDS;
-    this.entries.set(nonce, { address, fiatAmount, expiresAt });
-    return { nonce, expiresAt, message: buildChallengeMessage({ fiatAmount, address, nonce, expiresAt }) };
+    this.entries.set(nonce, { address, fiatAmount, midenAccountHex, expiresAt });
+    return {
+      nonce,
+      expiresAt,
+      message: buildChallengeMessage({ fiatAmount, address, midenAccountHex, nonce, expiresAt })
+    };
   }
 
   /** Remove the entry first, then check expiry. A second call for the same nonce gets null. */

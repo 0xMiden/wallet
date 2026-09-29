@@ -46,10 +46,29 @@ export function buildWidgetParams({
   };
 }
 
+/** The order fields that the worker uses. Transak sends more fields; the parser ignores them. */
+export interface TransakOrder {
+  id: string;
+  status: string;
+  partnerOrderId: string;
+  /** The amount of crypto that Transak delivers, in token units (not base units). */
+  cryptoAmount: number | null;
+  walletAddress: string | null;
+  transactionHash: string | null;
+}
+
 export interface TransakClient {
   /** Create a single-use widget session for the user at `userIp`. Return the widget URL. */
   createWidgetSession(params: WidgetParamsMirror, userIp: string): Promise<string>;
+  /** Find the order with this `partnerOrderId`. Return null when Transak has no order for it yet. */
+  getOrderByPartnerId(partnerOrderId: string): Promise<TransakOrder | null>;
 }
+
+/** The path of the Transak Get Orders API, on the partner API host. */
+export const TRANSAK_ORDERS_PATH = '/partners/api/v2/orders';
+
+/** A Get Orders call that takes longer than this number of milliseconds fails. */
+const ORDERS_TIMEOUT_MS = 15_000;
 
 /** A Transak call failed. `detail` is for the server log only. */
 export class TransakError extends Error {
@@ -89,6 +108,27 @@ const sessionResponseSchema = z.object({
   data: z.object({
     widgetUrl: z.string().min(1)
   })
+});
+
+const optionalText = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform(value => value ?? null);
+
+const orderSchema = z.object({
+  id: z.string().min(1),
+  status: z.string().min(1),
+  partnerOrderId: z.string(),
+  cryptoAmount: z
+    .union([z.number(), z.null()])
+    .optional()
+    .transform(value => value ?? null),
+  walletAddress: optionalText,
+  transactionHash: optionalText
+});
+
+const ordersResponseSchema = z.object({
+  data: z.array(z.unknown())
 });
 
 export interface TransakClientOptions {
@@ -196,5 +236,34 @@ export function createTransakClient({ apiKey, apiSecret, env, fetch, now }: Tran
     return parsed.data.widgetUrl;
   }
 
-  return { createWidgetSession };
+  async function getOrderByPartnerId(partnerOrderId: string): Promise<TransakOrder | null> {
+    const accessToken = await getAccessToken();
+    const query = new URLSearchParams({ 'filter[partnerOrderId]': partnerOrderId });
+    let response: Response;
+    try {
+      response = await fetch(`${hosts.api}${TRANSAK_ORDERS_PATH}?${query.toString()}`, {
+        method: 'GET',
+        headers: { 'access-token': accessToken, 'x-api-key': apiKey, accept: 'application/json' },
+        signal: AbortSignal.timeout(ORDERS_TIMEOUT_MS)
+      });
+    } catch (error) {
+      throw new TransakError(`orders: network error: ${String(error)}`);
+    }
+    if (response.status === 401) {
+      // The token is not valid any more. The next call gets a new token.
+      cached = null;
+    }
+    const body = await readJson(response, 'orders');
+    const parsed = parseWith('orders', ordersResponseSchema, body);
+    // Parse each item alone, so one item with an unexpected shape does not hide the match.
+    for (const item of parsed.data) {
+      const order = orderSchema.safeParse(item);
+      if (order.success && order.data.partnerOrderId === partnerOrderId) {
+        return order.data;
+      }
+    }
+    return null;
+  }
+
+  return { createWidgetSession, getOrderByPartnerId };
 }

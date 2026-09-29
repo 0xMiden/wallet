@@ -775,6 +775,13 @@ proxy-addr@^2.0.7:
     forwarded "0.2.0"
     ipaddr.js "1.9.1"
 
+pusher-js@^8.6.0:
+  version "8.6.0"
+  resolved "https://registry.yarnpkg.com/pusher-js/-/pusher-js-8.6.0.tgz#933e924f59938b31e2e9eb41af9c8b6bf9932f6b"
+  integrity sha512-wShJPfCS/kYkCBVzVW67wa9cnQIgHTszEK2XHNrFkOgGruuGw081aERAxfRjfdFU+WcIt8x6dvbwkTW4iZuQ8Q==
+  dependencies:
+    tweetnacl "^1.0.3"
+
 qs@^6.14.0, qs@^6.15.2:
   version "6.16.0"
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.16.0.tgz#c22c723a28a920f3aacdce8289fabd43eccb79fd"
@@ -904,6 +911,11 @@ tsx@^4.23.15:
     esbuild "~0.28.0"
   optionalDependencies:
     fsevents "~2.3.3"
+
+tweetnacl@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/tweetnacl/-/tweetnacl-1.0.3.tgz#ac0af71680458d8a6378d0d0d050ab1407d35596"
+  integrity sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==
 
 type-is@^2.0.1, type-is@^2.1.0:
   version "2.1.0"

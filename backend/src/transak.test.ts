@@ -129,3 +129,75 @@ describe('createTransakClient', () => {
     await assert.rejects(client.createWidgetSession(params, USER_IP), TransakError);
   });
 });
+
+describe('getOrderByPartnerId', () => {
+  const PARTNER_ORDER_ID = '00112233445566778899aabbccddeeff';
+
+  /** A fetch stub for the orders route. `statuses` gives the HTTP status of each orders call in turn. */
+  function stubOrders(data: object[], statuses: number[] = []) {
+    const calls: RecordedCall[] = [];
+    let tokenCount = 0;
+    let orderCalls = 0;
+    const fetch: FetchLike = async (url, init) => {
+      calls.push({ url, method: init.method, headers: headersOf(init), body: bodyOf(init) });
+      if (url.endsWith('/partners/api/v2/refresh-token')) {
+        tokenCount += 1;
+        return jsonResponse(200, { data: { accessToken: `token-${tokenCount}`, expiresAt: 10_000_000 } });
+      }
+      const status = statuses[orderCalls] ?? 200;
+      orderCalls += 1;
+      return status === 200 ? jsonResponse(200, { meta: { totalCount: data.length }, data }) : jsonResponse(status, {});
+    };
+    return { fetch, calls };
+  }
+
+  it('sends the filter with the access token and parses the matching order', async () => {
+    const { fetch, calls } = stubOrders([
+      { id: 'other', status: 'COMPLETED', partnerOrderId: 'x', cryptoAmount: 1 },
+      {
+        id: 'order-1',
+        status: 'PROCESSING',
+        partnerOrderId: PARTNER_ORDER_ID,
+        cryptoAmount: 9.87,
+        walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+        fiatAmount: 10,
+        extra: { nested: true }
+      }
+    ]);
+    const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
+    const order = await client.getOrderByPartnerId(PARTNER_ORDER_ID);
+
+    assert.deepEqual(order, {
+      id: 'order-1',
+      status: 'PROCESSING',
+      partnerOrderId: PARTNER_ORDER_ID,
+      cryptoAmount: 9.87,
+      walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      transactionHash: null
+    });
+    const request = calls[1];
+    assert.ok(request);
+    assert.equal(
+      request.url,
+      `https://api-stg.transak.com/partners/api/v2/orders?filter%5BpartnerOrderId%5D=${PARTNER_ORDER_ID}`
+    );
+    assert.equal(request.method, 'GET');
+    assert.equal(request.headers['access-token'], 'token-1');
+    assert.equal(request.headers['x-api-key'], 'KEY');
+    assert.equal(request.headers['api-secret'], undefined);
+  });
+
+  it('returns null when Transak has no order yet', async () => {
+    const { fetch } = stubOrders([]);
+    const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
+    assert.equal(await client.getOrderByPartnerId(PARTNER_ORDER_ID), null);
+  });
+
+  it('drops the token after a 401, so the next call refreshes it', async () => {
+    const { fetch, calls } = stubOrders([], [401, 200]);
+    const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
+    await assert.rejects(client.getOrderByPartnerId(PARTNER_ORDER_ID), TransakError);
+    assert.equal(await client.getOrderByPartnerId(PARTNER_ORDER_ID), null);
+    assert.equal(calls.filter(call => call.url.endsWith('/refresh-token')).length, 2);
+  });
+});

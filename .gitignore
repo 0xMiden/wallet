@@ -103,3 +103,4 @@ MidenWallet.*/
 # Standalone backend server
 backend/node_modules
 backend/.env
+backend/data
