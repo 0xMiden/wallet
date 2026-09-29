@@ -7,14 +7,11 @@ import {
   extendTestTimeoutForDrain,
   readDrainSnapshot,
   startDrainDeadline,
-  type DrainRow,
   type DrainSnapshot
 } from './drain-progress';
 
-const row = (id: string, status: number, stage: string | null): DrainRow => ({ id, status, stage });
-const snap = (rows: DrainRow[], completedCount: number): DrainSnapshot => ({ rows, completedCount });
-const at = (stage: string): DrainSnapshot => snap([row('a', 1, stage)], 3);
-const idle = snap([], 3);
+const completed = (completedCount: number): DrainSnapshot => ({ completedCount });
+const idle = completed(3);
 
 function fakeClock(): { now: () => number; advance: (ms: number) => void } {
   let current = 1_000;
@@ -27,28 +24,21 @@ function fakeClock(): { now: () => number; advance: (ms: number) => void } {
 }
 
 describe('drainProgress', () => {
-  const signing = snap([row('a', 1, 'signing-proposal')], 4);
-
-  it.each([
-    { label: 'a row changed status', next: snap([row('a', 0, 'signing-proposal')], 4) },
-    { label: 'a row changed stage', next: snap([row('a', 1, 'sending')], 4) },
-    { label: 'a row left the uncompleted set', next: snap([], 4) },
-    { label: 'the Completed count rose', next: snap([row('a', 1, 'signing-proposal')], 5) }
-  ])('is progress when $label', ({ next }) => {
-    expect(drainProgress(signing, next)).toBe(true);
+  it('is progress when the Completed count rose', () => {
+    expect(drainProgress(completed(4), completed(5))).toBe(true);
   });
 
   it('is not progress on an identical snapshot', () => {
-    expect(drainProgress(signing, snap([row('a', 1, 'signing-proposal')], 4))).toBe(false);
+    expect(drainProgress(completed(4), completed(4))).toBe(false);
   });
 
-  it('is not progress when a row only joins the queue', () => {
-    expect(drainProgress(signing, snap([row('a', 1, 'signing-proposal'), row('b', 0, null)], 4))).toBe(false);
+  it('is not progress when the Completed count fell', () => {
+    expect(drainProgress(completed(4), completed(3))).toBe(false);
   });
 
   it.each([
-    { label: 'the new read', prev: signing, next: null },
-    { label: 'the previous read', prev: null, next: signing },
+    { label: 'the new read', prev: completed(4), next: null },
+    { label: 'the previous read', prev: null, next: completed(4) },
     { label: 'both reads', prev: null, next: null }
   ])('is never progress when $label is unreadable', ({ prev, next }) => {
     expect(drainProgress(prev, next)).toBe(false);
@@ -70,9 +60,9 @@ describe('startDrainDeadline', () => {
   it('extends past the budget while the last progress is inside the stall window', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(120_000, clock.now);
-    deadline.observe(at('sending'));
+    deadline.observe(completed(3));
     clock.advance(100_000);
-    deadline.observe(at('signing-proposal'));
+    deadline.observe(completed(4));
     clock.advance(20_000);
     expect(deadline.verdict()).toBe('continue');
     clock.advance(DRAIN_STALL_WINDOW_MS - 20_001);
@@ -81,13 +71,13 @@ describe('startDrainDeadline', () => {
     expect(deadline.verdict()).toBe('stalled');
   });
 
-  it('ends at the cap, twice the budget, while the queue is still moving', () => {
+  it('runs to the cap, twice the budget, while the Completed count keeps rising', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(60_000, clock.now);
-    deadline.observe(at('complete'));
-    for (let lap = 0; lap < 12; lap++) {
+    deadline.observe(completed(0));
+    for (let lap = 1; lap <= 12; lap++) {
       clock.advance(9_999);
-      deadline.observe(at(lap % 2 === 0 ? 'sending' : 'signing-proposal'));
+      deadline.observe(completed(lap));
     }
     expect(deadline.verdict()).toBe('continue');
     clock.advance(12);
@@ -97,9 +87,9 @@ describe('startDrainDeadline', () => {
   it('names a queue that stopped moving stalled, even past the cap', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(60_000, clock.now);
-    deadline.observe(at('sending'));
+    deadline.observe(completed(3));
     clock.advance(20_000);
-    deadline.observe(at('signing-proposal'));
+    deadline.observe(completed(4));
     clock.advance(110_000);
     expect(deadline.verdict()).toBe('stalled');
   });
@@ -107,11 +97,11 @@ describe('startDrainDeadline', () => {
   it('compares across an unreadable lap with the last readable snapshot', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(60_000, clock.now);
-    deadline.observe(at('signing-proposal'));
+    deadline.observe(completed(3));
     clock.advance(9_000);
     deadline.observe(null);
     clock.advance(9_000);
-    deadline.observe(idle);
+    deadline.observe(completed(4));
     clock.advance(42_000);
     expect(deadline.verdict()).toBe('continue');
   });
@@ -121,7 +111,7 @@ describe('startDrainDeadline', () => {
     const deadline = startDrainDeadline(60_000, clock.now);
     deadline.observe(null);
     clock.advance(30_000);
-    deadline.observe(at('sending'));
+    deadline.observe(completed(3));
     for (let lap = 0; lap < 3; lap++) {
       clock.advance(10_000);
       deadline.observe(null);
@@ -161,9 +151,9 @@ describe('startDrainDeadline', () => {
     const clock = fakeClock();
     const onOverrun = jest.fn();
     const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
-    deadline.observe(at('complete'));
+    deadline.observe(completed(3));
     clock.advance(59_999);
-    deadline.observe(at('sending'));
+    deadline.observe(completed(4));
     clock.advance(1);
     expect(deadline.verdict()).toBe('continue');
     expect(onOverrun).toHaveBeenCalledTimes(1);
@@ -173,10 +163,10 @@ describe('startDrainDeadline', () => {
     const clock = fakeClock();
     const onOverrun = jest.fn();
     const deadline = startDrainDeadline(60_000, clock.now, onOverrun);
-    deadline.observe(at('complete'));
-    for (let lap = 0; lap < 12; lap++) {
+    deadline.observe(completed(0));
+    for (let lap = 1; lap <= 12; lap++) {
       clock.advance(9_999);
-      deadline.observe(at(lap % 2 === 0 ? 'sending' : 'signing-proposal'));
+      deadline.observe(completed(lap));
     }
     expect(deadline.verdict()).toBe('continue');
     expect(onOverrun).toHaveBeenCalledTimes(1);
@@ -227,7 +217,7 @@ describe('readDrainSnapshot', () => {
       evaluate: jest.fn(async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg))
     }) as unknown as Page;
 
-  const seed = async (rows: Array<Record<string, unknown>>): Promise<void> => {
+  const seed = async (rows: Array<Record<string, unknown>>, removedIds: string[] = []): Promise<void> => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('TridentMain', 1);
       request.onupgradeneeded = () => {
@@ -239,6 +229,7 @@ describe('readDrainSnapshot', () => {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('transactions', 'readwrite');
       for (const each of rows) tx.objectStore('transactions').put(each);
+      for (const id of removedIds) tx.objectStore('transactions').delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -260,7 +251,7 @@ describe('readDrainSnapshot', () => {
   beforeEach(wipeTridentMain);
   afterEach(wipeTridentMain);
 
-  it('reads the Queued and Generating rows and counts the Completed ones, skipping Failed', async () => {
+  it('counts the Completed rows and reads nothing else', async () => {
     await seed([
       { id: 'c1', status: 2, stage: 'complete' },
       { id: 'c2', status: 2 },
@@ -268,13 +259,7 @@ describe('readDrainSnapshot', () => {
       { id: 'g1', status: 1, stage: 'signing-proposal', stageTimestamps: { syncing: 1, sending: 2 } },
       { id: 'q1', status: 0 }
     ]);
-    await expect(readDrainSnapshot(pageRunningHere())).resolves.toEqual({
-      rows: [
-        { id: 'g1', status: 1, stage: 'signing-proposal' },
-        { id: 'q1', status: 0, stage: null }
-      ],
-      completedCount: 2
-    });
+    await expect(readDrainSnapshot(pageRunningHere())).resolves.toEqual({ completedCount: 2 });
   });
 
   it('is unreadable, not empty, when the page cannot run the read', async () => {
@@ -288,5 +273,61 @@ describe('readDrainSnapshot', () => {
 
   it('is unreadable when the database has no transactions store', async () => {
     await expect(readDrainSnapshot(pageRunningHere())).resolves.toBeNull();
+  });
+
+  const signing = { id: 'g1', status: 1, stage: 'signing-proposal' };
+
+  it.each([
+    { label: 'the Generating row went back to Queued (a requeue)', rows: [{ ...signing, status: 0 }], removedIds: [] },
+    { label: 'the Generating row changed stage', rows: [{ ...signing, stage: 'sending' }], removedIds: [] },
+    { label: 'the Generating row was deleted', rows: [], removedIds: ['g1'] },
+    {
+      label: 'the Generating row went to Failed with the Completed count unchanged',
+      rows: [{ ...signing, status: 3 }],
+      removedIds: []
+    },
+    { label: 'a new Queued row joined', rows: [{ id: 'q1', status: 0 }], removedIds: [] }
+  ])('reads no progress between two reads when $label', async ({ rows, removedIds }) => {
+    await seed([signing, { id: 'c1', status: 2, stage: 'complete' }]);
+    const before = await readDrainSnapshot(pageRunningHere());
+    await seed(rows, removedIds);
+    expect(drainProgress(before, await readDrainSnapshot(pageRunningHere()))).toBe(false);
+  });
+
+  it('reads progress between two reads when the Generating row went to Completed', async () => {
+    await seed([signing, { id: 'c1', status: 2, stage: 'complete' }]);
+    const before = await readDrainSnapshot(pageRunningHere());
+    await seed([{ ...signing, status: 2, stage: 'complete' }]);
+    expect(drainProgress(before, await readDrainSnapshot(pageRunningHere()))).toBe(true);
+  });
+
+  it('stalls a queue whose rows only join and fail one window after its last completion, not at the cap', async () => {
+    const budgetMs = 240_000;
+    const lapMs = 10_000;
+    const clock = fakeClock();
+    const page = pageRunningHere();
+    await seed([{ id: 'r0', status: 0 }]);
+    const deadline = startDrainDeadline(budgetMs, clock.now);
+    deadline.observe(await readDrainSnapshot(page));
+    let lap = 0;
+    // Each lap a new Queued row joins and the previous lap's row fails, except at the budget, where it completes.
+    const runLap = async (): Promise<void> => {
+      lap += 1;
+      const settled = lap * lapMs === budgetMs ? 2 : 3;
+      await seed([
+        { id: `r${lap - 1}`, status: settled },
+        { id: `r${lap}`, status: 0 }
+      ]);
+      deadline.observe(await readDrainSnapshot(page));
+    };
+    while ((lap + 1) * lapMs < budgetMs + DRAIN_STALL_WINDOW_MS) {
+      clock.advance(lapMs);
+      await runLap();
+    }
+    clock.advance(lapMs - 1);
+    expect(deadline.verdict()).toBe('continue');
+    clock.advance(1);
+    await runLap();
+    expect(deadline.verdict()).toBe('stalled');
   });
 });

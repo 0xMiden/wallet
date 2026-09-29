@@ -2,20 +2,13 @@ import type { Page } from '@playwright/test';
 
 /**
  * How long a claim drain's queue may go without progress, once past its budget, before the drain fails as stalled.
- * Two Guardian rows at their slowest normal cost (about 45 s each, #1266), so a healthy queue never trips it.
+ * Sized for completions: two Guardian rows at their slowest normal cost (about 45 s each, #1266), so a queue that
+ * keeps completing never trips it.
  */
 export const DRAIN_STALL_WINDOW_MS = 90_000;
 
-/** One Queued (0) or GeneratingTransaction (1) row of `TridentMain.transactions`, as the progress rule compares it. */
-export interface DrainRow {
-  id: string;
-  status: number;
-  stage: string | null;
-}
-
-/** The wallet's uncompleted rows and its count of Completed rows, from one read of the transactions table. */
+/** The wallet's count of Completed rows, from one read of the transactions table. */
 export interface DrainSnapshot {
-  rows: DrainRow[];
   completedCount: number;
 }
 
@@ -23,18 +16,13 @@ export interface DrainSnapshot {
 export type DrainVerdict = 'continue' | 'stalled' | 'cap';
 
 /**
- * Whether the queue moved between two reads: a row changed status or stage, a row left the uncompleted set, or the
- * Completed count rose. A row that only joined the queue is not progress. An unreadable read (`null`) on either side
- * is never progress, so a run of failed reads cannot hold a drain open.
+ * Whether the drain made progress between two reads: both are readable and the Completed count rose. This is what
+ * "progress" and "moving" mean wherever the drain uses them. A requeue, a status or stage change, a row joining, and a
+ * row that left without the Completed count rising (to Failed, or deleted) are not progress, and an unreadable read
+ * (`null`) on either side never is, so a run of failed reads cannot hold a drain open.
  */
 export function drainProgress(prev: DrainSnapshot | null, next: DrainSnapshot | null): boolean {
-  if (prev === null || next === null) return false;
-  if (next.completedCount > prev.completedCount) return true;
-  const nextById = new Map(next.rows.map(row => [row.id, row]));
-  return prev.rows.some(row => {
-    const after = nextById.get(row.id);
-    return after === undefined || after.status !== row.status || after.stage !== row.stage;
-  });
+  return prev !== null && next !== null && next.completedCount > prev.completedCount;
 }
 
 /** A claim drain's deadline, fed one snapshot per lap. */
@@ -152,7 +140,7 @@ export async function readDrainSnapshot(page: Page): Promise<DrainSnapshot | nul
           // `open` creates an empty database when none exists: a missing store is a wrong read, not an empty queue.
           if (!db.objectStoreNames.contains(storeName)) throw new Error('readDrainSnapshot: no transactions store');
           return await new Promise<DrainSnapshot>((resolve, reject) => {
-            const snapshot: DrainSnapshot = { rows: [], completedCount: 0 };
+            const snapshot: DrainSnapshot = { completedCount: 0 };
             const tx = db.transaction(storeName, 'readonly');
             tx.onabort = () => reject(tx.error ?? new Error('readDrainSnapshot: transaction aborted'));
             tx.onerror = () => reject(tx.error ?? new Error('readDrainSnapshot: transaction failed'));
@@ -165,16 +153,7 @@ export async function readDrainSnapshot(page: Page): Promise<DrainSnapshot | nul
                 return;
               }
               const row: Record<string, unknown> = cursor.value;
-              const status = Number(row.status);
-              if (status === 2) {
-                snapshot.completedCount += 1;
-              } else if (status === 0 || status === 1) {
-                snapshot.rows.push({
-                  id: String(row.id),
-                  status,
-                  stage: typeof row.stage === 'string' ? row.stage : null
-                });
-              }
+              if (Number(row.status) === 2) snapshot.completedCount += 1;
               cursor.continue();
             };
           });

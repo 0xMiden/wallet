@@ -2468,12 +2468,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // and its stage) lands in the test log instead of staying hidden in the SW.
     const txDump = await this.dumpTransactions().catch(() => 'unavailable');
     console.log(`[WalletPage.${label}] transactions at timeout: ${txDump}`);
-    // A queue that never moved stalls at the budget, which can be shorter than the window.
+    // A queue that completed nothing stalls at the budget, which can be shorter than the window.
     const quietMs = Math.min(DRAIN_STALL_WINDOW_MS, Math.round(ctx.elapsedMs));
     const reason =
       ctx.verdict === 'stalled'
-        ? `stalled: no transaction progress in the last ${quietMs}ms`
-        : `cap: the queue was still moving at twice the ${ctx.timeoutMs}ms budget`;
+        ? `stalled: no transaction completed in the last ${quietMs}ms`
+        : `cap: transactions were still completing at twice the ${ctx.timeoutMs}ms budget`;
     throw new Error(
       `[WalletPage.${label}] timed out (${reason}) after ${Math.round(ctx.elapsedMs)}ms with ${first} pending ` +
         `note(s) after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
