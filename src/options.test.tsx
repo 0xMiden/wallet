@@ -87,6 +87,11 @@ beforeEach(() => {
   reloadMock.mockReset();
 });
 
+// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 const getResetButton = () => screen.getByRole('button', { name: 'resetExtension' });
 
 describe('src/options.tsx', () => {
@@ -158,7 +163,6 @@ describe('src/options.tsx', () => {
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
     expect(mockAlert.mock.invocationCallOrder[0]!).toBeLessThan(reloadMock.mock.invocationCallOrder[0]!);
     expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
-    warn.mockRestore();
   });
 
   it('shows the error in the alert when the reload cannot start', async () => {

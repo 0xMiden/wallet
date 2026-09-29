@@ -41,6 +41,8 @@ jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: { runtime: { reload: () => runtimeReload() } }
 }));
+// The suite's own mock, kept so a test that makes its next load fail can have it put back.
+const polyfill: unknown = jest.requireMock('webextension-polyfill');
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -204,9 +206,11 @@ beforeEach(() => {
   mockUseAlert.mockReturnValue(alert);
 });
 
-// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
+// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place, or a
+// polyfill factory that throws for the next test.
 afterEach(() => {
   jest.restoreAllMocks();
+  jest.doMock('webextension-polyfill', () => polyfill);
 });
 
 /** A stored override: testnet's defaults with one endpoint the user authored. `allowNoGuardian`
@@ -624,7 +628,6 @@ describe('DeveloperSettings', () => {
   // A loaded module stays cached, so the polyfill fails its next load only in a fresh registry; the
   // failing factory puts the suite's mock back before it throws, so the load after it succeeds.
   const failNextPolyfillLoad = () => {
-    const polyfill: unknown = jest.requireMock('webextension-polyfill');
     jest.resetModules();
     jest.doMock('webextension-polyfill', () => {
       jest.doMock('webextension-polyfill', () => polyfill);
