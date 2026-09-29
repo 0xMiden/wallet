@@ -178,19 +178,26 @@ describe('fetchEarnPositions', () => {
       expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
       expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
       expect(result.totalDepositsUSD).toBe(12.5);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining(`positions response unreadable for ${malformed}`),
+        expect.any(TypeError)
+      );
     });
 
-    it("settles a funded item whose vault has no APR as that owner's error, with no position for it", async () => {
-      // The third lender's vault still reads, so only the funded item's own vault can fail this owner.
-      loadWith([
-        { ...apiItem('3', 3), aprData: { depositApr: 2, borrowApr: 3 }, lenderInfo: otherLender },
-        thirdLender
-      ]);
+    it('keeps a funded item whose vault has no APR', async () => {
+      loadWith([{ ...apiItem('3', 3), aprData: { depositApr: 2, borrowApr: 3 }, lenderInfo: otherLender }]);
 
       const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
-      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
-      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+      expect(result.errors).toEqual([]);
+      expect(result.positions).toEqual([
+        expect.objectContaining({ owner: malformed, lenderKey: 'OTHER_LENDING', deposits: '3' }),
+        expect.objectContaining({ owner: OWNER, deposits: '12.5' })
+      ]);
+      expect(result.vaults).toEqual([
+        expect.objectContaining({ lenderKey: 'OTHER_LENDING' }),
+        expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })
+      ]);
     });
 
     it('drops a vault whose chain id is not a string and keeps the owner', async () => {
@@ -220,9 +227,28 @@ describe('fetchEarnPositions', () => {
     it('logs the fold, naming the owner', async () => {
       loadWith([{ ...apiItem(), aprData: {} }]);
 
-      await fetchEarnPositions({ owners: [malformed, OWNER] });
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(malformed), expect.any(Error));
+      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining(`positions response unreadable for ${malformed}`),
+        expect.any(Error)
+      );
+    });
+
+    it('says when a read dropped a vault, through an owner or the catalog, and not when none was', async () => {
+      const unreadableVault = { ...apiItem(), aprData: {}, lenderInfo: otherLender };
+      loadWith([unreadableVault, thirdLender]);
+      expect((await fetchEarnPositions({ owners: [malformed, OWNER] })).vaultsDropped).toBe(true);
+
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { items: [unreadableVault, apiItem()] } })
+      });
+      expect((await fetchEarnPositions({ owners: [] })).vaultsDropped).toBe(true);
+
+      loadWith([thirdLender]);
+      expect((await fetchEarnPositions({ owners: [malformed, OWNER] })).vaultsDropped).toBeUndefined();
     });
 
     it("settles the catalog query's item with no APRs as the catalog's error, with no vaults", async () => {
@@ -235,6 +261,20 @@ describe('fetchEarnPositions', () => {
 
       expect(result.errors).toEqual([{ owner: CATALOG_ACCOUNT, error: 'positions response unreadable' }]);
       expect(result.vaults).toEqual([]);
+    });
+
+    it('keeps a catalog vault that reports only a deposit APR', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { items: [{ ...apiItem(), aprData: { depositApr: 2 } }] } })
+      });
+
+      const result = await fetchEarnPositions({ owners: [] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.vaults).toEqual([
+        { lenderKey: 'DUMMY_LENDING', lenderName: 'Dummy Lending', logoUri: '', chainId: '11155111', depositApr: 2 }
+      ]);
     });
 
     it("drops only a malformed catalog item's vault and loads the others", async () => {
@@ -300,13 +340,12 @@ describe('carryForward', () => {
     decimals: 6,
     priceUsd: 1
   });
-  const vault = (lenderKey: string, apr = 2): EarnVaultInfo => ({
+  const vault = (lenderKey: string, depositApr = 2): EarnVaultInfo => ({
     lenderKey,
     lenderName: lenderKey,
     logoUri: '',
     chainId: '11155111',
-    apr,
-    depositApr: apr
+    depositApr
   });
   const read = (over: Partial<EarnPositionsResult>): EarnPositionsResult => ({
     positions: [],
@@ -347,6 +386,18 @@ describe('carryForward', () => {
 
     expect(carryForward(previous, loaded)).toBe(loaded);
     expect(carryForward(undefined, failed)).toBe(failed);
+  });
+
+  it('brings back the vaults a read lacks when it dropped a vault, with no owner failed, and no positions', () => {
+    const previous = read({ positions: [position(OTHER, 7)], vaults: [vault('OTHER_LENDING')], totalDepositsUSD: 7 });
+    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('DUMMY_LENDING')], totalDepositsUSD: 6 });
+
+    const carried = carryForward(previous, { ...loaded, vaultsDropped: true });
+
+    expect(carried.vaults).toEqual([vault('DUMMY_LENDING'), vault('OTHER_LENDING')]);
+    expect(carried.positions).toEqual([position(OWNER, 6)]);
+    expect(carried.totalDepositsUSD).toBe(6);
+    expect(carryForward(previous, loaded).vaults).toEqual([vault('DUMMY_LENDING')]);
   });
 });
 
