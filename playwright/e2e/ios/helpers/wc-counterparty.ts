@@ -130,10 +130,10 @@ export class WcCounterparty {
    * The public relay rate-limits connection bursts and its subscribe can time out
    * ("Subscribing to <topic> failed, please try again"), which can hit the URI
    * fetch OR the pair/approve step. Retrying only the URI fetch (as the specs did
-   * inline) left the subscribe timeout fatal — the cause of the intermittent
+   * inline) left the subscribe timeout fatal - the cause of the intermittent
    * Bridge-IN E2E failures. A dedicated `WC_COUNTERPARTY_PROJECT_ID` (see the note
-   * at the top of this file) halves per-projectId relay load and is the durable
-   * infra-side fix; this keeps the handshake resilient in the meantime.
+   * at the top of this file) is optional per-projectId load relief, never the
+   * fix; this retry is what keeps the handshake resilient.
    */
   async connectWithRetry(
     getUri: () => Promise<string>,

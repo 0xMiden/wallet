@@ -187,8 +187,9 @@ callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabl
 Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-merge on main.
 
 ## Findings to report to the team
-- WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.
-  Fragile: any build not manually setting it ships the fallback. Verify the release process sets it.
+- WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to
+  DEFAULT_WC_PROJECT_ID in src/lib/walletconnect/config.ts. Fragile: any build not manually
+  setting it ships the fallback. Verify the release process sets it.
 - Relay rate-limits bursts of connections on the same projectId/IP (intermittent 403).
 
 # Issue #646 - spending limits

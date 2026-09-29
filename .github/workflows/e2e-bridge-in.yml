@@ -20,7 +20,8 @@ name: E2E Bridge-IN
 #
 # Testnet-only (LIVE Miden testnet) -> a post-merge signal on main, not a
 # per-PR gate. Needs NO required secrets: the EVM key is Anvil's deterministic
-# dev account and the relay projectId falls back to the baked-in default.
+# dev account and the relay projectId falls back to DEFAULT_WC_PROJECT_ID in
+# src/lib/walletconnect/config.ts.
 
 on:
   push:
@@ -58,12 +59,13 @@ jobs:
       # spec (which never calls the allocator).
       EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
       # Optional: give the headless counterparty its OWN relay projectId so it
-      # doesn't double the app projectId's load on the shared free-tier relay
-      # (reduces rate-limit trips). Falls back, when unset, empty or blank, to
-      # the app's WALLETCONNECT_PROJECT_ID and then to DEFAULT_WC_PROJECT_ID in
-      # src/lib/walletconnect/config.ts. Do NOT override WALLETCONNECT_PROJECT_ID
-      # here - the app's default is the one allow-listed for the com.miden.bread
-      # bundle; a different id 403s.
+      # doesn't double the app projectId's load on the relay (reduces
+      # rate-limit trips) - per-projectId load relief only, never the fix for a
+      # suspended or rejected projectId. Falls back, when unset, empty or
+      # blank, to the app's WALLETCONNECT_PROJECT_ID and then to
+      # DEFAULT_WC_PROJECT_ID in src/lib/walletconnect/config.ts. Do NOT
+      # override WALLETCONNECT_PROJECT_ID here - the app's default is the one
+      # allow-listed for the com.miden.bread bundle; a different id 403s.
       WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -211,13 +213,12 @@ jobs:
         # connect step; each attempt is a fresh wallet + pairing + Anvil.
         #
         # NON-BLOCKING for now: bridge-in is hidden from users (see
-        # isBridgeDepositEnabled) and its WalletConnect handshake rides the public
-        # relay on the shared free-tier projectId, which is currently rejected with
-        # WS close 3000 ("Project not found") — a suspended/rate-limited projectId,
-        # not a code bug. Provision a dedicated WalletConnect Cloud projectId and
-        # set it as the WC_COUNTERPARTY_PROJECT_ID CI secret only, then REMOVE this
-        # continue-on-error to make the suite blocking again. Tracked as a
-        # follow-up.
+        # isBridgeDepositEnabled) and its WalletConnect handshake was rejected
+        # with WS close 3000 ("Project not found"). Until #1259, an unset
+        # WC_COUNTERPARTY_PROJECT_ID secret made the counterparty send a blank
+        # project id, which alone produces that rejection; whether the app's
+        # own id was also rejected is not recorded. REMOVE this
+        # continue-on-error once a run on the current default passes.
         continue-on-error: true
         run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries=2
 

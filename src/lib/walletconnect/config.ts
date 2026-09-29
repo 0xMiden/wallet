@@ -10,8 +10,10 @@
 const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
 
 /**
- * `WALLETCONNECT_PROJECT_ID` as the vite defines bake it at build time, trimmed; an unset, empty
- * or blank value falls back to `DEFAULT_WC_PROJECT_ID`.
+ * `WALLETCONNECT_PROJECT_ID`: the vite defines bake this into app bundles at build
+ * time, while Node consumers (the Playwright counterparty, jest) read it from
+ * their own process env when this module loads. Both trim it and treat an unset,
+ * empty or blank value as unset, falling back to `DEFAULT_WC_PROJECT_ID`.
  */
 export const WC_PROJECT_ID = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim() || DEFAULT_WC_PROJECT_ID;
 
