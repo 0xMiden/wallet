@@ -2,7 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
@@ -84,7 +85,7 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
 const walletStoreState = {
-  tokenPrices: { TKN: { price: 3 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 3 } } as Record<string, { price: number }>,
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
@@ -1221,10 +1222,12 @@ describe('confirming the amount', () => {
 // Token preselection effect + NavigatorWrapper wiring.
 // ---------------------------------------------------------------------------
 describe('token preselection', () => {
-  const balanceData = [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }];
+  const balanceData = [
+    { tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 3 }
+  ];
 
   it('preselects the token from the tokenId search param when a balance matches', () => {
-    mockSearch = '?tokenId=T1';
+    mockSearch = `?tokenId=${MIDEN_USDC_FAUCET}`;
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
@@ -1232,7 +1235,7 @@ describe('token preselection', () => {
   });
 
   it('preselects the token from a restored draft tokenId', () => {
-    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: 'T1' });
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: MIDEN_USDC_FAUCET });
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
@@ -1242,7 +1245,7 @@ describe('token preselection', () => {
   });
 
   it('values a preselected token at its feed price', () => {
-    mockSearch = '?tokenId=T1';
+    mockSearch = `?tokenId=${MIDEN_USDC_FAUCET}`;
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
@@ -1272,21 +1275,22 @@ describe('token preselection', () => {
       expect(screen.getByTestId('sa-token')).toHaveTextContent('IETH');
       expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^3000$/);
     } finally {
-      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+      walletStoreState.tokenPrices = { USDC: { price: 3 } };
     }
   });
 
   describe('after the user picks another token', () => {
+    const T2 = TOKEN_IBTC.faucetId;
     const threeTokens = (t2Balance = 7) => [
       { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
-      { tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },
+      { tokenId: T2, metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },
       { tokenId: 'T3', metadata: { symbol: 'TK3', decimals: 2 }, balance: 9, fiatPrice: 0 }
     ];
 
     const preselectT1ThenPickT2 = () => {
       mockSearch = '?tokenId=T1';
       mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockSelectedToken = { id: T2, name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
       useAllBalancesMock.mockReturnValue({ data: threeTokens() });
       const utils = renderFlow();
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
@@ -1298,12 +1302,12 @@ describe('token preselection', () => {
     };
 
     afterEach(() => {
-      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+      walletStoreState.tokenPrices = { USDC: { price: 3 } };
     });
 
     it('keeps the picked token when prices refresh, and gives it the price that lands', () => {
       const { rerender } = preselectT1ThenPickT2();
-      walletStoreState.tokenPrices = { TKN: { price: 3 }, TK2: { price: 5 } };
+      walletStoreState.tokenPrices = { USDC: { price: 3 }, BTC: { price: 5 } };
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
       expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
@@ -1333,7 +1337,7 @@ describe('token preselection', () => {
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TK3');
 
-      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockSelectedToken = { id: T2, name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
       act(() => {
         fireEvent.click(screen.getByTestId('td-select'));
       });
@@ -1345,7 +1349,7 @@ describe('token preselection', () => {
     it('keeps the picked token when a preselected token that was absent appears', () => {
       mockSearch = '?tokenId=T1';
       mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockSelectedToken = { id: T2, name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
       useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T1') });
       const { rerender } = renderFlow();
       expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
@@ -1359,10 +1363,10 @@ describe('token preselection', () => {
 
     it('keeps a picked token that leaves the balances at a zero balance the amount step cannot confirm', () => {
       mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-      walletStoreState.tokenPrices = { TK2: { price: 5 } };
-      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 5, scaleIsKnown: false };
+      walletStoreState.tokenPrices = { BTC: { price: 5 } };
+      mockSelectedToken = { id: T2, name: 'TK2', decimals: 2, balance: 7, fiatPrice: 5, scaleIsKnown: false };
       useAllBalancesMock.mockReturnValue({
-        data: [{ tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2, scaleIsUnknown: true }, balance: 7 }]
+        data: [{ tokenId: T2, metadata: { symbol: 'TK2', decimals: 2, scaleIsUnknown: true }, balance: 7 }]
       });
       const { rerender } = renderFlow();
       act(() => {
@@ -1373,10 +1377,10 @@ describe('token preselection', () => {
       });
       expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
 
-      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T2') });
+      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== T2) });
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent(/^TK2$/);
-      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^T2$/);
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(new RegExp(`^${T2}$`));
       expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^0$/);
       expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^2$/);
       expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
@@ -1387,7 +1391,7 @@ describe('token preselection', () => {
 
     it('keeps the balance of a picked token a still-loading snapshot does not list', () => {
       mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockSelectedToken = { id: T2, name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
       mockBalancesLoading = true;
       useAllBalancesMock.mockReturnValue({
         data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0 }]
@@ -1631,17 +1635,17 @@ describe('send telemetry', () => {
 // Fast-route fee: only a priced token of known scale has a dollar input.
 // ---------------------------------------------------------------------------
 describe('fast-route fee', () => {
-  const renderRouteStep = (metadata: Record<string, unknown>) => {
-    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId: 'T1' });
+  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1') => {
+    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId });
     mockCardStack = [{ name: SendFlowStep.Route }];
     mockEpochAmount = '4';
-    useAllBalancesMock.mockReturnValue({ data: [{ tokenId: 'T1', metadata, balance: 42, fiatPrice: 0 }] });
+    useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
     renderFlow();
     return screen.getByTestId('route-fee');
   };
 
   it('is the dollar input less the quoted USDC for a priced token', () => {
-    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 })).toHaveTextContent(/^11$/);
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
   });
 
   it('is absent for a token the feed does not price, not $0', () => {
@@ -1649,6 +1653,8 @@ describe('fast-route fee', () => {
   });
 
   it('is absent for a priced token whose scale is unknown', () => {
-    expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true })).toHaveTextContent(/^undefined$/);
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true }, MIDEN_USDC_FAUCET)).toHaveTextContent(
+      /^undefined$/
+    );
   });
 });

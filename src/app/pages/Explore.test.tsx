@@ -3,7 +3,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -416,8 +417,8 @@ describe('Explore', () => {
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
-        makeToken('t-btc', 'BTC', 'Bitcoin', 2)
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
+        makeToken(TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
       ];
       mockTokenPrices = {
         MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
@@ -428,14 +429,14 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-btc', 't-eth']);
+      expect(tokens).toEqual(['faucet-native', TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
@@ -444,23 +445,27 @@ describe('Explore', () => {
 
       // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', TOKEN_IETH.faucetId, 't-other']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId, 't-other']);
     });
 
     it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
         // would outrank everything by a factor of a million.
-        { tokenId: 't-unsized', balance: 1_000_000, metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true } }
+        {
+          tokenId: TOKEN_IETH.faucetId,
+          balance: 1_000_000,
+          metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true }
+        }
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
 
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', 't-unsized']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId]);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {

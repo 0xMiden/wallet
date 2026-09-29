@@ -310,6 +310,8 @@ const queueConsumeRows = async (
             // fresh unauthorized-retry budget, or the row stays terminal on its
             // next unauthorized failure however long the user waits.
             dbTx.unauthorizedRetryUntil = undefined;
+            // And the guardian backoff, so the tapped row's next requeue waits its arm's base cooldown (#1223).
+            dbTx.requeueStreak = undefined;
           });
         }
         continue;

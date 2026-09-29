@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SeedPhraseStatus } from 'lib/shared/types';
 
 import RevealSecret from './RevealSecret';
@@ -342,9 +343,8 @@ describe('RevealSecret', () => {
     const container = await renderReveal('seed-phrase');
     await settleProbe();
 
-    expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
-      'couldNotCheckUnlockMethodReopen'
-    );
+    const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+    expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
     expect(container.querySelector('input[name="password"]')).toBeNull();
     expect(buttonWithText(container, 'continue')).toBeFalsy();
     expect(buttonWithText(container, 'unlock')).toBeFalsy();
@@ -357,12 +357,38 @@ describe('RevealSecret', () => {
     const container = await renderReveal('seed-phrase');
     await settleProbe();
 
-    expect(container.querySelector('[data-testid="protector-probe-error"]')!.textContent).toContain(
-      'couldNotCheckUnlockMethodReopen'
-    );
+    const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+    expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
     expect(container.querySelector('[data-testid="passcode-submit"]')).toBeNull();
     expect(buttonWithText(container, 'continue')).toBeFalsy();
     expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      const container = await renderReveal('seed-phrase');
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      const notice = container.querySelector('[data-testid="protector-probe-error"]')!;
+      expect(notice.querySelector('[data-slot="body"]')!.textContent).toBe('couldNotCheckUnlockMethod');
+      expect(container.querySelector('input[name="password"]')).toBeNull();
+
+      const retryButton = container.querySelector<HTMLButtonElement>('[data-testid="protector-probe-retry"]')!;
+      await act(async () => {
+        retryButton.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(container.querySelector('input[name="password"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="protector-probe-error"]')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {

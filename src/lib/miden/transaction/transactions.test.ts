@@ -809,7 +809,8 @@ describe('transactions utilities', () => {
       });
       const rowRef: Record<string, unknown> = {
         nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
-        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60
+        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60,
+        requeueStreak: { arm: 'guardian-rate-limited', count: 2 }
       };
       const backedOff = {
         id: 'backed-off-tx',
@@ -833,6 +834,8 @@ describe('transactions utilities', () => {
       // while it sat here would otherwise get no automatic attempt at all on the
       // retry the user just asked for.
       expect(rowRef.unauthorizedRetryUntil).toBeUndefined();
+      // Or the guardian backoff, so the tapped row's next requeue waits its arm's base cooldown (#1223).
+      expect(rowRef.requeueStreak).toBeUndefined();
     });
 
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
@@ -1809,7 +1812,9 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       initiatedAt: Date.now(),
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
-      requestBytes: new Uint8Array([6])
+      requestBytes: new Uint8Array([6]),
+      // A guardian streak from earlier requeues: this one is the locked arm's, so it ends the streak (#1223).
+      requeueStreak: { arm: 'guardian-unreachable', count: 2 }
     });
 
     const result6 = await generateTransactionsLoop(signCallback, false, guardianProvider);
@@ -1823,6 +1828,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx6.stageTimestamps).toBeUndefined();
     expect(tx6.nextEligibleAt).toBeGreaterThanOrEqual(lockedRequeueStartedAt + 15);
     expect(tx6.nextEligibleAt).toBeLessThanOrEqual(lockedRequeueFinishedAt + 15);
+    expect(tx6.requeueStreak).toBeUndefined();
     expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
 
     // ---- Phase 7: a PERMANENT node rejection is not deferred ----

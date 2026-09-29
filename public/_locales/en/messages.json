@@ -4491,6 +4491,14 @@
     "message": "unverified",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Unverified",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Could not verify by simulation. Amounts below are as declared by the site.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5293,16 +5301,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Couldn't check this wallet's unlock method. Try again.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Change the QR code color",

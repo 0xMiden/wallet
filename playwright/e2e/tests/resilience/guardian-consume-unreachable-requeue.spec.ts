@@ -19,7 +19,8 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *
  * Operator A is hard-down (`connectionRefused` on every endpoint), the shape a dead operator or a laptop that lost
  * its route takes. A refusal before submit used to fail the row with a raw "Failed to fetch", and every later claim
- * wrote another Failed row. The wallet now requeues a pre-submit row with a 60 s cooldown instead.
+ * wrote another Failed row. The wallet now requeues a pre-submit row instead, with a 60 s cooldown that doubles on
+ * each consecutive requeue (#1223).
  *
  * The claim is driven by `claimAllNotes`, as in the 5xx spec, but started without awaiting it: it cannot drain while
  * the guardian refuses, so it runs across the outage and returns once the claim lands. It clicks Accept All once; a
@@ -63,9 +64,10 @@ const FIRST_REQUEUE_TIMEOUT_MS = 120_000;
 // still refuses: the row's 60 s cooldown, one 5 s pass of the service worker's processing loop, the retry's pre-flight
 // sync and refused proposal, and slack. The hold ends at the sample that sees that retry's requeue.
 const OUTAGE_HOLD_MS = 90_000;
-// The requeue cooldown (60 s) plus one 5 s pass of the service worker's processing loop and 5 s of slack: the
-// longest a requeued row can wait after the guardian is back before the loop runs it again.
-const REQUEUE_COOLDOWN_SLACK_MS = 70_000;
+// The second requeue's cooldown (120 s, twice the first since the requeues are consecutive, #1223) plus one 5 s pass
+// of the service worker's processing loop and 5 s of slack: the longest the requeued row can wait after the guardian
+// is back before the loop runs it again.
+const REQUEUE_COOLDOWN_SLACK_MS = 130_000;
 // The 5xx spec's landing budget, for the attempt that runs once the guardian answers.
 const LANDING_BUDGET_MS = 180_000;
 const CLAIM_DRAIN_BUDGET_MS = FIRST_REQUEUE_TIMEOUT_MS + OUTAGE_HOLD_MS + REQUEUE_COOLDOWN_SLACK_MS + LANDING_BUDGET_MS;

@@ -1,4 +1,5 @@
 import {
+  ApplyAfterSubmitError,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -150,6 +151,19 @@ describe('isApplyAfterSubmitError', () => {
     );
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('ApplyAfterSubmitError', () => {
+  it('classifies by its code and, with the code gone, by its text', () => {
+    const cause = new Error('store quota');
+    const error = new ApplyAfterSubmitError(cause);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ApplyAfterSubmitError');
+    expect(error.cause).toBe(cause);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
   });
 });
 

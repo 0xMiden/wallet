@@ -3,7 +3,8 @@ import React, { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 
 import Balance from './Balance';
@@ -104,8 +105,8 @@ describe('Balance', () => {
 
   it('folds balance × quoted price across every token into the fiat total', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
-      { tokenId: 'btc-faucet', balance: 3, metadata: { symbol: 'BTC' } }
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
 
@@ -128,7 +129,7 @@ describe('Balance', () => {
 
   it('leaves a token the feed does not quote out of the total, never at $1 a unit', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
       { tokenId: 'miden-faucet', balance: 1000, metadata: { symbol: 'MIDEN' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
@@ -167,7 +168,7 @@ describe('Balance', () => {
     mockUseAllBalances.mockReturnValue(
       balancesReturn([
         {
-          tokenId: 'unresolved-faucet',
+          tokenId: TOKEN_IETH.faucetId,
           balance: 1_000_000,
           metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
         }
@@ -182,9 +183,9 @@ describe('Balance', () => {
 
   it('leaves a token with an unresolved scale out of the fiat total', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
       {
-        tokenId: 'unresolved-faucet',
+        tokenId: TOKEN_IETH.faucetId,
         balance: 1_000_000,
         metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
       }
@@ -242,7 +243,7 @@ describe('Balance', () => {
   });
 
   it('passes a real BigNumber instance to the render-prop child', () => {
-    const tokens: TokenBalance[] = [{ tokenId: 'eth-faucet', balance: 4, metadata: { symbol: 'ETH' } }];
+    const tokens: TokenBalance[] = [{ tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 4, metadata: { symbol: 'ETH' } }];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
     mockStoreState = { tokenPrices: { ETH: quote(25) } };
 

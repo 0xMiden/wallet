@@ -40,6 +40,7 @@ import {
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
+  generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction
@@ -3755,6 +3756,264 @@ describe('generateTransaction — Guardian routing', () => {
       expect(Number(row.nextEligibleAt)).toBeGreaterThanOrEqual(before + 60);
       expect(Number(row.nextEligibleAt)).toBeLessThan(before + 75);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("Guardian consume: an unreachable requeue doubles the wait from the row's stored streak (#1223)", async () => {
+    // The doubling itself is pinned once by guardianRequeueBackoffSec's own unit test; this only pins that the
+    // unreachable arm reads its streak from the stored row, as the 409 and 429 arms' tests already pin for theirs.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-unreachable-backoff';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-backoff',
+        requeueStreak: { arm: 'guardian-unreachable', count: 1 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const requeuedFrom = Math.floor(Date.now() / 1000);
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-backoff',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - requeuedFrom).toBe(120);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 2 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("claims a guardian keeps failing slowly stop holding the front of the queue against another account's send (#1223)", async () => {
+    // Three claims on a guardian that answers each proposal with a gateway 504 after its 30 s read timeout, queued
+    // ahead of a send on an account whose guardian answers. Each lap takes the oldest eligible row, and at a flat 60 s
+    // one claim is eligible again by the time the other two have failed, so the send waited until they expired.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const startedAt = Date.now();
+      const queuedAt = Math.floor(startedAt / 1000);
+      for (const n of [1, 2, 3]) {
+        txStore.push({
+          id: `dead-claim-${n}`,
+          type: 'consume',
+          accountId: 'dead-guardian-acc',
+          status: ITransactionStatus.Queued,
+          noteId: `note-${n}`,
+          initiatedAt: queuedAt,
+          queuedSeq: n
+        });
+      }
+      txStore.push({
+        id: 'healthy-send',
+        type: 'send',
+        accountId: 'healthy-guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: queuedAt,
+        queuedSeq: 4
+      });
+      const deadService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          jest.setSystemTime(Date.now() + 30_000);
+          throw Object.assign(new Error('Gateway Timeout'), { status: 504 });
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      let sendProposedAt: number | undefined;
+      const healthyService = {
+        createSendProposal: jest.fn(async () => {
+          sendProposedAt ??= Date.now();
+          return { id: 'prop-healthy' };
+        }),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockImplementation(async (accountId: string) =>
+        accountId === 'dead-guardian-acc' ? deadService : healthyService
+      );
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const provider = makeGuardianProvider(true);
+
+      // The service worker's processing loop: a lap, then 5 s before the next, here for up to ten minutes.
+      while (sendProposedAt === undefined && Date.now() - startedAt < 10 * 60_000) {
+        await generateTransactionsLoop(
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          provider
+        );
+        jest.setSystemTime(Date.now() + 5_000);
+      }
+
+      // The claims fail at 30, 65 and 100 s and wait 60 s; the laps at 105, 140 and 175 s retry them and double the
+      // wait to 120 s, so the lap at 210 s finds none eligible and runs the send.
+      expect(sendProposedAt).toBeDefined();
+      expect(Number(sendProposedAt) - startedAt).toBe(210_000);
+      expect(deadService.createConsumeNotesProposal).toHaveBeenCalledTimes(6);
+      expect(txStore.find(r => r.id === 'healthy-send')?.status).toBe(ITransactionStatus.Completed);
+      // Each dead claim has failed twice by the point the send finally runs, so its stored streak reads count: 2.
+      expect(txStore.find(r => r.id === 'dead-claim-1')?.requeueStreak).toEqual({
+        arm: 'guardian-unreachable',
+        count: 2
+      });
+    } finally {
+      warnSpy.mockRestore();
+      mockGetOrCreateMultisigService.mockReset();
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian consume: a 429 between unreachable requeues starts both doublings over (#1223)', async () => {
+    // Only consecutive requeues down one arm back a row off: an answer of another kind says the last verdict ended.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-streak-reset';
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-reset',
+        requeueStreak: { arm: 'guardian-unreachable', count: 3 }
+      });
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const outcomes: unknown[] = [rateLimited, rateLimited, new TypeError('Failed to fetch')];
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw outcomes.shift();
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const waits: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const requeuedFrom = Math.floor(Date.now() / 1000);
+        await generateTransaction(
+          {
+            id: txId,
+            type: 'consume',
+            accountId: 'guardian-acc',
+            noteId: 'note-reset',
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+        waits.push(Number(txStore.find(r => r.id === txId)?.nextEligibleAt) - requeuedFrom);
+      }
+
+      // The guardian's 45 s, then twice it on the repeat, then the unreachable arm's base again.
+      expect(waits).toEqual([45, 90, 60]);
+      expect(txStore.find(r => r.id === txId)?.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian send: a second consecutive pending-delta 409 requeue waits 30 s, twice the first (#1223)', async () => {
+    // Each 409 requeue follows ~55 s of in-process retries, so two rows on one stalled account would otherwise take
+    // turns at the front of the queue.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const txId = 'send-conflict-backoff';
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        requeueStreak: { arm: 'guardian-pending-conflict', count: 1 }
+      });
+      const conflict = { status: 409, code: 'conflict_pending_delta' };
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+      expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: 2 });
+      // The log states the wait the row got, as the 429 and unreachable arms' do.
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[Guardian] proposal still conflicting after retry budget, requeueing in 30s'
+      );
+    } finally {
+      warnSpy.mockRestore();
       jest.useRealTimers();
     }
   });

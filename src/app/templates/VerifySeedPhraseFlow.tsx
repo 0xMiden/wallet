@@ -48,7 +48,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const [credential, setCredential] = useState<string>();
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
-  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const { copy, copied } = useClipboardCopy(mnemonic ?? '');
@@ -259,7 +259,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
           <SeedPhrasePlaceholder />
-          {probeFailed && <ProtectorProbeErrorNotice className="mt-3" />}
+          {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
           {authError && (
             <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
               {authError}
