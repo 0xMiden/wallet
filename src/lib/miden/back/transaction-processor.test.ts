@@ -745,7 +745,8 @@ describe('the wait between passes (#1266)', () => {
     mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
     mockIsQueuedRowReady.mockReturnValue(true);
     const { run, isSettled } = await startRun();
-    await jest.advanceTimersByTimeAsync(4_999);
+    // 0 ms: microtasks only, so a wait put back before the next pass fails this.
+    await jest.advanceTimersByTimeAsync(0);
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
     expect(mockIsQueuedRowReady).toHaveBeenCalledWith(ready, startSec);
     expect(isSettled()).toBe(true);

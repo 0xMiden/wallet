@@ -155,9 +155,14 @@ describe('startDrainDeadline', () => {
     deadline.observe(completed(3));
     clock.advance(70_000);
     deadline.observe(completed(4));
-    clock.advance(170_000);
+    // 245_000 elapsed: 5 s past the 240_000 cap, still inside the 180 s stall window, so still 'cap' not 'stalled'.
+    clock.advance(175_000);
     expect(deadline.verdict()).toBe('cap');
-    expect(deadline.sinceProgressMs()).toBe(170_000);
+    expect(deadline.sinceProgressMs()).toBe(175_000);
+    expect(deadline.elapsedMs()).toBe(245_000);
+    clock.advance(1_000);
+    expect(deadline.sinceProgressMs()).toBe(176_000);
+    expect(deadline.elapsedMs()).toBe(246_000);
   });
 
   it('compares across an unreadable lap with the last readable snapshot', () => {
