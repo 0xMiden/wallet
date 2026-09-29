@@ -415,23 +415,27 @@ describe('consume (site 7)', () => {
     expect(harness.order).toEqual(['prewarm', 'worker prove', 'submitProven', 'apply']);
   });
 
-  it('a delegated consume that fails re-proves in the worker', async () => {
+  it('a delegated consume whose prove fails re-proves in the worker', async () => {
     const harness = buildHarness();
     harness.delegated.fail = true;
     const { client, withWasmClientLock } = await load(harness);
     await withWasmClientLock(async () => client.consumeNoteId(consumeTx(true)));
-    expect(harness.fakeClient.transactions.consume).toHaveBeenCalledTimes(1);
+    // Staged (#1233): the delegated attempt executes and fails at its prove, and the fallback
+    // executes again and proves in the worker.
+    expect(harness.fakeClient.transactions.consume).not.toHaveBeenCalled();
+    expect(harness.executeRequest).toHaveBeenCalledTimes(2);
     expectWorkerProved(harness);
-    expect(harness.order).toEqual(['delegated consume', 'worker prove', 'submitProven', 'apply']);
+    expect(harness.order).toEqual(['worker prove', 'submitProven', 'apply']);
   });
 
-  it('a delegated consume that succeeds keeps the all-in-one call and never the worker', async () => {
+  it('a delegated consume that succeeds proves remotely, submits and applies, and never touches the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
     await withWasmClientLock(async () => client.consumeNoteId(consumeTx(true)));
-    expect(harness.order).toEqual(['delegated consume']);
+    expect(harness.order).toEqual(['delegated prove', 'delegated submit', 'apply']);
     expect(harness.transport.prove).not.toHaveBeenCalled();
-    expect(harness.executeRequest).not.toHaveBeenCalled();
+    expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+    expect(harness.fakeClient.transactions.consume).not.toHaveBeenCalled();
   });
 
   it('an eviction during the worker prove stops the consume before submit', async () => {
@@ -507,17 +511,17 @@ describe('swap (site 8)', () => {
     expect(harness.order).toEqual(['prewarm', 'worker prove', 'submitProven', 'apply']);
   });
 
-  it('a delegated swap keeps the all-in-one submit, and its failure never falls back', async () => {
+  it('a delegated swap whose prove fails falls back to the worker', async () => {
     const harness = buildHarness();
     harness.delegated.fail = true;
     const { client, withWasmClientLock } = await load(harness);
-    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(true)))).rejects.toThrow(
-      'remote prover unavailable'
-    );
-    expect(harness.fakeClient.transactions.submit).toHaveBeenCalledTimes(1);
-    expect(harness.transport.prove).not.toHaveBeenCalled();
-    expect(harness.executeRequest).not.toHaveBeenCalled();
-    expect(harness.order).toEqual(['delegated swap submit']);
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true)));
+    // Staged (#1233): the prove is pre-submit, so a delegated one that fails falls back.
+    expect(returned).toBe(harness.result);
+    expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();
+    expect(harness.executeRequest).toHaveBeenCalledTimes(2);
+    expectWorkerProved(harness);
+    expect(harness.order).toEqual(['worker prove', 'submitProven', 'apply']);
   });
 
   it('a delegated swap that fails before its point of no return falls back to the worker', async () => {
@@ -654,7 +658,7 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
     otherReader: harness.inner.getAccount
   });
   // Every write runs under the lock the proxy takes around it, with no transport, as in the service
-  // worker. The two staged legs are delegated; the offscreen-proved one is local.
+  // worker. The staged legs are delegated; the offscreen-proved one is local.
   const sites: Array<[string, Site]> = [
     [
       'send staged leg',
@@ -669,6 +673,22 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       {
         load: harness => load(harness, false),
         write: client => client.newTransaction('acct', new Uint8Array([4]), true),
+        parts: stagedParts
+      }
+    ],
+    [
+      'consume staged leg',
+      {
+        load: harness => load(harness, false),
+        write: client => client.consumeNoteId(consumeTx(true)),
+        parts: stagedParts
+      }
+    ],
+    [
+      'swap staged leg',
+      {
+        load: harness => load(harness, false),
+        write: client => client.swapTransaction(swapTx(true)),
         parts: stagedParts
       }
     ],

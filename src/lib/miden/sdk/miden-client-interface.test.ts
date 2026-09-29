@@ -1,3 +1,5 @@
+import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
+
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 
 describe('MidenClientInterface', () => {
@@ -86,11 +88,14 @@ describe('MidenClientInterface', () => {
       },
       // The non-offscreen send reads the sender's account through the inner raw client, for the
       // vault key that carries the outgoing asset's callback flag, and builds its request with
-      // `buildSendTransactionRequest`; without `getAccount` the send path throws.
+      // `buildSendTransactionRequest`; without `getAccount` the send path throws. The staged consume
+      // reads its notes and builds its request here too (#1233).
       _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<any>) =>
         fn(
           overrides.__inner ?? {
-            getAccount: jest.fn(async () => ({ vault: jest.fn() }))
+            getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+            getInputNote: jest.fn(async (id: string) => ({ toNote: () => ({ note: id }) })),
+            newConsumeTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([8]) }))
           }
         )
       ),
@@ -101,6 +106,62 @@ describe('MidenClientInterface', () => {
       defaultProver: null,
       ...overrides
     };
+  }
+
+  /**
+   * A staged write as the fake client runs it (#1233): every attempt's `prove` runs `onProve` with
+   * the options it was given, and a proof submits and applies.
+   */
+  function stagedExecuteRequest(onProve: (options?: { prover?: unknown }) => void | Promise<void> = () => {}) {
+    const apply = jest.fn(async () => undefined);
+    const submit = jest.fn(async () => ({ apply }));
+    const prove = jest.fn(async (options?: { prover?: unknown }) => {
+      await onProve(options);
+      return { submit };
+    });
+    const executeRequest = jest.fn(async (_account: unknown, _request: unknown) => ({
+      id: 'tx-id',
+      result: fakeTransactionResult,
+      prove
+    }));
+    return { executeRequest, prove, submit, apply };
+  }
+
+  /** The SDK and id helpers a staged consume or swap reaches, stubbed for a test account id (#1233). */
+  function mockStagedSdk(sdk: Record<string, unknown> = {}) {
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      ...sdk
+    }));
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
+      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+  }
+
+  /**
+   * Settles a write whose apply may fail after its submit, with the apply retry's waits run on fake
+   * timers so they cost no real time (#1233). Resolves to the write's result or its rejection.
+   */
+  async function settleThroughApplyRetry(write: () => Promise<unknown>): Promise<unknown> {
+    jest.useFakeTimers();
+    try {
+      const settled = write().catch((caught: unknown) => caught);
+      await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((total, ms) => total + ms, 0));
+      return await settled;
+    } finally {
+      jest.useRealTimers();
+    }
   }
 
   it('creates a client with provided callbacks', async () => {
@@ -262,33 +323,28 @@ describe('MidenClientInterface', () => {
     });
 
     /**
-     * Drive a delegated consume whose SDK call reports one prove step, the way
-     * the real client does from inside `transactions.consume`. Returns the
-     * prove ring so the caller can assert what the attempt collected.
+     * Drive a delegated consume whose prove reports one SDK prove step, the way the real client
+     * does inside a staged consume's prove (#1233). Returns the prove ring so the caller can assert
+     * what the attempt collected.
      */
     async function runProveWithObservation(options: { failFirstCall?: boolean } = {}) {
-      jest.doMock('@miden-sdk/miden-sdk', () => ({
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
-
+      mockStagedSdk();
       const proveTelemetry = await import('./prove-telemetry');
       proveTelemetry.__resetProveTelemetryForTest();
 
       let call = 0;
-      const consume = jest.fn(async () => {
+      const staged = stagedExecuteRequest(() => {
         call++;
         const failed = options.failFirstCall === true && call === 1;
         proveTelemetry.recordSdkProveStep({ durationMs: failed ? 8_000 : 2_000, failed });
         if (failed) throw new Error('remote prover unreachable');
-        return { txId: 'tx-id', result: fakeTransactionResult };
       });
 
       const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(buildFakeMidenClient({ transactions: { consume } }) as any, 'net');
+      const client = MidenClientInterface.fromClient(
+        buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+        'net'
+      );
       await client.consumeNoteId({
         accountId: 'acc-id',
         noteId: 'note-1',
@@ -319,22 +375,19 @@ describe('MidenClientInterface', () => {
     });
 
     it('closes the attempt when the prove throws, so a later step is not attributed to it', async () => {
-      jest.doMock('@miden-sdk/miden-sdk', () => ({
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
+      mockStagedSdk();
 
       const proveTelemetry = await import('./prove-telemetry');
       proveTelemetry.__resetProveTelemetryForTest();
 
-      const consume = jest.fn(async () => {
+      const staged = stagedExecuteRequest(() => {
         throw new Error('note has already been consumed');
       });
       const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(buildFakeMidenClient({ transactions: { consume } }) as any, 'net');
+      const client = MidenClientInterface.fromClient(
+        buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+        'net'
+      );
 
       await expect(
         client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any)
@@ -968,75 +1021,54 @@ describe('MidenClientInterface', () => {
     ).rejects.toThrow(/_withInnerWebClient missing/);
   });
 
-  // The consume leaf drives the SDK's opaque all-in-one `transactions.consume`, so
-  // it has no seam at which to mark the point of no return and deliberately keeps
-  // the whole-op local-prover retry (the retry re-consumes the SAME notes, so a
-  // first attempt that landed is rejected on the spent nullifier). The one case it
-  // must NOT retry is apply-after-submit — the tx IS on chain — because the retry's
-  // error would replace it and the row would be classified Failed instead of landed.
-  it('does not retry an opaque consume whose failure says the node already accepted it', async () => {
-    const applyAfterSubmit = new Error(
+  // A consume the node accepted whose apply then fails must not be re-run: the retry's error would
+  // replace the landed one and the row would read Failed. The staged consume reaches that apply
+  // itself (#1233), so the SDK's own mempool text arrives wrapped with the landed code.
+  it('does not re-run a staged consume whose apply failed after its submit (#1233)', async () => {
+    const sdkApplyFailure = new Error(
       "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed."
     );
-    const consume = jest.fn(async () => Promise.reject(applyAfterSubmit));
-    const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
-
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      NoteType: { Private: 0, Public: 1 },
-      TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-    }));
-    jest.doMock('lib/miden/activity/connectivity-state', () => ({
-      markConnectivityIssue: jest.fn(),
-      clearConnectivityIssue: jest.fn()
-    }));
-
+    const staged = stagedExecuteRequest();
+    staged.apply.mockRejectedValue(sdkApplyFailure);
+    mockStagedSdk();
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const { extractSdkErrorCode } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+      'testnet'
+    );
 
-    await expect(
+    const error = await settleThroughApplyRetry(() =>
       client.consumeNoteId({
         accountId: 'acc-id',
         noteId: 'note-1',
         type: 'consume',
         delegateTransaction: true
       } as any)
-    ).rejects.toBe(applyAfterSubmit);
+    );
 
-    expect(consume).toHaveBeenCalledTimes(1);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(error).toHaveProperty('cause', sdkApplyFailure);
+    expect(staged.executeRequest).toHaveBeenCalledTimes(1);
   });
 
-  // Swap is the other opaque whole-op write, but unlike consume a retry would mint
-  // a SECOND PSWAP note (a fresh note serial) and lock the offered asset twice — so
-  // it marks the point of no return before the call and gives up the prove fallback.
-  it('does not retry a delegated swap: the PSWAP submit has no seam to stop at', async () => {
-    const pswapErr = new Error('remote prover deadline exceeded');
-    const submit = jest.fn(async () => Promise.reject(pswapErr));
-    const fakeMidenClient = buildFakeMidenClient({
-      transactions: { submit },
-      // The reference request the vault-key re-emit is measured against.
-      __inner: {
-        newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) }))
-      }
-    });
-
-    jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id),
-      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
-    }));
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      NoteType: { Private: 0, Public: 1 },
-      TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-    }));
-    jest.doMock('lib/miden/activity/connectivity-state', () => ({
-      markConnectivityIssue: jest.fn(),
-      clearConnectivityIssue: jest.fn()
-    }));
-
+  // Swap is staged (#1233), so a delegated prove that fails falls back like the send's. What must
+  // never be re-run is a swap whose submit was reached: a retry would draw a fresh serial, mint a
+  // SECOND PSWAP note and lock the offered asset twice.
+  it('does not re-run a delegated swap whose submit failed', async () => {
+    const refused = new Error('node refused the PSWAP');
+    const staged = stagedExecuteRequest();
+    staged.submit.mockRejectedValueOnce(refused);
+    mockStagedSdk();
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest },
+        // The reference request the vault-key re-emit is measured against.
+        __inner: { newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) })) }
+      }) as any,
+      'testnet'
+    );
 
     await expect(
       client.swapTransaction({
@@ -1047,9 +1079,11 @@ describe('MidenClientInterface', () => {
         delegateTransaction: true,
         extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
       } as any)
-    ).rejects.toBe(pswapErr);
+    ).rejects.toBe(refused);
 
-    expect(submit).toHaveBeenCalledTimes(1);
+    expect(staged.executeRequest).toHaveBeenCalledTimes(1);
+    expect(staged.prove).toHaveBeenCalledTimes(1);
+    expect(staged.submit).toHaveBeenCalledTimes(1);
   });
 
   // `newTransaction` (dApp custom transactions + the Agglayer bridged-send) is
@@ -1118,56 +1152,35 @@ describe('MidenClientInterface', () => {
   });
 
   it('consumeNoteId returns TransactionResult', async () => {
-    const fakeMidenClient = buildFakeMidenClient();
-
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      NoteType: { Private: 'Private', Public: 'Public' },
-      TransactionProver: {
-        newLocalProver: jest.fn(() => 'local')
-      }
-    }));
-    jest.doMock('lib/miden/activity/connectivity-state', () => ({
-      markConnectivityIssue: jest.fn(),
-      clearConnectivityIssue: jest.fn()
-    }));
-
+    const staged = stagedExecuteRequest();
+    // `consume` set here because the override replaces the default `transactions` wholesale, and
+    // the assertion below needs a mock to read.
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: { executeRequest: staged.executeRequest, consume: jest.fn() }
+    });
+    mockStagedSdk();
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.consumeNoteId({
-      accountId: 'acc-id',
-      noteId: 'note-1',
-      type: 'consume'
-    } as any);
+    const result = await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any);
 
     expect(result).toBe(fakeTransactionResult);
-    expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
+    // Staged (#1233): execute, prove, submit and apply, never the SDK's opaque consume.
+    expect(staged.executeRequest).toHaveBeenCalledWith('sdk-acc-id', {});
+    expect(staged.apply).toHaveBeenCalledTimes(1);
+    expect(fakeMidenClient.transactions.consume).not.toHaveBeenCalled();
   });
 
   it('consumeNoteId: a delegated consume whose remote prover never answers falls back locally (#718)', async () => {
-    // The opaque SDK write has no seam between prove and submit, so a remote prover that
-    // goes quiet mid-proof used to park this call forever with the client lock held, and
-    // every later claim queued behind it. The whole-op retry is safe for consume alone:
-    // it re-consumes the SAME notes, so an attempt that did reach the chain is rejected
-    // on the spent nullifier. Only the DELEGATED call is bounded — see the call site.
+    // A remote prover that goes quiet mid-proof used to park this call forever with the client
+    // lock held, and every later claim queued behind it. The delegated prove is bounded and
+    // pre-submit, so the fallback re-proves locally on the same notes (#1233 staged the consume).
     jest.useFakeTimers();
-    const fakeMidenClient = buildFakeMidenClient();
-    // Delegated attempt (no explicit prover) never settles; the local re-prove succeeds.
-    fakeMidenClient.transactions.consume
-      .mockImplementationOnce(() => new Promise(() => {}))
-      .mockImplementationOnce(async () => ({ result: fakeTransactionResult }));
-
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      NoteType: { Private: 'Private', Public: 'Public' },
-      TransactionProver: {
-        newLocalProver: jest.fn(() => 'local')
-      }
-    }));
-    jest.doMock('lib/miden/activity/connectivity-state', () => ({
-      markConnectivityIssue: jest.fn(),
-      clearConnectivityIssue: jest.fn()
-    }));
-
+    const staged = stagedExecuteRequest();
+    // Delegated attempt: the prove never settles. The local re-prove succeeds.
+    staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
+    mockStagedSdk();
     const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
@@ -1181,27 +1194,26 @@ describe('MidenClientInterface', () => {
     await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
 
     expect(await pending).toBe(fakeTransactionResult);
-    expect(fakeMidenClient.transactions.consume).toHaveBeenCalledTimes(2);
-    // First delegated (prover undefined), then the local prover on the fallback.
-    expect(fakeMidenClient.transactions.consume.mock.calls[0][0].prover).toBeUndefined();
-    expect(fakeMidenClient.transactions.consume.mock.calls[1][0].prover).toBe('local');
+    expect(staged.prove).toHaveBeenCalledTimes(2);
+    // First delegated (no explicit prover resolves in this test), then the local prover.
+    expect(staged.prove.mock.calls[0]?.[0]?.prover).toBeUndefined();
+    expect(staged.prove.mock.calls[1]?.[0]?.prover).toBe('local');
     jest.useRealTimers();
   });
 
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
-    const fakeMidenClient = buildFakeMidenClient();
-
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      NoteType: { Private: 'Private', Public: 'Public' },
-      TransactionProver: {
-        newLocalProver: jest.fn(() => 'local')
-      }
-    }));
-    jest.doMock('lib/miden/activity/connectivity-state', () => ({
-      markConnectivityIssue: jest.fn(),
-      clearConnectivityIssue: jest.fn()
-    }));
-
+    const staged = stagedExecuteRequest();
+    const inner = {
+      getInputNote: jest.fn(async (id: string) => ({ toNote: () => ({ note: id }) })),
+      newConsumeTransactionRequest: jest.fn(async (_notes: unknown[], _account: unknown) => ({
+        serialize: () => new Uint8Array([8])
+      }))
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: { executeRequest: staged.executeRequest },
+      __inner: inner
+    });
+    mockStagedSdk();
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
@@ -1214,9 +1226,13 @@ describe('MidenClientInterface', () => {
 
     // Claim All batches into a single consume (one proof, one submit) rather
     // than falling back to the singular `noteId`.
-    expect(fakeMidenClient.transactions.consume).toHaveBeenCalledWith(
-      expect.objectContaining({ account: 'acc-id', notes: ['note-1', 'note-2', 'note-3'] })
-    );
+    expect(inner.newConsumeTransactionRequest).toHaveBeenCalledTimes(1);
+    expect(inner.newConsumeTransactionRequest.mock.calls[0]?.[0]).toEqual([
+      { note: 'note-1' },
+      { note: 'note-2' },
+      { note: 'note-3' }
+    ]);
+    expect(staged.submit).toHaveBeenCalledTimes(1);
   });
 
   describe('miscellaneous branches', () => {
@@ -1808,14 +1824,7 @@ describe('MidenClientInterface', () => {
     });
 
     try {
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        NoteType: { Private: 0, Public: 1 },
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
+      mockStagedSdk();
 
       const fakeMidenClient = buildFakeMidenClient();
       await jest.isolateModulesAsync(async () => {
@@ -1852,14 +1861,7 @@ describe('MidenClientInterface', () => {
     delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
 
     try {
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        NoteType: { Private: 0, Public: 1 },
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
+      mockStagedSdk();
 
       const fakeMidenClient = buildFakeMidenClient();
       let consumeResult!: unknown;
@@ -1877,7 +1879,7 @@ describe('MidenClientInterface', () => {
       const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
       expect(markers.length).toBeGreaterThan(0);
       expect(markers.some(l => /consumeNoteId entered/.test(l))).toBe(true);
-      expect(markers.some(l => /consumeNoteId SDK consume returned/.test(l))).toBe(true);
+      expect(markers.some(l => /consumeNoteId staged consume returned/.test(l))).toBe(true);
     } finally {
       if (prevFlag === undefined) {
         delete process.env.MIDEN_E2E_TEST;
@@ -1899,8 +1901,8 @@ describe('MidenClientInterface', () => {
     const newLocalProver = jest.fn(() => 'should-not-be-called');
     const nativeProverPlugin = { prove: jest.fn() };
 
-    const consume = jest.fn().mockResolvedValue({ txId: 'tx-1', result: fakeTransactionResult });
-    const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+    const staged = stagedExecuteRequest();
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
 
     // Scope doMocks inside isolateModulesAsync so they don't leak to other
     // tests in this file (Jest's doMock state is per-module-registry).
@@ -1910,15 +1912,8 @@ describe('MidenClientInterface', () => {
         isExtension: () => false,
         isDesktop: () => false
       }));
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        NoteType: { Private: 0, Public: 1 },
-        TransactionProver: { newCallbackProver, newLocalProver }
-      }));
+      mockStagedSdk({ TransactionProver: { newCallbackProver, newLocalProver } });
       jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
@@ -1939,9 +1934,8 @@ describe('MidenClientInterface', () => {
     expect(firstCall).toBeDefined();
     expect(typeof firstCall![0]).toBe('function');
 
-    // The SDK then receives that closure-wrapping prover instance.
-    const lastConsumeArgs = consume.mock.calls.at(-1)?.[0];
-    expect(lastConsumeArgs?.prover).toBe('callback-prover-instance');
+    // The staged prove then receives that closure-wrapping prover instance (#1233).
+    expect(staged.prove.mock.calls.at(-1)?.[0]?.prover).toBe('callback-prover-instance');
 
     // Important: jest.doMock persists past jest.resetModules — explicitly
     // undo the mobile/native-prover mocks so the next test's default
@@ -1956,21 +1950,12 @@ describe('MidenClientInterface', () => {
     delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
 
     try {
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        NoteType: { Private: 0, Public: 1 },
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
-      jest.doMock('lib/miden/activity/connectivity-state', () => ({
-        markConnectivityIssue: jest.fn(),
-        clearConnectivityIssue: jest.fn()
-      }));
+      mockStagedSdk();
 
       const consumeErr = new Error('kernel exec failed');
       consumeErr.name = 'TestKernelError';
       const fakeMidenClient = buildFakeMidenClient({
-        transactions: {
-          consume: jest.fn().mockRejectedValue(consumeErr)
-        }
+        transactions: { executeRequest: jest.fn().mockRejectedValue(consumeErr) }
       });
 
       await jest.isolateModulesAsync(async () => {
@@ -1982,7 +1967,7 @@ describe('MidenClientInterface', () => {
       });
 
       const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
-      expect(markers.some(l => /consumeNoteId SDK consume THREW.*TestKernelError.*kernel exec failed/.test(l))).toBe(
+      expect(markers.some(l => /consumeNoteId staged consume THREW.*TestKernelError.*kernel exec failed/.test(l))).toBe(
         true
       );
     } finally {
@@ -2002,18 +1987,14 @@ describe('MidenClientInterface', () => {
     async function runDelegateFailureCase(err: Error) {
       const markConnectivityIssue = jest.fn();
       const clearConnectivityIssue = jest.fn();
-      const consume = jest
-        .fn()
-        .mockImplementationOnce(async () => {
-          throw err;
-        })
-        .mockImplementationOnce(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+      let call = 0;
+      const staged = stagedExecuteRequest(() => {
+        call++;
+        if (call === 1) throw err;
+      });
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
 
-      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
-
-      jest.doMock('@miden-sdk/miden-sdk', () => ({
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
+      mockStagedSdk();
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue,
         clearConnectivityIssue
@@ -2030,7 +2011,7 @@ describe('MidenClientInterface', () => {
       } as any);
 
       expect(result).toBe(fakeTransactionResult);
-      expect(consume).toHaveBeenCalledTimes(2); // delegate attempt + local retry
+      expect(staged.prove).toHaveBeenCalledTimes(2); // delegate attempt + local retry
       return { markConnectivityIssue, clearConnectivityIssue };
     }
 
@@ -2046,12 +2027,12 @@ describe('MidenClientInterface', () => {
       // the error bubbles straight through the `throw err` line.
       const markConnectivityIssue = jest.fn();
       const clearConnectivityIssue = jest.fn();
-      const consume = jest.fn().mockRejectedValueOnce(new Error('prover unreachable'));
-      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+      const staged = stagedExecuteRequest(() => {
+        throw new Error('prover unreachable');
+      });
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
 
-      jest.doMock('@miden-sdk/miden-sdk', () => ({
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
+      mockStagedSdk();
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue,
         clearConnectivityIssue
@@ -2070,7 +2051,7 @@ describe('MidenClientInterface', () => {
       ).rejects.toThrow('prover unreachable');
 
       // Called once (no local-prover retry) and banner untouched.
-      expect(consume).toHaveBeenCalledTimes(1);
+      expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(markConnectivityIssue).not.toHaveBeenCalled();
     });
 
@@ -2124,12 +2105,10 @@ describe('MidenClientInterface', () => {
     it('clears prover on a successful prover call', async () => {
       const markConnectivityIssue = jest.fn();
       const clearConnectivityIssue = jest.fn();
-      const consume = jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
-      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+      const staged = stagedExecuteRequest();
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
 
-      jest.doMock('@miden-sdk/miden-sdk', () => ({
-        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
-      }));
+      mockStagedSdk();
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue,
         clearConnectivityIssue
@@ -2148,6 +2127,80 @@ describe('MidenClientInterface', () => {
       expect(markConnectivityIssue).not.toHaveBeenCalled();
       expect(clearConnectivityIssue).toHaveBeenCalledWith('prover');
     });
+  });
+
+  describe('staged consume and swap (#1233)', () => {
+    const consumeTx = { accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true };
+    const swapTx = {
+      accountId: 'acc-id',
+      faucetId: 'offered-faucet',
+      amount: BigInt(10),
+      type: 'swap',
+      delegateTransaction: true,
+      extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+    };
+    const writes: Array<[string, (client: MidenClientInterfaceType) => Promise<unknown>]> = [
+      ['consume', client => client.consumeNoteId(consumeTx as any)],
+      ['swap', client => client.swapTransaction(swapTx as any)]
+    ];
+
+    const stagedClient = async (executeRequest: jest.Mock) => {
+      mockStagedSdk();
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      return MidenClientInterface.fromClient(
+        buildFakeMidenClient({
+          transactions: { executeRequest },
+          __inner: {
+            getInputNote: jest.fn(async (id: string) => ({ toNote: () => ({ note: id }) })),
+            newConsumeTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([8]) })),
+            newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) }))
+          }
+        }) as any,
+        'testnet'
+      );
+    };
+
+    it.each(writes)('%s: a delegated prove that fails falls back to the local prover', async (_write, run) => {
+      const staged = stagedExecuteRequest(options => {
+        if (options?.prover !== 'local') throw new Error('remote prover deadline exceeded');
+      });
+      const client = await stagedClient(staged.executeRequest);
+
+      await expect(run(client)).resolves.toBe(fakeTransactionResult);
+
+      expect(staged.prove).toHaveBeenCalledTimes(2);
+      expect(staged.prove.mock.calls[1]?.[0]?.prover).toBe('local');
+      expect(staged.submit).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(writes)('%s: a submit that fails is not re-run locally', async (_write, run) => {
+      const refused = new Error('node refused the transaction');
+      const staged = stagedExecuteRequest();
+      staged.submit.mockRejectedValueOnce(refused);
+      const client = await stagedClient(staged.executeRequest);
+
+      await expect(run(client)).rejects.toBe(refused);
+
+      expect(staged.executeRequest).toHaveBeenCalledTimes(1);
+      expect(staged.submit).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(writes)(
+      '%s: an apply that fails after the submit carries the landed code and its cause',
+      async (_write, run) => {
+        const storeAbort = new Error('IndexedDB transaction aborted while applying the transaction update');
+        const staged = stagedExecuteRequest();
+        staged.apply.mockRejectedValue(storeAbort);
+        const client = await stagedClient(staged.executeRequest);
+        const { extractSdkErrorCode } = await import('./sdk-error-code');
+
+        const error = await settleThroughApplyRetry(() => run(client));
+
+        expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+        expect(error).toHaveProperty('cause', storeAbort);
+        expect(staged.executeRequest).toHaveBeenCalledTimes(1);
+      }
+    );
   });
 
   // Offscreen-prove paths.
@@ -2458,6 +2511,42 @@ describe('MidenClientInterface', () => {
           type: 'consume'
         } as any)
       ).rejects.toThrow(/Note missing-note not found in store/);
+    });
+
+    // The claim's offscreen-proved leg applies through the same wrap as the other writes (#1233), so a
+    // claim the node accepted whose apply fails reports as submitted and the loop catch completes it.
+    it('consumeNoteId offscreen path: an apply that fails after the submit rejects as ApplyAfterSubmitError (#1233)', async () => {
+      const fakeWasm = buildWasmStub();
+      const storeAbort = new Error('IndexedDB transaction aborted while applying the transaction update');
+      const inner = {
+        getInputNote: jest.fn(async () => ({ toNote: () => ({ kind: 'note' }) })),
+        newConsumeTransactionRequest: jest.fn(async (_notes: unknown[], _account: unknown) => ({ kind: 'request' })),
+        executeTransaction: jest.fn(async (_accountId: unknown, _request: unknown) => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => Promise.reject(storeAbort)),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { ApplyAfterSubmitError } = await import('./sdk-error-code');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const error = await settleThroughApplyRetry(() =>
+        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any)
+      );
+
+      expect(error).toBeInstanceOf(ApplyAfterSubmitError);
+      expect(error).toHaveProperty('cause', storeAbort);
+      expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('newTransaction offscreen path: deserializes a fresh request and runs the offscreen pipeline', async () => {
