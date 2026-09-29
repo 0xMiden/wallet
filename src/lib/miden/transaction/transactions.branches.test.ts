@@ -308,7 +308,7 @@ describe('completeSendTransaction', () => {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
       expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
       // The landed tx id is still recorded: the transaction is on chain regardless.
       expect(txStore[0]!.transactionId).toBeTruthy();
     } finally {
@@ -384,7 +384,7 @@ describe('completeSendTransaction', () => {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
       expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;

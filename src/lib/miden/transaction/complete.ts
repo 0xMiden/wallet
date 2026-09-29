@@ -1002,7 +1002,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
-      displayMessage: noteDelivery === 'undelivered' ? 'Sent — the private note could not be delivered' : 'Sent',
+      displayMessage: noteDelivery === 'undelivered' ? 'Sent - the private note could not be delivered' : 'Sent',
       transactionId: executedTx.id().toHex(),
       outputNoteIds,
       noteDelivery,
