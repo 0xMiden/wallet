@@ -5,7 +5,7 @@ permalink: /privacy/
 
 # Bread Wallet by Miden — Privacy Policy
 
-_Last updated: 2026-08-21_
+_Last updated: 2026-09-28_
 
 Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
@@ -150,7 +150,11 @@ Biometric matching is performed entirely by your device's operating system insid
 
 ## Network traffic
 
-The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) — never your private keys or recovery phrase.
+The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
+
+It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
+
+Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
 
 If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
 
@@ -160,7 +164,7 @@ The App loads no fonts, scripts, or images from third-party servers. Everything 
 
 The App requests the following Android permissions:
 
-- **INTERNET** — to reach the Miden RPC and transport endpoints
+- **INTERNET** - to reach the Miden RPC and transport endpoints and the services named under Network traffic
 - **VIBRATE** — for haptic feedback on UI interactions
 - **USE_BIOMETRIC** (Android 6+) — to unlock the wallet via fingerprint / face authentication
 

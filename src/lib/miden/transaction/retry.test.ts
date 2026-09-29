@@ -72,6 +72,7 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     stage: 'sending',
     nextEligibleAt: 99_999,
     unauthorizedRetryUntil: 99_999,
+    requeueStreak: { arm: 'guardian-unreachable', count: 3 },
     error: 'Something broke',
     rawError: 'Error: something broke',
     displayMessage: 'Failed',
@@ -444,6 +445,8 @@ describe('requeueFailedTransaction', () => {
     // one automatic attempt at most before the arm concluded it had already run
     // out of time, on a retry the user asked for minutes or days later.
     expect(row.unauthorizedRetryUntil).toBeUndefined();
+    // Or the guardian backoff the failed attempts built (#1223).
+    expect(row.requeueStreak).toBeUndefined();
     expect(row.error).toBeUndefined();
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();

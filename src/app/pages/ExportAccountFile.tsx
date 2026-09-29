@@ -115,7 +115,7 @@ interface ExportAccountFileForAccountProps {
 const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ account }) => {
   const { t } = useTranslation();
   const { exportAccountFile } = useMidenContext();
-  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [acknowledged, setAcknowledged] = useState(false);
   const [password, setPassword] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -221,7 +221,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
     return (
       <SubPageLayout data-testid="export-account-file">
         {accountRow}
-        <ProtectorProbeErrorNotice />
+        <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />
       </SubPageLayout>
     );
   }

@@ -4535,6 +4535,14 @@
     "message": "sin verificar",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Sin verificar",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Este token no figura en la lista de tokens verificados de Miden. Cualquiera puede crear un token con cualquier nombre, así que comprueba el ID de faucet antes de confiar en él.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "No se ha podido verificar mediante simulación. Las cantidades que figuran a continuación son las declaradas por la página web.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5333,16 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Comprobar el método de desbloqueo de este monedero está tardando más de lo habitual. Para volver a intentarlo, retrocede y vuelve a abrir esta página.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Para volver a intentarlo, vuelve atrás y vuelve a abrir esta página.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "No se ha podido comprobar el método de desbloqueo de esta cartera. Inténtalo de nuevo.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Cambiar el color del código QR",

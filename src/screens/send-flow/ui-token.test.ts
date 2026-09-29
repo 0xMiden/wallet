@@ -1,3 +1,4 @@
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
@@ -9,10 +10,12 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: () => null
 }));
 
-// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different. As the
+// SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
 }));
 
 const row = (tokenId: string, metadata: Partial<AssetMetadata>, balance = 5) => ({
@@ -25,8 +28,10 @@ beforeEach(() => _resetNormalizedFaucetIdsForTest());
 
 describe('uiTokenFromBalance', () => {
   it('builds the complete token from a known-scale row', () => {
-    expect(uiTokenFromBalance(row('T1', { symbol: 'TKN', decimals: 4 }, 42), { TKN: { price: 3 } } as any)).toEqual({
-      id: 'T1',
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: { price: 3 } } as any)
+    ).toEqual({
+      id: MIDEN_USDC_FAUCET,
       name: 'TKN',
       decimals: 4,
       balance: 42,

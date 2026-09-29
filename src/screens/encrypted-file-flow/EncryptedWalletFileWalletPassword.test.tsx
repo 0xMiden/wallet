@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -264,7 +265,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
     render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
 
-    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
     expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -282,8 +284,30 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
     render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
 
-    expect(await screen.findByTestId('protector-probe-error')).toHaveTextContent('couldNotCheckUnlockMethodReopen');
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
     expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the software-unlock UI (password field + continue) with no hardware protector', async () => {

@@ -4535,6 +4535,14 @@
     "message": "niezweryfikowane",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Niezweryfikowane",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Ten token nie znajduje się na liście zweryfikowanych tokenów serwisu Miden. Każdy może utworzyć token o dowolnej nazwie, dlatego przed nadaniem mu zaufania sprawdź identyfikator w bazie danych faucet.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5333,16 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Sprawdzanie metody odblokowania tego portfela trwa dłużej niż zwykle. Aby spróbować ponownie, wróć i ponownie otwórz tę stronę.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Aby spróbować ponownie, wróć i otwórz tę stronę ponownie.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Spróbuj ponownie.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Zmień kolor kodu QR",

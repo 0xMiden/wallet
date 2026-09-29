@@ -4535,6 +4535,14 @@
     "message": "não verificado",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Não verificado",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Este token não consta na lista de tokens verificados da Miden. Qualquer pessoa pode criar um token com qualquer nome; portanto, verifique o ID no faucet antes de confiar nele.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Não foi possível verificar por meio de simulação. Os valores abaixo são os declarados pelo site.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5333,16 +5341,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "A verificação do método de desbloqueio desta carteira está demorando mais do que o normal. Para tentar novamente, volte e reabra esta página.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Para tentar novamente, volte e reabra esta página.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Tente novamente.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Alterar a cor do código QR",

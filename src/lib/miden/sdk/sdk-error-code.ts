@@ -170,6 +170,25 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
 }
 
 /**
+ * A local store update that failed after the wallet's own `submitProven` resolved,
+ * which is the moment the node accepted the transaction (#945).
+ *
+ * A staged `submitProven` then `apply()` rejects with the raw store error, which
+ * says nothing about the submit. This carries both signals `isApplyAfterSubmitError`
+ * reads - the code, which the offscreen reply forwards as `errorCode`, and the
+ * mempool text - so the write classifies as submitted and is never requeued into a
+ * second submit.
+ */
+export class ApplyAfterSubmitError extends Error {
+  readonly code = 'ApplyTransactionAfterSubmitFailed';
+
+  constructor(cause: unknown) {
+    super("This transaction was accepted into the node's mempool but the local store update failed", { cause });
+    this.name = 'ApplyAfterSubmitError';
+  }
+}
+
+/**
  * True when a commit wait ended because the node DISCARDED the transaction —
  * a definitive "this will never land", as opposed to the indeterminate
  * timeout the same call throws when the poll window simply expires.

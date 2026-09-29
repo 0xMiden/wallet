@@ -18,6 +18,7 @@ import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -34,6 +35,7 @@ import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
@@ -93,6 +95,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+  const verification = useTokenVerification(tokenId);
 
   const handleBack = () => goBack();
 
@@ -134,6 +137,19 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
           />
 
+          {verification === 'unverified' && (
+            // A token's name and logo are whatever its creator chose; only the list vouches for it.
+            <div className="flex flex-col items-center gap-2" data-testid="token-detail-unverified">
+              <Pill size="sm" tone="warning">
+                {t('unverifiedToken')}
+              </Pill>
+              {/* Centred like the pill and the Hero above it; the pill already carries the warning. */}
+              <Notice tone="warning" variant="inline" className="justify-center text-center">
+                {t('unverifiedTokenDescription')}
+              </Notice>
+            </div>
+          )}
+
           <div className="flex gap-2.5">
             {/* The pair names the two flows it opens, so each takes that flow's colour, like the
                 tab bar's icons: Send blue, Receive green. Labels are the 19px bold CTA face, which
@@ -160,7 +176,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {quote && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
           <TokenInfo tokenId={tokenId} />
 
