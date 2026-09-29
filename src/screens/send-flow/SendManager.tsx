@@ -845,6 +845,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}

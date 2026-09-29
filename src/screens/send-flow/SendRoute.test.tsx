@@ -3,6 +3,9 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SendRoute, SendRouteProps } from './SendRoute';
+import { useAgglayerEligibility } from './useAgglayerEligibility';
+
+jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -51,6 +54,7 @@ jest.mock('components/Button', () => ({
 
 function renderRoute(overrides: Partial<SendRouteProps> = {}) {
   const props: SendRouteProps = {
+    faucetId: 'token',
     route: 'epoch',
     onRouteChange: jest.fn(),
     fastQuoteLoading: false,
@@ -63,6 +67,13 @@ function renderRoute(overrides: Partial<SendRouteProps> = {}) {
 }
 
 describe('SendRoute', () => {
+  it('blocks confirmation while a restored Slow route is being checked', () => {
+    jest.mocked(useAgglayerEligibility).mockReturnValueOnce('loading');
+    const props = renderRoute({ route: 'agglayer' });
+    expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+    expect(props.onConfirm).not.toHaveBeenCalled();
+  });
   it('shows the route title and forwards the back action', () => {
     const props = renderRoute();
 

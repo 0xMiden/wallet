@@ -11,8 +11,11 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { BridgeRoute } from './types';
+import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
+  /** Set for Miden bridge-out. EVM deposits do not have a source Miden faucet. */
+  faucetId?: string;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -34,14 +37,28 @@ interface RouteCardProps {
   eta: string;
   testId?: string;
   accent: FlowAccent;
+  disabled?: boolean;
+  loading?: boolean;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
+const RouteCard: React.FC<RouteCardProps> = ({
+  label,
+  selected,
+  onSelect,
+  fee,
+  eta,
+  testId,
+  accent,
+  disabled,
+  loading
+}) => (
   <button
     type="button"
     data-testid={testId}
     onClick={onSelect}
     aria-pressed={selected}
+    disabled={disabled}
+    aria-busy={loading}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink',
       selected ? ACCENT_CLASSES[accent].border : 'border-hairline'
@@ -58,7 +75,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
 export type RouteOptionsProps = Pick<
   RouteStepProps,
   'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
-> & { accent?: FlowAccent };
+> & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
@@ -67,9 +84,27 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastFeeUsd,
   fastQuoteLoading,
   notice,
+  slowStatus,
   accent = 'brand'
 }) => {
   const { t } = useTranslation();
+  const slowAllowed = slowStatus === 'allowed';
+  let slowFee: React.ReactNode = <span className="text-base font-bold text-ink">{t('noFee')}</span>;
+  let slowNotice: React.ReactNode;
+  switch (slowStatus) {
+    case 'loading':
+      slowFee = <Skeleton className="h-4 w-12" />;
+      slowNotice = t('agglayerCheckingToken');
+      break;
+    case 'unsupported':
+      slowFee = t('unavailable');
+      slowNotice = t('agglayerTokenUnsupported');
+      break;
+    case 'error':
+      slowFee = t('unavailable');
+      slowNotice = t('agglayerTokenCheckFailed');
+      break;
+  }
 
   const select = (next: BridgeRoute) => {
     if (next === route) return;
@@ -101,13 +136,20 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
       <RouteCard
         emoji="🕐"
         label={t('slow')}
-        selected={route === 'agglayer'}
+        selected={route === 'agglayer' && slowAllowed}
+        disabled={!slowAllowed}
+        loading={slowStatus === 'loading'}
         onSelect={() => select('agglayer')}
-        fee={<span className="text-base font-bold text-ink">{t('noFee')}</span>}
+        fee={slowFee}
         eta={t('slowArrival')}
         testId="bridge-route-slow"
         accent={accent}
       />
+      {slowNotice && (
+        <p role="status" className="text-xs text-muted">
+          {slowNotice}
+        </p>
+      )}
       {notice && <p className="text-xs text-muted">{notice}</p>}
     </div>
   );
@@ -116,9 +158,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 /**
  * Cross-chain route picker, shown after the destination network is chosen for a
  * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
+ * fee = input value − USDC received); Slow = Agglayer (registered tokens only).
  */
 export const Route: React.FC<RouteStepProps> = ({
+  faucetId,
   route,
   onRouteChange,
   fastFeeUsd,
@@ -128,6 +171,7 @@ export const Route: React.FC<RouteStepProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const slowStatus = useAgglayerEligibility(faucetId);
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
@@ -140,6 +184,7 @@ export const Route: React.FC<RouteStepProps> = ({
           fastFeeUsd={fastFeeUsd}
           fastQuoteLoading={fastQuoteLoading}
           notice={notice}
+          slowStatus={slowStatus}
         />
       </div>
 
@@ -148,7 +193,7 @@ export const Route: React.FC<RouteStepProps> = ({
           title={t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
-          disabled={confirmDisabled}
+          disabled={confirmDisabled || (route === 'agglayer' && slowStatus !== 'allowed')}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
