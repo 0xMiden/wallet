@@ -519,6 +519,9 @@ describe('detached recovery run', () => {
 
       expect(mockClearProgress).not.toHaveBeenCalled();
       expect(setPendingFlag).not.toHaveBeenCalled();
+      const publicWrites = mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'public');
+      expect(publicWrites.length).toBeGreaterThan(0);
+      for (const [progress] of publicWrites) expect(progress.historyGeneration).toBe('gen-1');
     });
 
     it('resumes at the checkpointed block and skips the sources it already did', async () => {
@@ -530,7 +533,8 @@ describe('detached recovery run', () => {
         syncedToBlock: 200_000,
         latestBlock: 400_000,
         updatedAt: Date.now(),
-        sourcesClean: true
+        sourcesClean: true,
+        historyGeneration: 'gen-1'
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -559,7 +563,8 @@ describe('detached recovery run', () => {
         syncedToBlock: 200_000,
         latestBlock: 400_000,
         updatedAt: Date.now(),
-        sourcesClean: true
+        sourcesClean: true,
+        historyGeneration: 'gen-1'
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -638,7 +643,9 @@ describe('detached recovery run', () => {
     it.each([
       ['history', 'gen-0'],
       ['history-partial', 'gen-0'],
-      ['history', undefined]
+      ['history', undefined],
+      ['public', 'gen-0'],
+      ['public', undefined]
     ] as const)('runs the full pass over a clean %s record from history generation %s', async (step, generation) => {
       const account = pendingAccount({ coldPublicKey: '0xcold' });
       mockFetchProgress.mockResolvedValue({
@@ -646,6 +653,7 @@ describe('detached recovery run', () => {
         step,
         operator: 'https://guardian.test',
         restored: 1,
+        syncedToBlock: 200_000,
         updatedAt: Date.now(),
         sourcesClean: true,
         historyGeneration: generation

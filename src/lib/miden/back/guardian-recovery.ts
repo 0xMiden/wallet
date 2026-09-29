@@ -353,13 +353,13 @@ function resumePointFor(
   // Staleness is deliberately NOT considered. An old record is exactly the case
   // worth resuming: it means the run died rather than finished.
   if (progress.sourcesClean !== true) return null;
-  // A history step is written only after a clean notes pass, so its retry skips
-  // straight to history, but only for the wallet that wrote it: a record from
-  // another history generation (or from before generations were recorded) gets
-  // a full pass. `history-failed` is terminal and never resumed.
-  if (progress.step === 'history' || progress.step === 'history-partial') {
-    return progress.historyGeneration === historyGeneration ? { step: 'history' } : null;
-  }
+  // Every resumable step resumes only for the wallet that wrote it: a record
+  // from another history generation (or from before generations were
+  // recorded) gets a full pass. A history step is written only after a clean
+  // notes pass, so its retry skips straight to history; `history-failed` is
+  // terminal and never resumed.
+  if (progress.historyGeneration !== historyGeneration) return null;
+  if (progress.step === 'history' || progress.step === 'history-partial') return { step: 'history' };
   if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
   return { step: 'public', block: progress.syncedToBlock };
 }
@@ -530,7 +530,8 @@ export async function recoverPendingNotes(
           startBlock,
           syncedToBlock: startBlock,
           latestBlock,
-          sourcesClean: result.sourceFailures === 0
+          sourcesClean: result.sourceFailures === 0,
+          historyGeneration
         });
         checkpointedBlock = result.sourceFailures === 0 ? startBlock : null;
         let scannedToBlock = startBlock;
@@ -612,7 +613,8 @@ export async function recoverPendingNotes(
             // Re-stamped per chunk: a failure anywhere in this pass makes the
             // watermark unusable as a resume point, including for a pass that
             // never reaches its `finally` because the realm was evicted.
-            sourcesClean: result.sourceFailures === 0
+            sourcesClean: result.sourceFailures === 0,
+            historyGeneration
           });
           checkpointedBlock = result.sourceFailures === 0 ? scannedToBlock : null;
         }

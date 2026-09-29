@@ -67,9 +67,10 @@ export type GuardianNoteRecoveryProgress = {
    */
   sourcesClean?: boolean;
   /**
-   * The Guardian history generation of the run that wrote a `history` or
-   * `history-partial` step. A retry resumes at history only under the same
-   * generation, so a record left by a wallet that was since replaced is not.
+   * The Guardian history generation of the run that wrote a `public`,
+   * `history` or `history-partial` step. A retry resumes any of them only under
+   * the same generation, so a record left by a wallet that was since replaced
+   * is not.
    */
   historyGeneration?: string;
 };
