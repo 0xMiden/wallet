@@ -106,6 +106,11 @@ jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
 }));
 
+// The pill has its own suite; here it only has to sit above the balance card.
+jest.mock('components/NetworkModePill', () => ({
+  NetworkModePill: () => <div data-testid="network-mode-pill" />
+}));
+
 jest.mock('components/Loader', () => ({
   Loader: (props: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="refresh-loader" {...props} />
 }));
@@ -298,6 +303,11 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
+      // The test network is named above the card, the first thing on Home.
+      expect(
+        screen.getByTestId('network-mode-pill').compareDocumentPosition(screen.getByTestId('balance-card')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
       // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
       // fields flow through.
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');

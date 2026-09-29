@@ -9,11 +9,12 @@ import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
+import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
-import { ListGroup } from 'components/ui/ListGroup';
-import { ListRow } from 'components/ui/ListRow';
+import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
@@ -22,6 +23,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
+import { cn } from 'lib/ui/util';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -57,6 +59,49 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read QR image'));
     reader.readAsDataURL(blob);
   });
+
+interface ReceiveActionTileProps {
+  icon: IconName;
+  title: string;
+  caption: string;
+  onClick: () => void;
+  'data-testid'?: string;
+}
+
+/** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
+const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
+  icon,
+  title,
+  caption,
+  onClick,
+  'data-testid': dataTestId
+}) => {
+  const tone = ACCENT_CLASSES.receive;
+  return (
+    <Card asChild surface="outline" pressable className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center">
+      <button
+        type="button"
+        onClick={() => {
+          hapticLight();
+          onClick();
+        }}
+        data-testid={dataTestId}
+      >
+        <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
+          <Icon name={icon} size="xs" />
+        </IconCircle>
+        <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
+          <span data-slot="title" className="truncate text-row-title text-ink">
+            {title}
+          </span>
+          <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+            {caption}
+          </span>
+        </span>
+      </button>
+    </Card>
+  );
+};
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
@@ -107,7 +152,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     onBridgeDeposit();
   }, [onBridgeDeposit]);
 
-  // ListRow fires the tap haptic for both actions.
+  // The action tile fires the tap haptic for both actions.
   const handleOpenEvm = useCallback(() => {
     if (evmConnected && evmAddress) {
       openBridgeDeposit();
@@ -183,113 +228,116 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <HomeGroupPaneBody testId="receive-page" top="visual">
-      {/* No visible title: the action bar already says Receive and the code leads the page. The
+      {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
+          captions, the warning) resolve to the heading face here. `contents` adds no box, so the
+          pane's layout is untouched. */}
+      <div className="contents face-heading">
+        {/* No visible title: the action bar already says Receive and the code leads the page. The
           heading stays for assistive tech. */}
-      <h1 data-testid="receive-title" className="sr-only">
-        {t('receiveAt')}
-      </h1>
-      {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
-      <span data-testid="receive-address-full" className="sr-only">
-        {address}
-      </span>
+        <h1 data-testid="receive-title" className="sr-only">
+          {t('receiveAt')}
+        </h1>
+        {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+        <span data-testid="receive-address-full" className="sr-only">
+          {address}
+        </span>
 
-      {/* The code, its network and the address: one centred block on the page itself, no card
+        {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
-      <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
-        <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
-          {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
+            {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
-          <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
-            <motion.div
-              data-testid="receive-qr-frame"
-              className="aspect-square w-full"
-              // The dip of the logo press. The card is what moves: the logo is drawn inside the
-              // QR's own SVG, so it cannot be scaled on its own.
-              animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
-              transition={resolveTransition(reduceMotion, tabBarMotion.press)}
-            >
-              <QRCode
-                ref={qrRef}
-                address={address}
-                size={QR_EXPORT_SIZE}
-                palette={QR_PALETTE_CYCLE[paletteStep] ?? 'green'}
-                recolourAttempt={paletteAttempt}
-                onPaletteCommitted={handlePaletteCommitted}
-                // The page names the network in the chip below; the shared image still carries it.
-                caption={network ? t('qrNetworkCaption', { network }) : undefined}
-              />
-            </motion.div>
-            {/* The Bread logo in the middle of the code, as a target: each tap repaints the
+            <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
+              <motion.div
+                data-testid="receive-qr-frame"
+                className="aspect-square w-full"
+                // The dip of the logo press. The card is what moves: the logo is drawn inside the
+                // QR's own SVG, so it cannot be scaled on its own.
+                animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
+                transition={resolveTransition(reduceMotion, tabBarMotion.press)}
+              >
+                <QRCode
+                  ref={qrRef}
+                  address={address}
+                  size={QR_EXPORT_SIZE}
+                  palette={QR_PALETTE_CYCLE[paletteStep] ?? 'green'}
+                  recolourAttempt={paletteAttempt}
+                  onPaletteCommitted={handlePaletteCommitted}
+                  // The page names the network in the chip below; the shared image still carries it.
+                  caption={network ? t('qrNetworkCaption', { network }) : undefined}
+                />
+              </motion.div>
+              {/* The Bread logo in the middle of the code, as a target: each tap repaints the
                   modules in the next colour of the cycle. The logo itself is left alone. */}
-            <button
-              type="button"
-              onClick={cyclePalette}
-              {...logoPressHandlers}
-              onBlur={releaseLogo}
-              aria-label={t('receiveQrColorAction')}
-              data-testid="receive-qr-logo"
-              data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
-              className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              <button
+                type="button"
+                onClick={cyclePalette}
+                {...logoPressHandlers}
+                onBlur={releaseLogo}
+                aria-label={t('receiveQrColorAction')}
+                data-testid="receive-qr-logo"
+                data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
+                className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              />
+            </div>
+            {network && (
+              <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
+            )}
+            <CopyButton
+              text={address}
+              data-testid="receive-copy-address"
+              label={truncateAddress(address, false, 16, 8)}
+              icon="leading"
+              iconClassName="text-accent-receive"
+              checkClassName="text-positive-ink"
+              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
             />
           </div>
-          {network && (
-            <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
-          )}
-          <CopyButton
-            text={address}
-            data-testid="receive-copy-address"
-            label={truncateAddress(address, false, 16, 8)}
-            icon="leading"
-            iconClassName="text-accent-receive"
-            checkClassName="text-positive-ink"
-            className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
-            contentClassName="gap-2 font-heading text-base leading-5 font-bold"
-          />
         </div>
-      </div>
 
-      <div className="mt-2 flex shrink-0 flex-col gap-2">
-        {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
-              hairlines. */}
-        <ListGroup data-testid="receive-actions">
-          <ListRow
-            icon={<Icon name={IconName.Share} size="xs" />}
-            title={t('share')}
-            accent="receive"
-            onClick={() => void handleShare()}
-            data-testid="receive-share"
-          />
-          {/* WalletConnect is not supported on the extension: the Reown relay
+        <div className="mt-2 flex shrink-0 flex-col gap-2">
+          {/* Two equal choices, side by side: each its own outlined tile, the Receive green on its
+              glyph, the label over a one-line caption. */}
+          <div className="flex gap-2.5" data-testid="receive-actions">
+            <ReceiveActionTile
+              icon={IconName.Share}
+              title={t('share')}
+              caption={t('receiveShareCaption')}
+              onClick={() => void handleShare()}
+              data-testid="receive-share"
+            />
+            {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
-          {showCrossChain && (
-            <ListRow
-              icon={<Icon name={IconName.CrossChain} size="xs" />}
-              title={t('crossChain')}
-              // Name the actual source test network, not a bare "Testnet" (#875).
-              subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-              accent="receive"
-              chevron
-              onClick={handleOpenEvm}
-              data-testid="receive-cross-chain"
-            />
-          )}
-        </ListGroup>
-        {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
+            {showCrossChain && (
+              <ReceiveActionTile
+                icon={IconName.CrossChain}
+                title={t('crossChain')}
+                // Name the actual source test network, not a bare "Testnet" (#875).
+                caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+                onClick={handleOpenEvm}
+                data-testid="receive-cross-chain"
+              />
+            )}
+          </div>
+          {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
-        {network && (
-          <Notice
-            tone="warning"
-            variant="inline"
-            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-            data-testid="receive-test-funds-warning"
-          >
-            {t('receiveTestFundsBody', { network })}
-          </Notice>
-        )}
+          {network && (
+            <Notice
+              tone="warning"
+              variant="inline"
+              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+              data-testid="receive-test-funds-warning"
+            >
+              {t('receiveTestFundsBody', { network })}
+            </Notice>
+          )}
+        </div>
+        {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
       </div>
-      {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </HomeGroupPaneBody>
   );
 };

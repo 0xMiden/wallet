@@ -668,7 +668,7 @@ const Welcome: FC = () => {
         navigate('/#meet-guardian');
         break;
       case 'choose-guardian':
-        // "Choose a different Guardian" on the Meet your Guardian step: the full picker.
+        // The guardian card's Change action on the Meet your Guardian step: the full picker.
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
