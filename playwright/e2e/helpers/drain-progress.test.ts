@@ -60,9 +60,12 @@ describe('startDrainDeadline', () => {
 
   it('extends past the budget while the last progress is inside the stall window', () => {
     const clock = fakeClock();
-    const deadline = startDrainDeadline(120_000, clock.now);
+    // A budget whose cap lies well past every assertion below, so this test never crosses into 'cap' territory
+    // regardless of how wide DRAIN_STALL_WINDOW_MS is.
+    const budgetMs = 400_000;
+    const deadline = startDrainDeadline(budgetMs, clock.now);
     deadline.observe(completed(3));
-    clock.advance(100_000);
+    clock.advance(budgetMs - 20_000);
     deadline.observe(completed(4));
     clock.advance(20_000);
     expect(deadline.verdict()).toBe('continue');
@@ -91,7 +94,27 @@ describe('startDrainDeadline', () => {
     deadline.observe(completed(3));
     clock.advance(20_000);
     deadline.observe(completed(4));
-    clock.advance(110_000);
+    // A full stall window past the last completion, whatever that window is, so the queue is never 'moving' here.
+    clock.advance(DRAIN_STALL_WINDOW_MS);
+    expect(deadline.verdict()).toBe('stalled');
+  });
+
+  it('reads continue through a normal Guardian turn-away and stalls the window past the last completion, not the budget', () => {
+    const clock = fakeClock();
+    // A budget whose cap sits well past every assertion below, so only the stall window is ever in play.
+    const budgetMs = 400_000;
+    const turnAwayMs = 165_000;
+    const deadline = startDrainDeadline(budgetMs, clock.now);
+    deadline.observe(completed(3));
+    clock.advance(budgetMs);
+    deadline.observe(completed(4));
+    clock.advance(turnAwayMs - 1);
+    expect(deadline.verdict()).toBe('continue');
+    clock.advance(1);
+    deadline.observe(completed(5));
+    clock.advance(DRAIN_STALL_WINDOW_MS - 1);
+    expect(deadline.verdict()).toBe('continue');
+    clock.advance(1);
     expect(deadline.verdict()).toBe('stalled');
   });
 

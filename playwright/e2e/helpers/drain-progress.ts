@@ -4,10 +4,14 @@ import { readTransactionRowsOrNull, TxStatus } from './history';
 
 /**
  * How long a claim drain's queue may go without progress, once past its budget, before the drain fails as stalled.
- * Sized for completions: two Guardian rows at their slowest normal cost (about 45 s each, #1266), so a queue that
- * keeps completing never trips it.
+ * Sized for one normal Guardian turn-away between two completions, whichever of its two paths runs longer: a 409
+ * (the in-call conflict retry, about 55 s, the 15 s pending-conflict cooldown, the processor's 5 s wait after a
+ * requeued pass, and a slow retry, about 45 s: about 120 s) or an unreachable guardian refused by a 30 s gateway
+ * timeout (about 30 s, the 60 s cooldown, 5 s and a slow retry, plus the work before the proposal: about
+ * 150-165 s), with headroom. A 429 honouring a retry_after over about 120 s, or a second consecutive requeue
+ * (its cooldown doubles), can still end a drain past its budget stalled.
  */
-export const DRAIN_STALL_WINDOW_MS = 90_000;
+export const DRAIN_STALL_WINDOW_MS = 180_000;
 
 /** The wallet's count of Completed rows, from one read of the transactions table. */
 export interface DrainSnapshot {
