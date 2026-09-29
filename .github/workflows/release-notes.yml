@@ -46,11 +46,11 @@ jobs:
 
       # The workflow's own ref carries the notes script: the tag's commit for a release event, the
       # default branch for a manual backfill of a tag cut before the script existed. The CHANGELOG
-      # is read at the tag.
+      # is read at the tag, the one ref fetched beyond the checkout. The refspec is forced: on a
+      # release event checkout has already written refs/tags/<tag> as a plain ref to the commit, and
+      # a fetch without + refuses to move it to the annotated tag.
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Extract changelog section
         id: extract
@@ -59,7 +59,8 @@ jobs:
           TAG='${{ steps.tag.outputs.tag }}'
           VERSION='${{ steps.tag.outputs.version }}'
 
-          if ! git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+          if ! git fetch --depth=1 origin "+refs/tags/${TAG}:refs/tags/${TAG}" ||
+            ! git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
             echo "Tag ${TAG} not found" >&2
             exit 1
           fi

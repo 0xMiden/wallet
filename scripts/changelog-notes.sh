@@ -10,11 +10,6 @@ usage='usage: changelog-notes.sh <version> [<changelog>]'
 version=${1:?$usage}
 changelog=${2:-CHANGELOG.md}
 
-if [ ! -r "${changelog}" ]; then
-    >&2 echo "changelog-notes: cannot read ${changelog}."
-    exit 2
-fi
-
 # The first heading with this version opens the body; the next heading or --- line ends it. The
 # second awk reads all its input rather than exiting early, so a long CHANGELOG cannot SIGPIPE the
 # first under pipefail.
