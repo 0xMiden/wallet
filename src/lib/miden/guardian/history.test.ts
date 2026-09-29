@@ -382,6 +382,30 @@ it('links a recovered receive to its swap by order ID', () => {
   expect(swap.faucetId).toBe('miden');
   expect(swap.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
   expect(consume.extraInputs).toMatchObject({ swapOrderTxId: swap.id, swapSettleKind: 'settle' });
+  expect(reconcileRecoveredSwaps([consume, swap])).toEqual([]);
+});
+
+it('returns a later receipt for a linked order and the order it moves, not the earlier receipt', () => {
+  const { swap, consume } = recoveredSwapPair();
+  reconcileRecoveredSwaps([consume, swap]);
+  const later = { ...consume, id: 'later-consume', completedAt: (consume.completedAt ?? 0) + 60, extraInputs: {} };
+  const changed = reconcileRecoveredSwaps([consume, swap, later]);
+  expect(changed.map(row => row.id).sort()).toEqual([later.id, swap.id].sort());
+  expect(swap.extraInputs.settledAt).toBe(later.completedAt);
+});
+
+it('leaves a local receipt that only gained recovery data alone', () => {
+  const { swap, consume } = recoveredSwapPair();
+  const local = {
+    ...consume,
+    id: 'local-consume',
+    recovered: undefined,
+    restoredFromBackup: undefined,
+    extraInputs: { swapOrderTxId: 'local-order' }
+  };
+  expect(reconcileRecoveredSwaps([local, swap])).toEqual([]);
+  expect(local.extraInputs).toEqual({ swapOrderTxId: 'local-order' });
+  expect(swap.extraInputs.settledAt).toBeUndefined();
 });
 
 it('keeps mixed batches and unrelated assets visible', () => {

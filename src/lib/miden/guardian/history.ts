@@ -328,11 +328,27 @@ export function recoveredHistoryRecord(
   });
 }
 
+function swapLinkFields(row: ITransaction): unknown[] {
+  return row.type === 'consume'
+    ? [row.extraInputs?.swapOrderTxId, row.extraInputs?.swapSettleKind]
+    : [row.extraInputs?.settledAt, row.extraInputs?.reclaimedAt];
+}
+
 // Link only complete consume batches for one order. Keep mixed batches visible.
+// Returns only the rows whose link fields changed, so a linked pair is not written again.
 export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
-  const changed = new Map<string, ITransaction>();
+  const touched = new Map<string, { row: ITransaction; before: unknown[] }>();
+  const touch = (row: ITransaction) => {
+    if (!touched.has(row.id)) touched.set(row.id, { row, before: swapLinkFields(row) });
+  };
   for (const consume of rows) {
-    if (consume.type !== 'consume' || !consume.recovery || consume.status !== ITransactionStatus.Completed) continue;
+    if (
+      consume.type !== 'consume' ||
+      consume.recovered !== true ||
+      !consume.recovery ||
+      consume.status !== ITransactionStatus.Completed
+    )
+      continue;
     const notes = consume.recovery.inputNotes;
     const first = notes[0]?.swap;
     if (!first || notes.some(note => note.swap?.orderId !== first.orderId)) continue;
@@ -353,6 +369,8 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
       notes.some(note => note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== faucetId))
     )
       continue;
+    touch(consume);
+    touch(order);
     consume.extraInputs = {
       ...consume.extraInputs,
       swapOrderTxId: order.id,
@@ -363,8 +381,8 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
       ...order.extraInputs,
       ...(reclaim ? { reclaimedAt: completedAt } : { settledAt: completedAt })
     };
-    changed.set(consume.id, consume);
-    changed.set(order.id, order);
   }
-  return [...changed.values()];
+  return [...touched.values()]
+    .filter(({ row, before }) => swapLinkFields(row).some((value, index) => value !== before[index]))
+    .map(({ row }) => row);
 }
