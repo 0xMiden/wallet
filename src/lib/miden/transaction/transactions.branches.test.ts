@@ -853,9 +853,17 @@ describe('waitForTransactionCompletion — error subscription', () => {
     // INSIDE dexie's `next` callback, after `cleanup()` has cleared the 5-minute
     // timeout. The promise then settles as neither success nor timeout and the
     // awaiting Epoch bridge/earn note builder blocks forever.
-    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed });
     const result = await waitForTransactionCompletion('tx-no-result');
     expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
+  });
+
+  it('tells the dApp a landed row with no resultBytes was accepted, naming its transaction id (#1233)', async () => {
+    txStore.push({ id: 'tx-landed', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    const result = await waitForTransactionCompletion('tx-landed');
+    expect(result).toEqual({
+      errorMessage: 'Transaction 0xabc was accepted by the network, but its result is not available'
+    });
   });
 
   it('resolves with the error message when deserializing the result throws', async () => {

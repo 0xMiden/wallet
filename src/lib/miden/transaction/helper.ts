@@ -714,7 +714,14 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // to a result-less Completed row.
           try {
             if (!tx.resultBytes) {
-              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              // A landed write (#1233) reaches here with its id recorded: the network accepted it and
+              // only the local apply failed. It stays an error, since no output exists to return, but
+              // says so, or a dApp reading "not sent" asks the user to sign and pay again.
+              resolve({
+                errorMessage: tx.transactionId
+                  ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
+                  : 'Transaction completed without a transaction result'
+              });
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);

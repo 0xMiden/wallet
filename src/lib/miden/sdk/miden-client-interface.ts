@@ -1693,7 +1693,8 @@ export class MidenClientInterface {
         recordProveTiming('newTransaction staged: executeRequest returned; proving');
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
         // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
-        // reports failure to the dApp or hides the L1 claim (#1233).
+        // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
+        // still answers with an error, one saying the network accepted it and naming its id.
         const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction');
         recordProveTiming('newTransaction staged: apply returned');
         return result;
