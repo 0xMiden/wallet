@@ -199,11 +199,16 @@ r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 expect 2 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
 
-# BASE_REF= overrides expect()'s own BASE_REF=main (env keeps the later of two assignments to the
-# same name), so the gate sees it empty, same as unset for a bash 3.2 caller with no `env -u`.
+# BASE_REF= and NO_CHANGELOG_LABEL= override expect()'s own values (env keeps the later of two
+# assignments to the same name), so the gate sees them empty, same as unset for a bash 3.2 caller
+# with no `env -u`. Without the guard, an empty label with a correct entry passes.
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 expect 2 'an unset BASE_REF does not pass' "$r" BASE_REF=
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+expect 2 'an unset NO_CHANGELOG_LABEL does not pass' "$r" NO_CHANGELOG_LABEL=
 
 r=$(new_repo)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
@@ -216,7 +221,9 @@ printf '#!/bin/sh\nexit 2\n' > "$shim/awk"
 chmod +x "$shim/awk"
 expect 2 'a failing awk does not pass' "$r" PATH="$shim:$PATH"
 
-# --- the diff is not parsed, so git config and the final newline change nothing ---
+# --- guards against a diff parser coming back: git config and the final newline change nothing ---
+# The gate compares whole files. A parser of `git diff` would misread fused hunks under
+# diff.interHunkContext, and a dropped final newline as an added last line.
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 insert_after "$r" '- [FIX][all] Released entry (#2).' '- [FIX][all] Misplaced (#11).'
@@ -228,6 +235,7 @@ insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 strip_final_newline "$r"
 expect 0 'dropping the final newline with a correct entry passes' "$r"
 
+# --- the unchanged check: a change to the final newline, or a trailing blank line, is no edit ---
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 strip_final_newline "$r"
 expect 1 'a change to the final newline alone is no change' "$r"
@@ -360,7 +368,6 @@ printf '%s\n' '# Changelog' '' '## 1.2.6 (TBD)' '' '- open' '' '---' '' '- after
 notes_is 'the notes stop at a --- line' "$f" 1.2.6 0 '- open'
 notes_is 'the notes read a tab-led heading' "$f" 1.2.5 0 '- tab heading'
 notes_is 'the notes take the first section with a version, trimmed' "$f" 1.2.4 0 "$(printf '### Fixes\n\n- has\ta tab')"
-notes_is 'keeps a tab inside a line' "$f" 1.2.4 0 "$(printf '### Fixes\n\n- has\ta tab')"
 notes_is 'the notes are empty for a version with no section' "$f" 9.9.9 0 ''
 notes_is 'the notes cannot read a missing file' "$work/no-such.md" 1.2.4 2 ''
 if out=$(bash "$notes" 1.16.2 "$repo_root/CHANGELOG.md") && [ -n "$out" ]; then
