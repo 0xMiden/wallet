@@ -97,7 +97,11 @@ export async function clearStorage(clearDb: boolean = true) {
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
-  await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : []);
+  await clearPlatformKeyValueStorage(
+    keepEndpointOverride
+      ? PRESERVED_STORAGE_KEYS
+      : PRESERVED_STORAGE_KEYS.filter(key => key !== ENDPOINT_OVERRIDE_STORAGE_KEY)
+  );
   try {
     await Repo.db.delete();
     await Repo.db.open();
