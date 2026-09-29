@@ -1,8 +1,9 @@
-import { TRANSAK_FEED_STATES, WORKER_STATES, type Order } from './db.js';
-import { errorText, logEvent, type LogFields } from './log.js';
-import { advanceOrder, type OrderDeps } from './orders.js';
-import { TransakError } from './transak.js';
-import type { TransakFeed } from './transak-feed.js';
+import { advanceOrder, type OrderDeps } from './advance.js';
+import { TRANSAK_FEED_STATES, WORKER_STATES } from './states.js';
+import type { Order } from './store.js';
+import { errorText, logEvent, type LogFields } from '../log.js';
+import { TransakError } from '../transak/client.js';
+import type { TransakFeed } from '../transak/feed.js';
 
 export interface WorkerOptions extends Omit<OrderDeps, 'receiptWarnings' | 'loggedCryptoAmounts' | 'transakPoll'> {
   intervalMs: number;

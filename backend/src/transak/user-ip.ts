@@ -2,13 +2,15 @@ import { isIP } from 'node:net';
 
 import { z } from 'zod';
 
-import type { FetchLike } from './transak.js';
+import type { FetchLike } from './client.js';
+import type { TransakEnv } from '../config.js';
 
 /**
  * Transak pins a widget session to the `x-user-ip` that this server sends. In local development the wallet calls
  * this server over loopback or the LAN, so the caller IP is private, but the widget loads from the public IP of the
  * network. For a private caller IP, this module sends the public IP of this server instead. On one machine or one
  * network, the two public IPs are the same. A public caller IP goes to Transak unchanged.
+ * This is for staging only. In production the caller IP always goes to Transak unchanged.
  */
 
 const PUBLIC_IP_LOOKUP_URL = 'https://api.ipify.org?format=json';
@@ -48,6 +50,19 @@ export function isPrivateIp(ip: string): boolean {
 }
 
 export type UserIpResolver = (callerIp: string) => Promise<string>;
+
+/** Send the caller IP unchanged. */
+export const passCallerIp: UserIpResolver = callerIp => Promise.resolve(callerIp);
+
+/** The resolver for the Transak environment. Only staging replaces a private caller IP. */
+export function userIpResolverFor(env: TransakEnv, fetch: FetchLike): UserIpResolver {
+  switch (env) {
+    case 'staging':
+      return createUserIpResolver(fetch);
+    case 'production':
+      return passCallerIp;
+  }
+}
 
 export function createUserIpResolver(fetch: FetchLike): UserIpResolver {
   // One lookup for the life of the process. A failed lookup is not kept, so the next call tries again.

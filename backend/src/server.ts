@@ -1,14 +1,14 @@
 import 'dotenv/config';
 
+import { createApp } from './app.js';
+import { createSepoliaChain } from './chain-testnet/sepolia.js';
 import { loadConfig } from './config.js';
-import { openDatabase, OrderStore } from './db.js';
-import { createApp } from './index.js';
 import { errorText, logEvent } from './log.js';
-import { createSepoliaChain } from './relay.js';
-import { createTransakClient, type FetchLike } from './transak.js';
-import { createPusherClient, createTransakFeed } from './transak-feed.js';
-import { createUserIpResolver } from './user-ip.js';
-import { startWorker, type Worker } from './worker.js';
+import { openDatabase, OrderStore } from './orders/store.js';
+import { startWorker, type Worker } from './orders/worker.js';
+import { createTransakClient, type FetchLike } from './transak/client.js';
+import { createPusherClient, createTransakFeed } from './transak/feed.js';
+import { userIpResolverFor } from './transak/user-ip.js';
 
 const config = loadConfig(process.env);
 const globalFetch: FetchLike = (url, init) => fetch(url, init);
@@ -19,7 +19,7 @@ const transak = createTransakClient({
   fetch: globalFetch,
   now: Date.now
 });
-const resolveUserIp = createUserIpResolver(globalFetch);
+const resolveUserIp = userIpResolverFor(config.transakEnv, globalFetch);
 const orders = new OrderStore(openDatabase(config.dbPath), Date.now);
 const chain = createSepoliaChain({ rpcUrl: config.sepoliaRpcUrl, relayerPrivateKey: config.relayerPrivateKey });
 

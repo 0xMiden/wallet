@@ -1,7 +1,7 @@
 import type { Address } from 'viem';
 import { z } from 'zod';
 
-import type { TransakEnv } from './config.js';
+import type { TransakEnv } from '../config.js';
 
 /**
  * The exact widget params that go to Transak, without `apiKey`.

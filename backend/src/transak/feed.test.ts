@@ -3,7 +3,6 @@ import { beforeEach, describe, it } from 'node:test';
 
 import { z } from 'zod';
 
-import { captureLogs } from './test-support.js';
 import {
   createPusherClient,
   createTransakFeed,
@@ -11,7 +10,8 @@ import {
   type PusherEventHandler,
   type PusherLike,
   type TransakFeed
-} from './transak-feed.js';
+} from './feed.js';
+import { captureLogs } from '../test/support.js';
 
 const API_KEY = 'partner-key';
 

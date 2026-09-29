@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { FetchLike } from './transak.js';
-import { createUserIpResolver, isPrivateIp } from './user-ip.js';
+import type { FetchLike } from './client.js';
+import { createUserIpResolver, isPrivateIp, userIpResolverFor } from './user-ip.js';
 
 function stubLookup(responses: Response[]): { fetch: FetchLike; calls: () => number } {
   let count = 0;
@@ -59,5 +59,19 @@ describe('createUserIpResolver', () => {
   it('refuses a lookup answer that is not an IP', async () => {
     const { fetch } = stubLookup([ok('nope')]);
     await assert.rejects(createUserIpResolver(fetch)('127.0.0.1'));
+  });
+});
+
+describe('userIpResolverFor', () => {
+  it('replaces a private caller IP in staging', async () => {
+    const { fetch, calls } = stubLookup([ok('198.51.100.9')]);
+    assert.equal(await userIpResolverFor('staging', fetch)('127.0.0.1'), '198.51.100.9');
+    assert.equal(calls(), 1);
+  });
+
+  it('sends a private caller IP unchanged in production, with no lookup', async () => {
+    const { fetch, calls } = stubLookup([]);
+    assert.equal(await userIpResolverFor('production', fetch)('127.0.0.1'), '127.0.0.1');
+    assert.equal(calls(), 0);
   });
 });

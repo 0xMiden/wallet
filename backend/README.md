@@ -47,6 +47,25 @@ yarn typecheck && yarn test
 curl localhost:8787/health
 ```
 
+## Layout
+
+```
+src/
+├── server.ts        # entry: builds the clients, the worker and the app
+├── app.ts           # Express app: middleware, routers, 404, error handler
+├── config.ts        # environment parse
+├── log.ts           # JSON log lines
+├── miden-account.ts # Miden account ID format
+├── http/            # routers (transak-routes, order-routes), CORS, rate limit, errors, client IP
+├── transak/         # Transak API client, Pusher feed, signed challenge, user IP (staging only)
+├── chain-testnet/   # testnet only: Sepolia client, Calibur batch, Agglayer bridge calls, prepare, signature checks
+├── orders/          # order states, SQLite store, Transak sync, state machine (advance), worker
+└── test/            # test helpers
+```
+
+Each test file is next to its source file. `chain-testnet/` is testnet code: mainnet does not bridge through Agglayer
+from Sepolia.
+
 ## Routes
 
 All errors are JSON: `{ "error": string }`.
@@ -85,15 +104,15 @@ Each IP can send 10 requests per minute to each POST route, and 60 per minute (b
 More requests get 429. Behind a reverse proxy, `req.ip` is the proxy address. Set Express `trust proxy` before you
 deploy like that.
 
-Transak pins each widget session to the `x-user-ip` header. When the caller IP is private (loopback, LAN, CGNAT), for
-example a simulator that calls `localhost`, the server sends its own public IP instead. It gets that IP once from
-`api.ipify.org`. On one machine or one network, the widget then loads from the same IP. A public caller IP goes to
-Transak unchanged.
+Transak pins each widget session to the `x-user-ip` header. In staging only (`TRANSAK_ENV=staging`), when the caller
+IP is private (loopback, LAN, CGNAT), for example a simulator that calls `localhost`, the server sends its own public
+IP instead. It gets that IP once from `api.ipify.org`. On one machine or one network, the widget then loads from the
+same IP. A public caller IP goes to Transak unchanged. In production the caller IP always goes to Transak unchanged.
 
 ## Order states and the worker
 
-The worker (`src/worker.ts`) runs a tick each `WORKER_INTERVAL_MS`. A tick reads every order that is not terminal and
-moves each one at most one step (`src/orders.ts`). The orders go in sequence, so two relay sends never race for the
+The worker (`src/orders/worker.ts`) runs a tick each `WORKER_INTERVAL_MS`. A tick reads every order that is not
+terminal and moves each one at most one step (`src/orders/advance.ts`). The orders go in sequence, so two relay sends never race for the
 relayer nonce. A tick never waits for a receipt: it sends and stores the hash, and a later tick reads the receipt. An
 error in one order is logged, and the next tick tries again. A tick does not start while the last tick or a trigger
 runs.
@@ -171,11 +190,11 @@ The server writes one JSON line per event to stdout: `{ ts, level, event, orderI
 - **Signed challenge.** The wallet signs a message that names the address, the amount and the Miden account. The
   server keeps all three with the nonce and uses only the stored values for Transak and the order. The client cannot
   change them after it signs. Each nonce is single use: the server deletes it before it checks the signature.
-- **Message twin.** `buildChallengeMessage` in `src/challenge.ts` has a byte-identical copy in the wallet
+- **Message twin.** `buildChallengeMessage` in `src/transak/challenge.ts` has a byte-identical copy in the wallet
   (`src/lib/onramp/transak-message.ts`). The wallet rebuilds the text and refuses to sign a different text.
   Change both at the same time.
-- **Batch twin.** `src/calibur.ts` has a twin in the wallet (`src/lib/onramp/buy-batch.ts`). Both tests assert the
-  same golden digest. Change both at the same time.
+- **Batch twin.** `src/chain-testnet/calibur.ts` and `src/chain-testnet/agglayer.ts` have a twin in the wallet
+  (`src/lib/onramp/buy-batch.ts`). Both tests assert the same golden digest. Change both at the same time.
 - **No calldata from the client.** The relay batch is always rebuilt from the stored order: the token, the amount, the
   Miden account and the address. The wallet sends only signatures and the values that it signed, and the server
   compares each value with its own value.

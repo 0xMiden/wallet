@@ -11,8 +11,10 @@ import {
   type TypedData
 } from 'viem';
 
+import { agglayerBridgeCalls } from './agglayer.js';
+
 /**
- * The Calibur signed batch for a fiat buy: approve the Agglayer bridge, then bridge the token to the Miden account.
+ * The Calibur signed batch for a fiat buy. The calls of the batch are the Agglayer bridge calls (`agglayer.ts`).
  * The wallet has a byte-identical twin in `src/lib/onramp/buy-batch.ts`.
  * If you change the batch, the types or the domain, change the twin at the same time.
  */
@@ -29,10 +31,6 @@ export const ONRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.onramp'))) >
 /** A signed batch stays valid for this number of seconds. */
 export const BUY_BATCH_TTL_SECONDS = 86_400;
 
-// The Agglayer bridge on Sepolia and the Agglayer network ID of Miden testnet (not an EVM chain ID).
-export const AGGLAYER_BRIDGE_ADDRESS: Address = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
-export const MIDEN_AGGLAYER_NETWORK_ID = 86;
-
 export const CALIBUR_ABI = parseAbi([
   'struct Call { address to; uint256 value; bytes data; }',
   'struct BatchedCall { Call[] calls; bool revertOnFailure; }',
@@ -42,14 +40,12 @@ export const CALIBUR_ABI = parseAbi([
   'function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
 ]);
 
-export const ERC20_ABI = parseAbi([
-  'function approve(address spender, uint256 amount) returns (bool)',
-  'function balanceOf(address account) view returns (uint256)'
-]);
-
-export const BRIDGE_ASSET_ABI = parseAbi([
-  'function bridgeAsset(uint32 destinationNetwork, address destinationAddress, uint256 amount, address token, bool forceUpdateGlobalExitRoot, bytes permitData) payable'
-]);
+/** One call of a Calibur batch. */
+export interface BatchCall {
+  to: Address;
+  value: bigint;
+  data: Hex;
+}
 
 const batchTypes = {
   SignedBatchedCall: [
@@ -70,19 +66,6 @@ const batchTypes = {
   ]
 } satisfies TypedData;
 
-export const MIDEN_ACCOUNT_HEX_PATTERN = /^0x[0-9a-fA-F]{30}$/;
-
-/**
- * The Agglayer destination address of a Miden account:
- * 4 zero bytes, the 15-byte account ID, 1 zero byte. Lower case.
- */
-export function midenAccountHexToEvmAddress(midenAccountHex: string): Address {
-  if (!MIDEN_ACCOUNT_HEX_PATTERN.test(midenAccountHex)) {
-    throw new Error('midenAccountHex is not a 15-byte hex account ID');
-  }
-  return `0x${'00'.repeat(4)}${midenAccountHex.slice(2).toLowerCase()}00`;
-}
-
 export interface BuyBatchInput {
   /** The EOA that delegates to Calibur. It is the verifying contract of the domain. */
   evmAddress: Address;
@@ -102,33 +85,7 @@ export interface BuyBatchInput {
 export function buildBuyBatch(input: BuyBatchInput) {
   return {
     batchedCall: {
-      calls: [
-        {
-          to: input.token,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: 'approve',
-            args: [AGGLAYER_BRIDGE_ADDRESS, input.amount]
-          })
-        },
-        {
-          to: AGGLAYER_BRIDGE_ADDRESS,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: BRIDGE_ASSET_ABI,
-            functionName: 'bridgeAsset',
-            args: [
-              MIDEN_AGGLAYER_NETWORK_ID,
-              midenAccountHexToEvmAddress(input.midenAccountHex),
-              input.amount,
-              input.token,
-              true,
-              '0x'
-            ]
-          })
-        }
-      ],
+      calls: agglayerBridgeCalls(input.token, input.amount, input.midenAccountHex),
       revertOnFailure: true
     },
     nonce: input.batchNonce,

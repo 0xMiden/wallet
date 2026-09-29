@@ -4,20 +4,20 @@ import { beforeEach, describe, it } from 'node:test';
 import { decodeFunctionData, type Hex } from 'viem';
 import { z } from 'zod';
 
-import { CALIBUR_ABI } from './calibur.js';
-import { OrderConflictError, type Order, type OrderState, type OrderStore } from './db.js';
 import {
   advanceOrder,
   CHECKOUT_TIMEOUT_MS,
   MAX_RELAY_ATTEMPTS,
   RECEIPT_WARNING_MS,
   SIGNATURE_TIMEOUT_MS,
-  toBaseUnits,
   UNDERDELIVERY_GRACE_MS,
   type OrderDeps
-} from './orders.js';
-import { batchNonceOf } from './relay.js';
-import { TransakError } from './transak.js';
+} from './advance.js';
+import type { OrderState } from './states.js';
+import { OrderConflictError, type Order, type OrderStore } from './store.js';
+import { createWorker } from './worker.js';
+import { CALIBUR_ABI } from '../chain-testnet/calibur.js';
+import { batchNonceOf } from '../chain-testnet/preparation.js';
 import {
   CALIBUR_SALT,
   captureLogs,
@@ -26,8 +26,8 @@ import {
   memoryStore,
   MIDEN_ACCOUNT,
   TOKEN
-} from './test-support.js';
-import { createWorker } from './worker.js';
+} from '../test/support.js';
+import { TransakError } from '../transak/client.js';
 
 const BUYER = '0x1111111111111111111111111111111111111111';
 const ONE = 10n ** 18n;
@@ -173,15 +173,6 @@ function entries(event: string): Array<z.infer<typeof logEntrySchema>> {
 function transitions(): string[] {
   return entries('order_transition').map(entry => `${entry.from}->${entry.to}`);
 }
-
-describe('toBaseUnits', () => {
-  it('converts JSON numbers and cuts extra decimals', () => {
-    assert.equal(toBaseUnits(10.5, 18), 10n * ONE + ONE / 2n);
-    assert.equal(toBaseUnits(1e-7, 18), 100_000_000_000n);
-    assert.equal(toBaseUnits(1.23456789, 6), 1_234_567n);
-    assert.equal(toBaseUnits(3, 0), 3n);
-  });
-});
 
 describe('createCheckout', () => {
   it('cancels an earlier open order of the same address', () => {

@@ -5,17 +5,10 @@ import type { Address } from 'viem';
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
 import { buyBatchTypedData, CALIBUR_SEPOLIA_ADDRESS, ONRAMP_NONCE_KEY, SEPOLIA_CHAIN_ID } from './calibur.js';
-import {
-  batchInputOf,
-  buildPreparation,
-  SignatureCheckError,
-  verifySignedBatch,
-  type AccountState,
-  type AuthorizationBody,
-  type Preparation,
-  type SignatureBody
-} from './relay.js';
-import { CALIBUR_SALT, EXECUTOR, MIDEN_ACCOUNT, TOKEN } from './test-support.js';
+import { batchInputOf, buildPreparation, type Preparation } from './preparation.js';
+import type { AccountState } from './sepolia.js';
+import { SignatureCheckError, verifySignedBatch, type AuthorizationBody, type SignatureBody } from './signature.js';
+import { CALIBUR_SALT, EXECUTOR, MIDEN_ACCOUNT, TOKEN } from '../test/support.js';
 
 const NOW_MS = 1_800_000_000_000;
 const AMOUNT = '1500000000000000000';

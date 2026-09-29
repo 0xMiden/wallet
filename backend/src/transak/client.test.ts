@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { buildWidgetParams, createTransakClient, TransakError, type FetchLike } from './transak.js';
+import { buildWidgetParams, createTransakClient, TransakError, type FetchLike } from './client.js';
 
 interface RecordedCall {
   url: string;

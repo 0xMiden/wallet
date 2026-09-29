@@ -15,7 +15,8 @@ import {
 /**
  * The Calibur signed batch for a fiat buy: approve the Agglayer bridge, then bridge the token to the Miden account.
  *
- * This is a byte-identical twin of `backend/src/calibur.ts`. The two packages do not share code. If you change the
+ * This is a byte-identical twin of `backend/src/chain-testnet/calibur.ts` (the batch) and
+ * `backend/src/chain-testnet/agglayer.ts` (its calls). The two packages do not share code. If you change the
  * batch, the types or the domain, change the twin at the same time, else the backend refuses every signature.
  * The golden digest in `buy-batch.test.ts` and in the backend test must stay equal.
  */

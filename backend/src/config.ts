@@ -1,7 +1,9 @@
 import { getAddress, isAddress, type Address, type Hex } from 'viem';
 import { z } from 'zod';
 
-import { DEFAULT_TRANSAK_PUSHER_CLUSTER, DEFAULT_TRANSAK_PUSHER_KEY } from './transak-feed.js';
+/** The Transak Pusher app. Transak publishes these values in its WebSocket docs. */
+export const DEFAULT_TRANSAK_PUSHER_KEY = '1d9ffac87de599c61283';
+export const DEFAULT_TRANSAK_PUSHER_CLUSTER = 'ap2';
 
 export type TransakEnv = 'staging' | 'production';
 

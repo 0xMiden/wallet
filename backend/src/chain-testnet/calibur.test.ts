@@ -3,18 +3,16 @@ import { describe, it } from 'node:test';
 
 import { decodeFunctionData, getAddress } from 'viem';
 
+import { AGGLAYER_BRIDGE_ADDRESS, BRIDGE_ASSET_ABI, midenAccountHexToEvmAddress } from './agglayer.js';
 import {
-  AGGLAYER_BRIDGE_ADDRESS,
-  BRIDGE_ASSET_ABI,
   buildBuyBatch,
   buyBatchDigest,
   CALIBUR_ABI,
   encodeBuyExecution,
-  ERC20_ABI,
-  midenAccountHexToEvmAddress,
   ONRAMP_NONCE_KEY,
   type BuyBatchInput
 } from './calibur.js';
+import { ERC20_ABI } from './erc20.js';
 
 /** The golden vector. The wallet test (`src/lib/onramp/buy-batch`) asserts the same digest. */
 const GOLDEN: BuyBatchInput = {

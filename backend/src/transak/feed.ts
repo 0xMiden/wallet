@@ -3,16 +3,12 @@ import { createRequire } from 'node:module';
 import type * as PusherModule from 'pusher-js';
 import { z } from 'zod';
 
-import { logEvent } from './log.js';
+import { logEvent } from '../log.js';
 
 /**
  * The Transak order feed (Pusher, public channels). The feed is only a trigger: an event makes the worker read the
  * Transak Get Orders API for that order at once. The worker never uses the event payload for the state or the amount.
  */
-
-/** The Transak Pusher app. Transak publishes these values in its WebSocket docs. */
-export const DEFAULT_TRANSAK_PUSHER_KEY = '1d9ffac87de599c61283';
-export const DEFAULT_TRANSAK_PUSHER_CLUSTER = 'ap2';
 
 export type PusherEventHandler = (eventName: string, data: unknown) => void;
 

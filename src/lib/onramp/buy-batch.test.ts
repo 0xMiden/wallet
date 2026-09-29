@@ -25,7 +25,7 @@ const GOLDEN_INPUT: BuyBatchInput = {
   deadline: 1900000000n
 };
 
-// The backend test (`backend/src/calibur.test.ts`) asserts the same digest. If one changes, both must change.
+// The backend test (`backend/src/chain-testnet/calibur.test.ts`) asserts the same digest. If one changes, both must change.
 const GOLDEN_DIGEST = '0x5812ce6a00bac139b8002a52b3bfa4ba58385427cba9f12ef28409ee68458638';
 
 describe('buy batch', () => {
