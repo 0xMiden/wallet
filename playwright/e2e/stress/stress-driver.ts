@@ -511,8 +511,8 @@ export async function runStressDriver(
   // ── Drain: multiple claim cycles so no note is left in the queue ────────
   // `claimAllNotes` now loops until the consumable-notes cache is empty for
   // two consecutive syncs, so in the steady state each cycle is a fast no-op.
-  // The 5-min per-cycle cap only matters when something is genuinely stuck —
-  // which is exactly the signal we want surfaced rather than silently clipped.
+  // A cycle gives up at its 5-min budget only once the queue has stopped moving; a queue still
+  // moving gets up to 10 min (see `startDrainDeadline`), so a stuck one is still surfaced.
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',
