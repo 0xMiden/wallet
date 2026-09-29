@@ -124,8 +124,9 @@ describe('swap token price symbols', () => {
     expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
   });
 
-  // #1131: a registry token whose priceSymbol the feed does not quote would drift the spending
-  // cap into counting every spend of that faucet as uncovered ($0); this catches it at CI time.
+  // #1131: a registry token whose priceSymbol the feed does not quote would make the spending cap
+  // refuse every spend of that faucet and leave display surfaces with no price for it; this
+  // catches it at CI time.
   it('quotes every allowlisted price symbol, including ETH, BTC and USDC', () => {
     mockGetNativeAssetIdSync.mockReturnValue(null);
 

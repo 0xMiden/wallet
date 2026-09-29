@@ -1,6 +1,6 @@
 import { canonicalFaucetId, strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import { getPriceMicro, isCoveredSymbol } from 'lib/prices/usd';
+import { getPriceMicro } from 'lib/prices/usd';
 
 import { IConsumedAssetTotal } from '../db/types';
 import { fetchTokenMetadata } from '../metadata';
@@ -32,12 +32,12 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  * failed or returned its cached `Unknown` placeholder) is challenged on a limited account (step-up
  * is available) rather than assumed uncovered, keeping fail-closed the default.
  *
- * Once identified, an asset the feed does not cover contributes nothing, which is the product
- * decision: only priced assets are capped. An asset it DOES cover must be valued or the
- * transaction cannot be judged, so a missing price or untrustworthy decimals still raise rather
- * than quietly counting as nothing - otherwise "make the price lookup fail" is the way past the
- * cap. A registry token is valued at the asset it stands for (IETH at ETH), as the rest of the
- * wallet prices it (#1133).
+ * Once identified, an asset outside the allowlist contributes nothing, which is the product
+ * decision: only priced assets are capped. An allowlisted asset must be valued or the transaction
+ * cannot be judged, so one without a fresh price (a symbol the feed does not quote included) or
+ * with untrustworthy decimals still raises rather than quietly counting as nothing - otherwise
+ * "make the price lookup fail" is the way past the cap. A registry token is valued at the asset it
+ * stands for (IETH at ETH), as the rest of the wallet prices it (#1133).
  *
  * The SDK is loaded before any faucet id is parsed: its statics throw until then, and a freshly
  * woken service worker with cached metadata would otherwise miss the allowlist match and count a
@@ -82,7 +82,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     } catch (cause) {
       throw new SpendingLimitPriceUnavailableError(symbol, { cause });
     }
-    if (priceSymbol === undefined || !isCoveredSymbol(priceSymbol)) continue;
+    if (priceSymbol === undefined) continue;
     const priceMicro = await getPriceMicro(priceSymbol, now);
     if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);
     total += usdMicroFromAmount(spend.amount, decimals, priceMicro);

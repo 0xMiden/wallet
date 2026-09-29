@@ -1,6 +1,6 @@
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
+import { _setSwapTokensForTest, TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro } from 'lib/prices/usd';
 
@@ -229,6 +229,25 @@ describe('resolveSpendsUsd', () => {
 
     await expect(resolveSpendsUsd([{ faucetId: 'mtst1notregistry', amount: 100_000_000n }], 10)).resolves.toBe(0n);
     expect(mockedPrice).not.toHaveBeenCalled();
+  });
+
+  // #1131: allowlist membership is coverage. A price symbol the feed never quotes has no price to
+  // read, so the spend is refused rather than counted as nothing.
+  it('refuses an allowlisted faucet whose price symbol the feed does not quote (#1131 F-004)', async () => {
+    _setSwapTokensForTest([
+      { symbol: 'INOPE', faucetId: 'mtst1nope', decimals: 8, logoSymbol: 'MIDEN', priceSymbol: 'NOPE' }
+    ]);
+    try {
+      mockedMetadata.mockResolvedValue(base('INOPE', 8));
+      mockedPrice.mockResolvedValue(undefined);
+
+      await expect(resolveSpendsUsd([{ faucetId: 'mtst1nope', amount: 100_000_000n }], 10)).rejects.toBeInstanceOf(
+        SpendingLimitPriceUnavailableError
+      );
+      expect(mockedPrice).toHaveBeenCalledWith('NOPE', 10);
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
   });
 
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
