@@ -4535,6 +4535,14 @@
     "message": "未確認",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "未確認",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

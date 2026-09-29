@@ -1031,6 +1031,8 @@
   "disconnect": "Odłącz",
   "declaredBySiteVerifying": "Zgłoszone przez zakład — weryfikacja za pomocą symulacji…",
   "unverified": "niezweryfikowane",
+  "unverifiedToken": "Niezweryfikowane",
+  "unverifiedTokenDescription": "Ten token nie znajduje się na liście zweryfikowanych tokenów serwisu Miden. Każdy może utworzyć token o dowolnej nazwie, dlatego przed nadaniem mu zaufania sprawdź identyfikator w bazie danych faucet.",
   "couldNotVerifyBySimulation": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",
   "couldNotDecodeTransaction": "Ta aplikacja dApp wysyła niestandardową transakcję. Portfel nie zdołał odczytać jej szczegółów — kontynuuj tylko wtedy, gdy dokładnie wiesz, na czym ona polega.",
   "rawValue": "Wartość surowa",
