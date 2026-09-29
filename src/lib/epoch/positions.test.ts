@@ -97,6 +97,26 @@ describe('fetchEarnPositions', () => {
     expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request unsuccessful' }]);
   });
 
+  it("settles an owner whose payload cannot be read as that owner's error, while the others load", async () => {
+    const unreadable = '0x2222222222222222222222222222222222222222';
+    // A readable item first, so keeping any of this owner's items would show here.
+    const readable = { ...apiItem('7', 7), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' } };
+    const lackingLenderInfo = { ...apiItem('3', 3), lenderInfo: undefined };
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { items: url.includes(unreadable) ? [readable, lackingLenderInfo] : [apiItem('12.5', 12.5)] }
+      })
+    }));
+
+    const result = await fetchEarnPositions({ owners: [unreadable, OWNER] });
+
+    expect(result.errors).toEqual([{ owner: unreadable, error: 'positions response unreadable' }]);
+    expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+    expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+  });
+
   it("settles an owner whose request stalls as that owner's error at 15 s, while the others load", async () => {
     jest.useFakeTimers();
     const stalled = '0x2222222222222222222222222222222222222222';

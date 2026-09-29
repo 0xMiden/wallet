@@ -235,7 +235,9 @@ export interface FetchEarnPositionsArgs {
  * Fetch every open lending position for the wallet. Collects the distinct EVM
  * owner addresses from `earn-deposit` activity and queries the positions service
  * for all of them at once via `Promise.all`. Per-address failures are isolated
- * (see `fetchPositionsForOwner`) and surfaced in `errors`.
+ * (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a payload
+ * that cannot be read, with none of that owner's positions or vaults kept. It
+ * rejects only when the owner lookup fails, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
   const chains = args.chains ?? [EARN_DESTINATION_CHAIN_ID];
@@ -254,13 +256,16 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     if (result.error) {
       errors.push({ owner: result.owner, error: result.error });
     }
-    for (const item of result.items) {
-      if (owners.length > 0) {
-        positions.push(...flattenChainItem(result.owner, item));
-      }
-      const vaultKey = `${item.lenderInfo.lenderKey}:${item.chainId}`;
-      if (!vaultsByKey.has(vaultKey)) {
-        vaultsByKey.set(vaultKey, {
+    // An owner's items are kept only once all of them read: a payload missing a field fails that owner alone, like a
+    // failed request, so the read does not reject after its requests are spent.
+    const ownerPositions: EarnPosition[] = [];
+    const ownerVaults: EarnVaultInfo[] = [];
+    try {
+      for (const item of result.items) {
+        if (owners.length > 0) {
+          ownerPositions.push(...flattenChainItem(result.owner, item));
+        }
+        ownerVaults.push({
           lenderKey: item.lenderInfo.lenderKey,
           lenderName: item.lenderInfo.name,
           logoUri: item.lenderInfo.logoUri,
@@ -268,6 +273,16 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
           apr: item.aprData.apr,
           depositApr: item.aprData.depositApr
         });
+      }
+    } catch {
+      errors.push({ owner: result.owner, error: 'positions response unreadable' });
+      continue;
+    }
+    positions.push(...ownerPositions);
+    for (const vault of ownerVaults) {
+      const vaultKey = `${vault.lenderKey}:${vault.chainId}`;
+      if (!vaultsByKey.has(vaultKey)) {
+        vaultsByKey.set(vaultKey, vault);
       }
     }
   }

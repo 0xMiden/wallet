@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 
+import { useSWRConfig } from 'swr';
+
 import { usePageActive } from 'app/layouts/page-active';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
@@ -8,6 +10,12 @@ import { useLastData } from 'lib/swr/last-data';
 
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
+
+// The poll, the spacing of the reads a page starts on its own, and the error retry: the Epoch positions service
+// allows 10 requests per minute, and each read sends one request for each owner.
+const READ_INTERVAL_MS = 30_000;
+// When each key's last read began, per SWR cache, so a test's fresh cache starts with none.
+const lastReadAt = new WeakMap<object, Map<string, number>>();
 
 /**
  * What a detail screen for one earn item (a vault or a position) has: `loadFailed` when the last load
@@ -31,7 +39,9 @@ export function earnItemLoadState(
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
  * account's positions after a switch. The 30s refresh stops while the page is off screen (another tab, a page
- * above it, or another Home page).
+ * above it, or another Home page). Every read it starts on its own waits 30 s after the key's last one: a return or
+ * a mount reads only then (a key with no data always reads), reconnect and focus never read, and a failed read
+ * retries after 30 s at the soonest. A Retry is the one read outside that.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -57,10 +67,15 @@ export function useEarnPositions(): {
 } {
   const account = useAccount();
   const onScreen = usePageActive();
+  const { cache } = useSWRConfig();
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and error retry to its first
-  // subscriber, and a paused one swallows them. `revalidateIfStale` reads a returning key again, deduped for 3 s.
+  // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
+  // mounts, so a key with data reads again then only once its last read is 30 s old.
   const key = ['earn-positions', account.publicKey, account.evmAddress];
+  const id = JSON.stringify(key);
+  const lastRead = lastReadAt.get(cache)?.get(id);
+  const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
   const {
     data: liveData,
     error: swrError,
@@ -69,18 +84,19 @@ export function useEarnPositions(): {
   } = useRetryableSWR(
     onScreen ? key : null,
     async () => {
+      lastReadAt.set(cache, (lastReadAt.get(cache) ?? new Map<string, number>()).set(id, Date.now()));
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
       return fetchEarnPositions({ accountId: account.publicKey, owners });
     },
     {
-      revalidateOnMount: true,
-      revalidateIfStale: true,
-      // The Epoch positions service allows 10 requests per minute, and each tick sends one request for each owner.
-      refreshInterval: 30_000,
+      revalidateIfStale: due,
+      refreshInterval: READ_INTERVAL_MS,
       revalidateOnFocus: false,
-      dedupingInterval: 3_000
+      revalidateOnReconnect: false,
+      dedupingInterval: 3_000,
+      errorRetryInterval: READ_INTERVAL_MS
     }
   );
   const data = useLastData(key, onScreen, liveData);

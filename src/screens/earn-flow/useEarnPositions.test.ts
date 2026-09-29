@@ -178,17 +178,20 @@ describe('useEarnPositions', () => {
 
     renderHook(() => useEarnPositions());
 
+    // The first render's, before the fetcher records a read. The mocked tests share SWR's default cache, and so the
+    // hook's record of it, so no later one may assume this key has none.
+    expect(receivedConfig).toEqual({
+      revalidateIfStale: true,
+      refreshInterval: 30_000,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 3_000,
+      errorRetryInterval: 30_000
+    });
     if (!loadPositions) throw new Error('positions fetcher was not registered');
     await loadPositions();
 
     expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF']);
-    expect(receivedConfig).toEqual({
-      revalidateOnMount: true,
-      revalidateIfStale: true,
-      refreshInterval: 30_000,
-      revalidateOnFocus: false,
-      dedupingInterval: 3_000
-    });
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
@@ -304,9 +307,19 @@ describe('useEarnPositions', () => {
     };
     // Past the hook's own 3 s dedupe window, so a read again is SWR revalidating a key that comes back.
     const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+    const settle = () => act(() => new Promise(resolve => setTimeout(resolve, 100)));
+    // Date.now only: SWR's dedupe and poll timers stay real.
+    const thirtySecondsOn = () => {
+      const realNow = Date.now;
+      jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 30_000);
+    };
 
     beforeEach(() => {
       onScreen = true;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
     });
 
     it('never reads while its page is covered', async () => {
@@ -319,7 +332,7 @@ describe('useEarnPositions', () => {
       expect(fetchEarnPositions).not.toHaveBeenCalled();
     });
 
-    it('reads again once when its page comes back past the dedupe window', async () => {
+    it('reads nothing when its page comes back within 30 s of its last read', async () => {
       jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       const { result, rerender } = renderOnPage();
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
@@ -330,9 +343,75 @@ describe('useEarnPositions', () => {
       await pastDedupe();
       onScreen = true;
       rerender();
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads again once when its page comes back 30 s after its last read', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      thirtySecondsOn();
+      onScreen = true;
+      rerender();
       await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
-      await act(() => new Promise(resolve => setTimeout(resolve, 100)));
+      await settle();
       expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
+    }, 10_000);
+
+    it('reads nothing when another Earn page mounts within 30 s of the last read', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const cache = new Map();
+      let first: Earn | undefined;
+      const pages = (second: boolean) =>
+        React.createElement(
+          SWRConfig,
+          { value: { provider: () => cache } },
+          page(true, earn => (first = earn)),
+          second ? page(true, () => undefined) : null
+        );
+      const { rerender } = render(pages(false));
+      await waitFor(() => expect(first?.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await pastDedupe();
+      rerender(pages(true));
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads nothing on a reconnect', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await pastDedupe();
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads again when its page comes back after a load that failed before any request', async () => {
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      onScreen = true;
+      rerender();
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
     }, 10_000);
 
     it('keeps showing what it loaded while its page is covered', async () => {
