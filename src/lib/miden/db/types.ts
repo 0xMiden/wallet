@@ -502,6 +502,8 @@ export interface ITransaction {
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
+  /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
+  relayRecipientId?: string;
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;

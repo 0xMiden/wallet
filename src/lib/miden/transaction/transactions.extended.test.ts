@@ -946,6 +946,33 @@ describe('completeCustomTransaction', () => {
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(txStore[0]!.relayNoteIds).toEqual(['0xsent', '0xunconvertible']);
   });
+
+  it('records the recipient the relay used, not the sender a consume reading puts in its place', async () => {
+    jest
+      .requireMock('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce((tx: any) =>
+        Object.assign(tx, { type: 'consume', secondaryAccountId: 'sender', displayMessage: 'Received' })
+      );
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => '0xprivate' }),
+              metadata: () => ({ noteType: () => 'private' }),
+              intoFull: () => ({}) as any
+            }
+          ]
+        })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
+    expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
+  });
 });
 
 describe('initiateConsumeTransactionFromId', () => {

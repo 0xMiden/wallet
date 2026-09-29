@@ -75,6 +75,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   let undeliveredNotes = 0;
   // Every private note, relayable or not, since `noteDelivery` and the label cover them all.
   const relayNoteIds: string[] = [];
+  // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
+  const relayRecipientId = transaction.secondaryAccountId;
 
   for (const note of outputNotes) {
     // Only care about private notes
@@ -200,6 +202,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   if (noteDelivery) {
     updatedTransaction.noteDelivery = noteDelivery;
     updatedTransaction.relayNoteIds = relayNoteIds;
+    updatedTransaction.relayRecipientId = relayRecipientId;
   }
 
   if (undeliveredNotes > 0) {

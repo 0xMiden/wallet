@@ -359,6 +359,14 @@ export const undeliveredDisplayMessage = (base: string, notes?: number): string 
 export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
   row.relayNoteIds ?? row.outputNoteIds ?? [];
 
+/**
+ * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
+ * row records it apart, because reading its result as a consume puts the input note's sender there instead.
+ */
+export const relayRecipientOf = (
+  row: Pick<ITransaction, 'relayRecipientId' | 'secondaryAccountId'>
+): string | undefined => row.relayRecipientId ?? row.secondaryAccountId;
+
 /** `label`'s base when {@link undeliveredDisplayMessage} built it, else `label` unchanged. */
 const withoutUndeliveredWording = (label: string): string => {
   const at = label.lastIndexOf(UNDELIVERED_SEPARATOR);

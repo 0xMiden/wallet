@@ -1,6 +1,6 @@
 import * as Repo from 'lib/miden/repo';
 
-import { recordNoteDelivery, relayNoteIdsOf } from './helper';
+import { recordNoteDelivery, relayNoteIdsOf, relayRecipientOf } from './helper';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 
@@ -129,8 +129,9 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
   const owed = relayNoteIdsOf(row);
   if (owed.length !== 1) return undefined;
   const noteId = owed[0];
-  if (!noteId || !row.secondaryAccountId) return undefined;
-  return { noteId, recipient: row.secondaryAccountId };
+  const recipient = relayRecipientOf(row);
+  if (!noteId || !recipient) return undefined;
+  return { noteId, recipient };
 };
 
 /**

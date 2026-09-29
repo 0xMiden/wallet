@@ -121,6 +121,22 @@ describe('sweepNoteDeliveries', () => {
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
 
+  it('re-pushes a custom row read as a consume to the recipient its relay used', async () => {
+    // Reading the result as a consume puts the input note's sender in `secondaryAccountId`.
+    rows.push(
+      row({
+        type: 'consume',
+        secondaryAccountId: 'mtst1sender',
+        relayRecipientId: 'mtst1recipient',
+        relayNoteIds: ['0xnote']
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
+  });
+
   it('arms the schedule on first sighting rather than pushing straight away', async () => {
     // A row whose original relay just happened has no schedule yet. Pushing again
     // in the same breath would spend an attempt under identical conditions.
