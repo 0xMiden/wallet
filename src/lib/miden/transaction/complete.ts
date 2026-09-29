@@ -73,12 +73,15 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // between a user knowing one note of several is stuck and assuming the whole
   // transaction failed.
   let undeliveredNotes = 0;
+  // Every private note, relayable or not, since `noteDelivery` and the label cover them all.
+  const relayNoteIds: string[] = [];
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
+    relayNoteIds.push(note.id().toString());
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
@@ -194,7 +197,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
-  if (noteDelivery) updatedTransaction.noteDelivery = noteDelivery;
+  if (noteDelivery) {
+    updatedTransaction.noteDelivery = noteDelivery;
+    updatedTransaction.relayNoteIds = relayNoteIds;
+  }
 
   if (undeliveredNotes > 0) {
     // Completed, not Failed: the transaction is on chain and the assets have left

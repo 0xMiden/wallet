@@ -290,6 +290,7 @@ describe('completeCustomTransaction outer init-error path', () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
       const fakeNote = {
+        id: () => ({ toString: () => '0xnote' }),
         metadata: () => ({ noteType: () => 'private' }),
         intoFull: () => ({ valid: true })
       };
@@ -485,6 +486,7 @@ describe('completeCustomTransaction private-note delivery', () => {
     }) as any;
 
   const privateNote = (marker: string) => ({
+    id: () => ({ toString: () => marker }),
     metadata: () => ({ noteType: () => 'private' }),
     intoFull: () => ({ __note: marker })
   });
@@ -561,7 +563,13 @@ describe('completeCustomTransaction private-note delivery', () => {
     try {
       await completeCustomTransaction(
         txStore[0]!,
-        makeResultWith([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+        makeResultWith([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
       );
 
       expect(mockSendPrivateNote).not.toHaveBeenCalled();
@@ -613,7 +621,11 @@ describe('a custom transaction that strands a private note says so', () => {
       })
     }) as any;
 
-  const privateNote = { metadata: () => ({ noteType: () => 'private' }), intoFull: () => ({ valid: true }) };
+  const privateNote = {
+    id: () => ({ toString: () => '0xnote' }),
+    metadata: () => ({ noteType: () => 'private' }),
+    intoFull: () => ({ valid: true })
+  };
 
   it('flags the row when no recipient was ever named, and does not pretend to deliver', async () => {
     _gh.__noteTypeForTest = 'private';
@@ -655,7 +667,13 @@ describe('a custom transaction that strands a private note says so', () => {
     try {
       await completeCustomTransaction(
         row as any,
-        resultWithNotes([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+        resultWithNotes([
+          {
+            id: () => ({ toString: () => '0xnote' }),
+            metadata: () => ({ noteType: () => 'private' }),
+            intoFull: () => undefined
+          }
+        ])
       );
     } finally {
       errSpy.mockRestore();
