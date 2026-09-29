@@ -680,6 +680,8 @@ describe('a custom transaction that strands a private note says so', () => {
     }
 
     expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
+    // Nothing reached the relay, yet the note is still owed one, so the sweep can target it.
+    expect(row.relayNoteIds).toEqual(['0xnote']);
   });
 
   it('says nothing when the note was handed over', async () => {
