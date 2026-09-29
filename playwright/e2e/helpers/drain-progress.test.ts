@@ -9,6 +9,7 @@ import {
   startDrainDeadline,
   type DrainSnapshot
 } from './drain-progress';
+import { readTransactionRows, readTransactionRowsOrNull } from './history';
 
 const completed = (completedCount: number): DrainSnapshot => ({ completedCount });
 const idle = completed(3);
@@ -273,6 +274,34 @@ describe('readDrainSnapshot', () => {
 
   it('is unreadable when the database has no transactions store', async () => {
     await expect(readDrainSnapshot(pageRunningHere())).resolves.toBeNull();
+  });
+
+  it('reads a readable empty store as no Completed rows, not as unreadable', async () => {
+    await seed([]);
+    await expect(readDrainSnapshot(pageRunningHere())).resolves.toEqual({ completedCount: 0 });
+  });
+
+  it('shares a reader that tells a missing store apart, while readTransactionRows keeps [] for it', async () => {
+    await expect(readTransactionRowsOrNull(pageRunningHere())).resolves.toBeNull();
+    await expect(readTransactionRows(pageRunningHere())).resolves.toEqual([]);
+  });
+
+  it('streams the rows, so readTransactionRows reads them projected and in key order without getAll', async () => {
+    await seed([
+      { id: 'q1', status: 0, type: 'send', amount: 5n, stageTimestamps: { syncing: 1 } },
+      { id: 'c1', status: 2, stage: 'complete', feeAmount: 7n, completedAt: 9, rotationFunding: true }
+    ]);
+    const getAll = jest.spyOn(IDBObjectStore.prototype, 'getAll').mockImplementation(() => {
+      throw new Error('getAll: rows carry request and result bytes');
+    });
+    try {
+      await expect(readTransactionRows(pageRunningHere())).resolves.toEqual([
+        { id: 'c1', status: 2, stage: 'complete', feeAmount: '7', completedAt: 9, rotationFunding: true },
+        { id: 'q1', status: 0, type: 'send', amount: '5' }
+      ]);
+    } finally {
+      getAll.mockRestore();
+    }
   });
 
   const signing = { id: 'g1', status: 1, stage: 'signing-proposal' };

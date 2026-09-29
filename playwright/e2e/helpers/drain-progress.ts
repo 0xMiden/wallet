@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 
+import { readTransactionRowsOrNull, TxStatus } from './history';
+
 /**
  * How long a claim drain's queue may go without progress, once past its budget, before the drain fails as stalled.
  * Sized for completions: two Guardian rows at their slowest normal cost (about 45 s each, #1266), so a queue that
@@ -107,63 +109,11 @@ export function extendTestTimeoutForDrain(budgetMs: number, info: DrainTimeoutIn
 }
 
 /**
- * Reads a {@link DrainSnapshot} from the wallet's `TridentMain.transactions` store. A cursor, not `getAll`, for the
- * reason `unlandedSendTotals` gives: rows carry request and result bytes, and this runs every lap, on both wallets at
- * once in the stress drain. Any failure, a reload destroying the page's context included, reads as `null`.
+ * Reads a {@link DrainSnapshot} from the wallet's `TridentMain.transactions` store through history.ts's shared
+ * streaming reader (`readTransactionRowsOrNull`), which a drain runs every lap, on both wallets at once in the stress
+ * drain. A missing store or any failed read, a reload destroying the page's context included, reads as `null`.
  */
 export async function readDrainSnapshot(page: Page): Promise<DrainSnapshot | null> {
-  try {
-    return await page.evaluate(
-      async ({ dbName, storeName }) => {
-        const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const request = indexedDB.open(dbName);
-          // A blocked open can still succeed later; close that late connection rather than leak it.
-          let settled = false;
-          request.onsuccess = () => {
-            if (settled) {
-              request.result.close();
-              return;
-            }
-            settled = true;
-            resolve(request.result);
-          };
-          request.onerror = () => {
-            settled = true;
-            reject(request.error ?? new Error('readDrainSnapshot: open failed'));
-          };
-          request.onblocked = () => {
-            settled = true;
-            reject(new Error('readDrainSnapshot: open blocked'));
-          };
-        });
-        try {
-          // `open` creates an empty database when none exists: a missing store is a wrong read, not an empty queue.
-          if (!db.objectStoreNames.contains(storeName)) throw new Error('readDrainSnapshot: no transactions store');
-          return await new Promise<DrainSnapshot>((resolve, reject) => {
-            const snapshot: DrainSnapshot = { completedCount: 0 };
-            const tx = db.transaction(storeName, 'readonly');
-            tx.onabort = () => reject(tx.error ?? new Error('readDrainSnapshot: transaction aborted'));
-            tx.onerror = () => reject(tx.error ?? new Error('readDrainSnapshot: transaction failed'));
-            const cursorRequest = tx.objectStore(storeName).openCursor();
-            cursorRequest.onerror = () => reject(cursorRequest.error ?? new Error('readDrainSnapshot: cursor failed'));
-            cursorRequest.onsuccess = () => {
-              const cursor = cursorRequest.result;
-              if (!cursor) {
-                resolve(snapshot);
-                return;
-              }
-              const row: Record<string, unknown> = cursor.value;
-              if (Number(row.status) === 2) snapshot.completedCount += 1;
-              cursor.continue();
-            };
-          });
-        } finally {
-          db.close();
-        }
-      },
-      { dbName: 'TridentMain', storeName: 'transactions' }
-    );
-  } catch {
-    return null;
-  }
+  const rows = await readTransactionRowsOrNull(page);
+  return rows === null ? null : { completedCount: rows.filter(row => row.status === TxStatus.Completed).length };
 }
