@@ -1019,6 +1019,53 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  // The loop catch labels a landed row as the Guardian catch does (#1233), so a landed swap or dApp
+  // execute reads 'Sent', never the bare 'Completed' it wrote before.
+  it.each([
+    [
+      'swap',
+      {
+        faucetId: 'faucet-1',
+        amount: '5',
+        requestBytes: new Uint8Array([7]),
+        extraInputs: { requestedFaucetId: 'faucet-2', requestedAmount: '10' }
+      }
+    ],
+    ['execute', { requestBytes: new Uint8Array([8]) }]
+  ])(
+    'marks a landed %s Completed with the Sent label on the apply-after-submit error (#1233)',
+    async (type, fields) => {
+      const sdk = require('../sdk/miden-client');
+      const origLock = sdk.withWasmClientLock;
+      let callCount = 0;
+      sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+        callCount++;
+        if (callCount >= 2) {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        }
+        return fn();
+      });
+      txStore.push({
+        id: `tx-${type}-apply-fail`,
+        type,
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        accountId: 'acc-1',
+        ...fields
+      });
+
+      try {
+        const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+        expect(result).toBe(false);
+      } finally {
+        sdk.withWasmClientLock = origLock;
+      }
+      const row = txStore.find(t => t.id === `tx-${type}-apply-fail`);
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Sent');
+    }
+  );
+
   it('cancels when errorCode is InputNoteAlreadyConsumedOnChain', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
