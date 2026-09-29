@@ -405,6 +405,40 @@ it('retries a page request that never answers once, then files it as a network f
   }
 });
 
+it('reads a retried page from the retry, not from the attempt that timed out and answered late', async () => {
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+  try {
+    const client = source('https://two', []);
+    jest
+      .spyOn(client, 'getDeltaHistory')
+      .mockImplementationOnce(
+        () =>
+          new Promise<HistoryPage>((_resolve, reject) => {
+            setTimeout(() => reject(new GuardianHttpError(404, 'Not Found', '')), 15_500);
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<HistoryPage>(resolve => {
+            setTimeout(() => resolve({ entries: [entry(3)] }), 1_000);
+          })
+      );
+    let result: Awaited<ReturnType<typeof run>> | undefined;
+    const pending = run().then(value => {
+      result = value;
+    });
+    for (let i = 0; i < 1_000 && !result; i++) await jest.advanceTimersByTimeAsync(100);
+    await pending;
+    expect(result?.restored).toBe(3);
+    expect(await transactions.count()).toBe(3);
+    const checkpoint = await twoCheckpoint();
+    expect(checkpoint).toMatchObject({ completed: true });
+    expect(checkpoint?.failure).toBeUndefined();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 it('clears checkpoints on import and retains recovered records in backups', async () => {
   await run();
   const before = await transactions.toArray();

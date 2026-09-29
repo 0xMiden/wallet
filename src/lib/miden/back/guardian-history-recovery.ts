@@ -1,4 +1,4 @@
-import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-client';
+import { GuardianHttpClient, GuardianHttpError, type HistoryPage } from '@openzeppelin/guardian-client';
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
@@ -29,6 +29,8 @@ import { canonicalWalletAccountId } from '../sdk/helpers';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
+
+type HistoryPageOutcome = { kind: 'page'; page: HistoryPage } | { kind: 'unsupported' };
 
 export const MAX_HISTORY_ENTRIES_PER_SOURCE = 10_000;
 
@@ -144,29 +146,32 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             sourcesClean: true
           });
           const pageCheckpoint = checkpoint;
-          let unsupported = false;
-          const page = await historyRequest(
+          // A timed-out attempt can settle after its retry starts, so each reports only through its own value.
+          const outcome = await historyRequest(
             () =>
-              guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).catch(error => {
-                if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
-                  if (error.code === 'account_not_found') return { entries: [], nextCursor: undefined };
-                  // An operator the account may never have used must not hold the pending flag,
-                  // but stays unfinished so a later pass asks again once it serves history.
-                  if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported') {
-                    unsupported = true;
-                    return { entries: [], nextCursor: undefined };
+              guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).then(
+                (page): HistoryPageOutcome => ({ kind: 'page', page }),
+                (error): HistoryPageOutcome => {
+                  if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
+                    if (error.code === 'account_not_found')
+                      return { kind: 'page', page: { entries: [], nextCursor: undefined } };
+                    // An operator the account may never have used must not hold the pending flag,
+                    // but stays unfinished so a later pass asks again once it serves history.
+                    if (!ownOperators.includes(operator) && classifyHistoryFailure(error) === 'unsupported')
+                      return { kind: 'unsupported' };
                   }
+                  throw error;
                 }
-                throw error;
-              }),
+              ),
             check
           );
-          if (unsupported) {
+          if (outcome.kind === 'unsupported') {
             checkpoint = { ...checkpoint, failure: 'unsupported' };
             if (!(await saveGuardianHistoryCheckpoint(initialState.generation, checkpoint)))
               throw new HistoryInterrupted();
             break;
           }
+          const { page } = outcome;
           if (page.entries.length > 50)
             throw new GuardianHistoryDataError('Guardian history page exceeds the requested limit');
           if (
