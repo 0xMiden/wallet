@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import {
-  DRAIN_STALL_WINDOW_MS,
+  drainFailureReason,
   extendTestTimeoutForDrain,
   readDrainSnapshot,
   startDrainDeadline,
@@ -2417,6 +2417,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         timeoutMs,
         verdict,
         elapsedMs: drain.elapsedMs(),
+        sinceProgressMs: drain.sinceProgressMs(),
         iteration,
         lastPending,
         stableZero,
@@ -2451,6 +2452,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       timeoutMs: number;
       verdict: Exclude<DrainVerdict, 'continue'>;
       elapsedMs: number;
+      sinceProgressMs: number | null;
       iteration: number;
       lastPending: number;
       stableZero: number;
@@ -2471,12 +2473,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // and its stage) lands in the test log instead of staying hidden in the SW.
     const txDump = await this.dumpTransactions().catch(() => 'unavailable');
     console.log(`[WalletPage.${label}] transactions at timeout: ${txDump}`);
-    // A queue that completed nothing stalls at the budget, which can be shorter than the window.
-    const quietMs = Math.min(DRAIN_STALL_WINDOW_MS, Math.round(ctx.elapsedMs));
-    const reason =
-      ctx.verdict === 'stalled'
-        ? `stalled: no transaction completed in the last ${quietMs}ms`
-        : `cap: transactions were still completing at twice the ${ctx.timeoutMs}ms budget`;
+    const reason = drainFailureReason(ctx.verdict, ctx.sinceProgressMs, ctx.elapsedMs, ctx.timeoutMs);
     throw new Error(
       `[WalletPage.${label}] timed out (${reason}) after ${Math.round(ctx.elapsedMs)}ms with ${first} pending ` +
         `note(s) after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +

@@ -42,6 +42,8 @@ export interface DrainDeadline {
   /** Observes `snapshot`, then returns the verdict: the drain's one way to judge a lap. */
   check(snapshot: DrainSnapshot | null): DrainVerdict;
   elapsedMs(): number;
+  /** Time since the last observed rise of the Completed count, or `null` when none was observed during the drain. */
+  sinceProgressMs(): number | null;
 }
 
 /** The drain's outer bound, twice its budget: the one place the cap is computed. */
@@ -95,8 +97,32 @@ export function startDrainDeadline(
       observe(snapshot);
       return verdict();
     },
-    elapsedMs: () => now() - startedAt
+    elapsedMs: () => now() - startedAt,
+    sinceProgressMs: () => (lastProgressAt === null ? null : now() - lastProgressAt)
   };
+}
+
+/**
+ * Why a drain failed, in words that infer nothing about the queue from the verdict: every number is the one measured
+ * at the instant the text names. A cap is reported at the lap that judged it, which can land well past the cap, so
+ * the last completion is placed relative to that judgement.
+ */
+export function drainFailureReason(
+  verdict: Exclude<DrainVerdict, 'continue'>,
+  sinceProgressMs: number | null,
+  elapsedMs: number,
+  budgetMs: number
+): string {
+  if (verdict === 'stalled') {
+    return sinceProgressMs === null
+      ? 'stalled: no transaction completed during the drain'
+      : `stalled: no transaction completed in the last ${Math.round(sinceProgressMs)}ms`;
+  }
+  const lastCompletion =
+    sinceProgressMs === null
+      ? 'no completion seen'
+      : `the last completion seen ${Math.round(sinceProgressMs)}ms earlier`;
+  return `cap: the drain was judged at ${Math.round(elapsedMs)}ms, past twice the ${budgetMs}ms budget, with ${lastCompletion}`;
 }
 
 /**

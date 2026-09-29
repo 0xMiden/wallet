@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import {
   DRAIN_DUMP_MARGIN_MS,
   DRAIN_STALL_WINDOW_MS,
+  drainFailureReason,
   drainProgress,
   extendTestTimeoutForDrain,
   readDrainSnapshot,
@@ -133,6 +134,32 @@ describe('startDrainDeadline', () => {
     expect(twin.check(completed(4))).toBe('stalled');
   });
 
+  it('reads no time since progress until the Completed count rises, and an unreadable read moves nothing', () => {
+    const clock = fakeClock();
+    const deadline = startDrainDeadline(120_000, clock.now);
+    expect(deadline.sinceProgressMs()).toBeNull();
+    deadline.observe(completed(3));
+    clock.advance(10_000);
+    deadline.observe(null);
+    deadline.observe(completed(3));
+    expect(deadline.sinceProgressMs()).toBeNull();
+    deadline.observe(completed(4));
+    clock.advance(5_000);
+    deadline.observe(null);
+    expect(deadline.sinceProgressMs()).toBe(5_000);
+  });
+
+  it('reads the time since the last completion at the instant it is asked, past the cap included', () => {
+    const clock = fakeClock();
+    const deadline = startDrainDeadline(120_000, clock.now);
+    deadline.observe(completed(3));
+    clock.advance(70_000);
+    deadline.observe(completed(4));
+    clock.advance(170_000);
+    expect(deadline.verdict()).toBe('cap');
+    expect(deadline.sinceProgressMs()).toBe(170_000);
+  });
+
   it('compares across an unreadable lap with the last readable snapshot', () => {
     const clock = fakeClock();
     const deadline = startDrainDeadline(60_000, clock.now);
@@ -224,6 +251,34 @@ describe('startDrainDeadline', () => {
     clock.advance(60_000);
     expect(deadline.verdict()).toBe('stalled');
     expect(onOverrun).not.toHaveBeenCalled();
+  });
+});
+
+describe('drainFailureReason', () => {
+  it('states how long a stalled drain went without a completion', () => {
+    expect(drainFailureReason('stalled', 180_400.6, 400_000, 120_000)).toBe(
+      'stalled: no transaction completed in the last 180401ms'
+    );
+  });
+
+  it('states that a stalled drain saw no completion at all, whatever its elapsed time', () => {
+    expect(drainFailureReason('stalled', null, 120_000, 120_000)).toBe(
+      'stalled: no transaction completed during the drain'
+    );
+  });
+
+  it('states when a capped drain was judged and the last completion relative to that judgement, not to the cap', () => {
+    // Judged 30 s past the 240 s cap with the last completion at 170 s: 100 s before the judgement, 70 s before the cap.
+    expect(drainFailureReason('cap', 100_000, 270_000, 120_000)).toBe(
+      'cap: the drain was judged at 270000ms, past twice the 120000ms budget, with the last completion seen 100000ms ' +
+        'earlier'
+    );
+  });
+
+  it('states that a capped drain saw no completion rather than inventing a time for one', () => {
+    expect(drainFailureReason('cap', null, 240_000, 120_000)).toBe(
+      'cap: the drain was judged at 240000ms, past twice the 120000ms budget, with no completion seen'
+    );
   });
 });
 
