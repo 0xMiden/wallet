@@ -381,11 +381,11 @@ export function setupTransactionProcessor(): void {
           // processing loop is running.
         } else if (alarm.name === STUCK_TX_HEAL_ALARM) {
           // Defence-in-depth self-heal: reap any orphans whose
-          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL, or lies
-          // further than that ahead of the clock on a row this realm is not
-          // driving (a trade-off `cancelStuckTransactions` states). This is
-          // independent of `startTransactionProcessing` so we don't depend
-          // on the SW being mid-loop when an orphan ages out.
+          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL, the signed
+          // comparison `isTransactionStuck` makes (a stamp ahead of the
+          // clock is never reaped here). This is independent of
+          // `startTransactionProcessing` so we don't depend on the SW being
+          // mid-loop when an orphan ages out.
           void healStuckTransactions();
         } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
           // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
@@ -414,13 +414,13 @@ export function setupTransactionProcessor(): void {
   // Note: `startTransactionProcessing` calls `safeGenerateTransactionsLoop`,
   // whose first action is `cancelStuckTransactions()`, so a stale
   // `GeneratingTransaction` orphan is flipped to Failed within the first
-  // tick, then any newly-queued txs are picked up. That covers a dead row
-  // stamped beyond the threshold ahead of the clock too: a respawned SW
-  // holds no ids and runs no cold-start sweep, so this reap is what frees
-  // the queue of it (a trade-off `cancelStuckTransactions` states).
-  // Combined with the bounded retry policy in `initiateConsumeTransaction`,
-  // the cancel cascade documented in #216 is bounded by #215's per-noteId
-  // retry cap.
+  // tick, then any newly-queued txs are picked up. A row stamped beyond the
+  // threshold ahead of the clock is not one of those: only the cold-start
+  // sweep, run from `browser.runtime.onStartup`, fails such a row, so a
+  // respawned SW (not a genuine cold start) leaves it queued until the
+  // clock catches back up to it. Combined with the bounded retry policy in
+  // `initiateConsumeTransaction`, the cancel cascade documented in #216 is
+  // bounded by #215's per-noteId retry cap.
   getAllUncompletedTransactions()
     .then(uncompleted => {
       if (uncompleted.length > 0) {
@@ -430,10 +430,9 @@ export function setupTransactionProcessor(): void {
     })
     .catch(err => console.warn('[TransactionProcessor] Startup check error:', err));
 
-  // Also fire a one-shot self-heal sweep at startup so an aged-out orphan,
-  // or a dead row stamped beyond the threshold ahead of the clock, is
-  // reaped even when nothing else is queued. (The alarm above catches the
-  // steady state; this catches the very-first SW respawn after long idle,
-  // before the first alarm tick.)
+  // Also fire a one-shot self-heal sweep at startup so an aged-out orphan
+  // is reaped even when nothing else is queued. (The alarm above catches
+  // the steady state; this catches the very-first SW respawn after long
+  // idle, before the first alarm tick.)
   void healStuckTransactions();
 }

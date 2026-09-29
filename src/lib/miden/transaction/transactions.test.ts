@@ -24,7 +24,6 @@ import {
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
-  markStartedInThisRealm,
   SESSION_STARTED_AT,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
@@ -1168,7 +1167,7 @@ describe('transactions utilities', () => {
       expect(mockModify).toHaveBeenCalledTimes(1);
     });
 
-    /** Reaps one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
+    /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
     async function reapFarFutureSend(id: string, nowSeconds: number) {
       const row = {
         id,
@@ -1192,18 +1191,11 @@ describe('transactions utilities', () => {
       return { row, dbTx };
     }
 
-    it('fails a far-future row this realm never started and marks it in flight (#1202)', async () => {
-      // A respawned service worker holds no ids and runs no sweep, so only the reaper can free the queue of it.
+    it('leaves a far-future row untouched, whoever started it (#1202)', async () => {
+      // The reaper keeps main's signed rule: a stamp ahead of the clock is never reaped here.
+      // Only the cold-start sweep fails such a row (failInterruptedTransactions).
       const nowSeconds = Math.floor(Date.now() / 1000);
-      const { dbTx } = await reapFarFutureSend('far-future-not-started-here', nowSeconds);
-
-      expect(dbTx.status).toBe(ITransactionStatus.Failed);
-      expect(dbTx.cancelledInFlightAt).toBe(nowSeconds);
-    });
-
-    it('leaves the same far-future row alone once this realm started it (#1202)', async () => {
-      markStartedInThisRealm('far-future-started-here');
-      const { row, dbTx } = await reapFarFutureSend('far-future-started-here', Math.floor(Date.now() / 1000));
+      const { row, dbTx } = await reapFarFutureSend('far-future-not-started-here', nowSeconds);
 
       expect(dbTx).toEqual(row);
     });
