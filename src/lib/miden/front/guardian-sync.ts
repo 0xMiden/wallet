@@ -122,8 +122,8 @@ const consecutiveUnknownAccount = new Map<string, number>();
 const missingRegistrationState = new Map<string, SelfHealAttemptState>();
 
 // Monotonic deadline per previous guardian (canonical endpoint) before which the heal's adopt does not
-// contact it again: an adopt that ended in a watchdog eviction held the realm's WASM lock to its
-// ceiling, and the next lap would pay that again. The #777 fuse's interval, lit by one eviction.
+// contact it again: an adopt that failed by a watchdog eviction, or slowly, held the realm's WASM lock
+// that long, and the next lap would pay it again. The #777 fuse's interval, lit by one such failure.
 const previousGuardianAdoptPausedUntil = new Map<string, number>();
 
 /**
@@ -522,32 +522,40 @@ async function adoptFromPreviousGuardian(
     if (monotonicNowMs() < pausedUntil) return false;
     previousGuardianAdoptPausedUntil.delete(previousKey);
   }
+  const startedAt = monotonicNowMs();
+  let postSwitch = false;
+  let evicted = false;
   try {
     const sdkAccount = await withWasmClientLock(
       async () => midenClientProxy.getAccount(account.publicKey),
       GUARDIAN_READ_LOCK_OPTIONS
     );
-    if (!sdkAccount) return false;
-    const previous = await MultisigService.init(
-      sdkAccount,
-      `0x${account.hotPublicKey}`,
-      `0x${hotCommitment}`,
-      zustandProvider.signWord,
-      unsaved.previousGuardianEndpoint
-    );
-    await previous.adoptGuardianStateOnce();
-    // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
-    return (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
-  } catch (error) {
-    if (isSyncWatchdogEviction(error)) {
-      previousGuardianAdoptPausedUntil.set(previousKey, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
+    if (sdkAccount) {
+      const previous = await MultisigService.init(
+        sdkAccount,
+        `0x${account.hotPublicKey}`,
+        `0x${hotCommitment}`,
+        zustandProvider.signWord,
+        unsaved.previousGuardianEndpoint
+      );
+      await previous.adoptGuardianStateOnce();
+      // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
+      postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
     }
+  } catch (error) {
+    evicted = isSyncWatchdogEviction(error);
     console.warn(
       `[Guardian Sync] could not adopt ${account.publicKey}'s post-switch state from ${unsaved.previousGuardianEndpoint}:`,
       error
     );
-    return false;
   }
+  // The refusal clock was stamped before this ran, so a failure that outlasted its window is due again
+  // at once: a gateway that answers a silent operator with a 504 or 524 before the watchdog holds the
+  // lock just as long on every lap. A fast failure keeps the refusal cadence.
+  if (!postSwitch && (evicted || monotonicNowMs() - startedAt > MISSING_REGISTRATION_BACKOFF_MS)) {
+    previousGuardianAdoptPausedUntil.set(previousKey, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
+  }
+  return postSwitch;
 }
 
 /**

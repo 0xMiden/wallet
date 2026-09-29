@@ -2522,5 +2522,44 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       dateSpy.mockRestore();
       perfSpy.mockRestore();
     });
+
+    // A gateway that turns the silence into a 504 or 524 fails the adopt before the watchdog, after
+    // holding the lock just as long; the refusal clock was stamped before the adopt, so it is due at once.
+    it('stops contacting a previous guardian whose adopt failed slowly', async () => {
+      let now = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockMultisigInit.mockImplementation(async () => {
+        now += MISSING_REGISTRATION_BACKOFF_MS + 1;
+        throw new Error('504 Gateway Timeout');
+      });
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    it('retries a previous guardian whose adopt failed fast on the usual cadence', async () => {
+      let now = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockMultisigInit.mockRejectedValue(new Error('Failed to fetch'));
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      now += MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
   });
 });
