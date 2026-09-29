@@ -48,6 +48,23 @@ export const isGuardianAuthRejection = (err: unknown): boolean => {
   return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
 };
 
+/**
+ * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
+ * not the on-chain state, or either side could not be read. `/configure` overwrites the guardian's
+ * state unconditionally, so pushing a copy that is behind the chain moves the guardian backwards
+ * and discards its in-flight update. Nothing was written.
+ */
+export class GuardianReRegisterRefusedError extends Error {
+  constructor(accountId: string, cause: unknown) {
+    super(`Not re-registering account ${accountId} on its guardian: its local state is not the on-chain state`, {
+      cause
+    });
+    this.name = 'GuardianReRegisterRefusedError';
+  }
+}
+
+export const isGuardianReRegisterRefusal = (error: unknown): boolean => error instanceof GuardianReRegisterRefusedError;
+
 const MAX_SYNC_RETRIES = 30;
 const SYNC_RETRY_DELAY_MS = 1000;
 // The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
@@ -446,16 +463,17 @@ export class MultisigService {
         // guardian is the stale side, that's an operator/registration problem
         // to surface, not overwrite. Rethrow like any other error.
 
-        // `multisig.syncState` refuses to overwrite local state while the guardian
-        // is still canonicalizing a delta it just accepted: its stored blob lags the
-        // on-chain account, so the incoming guardian commitment doesn't match on-chain
-        // ("Refusing to overwrite local state ..."). This is usually transient — the
-        // guardian catches up within ~2-10 ticks — so handle it in two stages, all
-        // silently in the background (this runs only under the AutoSync / post-tx
-        // bookkeeping paths, never a UI flow).
-        const isGuardianCanonicalizing =
-          message.includes('Refusing to overwrite local state') ||
-          (message.includes('commitment') && message.includes('match'));
+        // `multisig.syncState` refuses to overwrite local state ("Refusing to overwrite
+        // local state ...") when the guardian's state has local's nonce with another
+        // commitment, or is ahead of local (or local has none) but does not match the
+        // chain: typically a guardian still canonicalizing the latest delta, whose stored
+        // blob lags the on-chain account. A guardian merely behind local is kept quietly
+        // and never reaches here. The lag is usually transient - the guardian catches up
+        // within ~2-10 ticks - so handle it in two stages, all silently in the background
+        // (this runs only under the AutoSync / post-tx bookkeeping paths, never a UI flow).
+        // The refusal alone (#1233): a broader "commitment ... match" test also caught the
+        // re-register guard's own mismatch and the SDK's import mismatch, neither a lag.
+        const isGuardianCanonicalizing = isGuardianCanonicalizationError(error);
         if (isGuardianCanonicalizing) {
           // Stage 1: WAIT it out with a bounded back-off (its own, shorter ceiling
           // so a real divergence doesn't stall for the full nonce-retry window).
@@ -477,6 +495,8 @@ export class MultisigService {
           // endpoint drift-check) before we get here, so this rarely fires for switches.
           // Best-effort: if the re-register itself fails, fall through to the original
           // error and let the next background tick reconcile.
+          // The push happens only when local IS the on-chain state (#1233); otherwise it is
+          // refused and this falls through the same way.
           if (!realignAttempted) {
             realignAttempted = true;
             try {
@@ -769,6 +789,9 @@ export class MultisigService {
    * Called explicitly by those completion handlers, and as the Stage-2 last resort
    * in `runSync` once a lagging guardian fails to canonicalize within the retry
    * window (NOT on the first sign of lag — see `runSync`).
+   *
+   * Pushes only when the local account is the on-chain state; otherwise it refuses
+   * with `GuardianReRegisterRefusedError` and writes nothing (#1233).
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
@@ -780,6 +803,18 @@ export class MultisigService {
       // successor now owns); everything here is pre-registration, so stopping is
       // strictly cheaper.
       assertWasmHoldCurrent(hold, 're-register: after the state sync');
+      // Push only the on-chain state (#1233). `/configure` overwrites the guardian unconditionally,
+      // and runSync's Stage 2 reaches here when the guardian is AHEAD of a stale local copy (another
+      // device's newer state it is still canonicalizing): pushing local would move the guardian
+      // backwards and discard its in-flight update. So compare local with a fresh chain read first,
+      // and refuse, writing nothing, when they differ or either side cannot be read.
+      try {
+        await this.multisig.verifyStateCommitment();
+      } catch (error) {
+        throw new GuardianReRegisterRefusedError(this.accountId, error);
+      }
+      // The chain read parked, and the account read below is a borrow of the client this hold owns.
+      assertWasmHoldCurrent(hold, 're-register: after the chain commitment check');
       const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);

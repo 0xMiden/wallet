@@ -13,7 +13,12 @@
 
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 
-import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
+import {
+  GuardianReRegisterRefusedError,
+  isGuardianAuthRejection,
+  MultisigService,
+  POST_COMMIT_GUARDIAN_TIMEOUT_MS
+} from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
@@ -227,6 +232,12 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
+  // Local IS the on-chain state unless a test says otherwise: the re-register's guard (#1233).
+  verifyStateCommitment: jest.fn(async () => ({
+    accountId: 'acc-id',
+    localCommitment: '0xc0',
+    onChainCommitment: '0xc0'
+  })),
   getConsumableNotes: jest.fn(async () => ['note-a']),
   createSwitchGuardianProposal: jest.fn(async () => ({
     nonce: 7,
@@ -574,8 +585,68 @@ describe('MultisigService', () => {
 
       try {
         await service.sync();
+        expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
         expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
         expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
+      } finally {
+        restoreTimers();
+      }
+    });
+
+    // #1233: Stage 2 pushes local state only when it IS the chain's. Each refusal below persists
+    // against a local copy that is not the on-chain state, or a chain that cannot be read, so
+    // nothing is pushed and the run ends on the original refusal: form 2 is the common real trigger
+    // (another device's newer state that the guardian is still canonicalizing), and form 1 with the
+    // guardian matching the chain would push a phantom.
+    const FORM_2 =
+      'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account acc-id';
+    const FORM_1 =
+      'Refusing to overwrite local state: incoming nonce 4 equals local nonce 4 but commitments differ for account acc-id';
+    const LOCAL_NOT_CHAIN = 'Local account commitment does not match on-chain commitment for account acc-id';
+    it.each([
+      ['form 2, a guardian ahead of a stale local copy', FORM_2, LOCAL_NOT_CHAIN],
+      ['form 1, a guardian that matches the chain', FORM_1, LOCAL_NOT_CHAIN],
+      ['form 2 with a chain that cannot be read', FORM_2, 'On-chain account details not found for account acc-id']
+    ])('does not push local state at Stage 2 on %s (#1233)', async (_label, refusal, verifyFailure) => {
+      const restoreTimers = skipRetryBackoffs();
+      const syncState = jest.fn(async () => {
+        throw new Error(refusal);
+      });
+      const registerOnGuardian = jest.fn(async () => {});
+      const verifyStateCommitment = jest.fn(async () => {
+        throw new Error(verifyFailure);
+      });
+      const multisig = makeMultisig({ syncState, registerOnGuardian, verifyStateCommitment });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      try {
+        await expect(service.sync()).rejects.toThrow(refusal);
+        expect(verifyStateCommitment).toHaveBeenCalledTimes(1);
+        expect(mockGetAccount).not.toHaveBeenCalled();
+        expect(registerOnGuardian).not.toHaveBeenCalled();
+        // The initial attempt and the thirty waited retries; the last-resort push was refused.
+        expect(syncState).toHaveBeenCalledTimes(31);
+      } finally {
+        restoreTimers();
+      }
+    });
+
+    it('rethrows a sync error that only mentions a commitment mismatch at once (#1233)', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const syncState = jest.fn(async () => {
+        throw new Error('GUARDIAN public key commitment mismatch');
+      });
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+
+      try {
+        await expect(service.sync()).rejects.toThrow('GUARDIAN public key commitment mismatch');
+        // Not a canonicalizing guardian: no wait, and never the last-resort push.
+        expect(syncState).toHaveBeenCalledTimes(1);
+        expect(registerOnGuardian).not.toHaveBeenCalled();
       } finally {
         restoreTimers();
       }
@@ -592,6 +663,7 @@ describe('MultisigService', () => {
       await service.reRegisterCurrentStateOnGuardian();
 
       expect(mockSyncState).toHaveBeenCalled();
+      expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
       expect(registerOnGuardian).toHaveBeenCalledTimes(1);
     });
 
@@ -687,6 +759,55 @@ describe('MultisigService', () => {
       // cached set preserved, and the state blob is still pushed (best-effort).
       expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
       expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a local copy that is not the on-chain state, writing nothing (#1233)', async () => {
+      const mismatch = new Error('Local account commitment does not match on-chain commitment for account acc-id');
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        verifyStateCommitment: jest.fn(async () => {
+          throw mismatch;
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      const error = await service.reRegisterCurrentStateOnGuardian().catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(error).toHaveProperty('cause', mismatch);
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('does not push when the chain commitment cannot be read (#1233)', async () => {
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        verifyStateCommitment: jest.fn(async () => {
+          throw new Error('On-chain account details not found for account acc-id');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('stops before the account read when the hold is evicted during the chain check (#1233)', async () => {
+      const multisig = makeMultisig({
+        verifyStateCommitment: jest.fn(async () => {
+          currentWasmHold = null;
+          return { accountId: 'acc-id', localCommitment: '0xc0', onChainCommitment: '0xc0' };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
   });
 

@@ -1,7 +1,7 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the function is only called during a sync, never at module load.
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
-import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
+import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
@@ -906,6 +906,15 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     await coldService.reRegisterCurrentStateOnGuardian();
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
+    // The chain guard refused before any `/configure` (#1233): nothing was written, so no attempt is
+    // spent, and a later tick retries once this device's copy has caught up with the chain.
+    if (isGuardianReRegisterRefusal(e)) {
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey}: its local state is not the chain's yet`,
+        e
+      );
+      return 'refused-transiently';
+    }
     // Guardian still unreachable / rejecting cold — a later tick may retry per
     // the bounded schedule (see decideColdReRegisterSelfHeal).
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);

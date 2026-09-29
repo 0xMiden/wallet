@@ -110,10 +110,16 @@ jest.mock('lib/miden/guardian', () => {
   // green. Delegating means a real `{ status: 401 }` drives the path too, which
   // one test below relies on. (A direct table for the classifier itself lives in
   // lib/miden/guardian/index.test.ts.)
-  const actual: { isGuardianAuthRejection: (err: unknown) => boolean } = jest.requireActual('lib/miden/guardian');
+  const actual: {
+    isGuardianAuthRejection: (err: unknown) => boolean;
+    isGuardianReRegisterRefusal: (err: unknown) => boolean;
+    GuardianReRegisterRefusedError: new (accountId: string, cause: unknown) => Error;
+  } = jest.requireActual('lib/miden/guardian');
   return {
     isGuardianAuthRejection: (err: unknown) =>
       (err as { __authRejection?: boolean } | null)?.__authRejection === true || actual.isGuardianAuthRejection(err),
+    isGuardianReRegisterRefusal: actual.isGuardianReRegisterRefusal,
+    GuardianReRegisterRefusedError: actual.GuardianReRegisterRefusedError,
     MultisigService: {
       buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args)
     }
@@ -1133,6 +1139,42 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+    nowSpy.mockRestore();
+  });
+
+  // #1233: the re-register's chain guard refuses before any `/configure`, so a refusal is booked
+  // like a read failure: no attempt spent, and the repair is still there once local catches up.
+  it('does not spend the bounded budget on a push the chain guard refused (#1233)', async () => {
+    const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+    mockReRegister.mockRejectedValue(
+      new GuardianReRegisterRefusedError(
+        'acct-refused',
+        new Error('Local account commitment does not match on-chain commitment')
+      )
+    );
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-refused', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    const refusedPushes = mockReRegister.mock.calls.length;
+
+    // The local copy caught up with the chain: the repair is still available.
+    mockReRegister.mockResolvedValue(undefined);
+    nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(refusedPushes + 1);
     nowSpy.mockRestore();
   });
 
