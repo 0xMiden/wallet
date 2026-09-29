@@ -69,8 +69,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
 
-  // The logo easter egg. `TabLayout` keeps a visited tab mounted, so leaving the page is a change
-  // of `usePageActive`, not an unmount: reset the cycle there or the QR keeps a stray colour.
+  // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
+  // so leaving it is a change of `usePageActive`, not an unmount: reset the cycle there or the QR
+  // keeps a stray colour.
   const pageActive = usePageActive();
   const [paletteStep, setPaletteStep] = useState(0);
   // Bumped on every tap, including a retry of the same step: a failed draw never changes
