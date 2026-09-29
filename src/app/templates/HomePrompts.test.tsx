@@ -6,6 +6,7 @@ import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import type { WalletAccount } from 'lib/shared/types';
 import type { FaucetFundingMarker, PendingNoteValue } from 'lib/wallet-prompts';
@@ -622,6 +623,41 @@ describe('HomePrompts', () => {
     rerender(renderWith(pendingNotes));
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
     expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
+  });
+
+  it('says what the mint brought in dollars once an allowlist entry names the native faucet', async () => {
+    // The registry entry a future allowlist listing of the native asset would add.
+    _setSwapTokensForTest([
+      { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
+      ...SWAP_TOKENS
+    ]);
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      const renderWith = (notes: PendingNoteValue[]) => (
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={notes}
+          fundingNotes={notes}
+          tokenPrices={tokenPrices}
+        />
+      );
+
+      const { rerender } = render(renderWith([]));
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      await act(async () => {});
+      fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+      // The native note is the mint: 1.25 MIDEN at $2. The claimable USDC note did not come from
+      // the faucet, so it is not what was deposited.
+      rerender(renderWith(pendingNotes));
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
   });
 
   it('uses the generic line when funds arrive as a balance, whatever else is claimable', async () => {
