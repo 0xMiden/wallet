@@ -2523,20 +2523,23 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       perfSpy.mockRestore();
     });
 
-    // A gateway that turns the silence into a 504 or 524 fails the adopt before the watchdog, after
-    // holding the lock just as long; the refusal clock was stamped before the adopt, so it is due at once.
+    // A gateway that turns the silence into a 504 before the watchdog (stock HAProxy: 50 s) holds the
+    // lock that long; the refusal window is measured from before the adopt, so unpaused it would hold
+    // the lock 50 s of every 60 s.
     it('stops contacting a previous guardian whose adopt failed slowly', async () => {
-      let now = 1_000_000;
+      const t0 = 1_000_000;
+      let now = t0;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
       mockMultisigInit.mockImplementation(async () => {
-        now += MISSING_REGISTRATION_BACKOFF_MS + 1;
+        now += 50_000;
         throw new Error('504 Gateway Timeout');
       });
 
       await runUntilPersistent();
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);
 
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
       await syncGuardianAccounts();
       expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);
@@ -2549,7 +2552,10 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       let now = 1_000_000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
-      mockMultisigInit.mockRejectedValue(new Error('Failed to fetch'));
+      mockMultisigInit.mockImplementation(async () => {
+        now += 9_000;
+        throw new Error('Failed to fetch');
+      });
 
       await runUntilPersistent();
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);

@@ -125,6 +125,8 @@ const missingRegistrationState = new Map<string, SelfHealAttemptState>();
 // contact it again: an adopt that failed by a watchdog eviction, or slowly, held the realm's WASM lock
 // that long, and the next lap would pay it again. The #777 fuse's interval, lit by one such failure.
 const previousGuardianAdoptPausedUntil = new Map<string, number>();
+// A slower failure pauses: the worst unpaused lock share stays near 17% while quick errors retry every 60 s.
+const PREVIOUS_GUARDIAN_ADOPT_SLOW_MS = 10_000;
 
 /**
  * Consecutive unknown-account verdicts required before the first registration
@@ -549,10 +551,10 @@ async function adoptFromPreviousGuardian(
       error
     );
   }
-  // The refusal clock was stamped before this ran, so a failure that outlasted its window is due again
-  // at once: a gateway that answers a silent operator with a 504 or 524 before the watchdog holds the
-  // lock just as long on every lap. A fast failure keeps the refusal cadence.
-  if (!postSwitch && (evicted || monotonicNowMs() - startedAt > MISSING_REGISTRATION_BACKOFF_MS)) {
+  // The refusal window is measured from before this ran, so an unpaused failure lasting T holds the lock
+  // T of every 60 s: a gateway answering a silent operator with a 504 before the watchdog (stock HAProxy
+  // at 50 s) would hold it most of the time. A quick failure keeps the refusal cadence.
+  if (!postSwitch && (evicted || monotonicNowMs() - startedAt > PREVIOUS_GUARDIAN_ADOPT_SLOW_MS)) {
     previousGuardianAdoptPausedUntil.set(previousKey, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
   }
   return postSwitch;
