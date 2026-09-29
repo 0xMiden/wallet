@@ -629,7 +629,7 @@ describe('a custom transaction that strands a private note says so', () => {
     // On chain, so Completed — failing it would be untrue and would offer a Retry
     // that spends the assets a second time.
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
 
@@ -644,7 +644,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — 3 private notes could not be delivered');
+    expect(row.displayMessage).toBe('Completed - 3 private notes could not be delivered');
   });
 
   it('flags a note that cannot be turned into deliverable bytes', async () => {
@@ -661,7 +661,7 @@ describe('a custom transaction that strands a private note says so', () => {
       errSpy.mockRestore();
     }
 
-    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(row.displayMessage).toBe('Completed - a private note could not be delivered');
   });
 
   it('says nothing when the note was handed over', async () => {

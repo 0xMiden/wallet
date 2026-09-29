@@ -204,8 +204,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // only, so the label is what carries it.
     updatedTransaction.displayMessage =
       undeliveredNotes === 1
-        ? 'Completed — a private note could not be delivered'
-        : `Completed — ${undeliveredNotes} private notes could not be delivered`;
+        ? 'Completed - a private note could not be delivered'
+        : `Completed - ${undeliveredNotes} private notes could not be delivered`;
   }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
