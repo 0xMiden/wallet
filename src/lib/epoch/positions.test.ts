@@ -126,12 +126,14 @@ describe('fetchEarnPositions', () => {
 
   describe('an owner whose payload has a field of the wrong type', () => {
     const malformed = '0x2222222222222222222222222222222222222222';
-    const loadWith = (bad: object) =>
+    const otherLender = { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' };
+    const thirdLender = { ...apiItem('4', 4), lenderInfo: { lenderKey: 'THIRD_LENDING', name: 'Third', logoUri: '' } };
+    const loadWith = (items: object[]) =>
       (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
         ok: true,
         json: async () => ({
           success: true,
-          data: { items: url.includes(malformed) ? [bad] : [apiItem('12.5', 12.5)] }
+          data: { items: url.includes(malformed) ? items : [apiItem('12.5', 12.5)] }
         })
       }));
 
@@ -143,27 +145,32 @@ describe('fetchEarnPositions', () => {
       jest.restoreAllMocks();
     });
 
-    it("settles an unfunded item with no APRs, which only its vault reads, as that owner's error", async () => {
-      loadWith({
-        ...apiItem(),
-        aprData: {},
-        lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' }
-      });
+    it('drops the vault of an unfunded item with no APRs and keeps the owner', async () => {
+      loadWith([{ ...apiItem(), aprData: {}, lenderInfo: otherLender }, thirdLender]);
 
       const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
-      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
-      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
-      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+      expect(result.errors).toEqual([]);
+      expect(result.positions).toEqual([
+        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING', deposits: '4' }),
+        expect.objectContaining({ owner: OWNER, deposits: '12.5' })
+      ]);
+      expect(result.vaults).toEqual([
+        expect.objectContaining({ lenderKey: 'THIRD_LENDING' }),
+        expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })
+      ]);
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(malformed), expect.any(Error));
     });
 
     it("settles a funded position with no USD value as that owner's error", async () => {
       const funded = apiItem('3', 3);
-      loadWith({
-        ...funded,
-        data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) })),
-        lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' }
-      });
+      loadWith([
+        {
+          ...funded,
+          data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) })),
+          lenderInfo: otherLender
+        }
+      ]);
 
       const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
@@ -173,16 +180,36 @@ describe('fetchEarnPositions', () => {
       expect(result.totalDepositsUSD).toBe(12.5);
     });
 
-    it("settles a vault whose chain id is not a string as that owner's error", async () => {
-      loadWith({ ...apiItem(), chainId: 11155111 });
+    it("settles a funded item whose vault has no APR as that owner's error, with no position for it", async () => {
+      // The third lender's vault still reads, so only the funded item's own vault can fail this owner.
+      loadWith([
+        { ...apiItem('3', 3), aprData: { depositApr: 2, borrowApr: 3 }, lenderInfo: otherLender },
+        thirdLender
+      ]);
 
       const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
       expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+    });
+
+    it('drops a vault whose chain id is not a string and keeps the owner', async () => {
+      loadWith([{ ...apiItem(), chainId: 11155111 }, thirdLender]);
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.positions).toContainEqual(
+        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING' })
+      );
+      expect(result.vaults).toEqual([
+        expect.objectContaining({ lenderKey: 'THIRD_LENDING' }),
+        expect.objectContaining({ lenderKey: 'DUMMY_LENDING', chainId: '11155111' })
+      ]);
     });
 
     it('loads a vault whose lender has no logo, with an empty one', async () => {
-      loadWith({ ...apiItem(), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other' } });
+      loadWith([{ ...apiItem(), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other' } }]);
 
       const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
 
@@ -191,7 +218,7 @@ describe('fetchEarnPositions', () => {
     });
 
     it('logs the fold, naming the owner', async () => {
-      loadWith({ ...apiItem(), aprData: {} });
+      loadWith([{ ...apiItem(), aprData: {} }]);
 
       await fetchEarnPositions({ owners: [malformed, OWNER] });
 
@@ -208,6 +235,22 @@ describe('fetchEarnPositions', () => {
 
       expect(result.errors).toEqual([{ owner: CATALOG_ACCOUNT, error: 'positions response unreadable' }]);
       expect(result.vaults).toEqual([]);
+    });
+
+    it("drops only a malformed catalog item's vault and loads the others", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { items: [{ ...apiItem(), aprData: {}, lenderInfo: otherLender }, apiItem()] }
+        })
+      });
+
+      const result = await fetchEarnPositions({ owners: [] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(CATALOG_ACCOUNT), expect.any(Error));
     });
   });
 

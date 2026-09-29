@@ -225,6 +225,23 @@ function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
   }
 }
 
+/** The vault one chain item supplies. Throws when a field it copies is missing or of the wrong type. */
+function chainItemVault(item: PositionsApiChainItem): EarnVaultInfo {
+  const logoUri = item.lenderInfo.logoUri ?? '';
+  assertFieldTypes(
+    [item.lenderInfo.lenderKey, item.lenderInfo.name, logoUri, item.chainId],
+    [item.aprData.apr, item.aprData.depositApr]
+  );
+  return {
+    lenderKey: item.lenderInfo.lenderKey,
+    lenderName: item.lenderInfo.name,
+    logoUri,
+    chainId: item.chainId,
+    apr: item.aprData.apr,
+    depositApr: item.aprData.depositApr
+  };
+}
+
 /** Flatten one chain item's nested `data[].positions[]` into non-zero `EarnPosition`s. */
 function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosition[] {
   const out: EarnPosition[] = [];
@@ -302,28 +319,25 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     if (result.error) {
       errors.push({ owner: result.owner, error: result.error });
     }
-    // An owner's items are kept only once all of them read: a payload missing a field, or with one of the wrong type,
-    // fails that owner alone, like a failed request, so the read does not reject after its requests are spent.
+    // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
+    // funded position copies), so the read does not reject after its requests are spent. An item holding nothing whose
+    // vault cannot be read drops only that vault; a funded item's fails the owner, as its Deposit more needs it. A
+    // query whose items leave no vault fails too, so a malformed catalog never reads as nothing to show.
     const ownerPositions: EarnPosition[] = [];
     const ownerVaults: EarnVaultInfo[] = [];
     try {
       for (const item of result.items) {
-        if (owners.length > 0) {
-          ownerPositions.push(...flattenChainItem(result.owner, item));
+        const itemPositions = owners.length > 0 ? flattenChainItem(result.owner, item) : [];
+        try {
+          ownerVaults.push(chainItemVault(item));
+        } catch (err) {
+          if (itemPositions.length > 0) throw err;
+          console.warn(`[epoch] positions vault unreadable for ${result.owner}, dropped`, err);
         }
-        const logoUri = item.lenderInfo.logoUri ?? '';
-        assertFieldTypes(
-          [item.lenderInfo.lenderKey, item.lenderInfo.name, logoUri, item.chainId],
-          [item.aprData.apr, item.aprData.depositApr]
-        );
-        ownerVaults.push({
-          lenderKey: item.lenderInfo.lenderKey,
-          lenderName: item.lenderInfo.name,
-          logoUri,
-          chainId: item.chainId,
-          apr: item.aprData.apr,
-          depositApr: item.aprData.depositApr
-        });
+        ownerPositions.push(...itemPositions);
+      }
+      if (result.items.length > 0 && ownerVaults.length === 0) {
+        throw new TypeError('no positions vault could be read');
       }
     } catch (err) {
       console.warn(`[epoch] positions response unreadable for ${result.owner}`, err);
