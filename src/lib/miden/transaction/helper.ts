@@ -352,6 +352,13 @@ export const undeliveredDisplayMessage = (base: string, notes?: number): string 
   return `${base}${UNDELIVERED_SEPARATOR}${phrase} could not be delivered`;
 };
 
+/**
+ * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
+ * note is its private note; a custom row records them apart from its public notes in `relayNoteIds`.
+ */
+export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
+  row.relayNoteIds ?? row.outputNoteIds ?? [];
+
 /** `label`'s base when {@link undeliveredDisplayMessage} built it, else `label` unchanged. */
 const withoutUndeliveredWording = (label: string): string => {
   const at = label.lastIndexOf(UNDELIVERED_SEPARATOR);
@@ -395,9 +402,9 @@ export const recordNoteDelivery = async (
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
     // History renders the label, not `noteDelivery`, so a delivered note retires its warning there too, but only
-    // on a row of at most one note: the row's single state cannot speak for several.
+    // on a row owing at most one private note: the row's single state cannot speak for several.
     const delivered = noteDelivery === 'relayed' || noteDelivery === 'confirmed';
-    if (delivered && (tx.outputNoteIds?.length ?? 0) <= 1 && tx.displayMessage) {
+    if (delivered && relayNoteIdsOf(tx).length <= 1 && tx.displayMessage) {
       tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
     }
   });

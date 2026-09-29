@@ -53,6 +53,7 @@ jest.mock('../back/miden-client-proxy', () => ({
 const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState]>();
 
 jest.mock('./helper', () => ({
+  ...jest.requireActual<typeof import('./helper')>('./helper'),
   recordNoteDelivery: (id: string, state: INoteDeliveryState) => mockRecord(id, state)
 }));
 
@@ -523,6 +524,7 @@ describe('sweepNoteDeliveries', () => {
 describe('the undelivered label', () => {
   const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
   const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
+  const UNDELIVERED_CUSTOM = 'Completed - a private note could not be delivered';
 
   beforeEach(() => {
     mockRecord.mockImplementation(recordNoteDelivery);
@@ -577,8 +579,18 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe(displayMessage);
   });
 
-  it('stays on a two-note row, which the sweep neither re-pushes nor records', async () => {
-    const displayMessage = 'Completed - a private note could not be delivered';
+  // Rows written before `relayNoteIds` fall back to `outputNoteIds`.
+  it('re-pushes an older single-note custom row with no relayNoteIds by its output note', async () => {
+    rows.push(row({ type: 'execute', noteDelivery: 'undelivered', displayMessage: UNDELIVERED_CUSTOM }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('stays on an older two-note row with no relayNoteIds, which the sweep neither re-pushes nor records', async () => {
+    const displayMessage = UNDELIVERED_CUSTOM;
     rows.push(
       row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
     );
@@ -593,6 +605,62 @@ describe('the undelivered label', () => {
       relayAttempts: 1,
       nextRelayAt: NOW - 1,
       displayMessage
+    });
+  });
+
+  // A public note beside the one private note is not owed a relay, whatever its place in `outputNoteIds`.
+  const mixedRow = () =>
+    row({
+      type: 'execute',
+      outputNoteIds: ['0xpublic', '0xprivate'],
+      relayNoteIds: ['0xprivate'],
+      noteDelivery: 'undelivered',
+      displayMessage: UNDELIVERED_CUSTOM
+    });
+
+  it('re-pushes a mixed row by its one private note, and the label drops', async () => {
+    rows.push(mixedRow());
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xprivate');
+    expect(mockRelayById).toHaveBeenCalledWith('0xprivate', 'mtst1recipient');
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('confirms a mixed row by its one private note', async () => {
+    rows.push(mixedRow());
+    mockIsConsumed.mockResolvedValue(true);
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xprivate');
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('stays on a row owing two private notes, which the sweep neither re-pushes nor records', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        outputNoteIds: ['0xprivate1', '0xprivate2', '0xpublic'],
+        relayNoteIds: ['0xprivate1', '0xprivate2'],
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED_CUSTOM
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      displayMessage: UNDELIVERED_CUSTOM
     });
   });
 

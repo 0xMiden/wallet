@@ -500,6 +500,8 @@ export interface ITransaction {
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
+  /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
+  relayNoteIds?: string[];
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
