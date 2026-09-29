@@ -42,4 +42,12 @@ describe('isTransactionStuck', () => {
     // wall-clock elapsed = 400s, hidden = 100s → active 300s > 120s
     expect(isTransactionStuck(1000, 1400, 100, MAX)).toBe(true);
   });
+
+  it('is stuck when the stamp lies further in the future than the threshold (clock moved backwards)', () => {
+    expect(isTransactionStuck(1000, 1000 - MAX - 1, 0, MAX)).toBe(true);
+  });
+
+  it('is NOT stuck when the stamp lies exactly the threshold in the future', () => {
+    expect(isTransactionStuck(1000, 1000 - MAX, 0, MAX)).toBe(false);
+  });
 });

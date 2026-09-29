@@ -381,9 +381,10 @@ export function setupTransactionProcessor(): void {
           // processing loop is running.
         } else if (alarm.name === STUCK_TX_HEAL_ALARM) {
           // Defence-in-depth self-heal: reap any orphans whose
-          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
-          // independent of `startTransactionProcessing` so we don't depend
-          // on the SW being mid-loop when an orphan ages out.
+          // processingStartedAt lies more than MAX_WAIT_BEFORE_CANCEL of
+          // active time away, in the past or (the clock moved backwards) in
+          // the future. This is independent of `startTransactionProcessing`
+          // so we don't depend on the SW being mid-loop when an orphan ages out.
           void healStuckTransactions();
         } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
           // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
