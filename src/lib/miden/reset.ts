@@ -89,7 +89,9 @@ export async function clearStorage(clearDb: boolean = true) {
  * The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
  * this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
  * no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
- * reports a reload that cannot start.
+ * reports a reload that cannot start. The reload does not depend on the page staying open: on the extension,
+ * where closing the page leaves the service worker running, a caller also reloads on `pagehide` while it
+ * reports, and the extension reloads once either way.
  *
  * It fails closed. The vault lives in the key-value store, so a step after the clear that rejects leaves no
  * wallet to unlock, and a clear that rejects leaves the database untouched. A delete or reopen that rejects

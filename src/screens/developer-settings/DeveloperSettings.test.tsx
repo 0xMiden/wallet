@@ -602,7 +602,9 @@ describe('DeveloperSettings', () => {
   // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
   // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
   // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
-  // reports a reload that cannot start.
+  // reports a reload that cannot start. The reload does not depend on the page staying open: on the extension,
+  // where closing the page leaves the service worker running, a caller also reloads on `pagehide` while it
+  // reports, and the extension reloads once either way.
   it('says the reset did not finish, then reloads, when the wipe fails partway', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
@@ -634,6 +636,88 @@ describe('DeveloperSettings', () => {
       throw new Error('webextension-polyfill failed to load');
     });
   };
+
+  // The popup that hosts this page closes when it loses focus, and nothing after the alert's await runs then.
+  it('reloads the extension once when the page closes while the did-not-finish alert is open', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+
+    closeAlert();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the extension once when the page closes after the did-not-finish alert', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the extension reload when the one the page close started throws', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+    // jsdom treats an exception thrown by an event listener as uncaught unless the page handles 'error'.
+    const handleError = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', handleError);
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    window.removeEventListener('error', handleError);
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+
+    closeAlert();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('still says the reset did not finish, then reloads, when the polyfill fails to load before the alert', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    failNextPolyfillLoad();
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+
+    closeAlert();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+  });
 
   it('says the reset did not finish when the extension reload cannot be started', async () => {
     jest.spyOn(console, 'warn').mockImplementation();

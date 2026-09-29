@@ -241,6 +241,8 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     setPending(true);
     hapticMedium();
     setError(null);
+    // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
+    let reloaded = false;
     try {
       // The override goes in the wipe's own blanket clear, so no separate step can fail after the
       // wallet is gone and leave onboarding on the endpoints being reset.
@@ -249,9 +251,31 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
       // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
       // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
-      // reports a reload that cannot start.
+      // reports a reload that cannot start. The reload does not depend on the page staying open: on the extension,
+      // where closing the page leaves the service worker running, a caller also reloads on `pagehide` while it
+      // reports, and the extension reloads once either way.
       console.warn('[developer-settings] Could not wipe the wallet storage', err);
-      await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
+      // The popup that hosts this page closes when it loses focus, and nothing after the alert's await runs
+      // then. The polyfill is fetched first because a pagehide listener cannot wait for an import.
+      let reloadOnce: (() => void) | undefined;
+      if (isExtension()) {
+        try {
+          const browser = (await import('webextension-polyfill')).default;
+          reloadOnce = () => {
+            browser.runtime.reload();
+            reloaded = true;
+          };
+          window.addEventListener('pagehide', reloadOnce, { once: true });
+        } catch (importErr) {
+          // The alert still shows; the reload below imports again or reports that it could not start.
+          console.warn('[developer-settings] Could not load the polyfill before the alert', importErr);
+        }
+      }
+      try {
+        await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
+      } finally {
+        if (reloadOnce) window.removeEventListener('pagehide', reloadOnce);
+      }
     }
     try {
       // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
@@ -261,8 +285,11 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         // `chrome.runtime.id` is absent, so it must not be a top-level import - this
         // screen is statically imported by PageRouter and evaluates on every platform
         // (desktop has no vite alias for it, unlike mobile). Mirrors src/lib/miden/reset.ts.
-        const browser = (await import('webextension-polyfill')).default;
-        browser.runtime.reload();
+        // A listener reload that threw left the flag down, so this one retries and reports.
+        if (!reloaded) {
+          const browser = (await import('webextension-polyfill')).default;
+          browser.runtime.reload();
+        }
       } else {
         // mobile/desktop: no background worker to resync with, just reload in place.
         window.location.reload();

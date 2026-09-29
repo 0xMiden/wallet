@@ -90,20 +90,35 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     if (!confirmed) return;
 
     // resetStorageDestructive's caller contract: report a rejected wipe and then reload, and report a reload
-    // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault.
+    // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault. The reload does
+    // not depend on the page staying open: the tab can close while the report is up, and nothing after its
+    // await runs then, so pagehide reloads too, and whichever comes first is the one reload.
+    let reloaded = false;
+    const reloadOnce = () => {
+      browser.runtime.reload();
+      reloaded = true;
+    };
     try {
       await resetStorageDestructive();
     } catch (err) {
       console.warn('[options] Could not wipe the wallet storage', err);
-      await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
+      window.addEventListener('pagehide', reloadOnce, { once: true });
+      try {
+        await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
+      } finally {
+        window.removeEventListener('pagehide', reloadOnce);
+      }
     }
-    try {
-      browser.runtime.reload();
-    } catch (err) {
-      await customAlert({
-        title: getMessage('error'),
-        children: err instanceof Error ? err.message : String(err)
-      });
+    // A listener reload that threw left the flag down, so this one retries and reports.
+    if (!reloaded) {
+      try {
+        reloadOnce();
+      } catch (err) {
+        await customAlert({
+          title: getMessage('error'),
+          children: err instanceof Error ? err.message : String(err)
+        });
+      }
     }
   } finally {
     resetting = false;
