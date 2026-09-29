@@ -102,6 +102,7 @@ const mockReRegister = jest.fn();
 // The self-heal pulls the guardian's own state before deciding whether to push.
 const mockAdoptGuardianState = jest.fn();
 const mockBuildColdMultisigService = jest.fn();
+const mockMultisigInit = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   // The `__authRejection` tag is a convenience for the tests below, but the REAL
   // classifier is kept in the chain: it is the gate that decides whether this
@@ -121,7 +122,8 @@ jest.mock('lib/miden/guardian', () => {
     isGuardianReRegisterRefusal: actual.isGuardianReRegisterRefusal,
     GuardianReRegisterRefusedError: actual.GuardianReRegisterRefusedError,
     MultisigService: {
-      buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args)
+      buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args),
+      init: (...args: unknown[]) => mockMultisigInit(...args)
     }
   };
 });
@@ -175,6 +177,19 @@ jest.mock('lib/miden/guardian/direct-switch', () => ({
   finalizeDirectGuardianSwitch: (...args: unknown[]) => mockFinalizeDirectGuardianSwitch(...args)
 }));
 
+// The switch rows a landed reconcile flagged (#1233), covered on their own in
+// transaction/switch-guardian-residual.test.ts.
+const mockFindUnsavedSwitchRow = jest.fn(
+  async (_accountPublicKey: string, _endpoint: string): Promise<unknown> => undefined
+);
+const mockClearLocalStateNotSaved = jest.fn(async (_accountPublicKey: string, _endpoint: string) => {});
+jest.mock('lib/miden/transaction/switch-guardian-residual', () => ({
+  findUnsavedSwitchRow: (accountPublicKey: string, endpoint: string) =>
+    mockFindUnsavedSwitchRow(accountPublicKey, endpoint),
+  clearLocalStateNotSaved: (accountPublicKey: string, endpoint: string) =>
+    mockClearLocalStateNotSaved(accountPublicKey, endpoint)
+}));
+
 const mockGetAccount = jest.fn();
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
@@ -182,7 +197,9 @@ const mockGetAccount = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
-  withWasmClientLock: async (fn: () => Promise<unknown>) => fn()
+  withWasmClientLock: async (fn: () => Promise<unknown>) => fn(),
+  // This lock hands out no hold, so there is no ownership for the post-switch read to re-check.
+  assertWasmHoldCurrent: () => {}
 }));
 
 describe('zustandProvider', () => {
@@ -1898,6 +1915,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
     mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
+    mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
+    mockMultisigInit.mockReset();
   });
 
   // All four codes reach this branch: the operator uses them interchangeably for
@@ -2364,5 +2383,95 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
     nowSpy.mockRestore();
+  });
+
+  it('clears the unsaved-switch flag once a registration lands (#1233)', async () => {
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
+    expect(mockMultisigInit).not.toHaveBeenCalled();
+  });
+
+  // The flag is only the receipt's warning; failing to clear it must not turn a landed registration
+  // into a failed attempt.
+  it('still books the registration as landed when clearing the unsaved-switch flag fails (#1233)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    mockClearLocalStateNotSaved.mockRejectedValueOnce(new Error('Dexie closed'));
+
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not clear the unsaved-switch flag for unregistered-pk'),
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('registered unregistered-pk on'));
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('could not register'), expect.anything());
+    warnSpy.mockRestore();
+  });
+
+  // #1233: a landed switch whose apply failed leaves this device's copy naming the OLD guardian.
+  describe('a switch whose local state was not saved', () => {
+    const previousEndpoint = 'https://old.guardian.test';
+    let adopted = false;
+
+    beforeEach(() => {
+      adopted = false;
+      mockFindUnsavedSwitchRow.mockResolvedValue({ id: 'switch-row', previousGuardianEndpoint: previousEndpoint });
+      mockAdoptGuardianState.mockReset();
+      mockAdoptGuardianState.mockImplementation(async () => {
+        adopted = true;
+      });
+      mockMultisigInit.mockResolvedValue({ adoptGuardianStateOnce: mockAdoptGuardianState });
+      // The local copy names the OLD guardian until the adopt imports the post-switch state.
+      mockGetGuardianCommitmentFromAccount.mockImplementation(() => (adopted ? 'newguardiankey' : 'oldguardiankey'));
+      mockCheckEndpointCommitment.mockImplementation(async (_endpoint: string, key: string) =>
+        key === 'newguardiankey' ? 'match' : 'mismatch'
+      );
+    });
+
+    it('adopts the post-switch state from the previous guardian, then registers it and clears the flag', async () => {
+      await runUntilPersistent();
+
+      expect(mockMultisigInit).toHaveBeenCalledWith(
+        { __sdkAccount: true },
+        '0xhot',
+        '0xaabb',
+        zustandProvider.signWord,
+        previousEndpoint
+      );
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
+    });
+
+    it('does not adopt for an account with no such row', async () => {
+      mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
+
+      await runUntilPersistent();
+
+      expect(mockMultisigInit).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('does not register while the adopted state still names another guardian', async () => {
+      // The previous guardian has not canonicalized the switch yet: the adopt imports nothing.
+      mockAdoptGuardianState.mockImplementation(async () => {});
+
+      await runUntilPersistent();
+
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+      expect(mockClearLocalStateNotSaved).not.toHaveBeenCalled();
+    });
+
+    it('refuses without registering when the previous guardian cannot be reached', async () => {
+      mockMultisigInit.mockRejectedValue(new Error('Failed to fetch'));
+
+      await runUntilPersistent();
+
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
   });
 });

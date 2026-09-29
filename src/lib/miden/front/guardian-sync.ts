@@ -15,9 +15,11 @@ import {
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
+import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { clearLocalStateNotSaved, findUnsavedSwitchRow } from 'lib/miden/transaction/switch-guardian-residual';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -492,6 +494,46 @@ function clearMissingRegistrationState(accountPublicKey: string): void {
 }
 
 /**
+ * Bring an account whose landed switch could not save its post-switch state to that state (#1233),
+ * from the endpoint that switch's row names as previous. That operator holds it once it canonicalized
+ * the switch delta the wallet pushed, and keeps serving reads after it released the account. Signs
+ * with this device's hot key, which the previous operator's allowlist still carries. True once the
+ * local copy names `endpoint`'s key; anything else leaves the repair to a later tick.
+ */
+async function adoptFromPreviousGuardian(
+  account: WalletAccount,
+  endpoint: string,
+  hotCommitment: string
+): Promise<boolean> {
+  if (!account.hotPublicKey) return false;
+  const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
+  if (!unsaved) return false;
+  try {
+    const sdkAccount = await withWasmClientLock(
+      async () => midenClientProxy.getAccount(account.publicKey),
+      GUARDIAN_READ_LOCK_OPTIONS
+    );
+    if (!sdkAccount) return false;
+    const previous = await MultisigService.init(
+      sdkAccount,
+      `0x${account.hotPublicKey}`,
+      `0x${hotCommitment}`,
+      zustandProvider.signWord,
+      unsaved.previousGuardianEndpoint
+    );
+    await previous.adoptGuardianStateOnce();
+    // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
+    return (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
+  } catch (error) {
+    console.warn(
+      `[Guardian Sync] could not adopt ${account.publicKey}'s post-switch state from ${unsaved.previousGuardianEndpoint}:`,
+      error
+    );
+    return false;
+  }
+}
+
+/**
  * Push a registration to an operator that reports no record of the account.
  *
  * This is the recovery half of `registerFailed` (see `ISwitchGuardianExtraInputs`).
@@ -668,7 +710,16 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     );
     return;
   }
-  const endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
+  let endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
+  // A landed switch whose apply failed leaves this device's copy naming the OLD guardian (#1233),
+  // which the new operator must not be handed. Adopt the post-switch state from the previous one
+  // first, then check again.
+  if (
+    endpointHoldsGuardianKey === 'mismatch' &&
+    (await adoptFromPreviousGuardian(account, endpoint, onChainHot.commitment))
+  ) {
+    endpointHoldsGuardianKey = 'match';
+  }
   if (endpointHoldsGuardianKey !== 'match') {
     console.warn(
       `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the operator did not confirm the ` +
@@ -699,6 +750,11 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider);
     bookSettled(attempts + 1);
     clearGuardianServiceFor(account.publicKey);
+    // The operator now holds the post-switch state, so a switch row that said this device could not
+    // save it no longer does (#1233).
+    await clearLocalStateNotSaved(account.publicKey, endpoint).catch(clearError =>
+      console.warn(`[Guardian Sync] could not clear the unsaved-switch flag for ${account.publicKey}:`, clearError)
+    );
     console.warn(
       `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
     );
