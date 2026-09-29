@@ -1,7 +1,8 @@
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/tokens';
+import { _resetNormalizedFaucetIdsForTest, TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 
+import { SpendingLimitPriceUnavailableError } from './types';
 import { resolveSpendsUsd } from './valuation';
 
 /**
@@ -41,10 +42,17 @@ const USDC_METADATA = { ...TST_METADATA, symbol: 'USDC', name: 'USDC' };
 
 const sentinelAccountId = { __brand: 'faucet-account-id' };
 const usdcAccountId = { __brand: 'usdc-faucet-account-id' };
+// The swap registry's priced entries are bech32 ids: the cap matches every entry it compares
+// strictly, so an entry that failed to parse here would refuse every spend in this suite.
+const iethAccountId = { __brand: 'ieth-faucet-account-id' };
+const ibtcAccountId = { __brand: 'ibtc-faucet-account-id' };
 const BECH32_BY_ACCOUNT_ID = new Map<unknown, string>([
   [sentinelAccountId, BECH32_FAUCET],
-  [usdcAccountId, USDC_BECH32]
+  [usdcAccountId, USDC_BECH32],
+  [iethAccountId, TOKEN_IETH.faucetId],
+  [ibtcAccountId, TOKEN_IBTC.faucetId]
 ]);
+const ACCOUNT_ID_BY_BECH32 = new Map([...BECH32_BY_ACCOUNT_ID].map(([accountId, bech32]) => [bech32, accountId]));
 
 const mockFromHex = jest.fn();
 const mockFromBech32 = jest.fn();
@@ -108,8 +116,8 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     // The real SDK's `Address.fromBech32` rejects a non-bech32 string (a hex id included) rather
     // than silently accepting it - the RPC-path parse failure this bug goes through.
     mockFromBech32.mockImplementation((address: string) => {
-      if (address === BECH32_FAUCET) return { accountId: () => sentinelAccountId };
-      if (address === USDC_BECH32) return { accountId: () => usdcAccountId };
+      const accountId = ACCOUNT_ID_BY_BECH32.get(address);
+      if (accountId !== undefined) return { accountId: () => accountId };
       throw new Error(`invalid bech32 address: ${address}`);
     });
   });
@@ -163,5 +171,35 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     );
 
     await expect(resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
+  });
+
+  it('refuses a USDC spend whose allowlist entry the SDK cannot parse, never counting it as nothing (#1131 F-001)', async () => {
+    const parseError = new Error('cannot parse the USDC entry');
+    const parseHex = mockFromHex.getMockImplementation()!;
+    mockFromHex.mockImplementation((hex: string) => {
+      if (hex === MIDEN_USDC_FAUCET) throw parseError;
+      return parseHex(hex);
+    });
+    mockFetchFromStorage.mockImplementation(async (key: string) =>
+      key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [USDC_BECH32]: USDC_METADATA }
+    );
+
+    const valued = resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ symbol: 'USDC', cause: parseError });
+  });
+
+  it('refuses a spend whose own id the SDK cannot parse, named after that id (#1131 F-001)', async () => {
+    const RAW_ID = 'not-a-faucet-id';
+    mockFetchFromStorage.mockImplementation(async (key: string) =>
+      key === 'usd_price_cache' ? { USDC: { priceMicro: '1000000', fetchedAt: 10 } } : { [RAW_ID]: USDC_METADATA }
+    );
+
+    const valued = resolveSpendsUsd([{ faucetId: RAW_ID, amount: 25_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({
+      symbol: RAW_ID,
+      cause: expect.objectContaining({ message: `invalid bech32 address: ${RAW_ID}` })
+    });
   });
 });

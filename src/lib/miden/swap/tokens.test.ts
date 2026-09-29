@@ -7,6 +7,7 @@ import { isCoveredSymbol } from 'lib/prices/usd';
 
 import {
   allowlistedPriceSymbols,
+  canonicalFaucetId,
   deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
@@ -15,6 +16,7 @@ import {
   getSwapTokenBySymbol,
   normalizedFaucetId,
   priceSymbolFor,
+  strictPriceSymbolFor,
   TOKEN_IBTC,
   TOKEN_IETH,
   TOKEN_IMIDEN,
@@ -191,6 +193,32 @@ describe('priceSymbolFor', () => {
   });
 });
 
+describe('strictPriceSymbolFor', () => {
+  beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
+  const parseError = new Error('cannot parse the USDC entry');
+  const usdcEntryFailsToParse = () =>
+    mockToBech32.mockImplementation((id: any) => {
+      if (id === MIDEN_USDC_FAUCET) throw parseError;
+      return mockFakeBech32(id);
+    });
+
+  it('prices a canonical IETH id at ETH', () => {
+    expect(strictPriceSymbolFor(canonicalFaucetId(TOKEN_IETH.faucetId), 'IETH')).toBe('ETH');
+  });
+
+  it('throws when an allowlist entry it compares cannot be parsed, rather than missing the match', () => {
+    usdcEntryFailsToParse();
+    expect(() => strictPriceSymbolFor(`bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toThrow(parseError);
+  });
+
+  it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
+    usdcEntryFailsToParse();
+    const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(priceSymbolFor(`bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
+    expect(tokenQuote({ USDC: usdc }, `bech32:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
+  });
+});
+
 describe('tokenQuote', () => {
   beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
   const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2 };
@@ -213,6 +241,23 @@ describe('tokenQuote', () => {
     expect(
       tokenQuote({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, TOKEN_IETH.faucetId, 'IETH')
     ).toBeUndefined();
+  });
+});
+
+describe('canonicalFaucetId', () => {
+  it("returns the SDK's form of an id", () => {
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+  });
+
+  it('throws when the SDK cannot parse the id, and caches nothing', () => {
+    const parseError = new Error('wasm not ready');
+    mockToBech32.mockImplementationOnce(() => {
+      throw parseError;
+    });
+    expect(() => canonicalFaucetId(TOKEN_IETH.faucetId)).toThrow(parseError);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(mockToBech32).toHaveBeenCalledTimes(2);
   });
 });
 

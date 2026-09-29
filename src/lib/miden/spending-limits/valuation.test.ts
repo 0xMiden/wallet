@@ -21,22 +21,14 @@ jest.mock('lib/miden-chain/constants', () => ({
 // The dApp custom path emits a faucet's hex spelling; map one to IETH's bech32 id so the test
 // can tell whether the canonical id or the raw one reaches the price-symbol lookup.
 const IETH_HEX = '0x1eth00000000000000000000000000';
-jest.mock('../sdk/helpers', () => {
-  const actual = jest.requireActual('../sdk/helpers');
-  return {
-    ...actual,
-    // The priced hex faucets keep their spelling, so the metadata mocks below can key on them.
-    canonicalFaucetBech32Id: (id: string) =>
-      id === IETH_HEX
-        ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId
-        : [
-              jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
-              jest.requireActual('lib/agglayer/b2agg/constant').MIDEN_AGGLAYER_FAUCET_ID
-            ].includes(id)
-          ? id
-          : actual.canonicalFaucetBech32Id(id)
-  };
-});
+// The shared SDK mock parses no id, and the cap refuses a spend it cannot canonicalize, so every
+// other id parses to itself and the metadata mocks below can key on the fixtures' own spelling.
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) =>
+    id === IETH_HEX ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId : id
+}));
 
 const mockedPrice = jest.mocked(getPriceMicro);
 const mockedMetadata = jest.mocked(fetchTokenMetadata);

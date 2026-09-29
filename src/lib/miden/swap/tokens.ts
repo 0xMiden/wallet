@@ -125,25 +125,30 @@ export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
 // Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
-// stringify. A failed parse is not cached, so it is retried once the SDK can parse the id.
+// stringify. Only a parsed id is stored, so a failed parse is retried once the SDK can parse the id.
 const normalizedFaucetIds = new Map<string, string>();
 
 /** Test-only: forget every cached conversion. */
 export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
 
 /**
- * The balance store's key for a faucet id in any encoding (hex, bech32 or the composite
- * `<address>_<suffix>`), so every spelling of one faucet reduces to one bech32 id; the raw id if the
- * SDK cannot parse it yet.
+ * The SDK's bech32 form of a faucet id in any encoding (hex, bech32 or the composite
+ * `<address>_<suffix>`), so every spelling of one faucet reduces to one id. Throws when the SDK
+ * cannot parse the id, as it does for every id until its WASM has loaded.
  */
-export function normalizedFaucetId(faucetId: string): string {
+export function canonicalFaucetId(faucetId: string): string {
   const key = `${getEffectiveNetworkName()}:${faucetId}`;
   const cached = normalizedFaucetIds.get(key);
   if (cached !== undefined) return cached;
+  const canonical = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
+  normalizedFaucetIds.set(key, canonical);
+  return canonical;
+}
+
+/** The balance store's key for a faucet id: its canonical id, or the raw id if the SDK cannot parse it yet. */
+export function normalizedFaucetId(faucetId: string): string {
   try {
-    const normalized = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
-    normalizedFaucetIds.set(key, normalized);
-    return normalized;
+    return canonicalFaucetId(faucetId);
   } catch {
     return faucetId;
   }
@@ -165,17 +170,33 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
   ];
 }
 
+function matchPriceSymbol(
+  canonicalId: string,
+  symbol: string,
+  canonicalize: (faucetId: string) => string
+): string | undefined {
+  const priced = pricedFaucets().find(entry => canonicalize(entry.faucetId) === canonicalId);
+  if (priced) return priced.priceSymbol;
+  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
+}
+
 /**
  * The symbol to look a held token's price up under, when the faucet and an allowlist entry reduce to
  * one canonical id, whichever encoding each is spelled in; none for any other faucet, whatever its
  * own symbol. The one exception is the E2E harness's fixture symbol, priced by symbol in E2E builds
- * only.
+ * only. For display: an id the SDK cannot parse is compared as its raw text.
  */
 export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
-  const canonical = normalizedFaucetId(faucetId);
-  const priced = pricedFaucets().find(entry => normalizedFaucetId(entry.faucetId) === canonical);
-  if (priced) return priced.priceSymbol;
-  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
+  return matchPriceSymbol(normalizedFaucetId(faucetId), symbol, normalizedFaucetId);
+}
+
+/**
+ * `priceSymbolFor` for the spending cap, over an id `canonicalFaucetId` produced. An allowlist entry
+ * the SDK cannot parse throws rather than dropping out of the match, since its raw text would miss
+ * the spend and count a priced spend as nothing.
+ */
+export function strictPriceSymbolFor(canonicalId: string, symbol: string): string | undefined {
+  return matchPriceSymbol(canonicalId, symbol, canonicalFaucetId);
 }
 
 /**
