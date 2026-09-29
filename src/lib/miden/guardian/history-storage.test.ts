@@ -58,6 +58,15 @@ it('does not undo an import marker when a late cursor write races the reset', as
   expect(after.checkpoints).toEqual({});
 });
 
+it('treats a missing generation as a wipe and keeps the fresh one it stores', async () => {
+  const first = await readGuardianHistoryState();
+  expect(first.generation).not.toBe('initial');
+  expect((await readGuardianHistoryState()).generation).toBe(first.generation);
+  mockValues.delete('guardian_history_generation_v1');
+  expect((await readGuardianHistoryState()).generation).not.toBe(first.generation);
+  expect(await saveGuardianHistoryCheckpoint(first.generation, checkpoint)).toBe(false);
+});
+
 it('starts again when a saved checkpoint is malformed', async () => {
   mockValues.set(GUARDIAN_HISTORY_STORAGE_KEY, { generation: 'initial', checkpoints: { test: { cursor: 12 } } });
   expect((await readGuardianHistoryState()).checkpoints).toEqual({});

@@ -7,6 +7,7 @@ import {
 } from '@openzeppelin/guardian-client';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -180,6 +181,34 @@ it('keeps the cursor for an interrupted page and resumes without duplicate rows'
   jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(1)] });
   await run();
   expect(await transactions.count()).toBe(3);
+});
+
+it('defers a pass whose storage is wiped while a page is in flight', async () => {
+  // A wallet that never imported a file has no generation key until the first read stores one.
+  await putToStorage('guardian_history_generation_v1', null);
+  const client = clients.get('https://one');
+  if (!client) throw new Error('Missing test source');
+  let release: (() => void) | undefined;
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockImplementationOnce(
+      () =>
+        new Promise<HistoryPage>(resolve => {
+          release = () => resolve({ entries: [entry(2)], nextCursor: 'next' });
+        })
+    );
+  const pending = run();
+  for (let i = 0; i < 100 && !release; i++) await new Promise(resolve => setTimeout(resolve, 0));
+  if (!release) throw new Error('The page request never started');
+  await putToStorage('guardian_history_generation_v1', null);
+  release();
+  expect((await pending).deferred).toBe(true);
+  const stored = await fetchFromStorage<{ checkpoints: Record<string, { cursor?: string }> }>(
+    'guardian_history_recovery_v1'
+  );
+  expect(Object.values(stored?.checkpoints ?? {}).some(value => value.cursor === 'next')).toBe(false);
+  expect(await transactions.count()).toBe(0);
 });
 
 it('continues after an authentication failure and retries that source on the next run', async () => {

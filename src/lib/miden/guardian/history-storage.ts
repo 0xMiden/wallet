@@ -32,7 +32,13 @@ const stateSchema = z.object({
 
 export async function readGuardianHistoryState(): Promise<z.infer<typeof stateSchema>> {
   const current = z.string().safeParse(await fetchFromStorage(GUARDIAN_HISTORY_GENERATION_KEY));
-  const generation = current.success ? current.data : 'initial';
+  if (!current.success) {
+    // A missing marker is a wipe, not a constant: a pass that began before it must see a new generation.
+    const generation = uuid();
+    await putToStorage(GUARDIAN_HISTORY_GENERATION_KEY, generation);
+    return { generation, checkpoints: {} };
+  }
+  const generation = current.data;
   const parsed = stateSchema.safeParse(await fetchFromStorage(GUARDIAN_HISTORY_STORAGE_KEY));
   if (parsed.success && parsed.data.generation === generation) return parsed.data;
   return { generation, checkpoints: {} };
