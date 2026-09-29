@@ -4,10 +4,10 @@ import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import {
+  isUnconfirmedFailureReason,
   isVaultShortfallRow,
   isWalletFailureReason,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
-  TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
 
@@ -160,24 +160,29 @@ export const describeRotationFailure = (
       details: raw === TRANSACTION_VAULT_SHORTFALL_ERROR ? undefined : nonEmpty(raw)
     };
   }
+  // The reason the wallet itself wrote, whatever `cancelTransaction` did to `error`: a classifier rewrite for the
+  // user keeps the real reason in `rawError`, so that is read first, falling back to `error` for a row it never
+  // rewrote.
+  const reason = row.rawError ?? row.error;
   // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
   // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
   // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
-  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself. The stuck
-  // reaper cancels without stopping the pipeline, and only a send gets the in-flight marker.
+  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself. An
+  // unconfirmed reason (the stuck reaper, the cold-start sweep, a not-landed consume, the debug force-cancel) is a
+  // writer that failed the row without proving the pipeline stopped before its submit.
   if (
     row.mayHaveSubmitted === true ||
     row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
-    row.error === TRANSACTION_STUCK_ERROR
+    (reason !== undefined && isUnconfirmedFailureReason(reason))
   ) {
     return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
   }
-  // `cancelTransaction` keeps `rawError` only when a classifier rewrote the error for the user.
+  // A final wallet reason is copy the wallet wrote itself, verbatim, whatever the row's stage: user cancel, a
+  // Queued row that expired, or a note that can never be consumed. Shown as the message itself, with no details.
+  if (reason !== undefined && isWalletFailureReason(reason)) return { unconfirmed: false, message: reason };
+  // `cancelTransaction` keeps `rawError` only when a classifier rewrote a THROWN error for the user.
   if (row.rawError !== undefined) {
     return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
   }
-  // The wallet's own reasons are copy that never had a `rawError`. A user cancel among them is final here: the
-  // overlay covers every screen that could cancel a rotation or a claim.
-  if (row.error !== undefined && isWalletFailureReason(row.error)) return { unconfirmed: false, message: row.error };
   return { unconfirmed: false, message: null, details: nonEmpty(row.error) };
 };

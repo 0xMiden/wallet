@@ -7,6 +7,8 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import {
   INVALID_NOTE_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
@@ -983,7 +985,9 @@ describe('HotKeyRotationGate', () => {
 
     it.each([
       ['may have submitted', { error: 'RuntimeError: request timeout', mayHaveSubmitted: true }],
-      ['was reaped as stuck', { error: TRANSACTION_STUCK_ERROR }]
+      ['was reaped as stuck', { error: TRANSACTION_STUCK_ERROR }],
+      ['was interrupted when the browser closed', { error: TRANSACTION_INTERRUPTED_ON_STARTUP }],
+      ['was interrupted by the node check', { error: TRANSACTION_INTERRUPTED_ERROR }]
     ])('says a claim that %s could not be confirmed, and keeps Try again', async (_label, failure) => {
       trackShortfall();
       mockTable = [

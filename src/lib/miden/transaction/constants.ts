@@ -95,20 +95,35 @@ export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**
- * The reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
- * `rawError`. Not `TRANSACTION_STUCK_ERROR`: the stuck reaper cancels without stopping the pipeline, so that
- * row's outcome is unknown rather than failed.
+ * Final reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
+ * `rawError`, whatever the row's stage: the wallet has proved the row can never land, so the reason is shown
+ * as a completed failure. User cancel, a Queued row that expired before it ever started, and a note that can
+ * never be consumed.
  */
 export const WALLET_FAILURE_REASONS: ReadonlySet<string> = new Set([
   USER_CANCELLED_TRANSACTION_REASON,
   TRANSACTION_EXPIRED_ERROR,
-  TRANSACTION_INTERRUPTED_ERROR,
-  TRANSACTION_INTERRUPTED_ON_STARTUP,
-  INVALID_NOTE_ERROR,
-  TRANSACTION_FORCE_CANCELLED_ERROR
+  INVALID_NOTE_ERROR
 ]);
 
 export const isWalletFailureReason = (text: string): boolean => WALLET_FAILURE_REASONS.has(text);
+
+/**
+ * Reasons a writer sets on a row without proving the pipeline stopped before its submit, stored as the row's
+ * error with no `rawError`, same as {@link WALLET_FAILURE_REASONS}, but the row's outcome is unknown rather
+ * than failed, so a reader shows it as not confirmed instead of as a completed failure: the stuck reaper (the
+ * pipeline it cancels keeps running), the cold-start sweep (its own docs say the row may already be on chain),
+ * `verifyStuckTransactions`' not-landed arm (it fails a consume still in progress without stopping it), and the
+ * debug force-cancel (same shape as the reaper).
+ */
+export const UNCONFIRMED_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR
+]);
+
+export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED_FAILURE_REASONS.has(text);
 
 /**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim

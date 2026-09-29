@@ -11,6 +11,8 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import {
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
+  isUnconfirmedFailureReason,
+  isWalletFailureReason,
   resolveTransactionErrorMessage,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -87,8 +89,12 @@ export const cancelTransaction = async (
   // falsehood that costs the user the retry.
   const abandonedPreWrite =
     PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
+  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
+  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
+  // claim read as a completed failure instead of not confirmed.
   const displayError =
-    error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
+    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   let applied = false;

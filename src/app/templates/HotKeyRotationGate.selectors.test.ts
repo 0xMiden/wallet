@@ -4,7 +4,10 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import {
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
+  isUnconfirmedFailureReason,
   isWalletFailureReason,
+  LOCAL_PROVER_FAILED_ERROR,
+  REMOTE_PROVER_FAILED_ERROR,
   REMOTE_PROVER_TIMEOUT_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_EXPIRED_ERROR,
@@ -32,12 +35,13 @@ import {
 jest.mock('lib/i18n/numbers', () => jest.requireActual('lib/i18n/numbers'));
 
 // Listed here rather than read from the set, so a member dropped from it fails its own row.
-const WALLET_REASONS = [
-  USER_CANCELLED_TRANSACTION_REASON,
-  TRANSACTION_EXPIRED_ERROR,
-  TRANSACTION_INTERRUPTED_ERROR,
+const WALLET_REASONS = [USER_CANCELLED_TRANSACTION_REASON, TRANSACTION_EXPIRED_ERROR, INVALID_NOTE_ERROR];
+
+// Same reasoning as WALLET_REASONS: listed literally, not read from the set.
+const UNCONFIRMED_REASONS = [
+  TRANSACTION_STUCK_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
-  INVALID_NOTE_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR
 ];
 
@@ -349,12 +353,29 @@ describe('describeRotationFailure', () => {
     });
   });
 
-  it('reads a row the stuck reaper failed as unconfirmed without the stamp, since its pipeline may still run', () => {
-    expect(describeRotationFailure(failed({ error: TRANSACTION_STUCK_ERROR }), null)).toEqual({
-      unconfirmed: true,
-      message: null,
-      details: TRANSACTION_STUCK_ERROR
-    });
+  it.each(UNCONFIRMED_REASONS)(
+    'reads a row failed with the unconfirmed reason %p as unconfirmed, since its pipeline may still run',
+    reason => {
+      expect(describeRotationFailure(failed({ error: reason }), null)).toEqual({
+        unconfirmed: true,
+        message: null,
+        details: reason
+      });
+    }
+  );
+
+  it('reads a row the classifier rewrote from an unconfirmed reason as unconfirmed, with the reason behind it', () => {
+    // The proving-stage shape: cancelTransaction stored TRANSACTION_STUCK_ERROR as rawError and the classifier's
+    // prover copy as error. The gate must judge the row by the reason the wallet wrote, not the rewritten copy.
+    expect(
+      describeRotationFailure(failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_STUCK_ERROR }), null)
+    ).toEqual({ unconfirmed: true, message: null, details: TRANSACTION_STUCK_ERROR });
+  });
+
+  it('reads a row the classifier rewrote from a final wallet reason as that reason, with no details', () => {
+    expect(
+      describeRotationFailure(failed({ error: REMOTE_PROVER_FAILED_ERROR, rawError: INVALID_NOTE_ERROR }), null)
+    ).toEqual({ unconfirmed: false, message: INVALID_NOTE_ERROR });
   });
 });
 
@@ -363,9 +384,21 @@ describe('isWalletFailureReason', () => {
     expect(isWalletFailureReason(reason)).toBe(true);
   });
 
-  it('refuses the stuck reason and any other text', () => {
-    expect(isWalletFailureReason(TRANSACTION_STUCK_ERROR)).toBe(false);
+  it('refuses every unconfirmed reason and any other text', () => {
+    UNCONFIRMED_REASONS.forEach(reason => expect(isWalletFailureReason(reason)).toBe(false));
     expect(isWalletFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
     expect(isWalletFailureReason('')).toBe(false);
+  });
+});
+
+describe('isUnconfirmedFailureReason', () => {
+  it.each(UNCONFIRMED_REASONS)('accepts %p', reason => {
+    expect(isUnconfirmedFailureReason(reason)).toBe(true);
+  });
+
+  it('refuses every final wallet reason and any other text', () => {
+    WALLET_REASONS.forEach(reason => expect(isUnconfirmedFailureReason(reason)).toBe(false));
+    expect(isUnconfirmedFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
+    expect(isUnconfirmedFailureReason('')).toBe(false);
   });
 });
