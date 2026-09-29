@@ -3183,6 +3183,25 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
   });
 
+  // A restore keeps extraInputs as the dump recorded them, so a row can lack its market id.
+  it('renders a withdrawal restored without a market id, with no Market row', async () => {
+    const { marketUid: _marketUid, ...extraInputs } = earnWithdrawTx({}).extraInputs as Record<string, unknown>;
+    setMockRow(earnWithdrawTx({}, { extraInputs }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(rowByLabel('positionOwnerLabel')).toBeDefined();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  it('shows no Market row for an empty market id', async () => {
+    setMockRow(earnWithdrawTx({ marketUid: '' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
     setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined }));
     await renderAndLoad();
@@ -3372,6 +3391,25 @@ describe('HistoryDetails earn-deposit', () => {
     await renderAndLoad();
 
     expect(rowByLabel('earnMarketLabel')?.textContent).toBe(':11155111:0xabc');
+  });
+
+  // A restore keeps extraInputs as the dump recorded them, so a row can lack its market id.
+  it('renders a deposit restored without a market id, with no Market row', async () => {
+    const { marketUid: _marketUid, ...extraInputs } = earnDepositTx().extraInputs as Record<string, unknown>;
+    setMockRow(earnDepositTx({}, { extraInputs }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(rowByLabel('positionOwnerLabel')).toBeDefined();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  it('shows no Market row for an empty market id', async () => {
+    setMockRow(earnDepositTx({ marketUid: '' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
   });
 
   // The Review shows the amount exactly as typed; the page's 3-decimal pass would cut 10.6555 to 10.655.

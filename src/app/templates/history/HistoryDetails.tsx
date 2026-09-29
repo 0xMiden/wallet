@@ -848,11 +848,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
@@ -897,11 +899,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnDepositDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
