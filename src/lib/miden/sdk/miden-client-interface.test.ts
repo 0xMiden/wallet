@@ -84,13 +84,12 @@ describe('MidenClientInterface', () => {
         waitFor: jest.fn(async () => {}),
         ...overrides.transactions
       },
-      // The non-offscreen send builds its request through the inner raw client.
-      // `getAccount` is the sender-vault read that supplies the outgoing asset's
-      // callback flag, so it has to exist here or the send path throws.
+      // The non-offscreen send reads the sender's account through the inner raw client, for the
+      // vault key that carries the outgoing asset's callback flag, and builds its request with
+      // `buildSendTransactionRequest`; without `getAccount` the send path throws.
       _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<any>) =>
         fn(
           overrides.__inner ?? {
-            newSendTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([7]) })),
             getAccount: jest.fn(async () => ({ vault: jest.fn() }))
           }
         )
@@ -2208,8 +2207,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
-        getAccount: jest.fn(async () => undefined),
-        newSendTransactionRequest: jest.fn(async () => ({}))
+        getAccount: jest.fn(async () => undefined)
       };
       const stubs = buildOffscreenStubs();
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
@@ -2244,8 +2242,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
-        getAccount: jest.fn(async () => undefined),
-        newSendTransactionRequest: jest.fn(async () => ({}))
+        getAccount: jest.fn(async () => undefined)
       };
       const stubs = buildOffscreenStubs();
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
@@ -2298,8 +2295,7 @@ describe('MidenClientInterface', () => {
           executeTransaction: jest.fn(async () => fakeTransactionResult),
           submitProvenTransaction: jest.fn(async () => 100),
           applyTransaction: jest.fn(async () => undefined),
-          getAccount: jest.fn(async () => senderAccount),
-          newSendTransactionRequest: jest.fn(async () => ({}))
+          getAccount: jest.fn(async () => senderAccount)
         };
         buildOffscreenStubs();
         const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
@@ -2465,8 +2461,7 @@ describe('MidenClientInterface', () => {
         }),
         submitProvenTransaction: jest.fn(),
         applyTransaction: jest.fn(),
-        getAccount: jest.fn(async () => undefined),
-        newSendTransactionRequest: jest.fn(async () => ({}))
+        getAccount: jest.fn(async () => undefined)
       };
       buildOffscreenStubs({});
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);

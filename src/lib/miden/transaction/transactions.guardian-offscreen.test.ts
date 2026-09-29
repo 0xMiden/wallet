@@ -309,7 +309,6 @@ jest.mock('./complete', () => ({
   completeUpdateProcedureThresholdTransaction: (...a: unknown[]) => mockComplete.updateThreshold(...a)
 }));
 
-const mockCreateWasmWebClient = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -317,8 +316,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionProver: {
       newLocalProver: jest.fn(() => 'local-prover'),
       newCallbackProver: jest.fn(() => 'callback-prover')
-    },
-    WasmWebClient: { createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint) }
+    }
   };
 });
 
