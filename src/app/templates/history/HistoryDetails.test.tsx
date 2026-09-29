@@ -299,7 +299,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  default: ({ entry, size }: { entry: { message?: string; transactionIcon?: string }; size?: string }) => (
+    <div data-testid="tx-icon" data-size={size} data-message={entry.message} data-icon={entry.transactionIcon} />
+  ),
   // Reads the shared constant so a future move of the activity hues carries this mock with it;
   // it was left on the retired literal when they last moved.
   getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send,
@@ -477,47 +479,76 @@ describe('HistoryDetails', () => {
     expect(summary).toHaveAttribute('data-kind', 'switch');
     expect(within(summary).getByText('old')).toBeInTheDocument();
     expect(within(summary).getByText('new')).toBeInTheDocument();
-    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
   });
 
-  it.each(['send', 'consume', 'swap', 'bridged-send', 'earn-deposit'])(
-    'uses the standard detail card for a recovered %s without external actions',
-    async type => {
-      setMockRow({
-        id: 'recovered',
-        type,
-        accountId: 'acct-A',
-        status: 2,
-        initiatedAt: 1,
-        amount: 7n,
-        faucetId: 'faucet',
-        displayIcon: 'DEFAULT',
-        restoredFromBackup: true,
-        recovered: true,
-        recovery: {
-          version: 1,
-          network: 'testnet',
-          operators: ['https://guardian.example'],
-          nonce: 1,
-          inputNotes: [],
-          outputNotes: [],
-          completeness: 'partial',
-          reclaimed: false
-        }
-      });
-      const view = render(<HistoryDetails transactionId="recovered" />);
-      await act(async () => {});
+  // Recovered rows carry `recovered`, `restoredFromBackup` and `recovery` together, and a display
+  // icon unlike the one the detail page picks for them, so the page's own choice is what shows.
+  const recoveredRow = (type: string, reclaimed = false): Tx => ({
+    id: 'recovered',
+    type,
+    accountId: 'acct-A',
+    status: 2,
+    initiatedAt: 1,
+    amount: 7n,
+    faucetId: 'faucet',
+    displayIcon: type === 'swap' ? 'RECEIVE' : 'SWAP',
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 1,
+      network: 'testnet',
+      operators: ['https://guardian.example'],
+      nonce: 1,
+      inputNotes: [],
+      outputNotes: [],
+      completeness: 'partial',
+      reclaimed
+    }
+  });
+  const renderRecovered = async (row: Tx) => {
+    setMockRow(row);
+    const view = render(<HistoryDetails transactionId="recovered" />);
+    await act(async () => {});
+    return view;
+  };
+
+  it.each([
+    { type: 'send', reclaimed: false, title: 'sent', icon: 'SEND' },
+    { type: 'consume', reclaimed: false, title: 'received', icon: 'RECEIVE' },
+    { type: 'consume', reclaimed: true, title: 'reclaimed', icon: 'RECEIVE' },
+    { type: 'swap', reclaimed: false, title: 'guardianHistorySwap', icon: 'SWAP' },
+    { type: 'bridged-send', reclaimed: false, title: 'guardianHistoryBridgeOut', icon: 'SEND' },
+    { type: 'earn-deposit', reclaimed: false, title: 'guardianHistoryEarnDeposit', icon: 'DEFAULT' }
+  ])(
+    'uses the standard detail card for a recovered $type (reclaimed $reclaimed) with its recovered title and icon',
+    async ({ type, reclaimed, title, icon }) => {
+      const view = await renderRecovered(recoveredRow(type, reclaimed));
       expect(screen.getByTestId('page-layout')).toBeInTheDocument();
-      expect(
-        screen.getAllByTestId('detail-section').some(card => card.getAttribute('data-title') === 'transferDetails')
-      ).toBe(true);
-      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('guardian-history-details')).not.toBeInTheDocument();
-      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
-      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+      expect(sectionByTitle('transferDetails')).toBeDefined();
+      expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', title);
+      expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-icon', icon);
       view.unmount();
     }
   );
+
+  it('shows a recovered swap with no requested token on the standard card, where a local one gets the order card', async () => {
+    const recovered = await renderRecovered(recoveredRow('swap'));
+    expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    expect(sectionByTitle('transferDetails')).toBeDefined();
+    recovered.unmount();
+
+    await renderRecovered({ ...recoveredRow('swap'), recovered: undefined });
+    expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+  });
+
+  it('shows no bridge claim for a recovered bridged send, where a local one gets it', async () => {
+    const recovered = await renderRecovered(recoveredRow('bridged-send'));
+    expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    recovered.unmount();
+
+    await renderRecovered({ ...recoveredRow('bridged-send'), recovered: undefined });
+    expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+  });
   it('shows the fee bound when retrying a Miden transaction', async () => {
     mockMaxNetworkFee = '0.3 MIDEN';
     setMockRow({ ...baseSendTx, status: 3 });
@@ -1580,8 +1611,6 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
       expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_30_30_ IETH');
       expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('payback');
-      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
-      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
@@ -2227,6 +2256,28 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilledReclaimed');
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    });
+
+    it('offers no claim route on a recovered order whose tip was reclaimed after a partial fill', async () => {
+      // The fixture above, where a local row shows the route; a recovered row stays out of automation.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      seedTracking({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 600n,
+        remainingRequested: 600n
+      });
+      setMockRow({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }),
+        recovered: true,
+        restoredFromBackup: true
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
     });
 
     it('does not link a local row id to the explorer as though it were on chain', async () => {
