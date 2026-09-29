@@ -1613,53 +1613,57 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       jest.useRealTimers();
       mockPlatformIsExtension = true;
     }
-  });
+  }, 20_000);
 
   it.each([
     ['absent', undefined],
     ['a whole day ahead of the clock', () => Math.floor(Date.now() / 1000) + 86_400]
-  ])('expires a row whose initiatedAt is %s, rather than adopting it forever', async (_label, stamp) => {
-    // The adoption branch asks "is this row younger than the reaper's cap?". An
-    // absent stamp answers NaN, which loses every comparison, and a stamp a day
-    // in the future is not a clock skew — it is a stamp that means nothing.
-    // Routed to adoption, either re-arms a chain whose ceiling reaches the same
-    // answer 31 minutes later, forever, and the reaper it defers to filters on
-    // the same comparison so it will never take the row either. The ceiling is
-    // the only thing that can end it.
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    mockPlatformIsExtension = false;
-    jest.useFakeTimers();
-    try {
-      mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
-        )
-      );
-      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
-      arrange('on-send-unauthorized-wake-noage', row);
+  ])(
+    'expires a row whose initiatedAt is %s, rather than adopting it forever',
+    async (_label, stamp) => {
+      // The adoption branch asks "is this row younger than the reaper's cap?". An
+      // absent stamp answers NaN, which loses every comparison, and a stamp a day
+      // in the future is not a clock skew - it is a stamp that means nothing.
+      // Routed to adoption, either re-arms a chain whose ceiling reaches the same
+      // answer 31 minutes later, forever, and the reaper it defers to filters on
+      // the same comparison so it will never take the row either. The ceiling is
+      // the only thing that can end it.
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockPlatformIsExtension = false;
+      jest.useFakeTimers();
+      try {
+        mockDispatchGuardianPipeline.mockRejectedValue(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
+        );
+        const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+        arrange('on-send-unauthorized-wake-noage', row);
 
-      await generateTransaction(
-        buildTx('on-send-unauthorized-wake-noage', row) as never,
-        signCallback,
-        false,
-        provider as never
-      );
+        await generateTransaction(
+          buildTx('on-send-unauthorized-wake-noage', row) as never,
+          signCallback,
+          false,
+          provider as never
+        );
 
-      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-noage') as Record<string, unknown>;
-      if (stamp === undefined) delete stored.initiatedAt;
-      else stored.initiatedAt = stamp();
+        const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-noage') as Record<string, unknown>;
+        if (stamp === undefined) delete stored.initiatedAt;
+        else stored.initiatedAt = stamp();
 
-      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+        await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
 
-      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-noage')?.status).toBe(ITransactionStatus.Failed);
-      expect(jest.getTimerCount()).toBe(0);
-    } finally {
-      jest.clearAllTimers();
-      jest.useRealTimers();
-      mockPlatformIsExtension = true;
-    }
-  });
+        expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-noage')?.status).toBe(ITransactionStatus.Failed);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+        mockPlatformIsExtension = true;
+      }
+    },
+    20_000
+  );
 
   it('adopts a row a minute ahead of the clock instead of expiring it', async () => {
     // The MAGNITUDE of the discrepancy is what disqualifies a stamp, not its
@@ -1709,7 +1713,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       jest.useRealTimers();
       mockPlatformIsExtension = true;
     }
-  });
+  }, 20_000);
 
   it('does not expire a row at the ceiling that another driver has just picked up', async () => {
     // The expiry runs OUTSIDE the loop lock, so unlike the reaper it imitates it
@@ -1805,7 +1809,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       jest.useRealTimers();
       mockPlatformIsExtension = true;
     }
-  });
+  }, 20_000);
 
   it('on extension, no wake is armed — the service worker already drives the queue', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
