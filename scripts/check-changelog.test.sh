@@ -301,6 +301,10 @@ delete_line "$r" '- [FIX][all] Open entry (#1).'
 insert_after "$r" '## 1.16.4 (TBD)' "$(printf '\n- [FIX][all] Open entry (#1).')"
 expect 0 'moving an entry between unreleased sections passes' "$r"
 
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Released entry (#2).'
+expect 0 'the same text added under the open section while the released copy stays passes' "$r"
+
 # --- the release notes read sections through the same parser ---
 notes="$repo_root/scripts/changelog-notes.sh"
 
