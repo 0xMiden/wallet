@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Wersja$version$",
   "unlockBrandName": "Chleb",
-  "earnPositionHeaderTitle": "Moja pozycja w $protocol$ • $asset$",
   "earnAssetOnNetwork": "$asset$ na stronie $network$",
   "earnMetricDeposited": "Zdeponowane",
   "earnMetricTotalEarned": "Łączna kwota zarobków",

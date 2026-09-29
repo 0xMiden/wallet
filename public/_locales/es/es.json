@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Versión$version$",
   "unlockBrandName": "Pan",
-  "earnPositionHeaderTitle": "Mi posición en $protocol$ • $asset$",
   "earnAssetOnNetwork": "$asset$ en $network$",
   "earnMetricDeposited": "Depositado",
   "earnMetricTotalEarned": "Total devengado",

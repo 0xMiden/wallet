@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Versions-$version$",
   "unlockBrandName": "Brot",
-  "earnPositionHeaderTitle": "Meine „$protocol$“ • „$asset$“-Position",
   "earnAssetOnNetwork": "$asset$ auf $network$",
   "earnMetricDeposited": "Hinterlegt",
   "earnMetricTotalEarned": "Gesamtverdienst",

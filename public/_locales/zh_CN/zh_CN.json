@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "版本$version$",
   "unlockBrandName": "面包",
-  "earnPositionHeaderTitle": "我的 $protocol$ • $asset$ 持仓",
   "earnAssetOnNetwork": "$asset$ 网址：$network$",
   "earnMetricDeposited": "已存入",
   "earnMetricTotalEarned": "应得总额",

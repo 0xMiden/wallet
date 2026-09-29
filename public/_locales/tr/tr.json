@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Sürüm$version$",
   "unlockBrandName": "Ekmek",
-  "earnPositionHeaderTitle": "$protocol$'im • $asset$ pozisyonum",
   "earnAssetOnNetwork": "$asset$ $network$ adresinde",
   "earnMetricDeposited": "Yatırıldı",
   "earnMetricTotalEarned": "Toplam Kazanılan",

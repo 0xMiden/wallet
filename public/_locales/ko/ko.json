@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "버전$version$",
   "unlockBrandName": "빵",
-  "earnPositionHeaderTitle": "제 '$protocol$' • $asset$ 포지션",
   "earnAssetOnNetwork": "$asset$ $network$에서",
   "earnMetricDeposited": "입금됨",
   "earnMetricTotalEarned": "총 적립액",

@@ -180,18 +180,6 @@
     "message": "Pain",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Mon compte $protocol$ • Position $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ sur $network$",
     "englishSource": "$asset$ on $network$",

@@ -14,8 +14,8 @@ import { goBack } from 'lib/woozie';
 import { EARN_PLACEHOLDER, usdFigureFormatter } from './earn-mapping';
 import { EarnSummary } from './types';
 
-/** What the earn flow's header knows about the thing it is showing: the two names in its title and
- *  the asset and network its mark stands for. A vault and a position both answer it. */
+/** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
+ *  network on the line under it, which the mark beside them stands for. Both answer it. */
 export interface EarnSubject {
   protocol: string;
   asset: string;
@@ -49,12 +49,12 @@ export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: bo
   );
 };
 
-/** The title the earn flow's amount step and its deposit and withdraw reviews put in their header:
- *  the protocol, over `EarnSubjectSubtitle`'s asset and network. Together at the title's size they
- *  wrapped to two lines beside the back and the mark. */
+/** The title every page of the earn flow puts in its header, so a vault and a position are named
+ *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
+ *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
 export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
 
-/** The header's line under `earnSubjectTitle`: "USDC on Ethereum". */
+/** The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". */
 export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
   return <>{t('earnAssetOnNetwork', { asset: subject.asset, network: subject.network })}</>;

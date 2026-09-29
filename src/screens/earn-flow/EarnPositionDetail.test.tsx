@@ -69,8 +69,8 @@ jest.mock('recharts', () => {
 
 // i18n: assert on keys, not English. The mock echoes the key and appends any
 // interpolation values so data-bearing assertions (protocol/asset/network/
-// estimate) still hold — e.g. `t('earnPositionHeaderTitle', { protocol, asset })`
-// renders "earnPositionHeaderTitle FlatProto FUSD".
+// estimate) still hold, e.g. `t('earnAssetOnNetwork', { asset, network })`
+// renders "earnAssetOnNetwork FUSD Flatnet".
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key} ${Object.values(opts).join(' ')}` : key)
@@ -123,12 +123,20 @@ jest.mock('./components', () => {
         { 'data-testid': 'metric-card', 'data-label': label, 'data-valueclass': valueClassName ?? '' },
         value
       ),
-    // The token mark with its network badge, in place of the logo-plus-pill pair.
-    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+      `${subject.asset} on ${subject.network}`,
+    // The token mark, which names the pair for assistive tech unless it is decorative, as the real one does.
+    EarnAssetMark: ({ asset, network, decorative }: { asset: string; network: string; decorative?: boolean }) =>
       R.createElement(
         'div',
-        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
-        'earnAssetOnNetwork'
+        {
+          'data-testid': 'earn-asset-mark',
+          'data-asset': asset,
+          'data-network': network,
+          'data-decorative': String(Boolean(decorative))
+        },
+        decorative ? null : 'earnAssetOnNetwork'
       )
   };
 });
@@ -299,12 +307,8 @@ describe('EarnPositionDetail', () => {
     // Page shell.
     expect(screen.getByTestId('earn-position-detail-page')).toBeInTheDocument();
 
-    // Header title: t('earnPositionHeaderTitle', { protocol, asset }). The mock
-    // echoes the key + interpolation values -> "earnPositionHeaderTitle FlatProto FUSD".
-    const heading = screen.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle/ });
-    expect(heading).toHaveTextContent('earnPositionHeaderTitle');
-    expect(heading).toHaveTextContent('FlatProto');
-    expect(heading).toHaveTextContent('FUSD');
+    // Header title: the protocol, as on every earn page.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^FlatProto$/);
 
     // EarnSummaryPanel is rendered with metrics hidden and the correct titleId.
     const summary = screen.getByTestId('earn-summary');
@@ -325,12 +329,12 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
-    // PositionHeading: the shared asset mark + "{protocol} • {asset}".
+    // PositionHeading: the shared asset mark beside the protocol.
     const mark = screen.getByTestId('earn-asset-mark');
     expect(mark).toHaveAttribute('data-asset', 'FUSD');
     expect(mark).toHaveAttribute('data-network', 'Flatnet');
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    // The pair is still named in text, for assistive tech and in the details rows.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^FlatProto$/);
+    // The details rows name the pair in text too.
     expect(container.textContent).toContain('earnAssetOnNetwork');
     expect(container.textContent).toContain('Flatnet');
 
@@ -349,6 +353,21 @@ describe('EarnPositionDetail', () => {
     // row label, so target the buttons by role to disambiguate).
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+
+  // One naming for the position in the header and above its figures: the protocol over its asset on its
+  // network, with the mark beside them decorative, never the old "{protocol} • {asset}" join.
+  it('names the position as every earn page does, in the header and in the heading over its figures', () => {
+    renderDetail('pos-flat');
+
+    expect(within(screen.getByRole('banner')).getByText('FUSD on Flatnet')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^FlatProto$/);
+
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).not.toHaveTextContent('•');
+    expect(heading).toHaveTextContent(/^FlatProto$/);
+    expect(screen.getAllByText('FUSD on Flatnet')).toHaveLength(2);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-decorative', 'true');
   });
 
   it('gives the Withdraw CTA the earn flow colour', () => {
@@ -384,6 +403,7 @@ describe('EarnPositionDetail', () => {
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
     expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', EARN_PLACEHOLDER);
 
     const cards = screen.getAllByTestId('metric-card');
@@ -453,7 +473,7 @@ describe('EarnPositionDetail', () => {
     // pos-normal -> varying values -> padding truthy branch.
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
-    expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+    expect(normal.getByRole('heading', { level: 1, name: 'Aave' })).toBeInTheDocument();
   });
 
   describe('the deposited-USD figure across a count', () => {

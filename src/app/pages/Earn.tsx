@@ -9,7 +9,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
-import { EarnSummaryPanel } from 'screens/earn-flow/components';
+import { EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
 import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
@@ -109,11 +109,13 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
       <div className="flex items-center gap-10">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="text-row-title text-ink">
-            {position.protocol} &bull; {position.asset}
-          </div>
+          <div className="text-row-title text-ink">{earnSubjectTitle(position)}</div>
         </div>
         <div className="text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
+      </div>
+      {/* The position named as the page it opens names it: the protocol, over its asset and network. */}
+      <div className="text-caption text-muted">
+        <EarnSubjectSubtitle subject={position} />
       </div>
 
       <div className="mt-3 text-entry-unit text-ink">{position.amount}</div>

@@ -180,18 +180,6 @@
     "message": "面包",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "我的 $protocol$ • $asset$ 持仓",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ 网址：$network$",
     "englishSource": "$asset$ on $network$",

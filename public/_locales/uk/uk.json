@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Версія$version$",
   "unlockBrandName": "Хліб",
-  "earnPositionHeaderTitle": "Моя позиція щодо $protocol$ • $asset$",
   "earnAssetOnNetwork": "$asset$ на сайті $network$",
   "earnMetricDeposited": "Внесено",
   "earnMetricTotalEarned": "Загальна сума заробленого",

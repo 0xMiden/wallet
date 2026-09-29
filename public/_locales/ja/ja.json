@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "バージョン$version$",
   "unlockBrandName": "パン",
-  "earnPositionHeaderTitle": "私の$protocol$ • $asset$ position",
   "earnAssetOnNetwork": "$asset$ $network$ にて",
   "earnMetricDeposited": "預け入れ済み",
   "earnMetricTotalEarned": "総獲得額",

@@ -27,7 +27,6 @@
   "dappPeekCardOverflowBadge": "+$count$",
   "settingsVersion": "Версия$version$",
   "unlockBrandName": "Хлеб",
-  "earnPositionHeaderTitle": "Моя позиция в $protocol$ • $asset$",
   "earnAssetOnNetwork": "$asset$ на сайте $network$",
   "earnMetricDeposited": "Поступило на хранение",
   "earnMetricTotalEarned": "Общая сумма заработка",
