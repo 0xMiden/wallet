@@ -24,8 +24,8 @@ test.describe('Bridge-IN WalletConnect pairing (real relay handshake)', () => {
 
     try {
       await steps.step('connect', async () => {
-        // Full WC handshake with retry — the public relay's subscribe can time out
-        // mid-handshake on the shared free-tier projectId.
+        // Full WC handshake with retry - the public relay's subscribe can time out
+        // mid-handshake.
         await cp.connectWithRetry(
           () => walletA.reownConnectUri(),
           async () => (await walletA.reownState()).connected

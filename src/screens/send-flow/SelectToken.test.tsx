@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
@@ -100,7 +100,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: 't-btc',
+  tokenId: TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -255,7 +255,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: 't-btc',
+      id: TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,

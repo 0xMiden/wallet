@@ -8,6 +8,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
@@ -26,9 +27,12 @@ import { accountsUpdated, withUnlocked } from './store';
 // and leaves the wallet stuck on the splash screen.
 //
 // Fix: load the polyfill lazily and ONLY from within the functions
-// that actually need it. Those functions are service-worker-only
-// code paths that never run on mobile / desktop, so the await
-// never happens outside the extension build.
+// that actually need it. `startTransactionProcessing` runs in the
+// service worker and, off the extension, in the app realm: after an
+// unlock (#1202) and after a dApp confirmation (dapp.ts
+// startDappBackgroundProcessing). There its getBrowser() await stays
+// inside the try/catch that then runs the loop without alarms. The
+// other polyfill paths are service-worker-only.
 type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
@@ -48,6 +52,10 @@ const ALARM_NAME = 'miden-tx-processor';
 // and never observes the orphan via that startup hook.
 const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
 const STUCK_TX_HEAL_PERIOD_MIN = 5;
+// One-shot wake for a run that ends with rows still Queued (#1223). A run stops after a fixed number of passes, a row
+// its guardian backed off can come due after that, and with the popup closed nothing else restarts processing.
+// Chrome fires a one-shot alarm no sooner than about 30 s out, which only delays such a row.
+const QUEUED_ROW_WAKE_ALARM = 'miden-tx-queued-wake';
 let isProcessing = false;
 // Set when a kick arrives while a run is already in flight. A kick that lands
 // after the loop's last pass but before this run clears `isProcessing` would
@@ -55,7 +63,9 @@ let isProcessing = false;
 let processingRequested = false;
 
 /**
- * Sign callback that runs in the service worker.
+ * Sign callback that runs in the service worker and, off the extension, in the
+ * app realm's processing loop (`startTransactionProcessing`), which an unlock
+ * (#1202) or a dApp confirmation (dapp.ts startDappBackgroundProcessing) starts.
  * Re-acquires the vault on each call (same pattern as dapp.ts).
  *
  * Exported for testing. `withUnlocked` → `assertUnlocked` refuses to run the
@@ -77,7 +87,9 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
 }
 
 /**
- * Vault-backed Guardian account provider for service worker context.
+ * Vault-backed Guardian account provider for the service worker and, off the
+ * extension, for the app realm's processing loop, which an unlock (#1202) or a
+ * dApp confirmation (dapp.ts startDappBackgroundProcessing) starts.
  * Uses the Vault directly instead of the Zustand store.
  */
 export const vaultGuardianProvider: GuardianAccountProvider = {
@@ -142,7 +154,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
 };
 
 /**
- * Start processing queued transactions in the service worker.
+ * Start processing queued transactions, in the service worker and, off the
+ * extension, in the app realm: after an unlock (the in-process unlock kick,
+ * #1202) and after a dApp confirmation (dapp.ts startDappBackgroundProcessing).
  * One run at a time: a call made while a run is in flight starts no loop of
  * its own but is recorded and honoured with one more run when this one ends
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
@@ -177,6 +191,8 @@ export async function startTransactionProcessing(): Promise<void> {
 
     try {
       browser = await getBrowser();
+      // This run is the drive a pending wake was waiting for.
+      browser.alarms.clear(QUEUED_ROW_WAKE_ALARM);
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
     } catch {
       // Non-extension context (mobile / desktop) — no alarms API.
@@ -214,16 +230,44 @@ export async function startTransactionProcessing(): Promise<void> {
   } catch (e) {
     console.error('[TransactionProcessor] Error:', e);
   } finally {
-    isProcessing = false;
     try {
       browser?.alarms.clear(ALARM_NAME);
     } catch {
       // Best effort.
     }
+    // Armed before `isProcessing` drops, so a kick landing during the read is honoured by the restart below, which
+    // clears the wake, rather than starting a run this create would land behind.
+    if (browser && !processingRequested) await armQueuedRowWake(browser);
+    isProcessing = false;
     if (processingRequested) {
       processingRequested = false;
       void startTransactionProcessing();
     }
+  }
+}
+
+/**
+ * True while the vault is unlocked. Gates both arming and firing the queued-row wake (#1223): a locked vault fails
+ * every row at its first step and unlocking restarts processing itself (#924), and a wake would only reap claims
+ * while locked, doubling each expired auto-claim's retry backoff (#215).
+ */
+function isVaultUnlocked(): boolean {
+  try {
+    withUnlocked(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Arm the one-shot wake for the soonest Queued row, if any. Never rejects: its caller must still reset `isProcessing`. */
+async function armQueuedRowWake(browser: BrowserPolyfill): Promise<void> {
+  if (!isVaultUnlocked()) return;
+  try {
+    const delayMs = nextQueuedWakeDelayMs(await getAllUncompletedTransactions());
+    if (delayMs !== undefined) browser.alarms.create(QUEUED_ROW_WAKE_ALARM, { when: Date.now() + delayMs });
+  } catch (e) {
+    console.warn('[TransactionProcessor] Could not arm the queued-row wake:', e);
   }
 }
 
@@ -333,14 +377,19 @@ export function setupTransactionProcessor(): void {
       const browser = await getBrowser();
       browser.alarms.onAlarm.addListener((alarm: { name: string }) => {
         if (alarm.name === ALARM_NAME) {
-          // Keepalive alarm fires to keep SW alive — no action needed,
+          // Keepalive alarm fires to keep SW alive; no action needed,
           // processing loop is running.
         } else if (alarm.name === STUCK_TX_HEAL_ALARM) {
           // Defence-in-depth self-heal: reap any orphans whose
-          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
-          // independent of `startTransactionProcessing` so we don't depend
-          // on the SW being mid-loop when an orphan ages out.
+          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL, the signed
+          // comparison `isTransactionStuck` makes (a stamp ahead of the
+          // clock is never reaped here). This is independent of
+          // `startTransactionProcessing` so we don't depend on the SW being
+          // mid-loop when an orphan ages out.
           void healStuckTransactions();
+        } else if (alarm.name === QUEUED_ROW_WAKE_ALARM) {
+          // The vault may have locked between arming and firing; re-probe rather than trust the arm-time check.
+          if (isVaultUnlocked()) void startTransactionProcessing();
         }
       });
       // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
@@ -363,11 +412,15 @@ export function setupTransactionProcessor(): void {
   // processor loop, sometimes hours later (issue #216).
   //
   // Note: `startTransactionProcessing` calls `safeGenerateTransactionsLoop`,
-  // whose first action is `cancelStuckTransactions()` — so a stale
+  // whose first action is `cancelStuckTransactions()`, so a stale
   // `GeneratingTransaction` orphan is flipped to Failed within the first
-  // tick, then any newly-queued txs are picked up. Combined with the
-  // bounded retry policy in `initiateConsumeTransaction`, the cancel
-  // cascade documented in #216 is bounded by #215's per-noteId retry cap.
+  // tick, then any newly-queued txs are picked up. A row stamped beyond the
+  // threshold ahead of the clock is not one of those: only the cold-start
+  // sweep, run from `browser.runtime.onStartup`, fails such a row, so a
+  // respawned SW (not a genuine cold start) leaves it queued until the
+  // clock catches back up to it. Combined with the bounded retry policy in
+  // `initiateConsumeTransaction`, the cancel cascade documented in #216 is
+  // bounded by #215's per-noteId retry cap.
   getAllUncompletedTransactions()
     .then(uncompleted => {
       if (uncompleted.length > 0) {
@@ -377,9 +430,9 @@ export function setupTransactionProcessor(): void {
     })
     .catch(err => console.warn('[TransactionProcessor] Startup check error:', err));
 
-  // Also fire a one-shot self-heal sweep at startup so an aged-out
-  // orphan is reaped even when nothing else is queued. (The alarm above
-  // catches the steady state; this catches the very-first SW respawn
-  // after long idle, before the first alarm tick.)
+  // Also fire a one-shot self-heal sweep at startup so an aged-out orphan
+  // is reaped even when nothing else is queued. (The alarm above catches
+  // the steady state; this catches the very-first SW respawn after long
+  // idle, before the first alarm tick.)
   void healStuckTransactions();
 }

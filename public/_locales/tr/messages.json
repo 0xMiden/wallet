@@ -2419,6 +2419,18 @@
     "message": "Cüzdanınız oluşturuluyor…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Cüzdanınızı geri yükleme…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Cüzdanınızı kurmak…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Cüzdanınızı açarak geri yükleme işlemini tamamlayın.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Şifreyi girin",
     "englishSource": "Enter password"
@@ -2794,6 +2806,55 @@
   "hotKeyRotationRetry": {
     "message": "Tekrar dene",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Günlük anahtarınızı etkinleştirmek için MIDEN'i ekleyin",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Günlük anahtarınızı etkinleştirmek bir işlemdir ve her işlemde MIDEN cinsinden küçük bir ağ ücreti ödenir. Aşağıdaki bu hesabın adresine MIDEN gönderin. Cüzdan bunu alır ve anahtarınızı otomatik olarak etkinleştirir.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "En az $amount$ MIDEN gönderin.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Hesap adresiniz",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "MIDEN'in gelmesini bekliyorum…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Aldığınız MIDEN, ağ ücretini ödemek için yetersizdir. Biraz daha gönderin.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN alındı. Talep ediliyor…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Günlük anahtarınızı etkinleştirme…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Aldığınız MIDEN talep edilememiştir.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Tekrar deneyin",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Tekrar kontrol edin",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian değiştirildi",
@@ -4486,6 +4547,14 @@
     "message": "doğrulanmamış",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Doğrulanmamış",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Bu token, Miden’in doğrulanmış token listesinde yer almıyor. Herkes istediği isimle bir token oluşturabilir, bu yüzden güvenmeden önce faucet adresindeki kimliğini kontrol edin.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5284,16 +5353,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Bu cüzdanın kilit açma yöntemini kontrol etmek normalden daha uzun sürüyor. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedim. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Bu cüzdanın kilit açma yöntemini kontrol edilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QR kodu rengini değiştir",

@@ -20,14 +20,16 @@ const READY_TIMEOUT_MS = 60_000;
 /**
  * Onboarding → side panel handoff completion screen (Chrome).
  *
- * Reached at `/finish-side-panel` once the onboarding tab has kicked off wallet
- * creation. It deliberately lives on its own route (rendered regardless of the
- * Ready state) so creating the wallet — which flips the app to the wallet home
- * — doesn't route the fullpage away before the user can open the panel.
+ * Reached at `/finish-side-panel` once the onboarding tab has registered the
+ * wallet (created or restored). It deliberately lives on its own route
+ * (rendered regardless of the Ready state) so the wallet turning Ready, which
+ * flips the app to the wallet home, doesn't route the fullpage away before the
+ * user can open the panel.
  *
- * While the wallet is still being created it shows a spinner; once Ready, the
- * "Open wallet" button opens the side panel onto the finished wallet and closes
- * this tab. The open runs inside the button's user gesture, which
+ * While the wallet is still being set up it shows a spinner whose line names
+ * neither flow, since the screen cannot tell a create from a restore; once
+ * Ready, the "Open wallet" button opens the side panel onto the finished wallet
+ * and closes this tab. The open runs inside the button's user gesture, which
  * `sidePanel.open()` requires.
  */
 const OpenSidePanel: FC = () => {
@@ -77,7 +79,7 @@ const OpenSidePanel: FC = () => {
       {!ready ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-y-4 px-4 text-center">
           <Spinner />
-          <p className="text-body text-muted">{t('creatingYourWallet')}</p>
+          <p className="text-body text-muted">{t('settingUpYourWallet')}</p>
         </div>
       ) : (
         <SubPageLayout

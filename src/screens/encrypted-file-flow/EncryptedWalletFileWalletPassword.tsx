@@ -69,7 +69,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // so the guard, the loading spinner, and PasscodeEntry's auto-submit all work.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const { hasHardwareProtector, probeFailed } = useHardwareProtector();
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
   const [timelock, setTimeLock] = useLocalStorage<number>('TridentSharedStorageKey.TimeLock', 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
@@ -147,7 +147,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   if (probeFailed) {
     return (
       <SubPageLayout data-testid="encrypted-file-wallet-password">
-        <ProtectorProbeErrorNotice />
+        <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />
       </SubPageLayout>
     );
   }

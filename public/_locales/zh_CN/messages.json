@@ -2419,6 +2419,18 @@
     "message": "正在创建您的钱包……",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "正在恢复您的钱包……",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "设置您的钱包……",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "打开您的钱包以完成恢复。",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "输入密码",
     "englishSource": "Enter password"
@@ -2794,6 +2806,55 @@
   "hotKeyRotationRetry": {
     "message": "重试",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "添加 MIDEN 以激活您的日常密钥",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "激活您的日常密钥是一笔交易，每笔交易都需要支付少量 MIDEN 网络手续费。请将 MIDEN 发送至下方该账户的地址。钱包会自动收取这笔费用并完成密钥的激活。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "至少发送$amount$MIDEN。",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "您的账户地址",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "等待 MIDEN 到来……",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "您收到的 MIDEN 金额不足以支付网络手续费。请再多转一点。",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "已收到 MIDEN。正在申领……",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "激活您的日常密钥……",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "您收到的 MIDEN 无法被领取。",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "请重试",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "请再次检查",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian 已修改",
@@ -4486,6 +4547,14 @@
     "message": "未经核实",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "未验证",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "该代币未列入 Miden 的已验证代币列表。任何人都可以创建任意名称的代币，因此在信任它之前，请先核对其 faucet 标识符。",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "无法通过模拟进行验证。以下数值均按该网站声明的数值列出。",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5284,16 +5353,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "无法验证此钱包的解锁方式。请检查您的网络连接并重试。",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "验证此钱包的解锁方式耗时比平时更长。如需重试，请返回并重新打开此页面。",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "无法验证此钱包的解锁方式。若要重试，请返回并重新打开此页面。",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "无法验证此钱包的解锁方式。请重试。",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "更改二维码颜色",

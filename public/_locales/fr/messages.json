@@ -2419,6 +2419,18 @@
     "message": "Création de votre portefeuille…",
     "englishSource": "Creating your wallet…"
   },
+  "restoringYourWallet": {
+    "message": "Restauration de votre portefeuille…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Configurer votre portefeuille…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Ouvrez votre portefeuille pour terminer sa restauration.",
+    "englishSource": "Open your wallet to finish restoring it."
+  },
   "enterPassword": {
     "message": "Entrez votre mot de passe",
     "englishSource": "Enter password"
@@ -2794,6 +2806,55 @@
   "hotKeyRotationRetry": {
     "message": "Réessayer",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Ajoutez MIDEN pour activer votre clé quotidienne",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "L'activation de votre clé quotidienne est une transaction, et chaque transaction entraîne le paiement d'une petite commission de réseau en MIDEN. Envoyez des MIDEN à l'adresse de ce compte indiquée ci-dessous. Le portefeuille les récupère et termine automatiquement l'activation de votre clé.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Envoyez au moins $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "L'adresse de votre compte",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "En attente de l’arrivée de MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Le montant en MIDEN que vous avez reçu est insuffisant pour payer les frais de réseau. Envoyez un peu plus.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN reçu. Je le réclame…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Activer votre clé quotidienne…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Le MIDEN que vous avez reçu n’a pas pu être réclamé.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Réessayez",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Vérifiez à nouveau",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian modifié",
@@ -4486,6 +4547,14 @@
     "message": "non vérifié",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Non vérifié",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant de l’faucete avant de lui accorder votre confiance.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Impossible de vérifier par simulation. Les montants ci-dessous sont ceux indiqués par le site.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -5284,16 +5353,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "La vérification de la méthode de déverrouillage de ce portefeuille prend plus de temps que d’habitude. Pour réessayer, revenez en arrière et rouvrez cette page.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
-  },
-  "couldNotCheckUnlockMethodReopen": {
-    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Pour réessayer, revenez en arrière et rouvrez cette page.",
-    "englishSource": "Couldn't check this wallet's unlock method. To try again, go back and reopen this page."
+    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Réessayez.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Changer la couleur du QR code",

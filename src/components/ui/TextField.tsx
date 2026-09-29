@@ -308,7 +308,12 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
         </div>
 
         {error ? (
-          <p id={errorId} role="alert" data-testid={errorTestId} className="text-caption text-negative-ink">
+          <p
+            id={errorId}
+            role="alert"
+            data-testid={errorTestId}
+            className="text-caption wrap-break-word text-negative-ink"
+          >
             {error}
           </p>
         ) : hint ? (

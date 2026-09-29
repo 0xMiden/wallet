@@ -3,6 +3,7 @@ import { isExtension } from 'lib/platform';
 import {
   canHandoffToSidePanel,
   closeOnboardingTab,
+  ONBOARDING_HANDOFF_ROUTES,
   openSidePanelToWallet,
   postOnboardingRoute
 } from './side-panel-handoff';
@@ -125,6 +126,17 @@ describe('postOnboardingRoute', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     setChrome(makeChrome());
     expect(postOnboardingRoute()).toBe('/finish-side-panel');
+  });
+});
+
+describe('ONBOARDING_HANDOFF_ROUTES', () => {
+  it('is exactly the consent prompt and the handoff screen', () => {
+    expect(ONBOARDING_HANDOFF_ROUTES).toEqual(new Set(['/finish-side-panel', '/help-improve-wallet']));
+  });
+
+  it('holds the route postOnboardingRoute takes when the handoff is available', () => {
+    setChrome(makeChrome());
+    expect(ONBOARDING_HANDOFF_ROUTES.has(postOnboardingRoute())).toBe(true);
   });
 });
 

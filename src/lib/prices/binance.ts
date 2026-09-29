@@ -84,7 +84,8 @@ export function pricesLoaded(prices: TokenPrices): boolean {
  * which resolves its price symbol first (IETH at ETH); call this directly only with a symbol
  * already resolved, as the sparkline and chart do.
  */
-export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo | undefined {
+export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
+  if (symbol === undefined) return undefined;
   const quote = prices[symbol];
   return quote && quote.price > 0 ? quote : undefined;
 }
@@ -93,7 +94,7 @@ export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo
  * The feed's price for a symbol, or 0 when the feed does not list it, never a $1 default: the
  * token pickers (`listedFiatValue`) read 0 as no price, so an unlisted token shows no fiat there.
  */
-export function listedPrice(prices: TokenPrices, symbol: string): number {
+export function listedPrice(prices: TokenPrices, symbol: string | undefined): number {
   return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
@@ -105,7 +106,7 @@ export function listedPrice(prices: TokenPrices, symbol: string): number {
  */
 export function listedFiatValue(
   prices: TokenPrices,
-  symbol: string,
+  symbol: string | undefined,
   balance: number,
   scaleIsKnown: boolean
 ): number | undefined {

@@ -27,7 +27,10 @@ jest.mock('./helpers', () => ({
   getBech32AddressFromAccountId: (accountId: unknown) => `bech32(${String(accountId)})`
 }));
 
-jest.mock('../helpers', () => ({ getNoteRecallableAtMs: () => 1_700_000_000_000 }));
+jest.mock('../helpers', () => ({
+  getNoteRecallableAtMs: () => 1_700_000_000_000,
+  standardPaymentScriptRoots: () => new Set(['0xp2id-root', '0xp2ide-root'])
+}));
 
 import { attachmentOrderAndDepth, reduceConsumableNoteRecord, reduceConsumableNoteRecords } from './consumable-notes';
 
@@ -46,6 +49,7 @@ function fakeRecord(
     blockNum?: number;
     assets?: FakeAsset[];
     attachments?: FakeAttachmentWord[][]; // outer = attachments, inner = words
+    scriptRoot?: string;
   } = {}
 ): any {
   const {
@@ -54,7 +58,8 @@ function fakeRecord(
     metadata = { sender: 'senderAcct', noteType: 1 },
     state = 2,
     assets = [{ faucetId: 'faucetAcct', amount: 100n }],
-    attachments
+    attachments,
+    scriptRoot
   } = opts;
 
   return {
@@ -77,7 +82,11 @@ function fakeRecord(
             faucetId: () => a.faucetId,
             amount: () => ({ toString: () => a.amount.toString() })
           }))
-      })
+      }),
+      recipient: () => {
+        if (scriptRoot === undefined) throw new Error('no recipient');
+        return { script: () => ({ root: () => ({ toHex: () => scriptRoot }) }) };
+      }
     }),
     attachments: () =>
       (attachments ?? []).map(words => ({
@@ -181,7 +190,9 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
         { amount: '100', faucetId: 'bech32(faucetA)' },
         { amount: '250', faucetId: 'bech32(faucetB)' }
       ],
-      swapAttachment: { orderId: '77', depth: 2 }
+      swapAttachment: { orderId: '77', depth: 2 },
+      // No readable script: not a standard payment.
+      standardPayment: false
     });
   });
 
@@ -196,7 +207,8 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
       senderAccountId: undefined,
       state: 0,
       assets: [{ amount: '100', faucetId: 'bech32(faucetAcct)' }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: false
     });
   });
 
@@ -208,6 +220,27 @@ describe('reduceConsumableNoteRecord — full field parity', () => {
   it('a note with no fungible assets → empty assets array (caller skips)', () => {
     const rec = fakeRecord({ assets: [] });
     expect(reduceConsumableNoteRecord(rec)?.assets).toEqual([]);
+  });
+
+  it('keeps a note whose script cannot be read, not as a standard payment (#805)', () => {
+    const dto = reduceConsumableNoteRecord(fakeRecord({ id: '0xnoroot' }));
+    expect(dto?.noteId).toBe('0xnoroot');
+    expect(dto?.standardPayment).toBe(false);
+  });
+
+  it('reads record.details() exactly once per reduced note (#805)', () => {
+    const rec = fakeRecord({ scriptRoot: '0xp2id-root' });
+    const detailsSpy = jest.spyOn(rec, 'details');
+    reduceConsumableNoteRecord(rec);
+    expect(detailsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['P2ID', '0xp2id-root', true],
+    ['P2IDE', '0xp2ide-root', true],
+    ['custom-script', '0xcustom-root', false]
+  ])('says whether a %s note is a standard payment (#805)', (_name, scriptRoot, standard) => {
+    expect(reduceConsumableNoteRecord(fakeRecord({ scriptRoot }))?.standardPayment).toBe(standard);
   });
 
   it('a note with no swap attachment → swapAttachment null', () => {

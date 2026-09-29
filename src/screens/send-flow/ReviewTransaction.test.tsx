@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -36,7 +37,7 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 };
 
 const mockWalletStoreState = {
-  tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -329,9 +330,9 @@ const UNSCALED_TOKEN = {
   fiatPrice: 0
 };
 
-const setValidRoute = () => {
-  mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
-  mockBalanceData = [VALID_TOKEN];
+const setValidRoute = (tokenId = VALID_TOKEN.tokenId) => {
+  mockSearch = `amount=5&to=0xrecipient&tokenId=${tokenId}`;
+  mockBalanceData = [{ ...VALID_TOKEN, tokenId }];
 };
 
 const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
@@ -469,12 +470,12 @@ describe('ReviewTransaction — rendering', () => {
       expect(hero.getByText('5 IETH')).toBeInTheDocument();
       expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     } finally {
-      mockWalletStoreState.tokenPrices = { MDN: { price: 2 } };
+      mockWalletStoreState.tokenPrices = { USDC: { price: 2 } };
     }
   });
 
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
-    setValidRoute();
+    setValidRoute(MIDEN_USDC_FAUCET);
     render(<ReviewTransaction />);
     await flush();
 
