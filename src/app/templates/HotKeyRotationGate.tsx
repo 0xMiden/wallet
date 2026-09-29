@@ -304,6 +304,8 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
   }
 
+  const claimFailure = describeRotationFailure(gate.view === 'funding' ? gate.failedClaim : undefined, null);
+
   return (
     // A translucent scrim: the wallet stays visible
     // behind the overlay, just dimmed, blurred, and inert. `hot-key-rotation-gate`
@@ -325,9 +327,9 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
               baseFee,
               balances.find(balance => balance.tokenId === feeFaucetId)
             )}
-            // A row keeps `rawError` only when a classifier rewrote its error, so only then is `error` a message.
-            claimMessage={gate.failedClaim?.rawError !== undefined ? gate.failedClaim.error : undefined}
-            claimDetails={gate.failedClaim?.rawError ?? gate.failedClaim?.error}
+            claimMessage={claimFailure.message ?? undefined}
+            claimDetails={claimFailure.details}
+            claimUnconfirmed={claimFailure.unconfirmed}
             onRetryClaim={() => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}

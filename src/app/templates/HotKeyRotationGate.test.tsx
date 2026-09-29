@@ -5,7 +5,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
-import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  INVALID_NOTE_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 import type { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -933,6 +937,70 @@ describe('HotKeyRotationGate', () => {
       expect(screen.queryByText(raw)).not.toBeInTheDocument();
       fireEvent.click(screen.getByText('showFullError'));
       expect(screen.getByText(raw)).toBeInTheDocument();
+    });
+
+    it('keeps the generic status for an unclassified claim failure, with its raw error behind Show full error', async () => {
+      const raw = 'RuntimeError: unreachable';
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error: raw, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+        'hotKeyRotationFundingClaimFailed'
+      );
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText(raw)).toBeInTheDocument();
+    });
+
+    it('shows a claim the wallet failed with its own reason inline, with no Show full error', async () => {
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error: INVALID_NOTE_ERROR, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+        'hotKeyRotationFundingClaimFailed'
+      );
+      expect(screen.getByText(INVALID_NOTE_ERROR)).toBeInTheDocument();
+      expect(screen.queryByText('showFullError')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['may have submitted', { error: 'RuntimeError: request timeout', mayHaveSubmitted: true }],
+      ['was reaped as stuck', { error: TRANSACTION_STUCK_ERROR }]
+    ])('says a claim that %s could not be confirmed, and keeps Try again', async (_label, failure) => {
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'], ...failure })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+          'hotKeyRotationFundingClaimUnconfirmed'
+        )
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed');
+      expect(screen.getByTestId('hot-key-rotation-funding-claim-retry')).toBeInTheDocument();
     });
 
     it('gives Try again and Check again a light haptic', async () => {

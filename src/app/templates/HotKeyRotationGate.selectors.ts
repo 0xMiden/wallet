@@ -5,7 +5,9 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import {
   isVaultShortfallRow,
+  isWalletFailureReason,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
 
@@ -21,6 +23,7 @@ export type GateRow = Pick<
   | 'status'
   | 'error'
   | 'rawError'
+  | 'mayHaveSubmitted'
   | 'awaitingRecoverySeed'
   | 'initiatedAt'
   | 'queuedSeq'
@@ -123,11 +126,11 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
   return { view: 'rotating' };
 }
 
-/** The parts of the tracked rotation row its failure message reads. */
+/** The parts of a failed gate row its failure message reads. */
 export type RotationFailureRow = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted'>;
 
 export interface RotationFailure {
-  /** The rotation may have reached the network, so its outcome is unknown rather than failed. */
+  /** The row may have reached the network, so its outcome is unknown rather than failed. */
   unconfirmed: boolean;
   /** The row's own user-facing copy, or `null` for the gate's translated message. */
   message: string | null;
@@ -138,8 +141,9 @@ export interface RotationFailure {
 const nonEmpty = (text: string | undefined) => (text ? text : undefined);
 
 /**
- * What the failed view says: a short message, and the raw error kept for "Show full error".
- * The latest thing that went wrong wins: an init error means Retry could not even enqueue.
+ * What the gate says about its failed rotation row, or about the funding panel's failed claim (with a `null`
+ * init error): a short message, and the raw error kept for "Show full error". The latest thing that went wrong
+ * wins: an init error means Retry could not even enqueue.
  */
 export const describeRotationFailure = (
   row: RotationFailureRow | undefined,
@@ -159,13 +163,21 @@ export const describeRotationFailure = (
   // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
   // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
   // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
-  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself.
-  if (row.mayHaveSubmitted === true || row.error === TRANSACTION_ENGINE_RECOVERED_ERROR) {
+  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself. The stuck
+  // reaper cancels without stopping the pipeline, and only a send gets the in-flight marker.
+  if (
+    row.mayHaveSubmitted === true ||
+    row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
+    row.error === TRANSACTION_STUCK_ERROR
+  ) {
     return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
   }
   // `cancelTransaction` keeps `rawError` only when a classifier rewrote the error for the user.
   if (row.rawError !== undefined) {
     return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
   }
+  // The wallet's own reasons are copy that never had a `rawError`. A user cancel among them is final here: the
+  // overlay covers every screen that could cancel a rotation or a claim.
+  if (row.error !== undefined && isWalletFailureReason(row.error)) return { unconfirmed: false, message: row.error };
   return { unconfirmed: false, message: null, details: nonEmpty(row.error) };
 };

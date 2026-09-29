@@ -639,6 +639,7 @@
   "hotKeyRotationFundingClaiming": "MIDEN received. Claiming it…",
   "hotKeyRotationFundingActivating": "Activating your everyday key…",
   "hotKeyRotationFundingClaimFailed": "The MIDEN you received could not be claimed.",
+  "hotKeyRotationFundingClaimUnconfirmed": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry.",
   "hotKeyRotationFundingClaimRetry": "Try again",
   "hotKeyRotationFundingCheckAgain": "Check again",
   "guardianChangedTitle": "Guardian changed",

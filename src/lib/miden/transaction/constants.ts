@@ -95,6 +95,22 @@ export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**
+ * The reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
+ * `rawError`. Not `TRANSACTION_STUCK_ERROR`: the stuck reaper cancels without stopping the pipeline, so that
+ * row's outcome is unknown rather than failed.
+ */
+export const WALLET_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  USER_CANCELLED_TRANSACTION_REASON,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  INVALID_NOTE_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR
+]);
+
+export const isWalletFailureReason = (text: string): boolean => WALLET_FAILURE_REASONS.has(text);
+
+/**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
  * by the two retry footers (they render `error.message`).
  */

@@ -188,10 +188,12 @@ interface PanelProps {
   status: RotationFundingStatus;
   /** The suggested amount in MIDEN, or `null` to leave the line out. */
   minimum: string | null;
-  /** The failed claim's classified message, shown with `claim-failed`. */
+  /** The failed claim's own message, shown with `claim-failed`. */
   claimMessage?: string;
   /** The failed claim's raw error, behind "Show full error". */
   claimDetails?: string;
+  /** The failed claim may have reached the network, so its outcome is unknown rather than failed. */
+  claimUnconfirmed?: boolean;
   onRetryClaim: () => void;
   onCheckAgain: () => void;
 }
@@ -208,6 +210,7 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   minimum,
   claimMessage,
   claimDetails,
+  claimUnconfirmed,
   onRetryClaim,
   onCheckAgain
 }) => {
@@ -234,7 +237,9 @@ export const RotationFundingPanel: FC<PanelProps> = ({
         data-state={status}
         className="text-sm text-ink select-text"
       >
-        {t(STATUS_KEYS[status])}
+        {t(
+          status === 'claim-failed' && claimUnconfirmed ? 'hotKeyRotationFundingClaimUnconfirmed' : STATUS_KEYS[status]
+        )}
       </p>
       {status === 'claim-failed' && (
         <>
