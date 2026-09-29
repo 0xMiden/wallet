@@ -687,6 +687,22 @@ it('defers an operator the account never used while it serves no history, once p
   expect(client.getDeltaHistory).toHaveBeenCalledTimes(3);
 });
 
+it('does not record an unsupported answer that settles after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockImplementationOnce(async () => {
+    forgetUnsupportedHistorySources();
+    throw new GuardianHttpError(404, 'Not Found', '');
+  });
+  expect((await run()).deferredSources).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 1 });
+
+  createClient.mockClear();
+  expect((await run()).deferredSources).toBe(0);
+  expect(createClient.mock.calls.map(call => call[1])).toContain('https://two');
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ completed: true });
+});
+
 it('asks a deferred operator again in the next session and restores what it serves then', async () => {
   const client = source('https://two', []);
   jest

@@ -55,10 +55,12 @@ export const MAX_HISTORY_SEEN_CURSORS = 64;
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
 
 // Checkpoints answered unsupported since the backend started or the wallet last locked. A pass is counted once per
-// session, so a deferral restart cannot spend the cap.
+// session, so a deferral restart cannot spend the cap. An answer that settles after a lock is left out of it.
 const unsupportedHistorySources = new Set<string>();
+let unsupportedHistorySession = 0;
 
 export function forgetUnsupportedHistorySources(): void {
+  unsupportedHistorySession++;
   unsupportedHistorySources.clear();
 }
 
@@ -121,6 +123,7 @@ export async function hasFailedGuardianHistory(account: WalletAccount): Promise<
 }
 
 export async function recoverGuardianHistory(account: WalletAccount, context: GuardianHistoryRecoveryContext) {
+  const session = unsupportedHistorySession;
   if (await hasFailedGuardianHistory(account)) {
     return { deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 };
   }
@@ -224,7 +227,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted };
             if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
             if (!exhausted) {
-              unsupportedHistorySources.add(id);
+              if (session === unsupportedHistorySession) unsupportedHistorySources.add(id);
               deferredSources++;
             }
             break;
