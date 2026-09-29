@@ -20,19 +20,28 @@ type ProveOptions = { prover?: unknown } | undefined;
 function buildHarness() {
   const order: string[] = [];
   const result = { serialize: jest.fn(() => new Uint8Array([7, 7])) };
-  const delegated = { fail: false };
+  // `onProve` runs inside a delegated prove, before it settles.
+  const delegated: { fail: boolean; onProve?: () => void } = { fail: false };
+  // Set, a local prove may run in this realm (no transport), and it runs this first.
+  const inRealm: { onLocalProve?: () => void } = {};
   const stagedApply = jest.fn(async () => {
     order.push('apply');
   });
   const executeRequest = jest.fn(async (_account: string, _request: unknown) => ({
     result,
     prove: jest.fn(async (options: ProveOptions) => {
-      if (options?.prover === 'local') throw new Error(IN_REALM);
-      if (delegated.fail) throw new Error('remote prover unavailable');
-      order.push('delegated prove');
+      const leg = options?.prover === 'local' ? 'local' : 'delegated';
+      if (leg === 'local') {
+        if (!inRealm.onLocalProve) throw new Error(IN_REALM);
+        inRealm.onLocalProve();
+      } else {
+        delegated.onProve?.();
+        if (delegated.fail) throw new Error('remote prover unavailable');
+      }
+      order.push(`${leg} prove`);
       return {
         submit: jest.fn(async () => {
-          order.push('delegated submit');
+          order.push(`${leg} submit`);
           return { apply: stagedApply };
         })
       };
@@ -99,6 +108,7 @@ function buildHarness() {
     order,
     result,
     delegated,
+    inRealm,
     executeRequest,
     stagedApply,
     submitProven,
@@ -788,6 +798,49 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       expect(siteReader).not.toHaveBeenCalledWith('sdk-executed-acct');
     }
   );
+});
+
+describe('an eviction during the in-realm leg (#1233)', () => {
+  // As in the service worker with the offscreen flag off: no transport, so the delegated leg and
+  // its fallback both prove in this realm, under the lock the proxy takes.
+  const evict = () =>
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+  const runEvicted = async (harness: Harness) => {
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness, false);
+    let abandoned: Promise<unknown> = Promise.resolve();
+    const lockError = await withWasmClientLock(async () => {
+      const writing = client.swapTransaction(swapTx(true));
+      abandoned = writing.catch((caught: unknown) => caught);
+      return writing;
+    }).catch((caught: unknown) => caught);
+    return { lockError, abandoned: await abandoned, WasmClientPoisonedError };
+  };
+
+  it('a delegated swap whose prove rejects after an eviction never proves locally or submits', async () => {
+    const harness = buildHarness();
+    harness.delegated.fail = true;
+    harness.delegated.onProve = evict;
+    harness.inRealm.onLocalProve = () => harness.order.push('local prove started');
+
+    const { lockError, abandoned, WasmClientPoisonedError } = await runEvicted(harness);
+
+    expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
+    expect(abandoned).toBeInstanceOf(WasmClientPoisonedError);
+    expect(harness.executeRequest).toHaveBeenCalledTimes(1);
+    expect(harness.order).toEqual([]);
+  });
+
+  it('an eviction while the in-realm prove is parked stops the swap before its point of no return', async () => {
+    const harness = buildHarness();
+    harness.delegated.onProve = evict;
+
+    const { lockError, abandoned, WasmClientPoisonedError } = await runEvicted(harness);
+
+    expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
+    expect(abandoned).toBeInstanceOf(WasmClientPoisonedError);
+    // The prove resolved on the evicted client, and nothing after it ran.
+    expect(harness.order).toEqual(['delegated prove']);
+  });
 });
 
 describe('ProveAttempt worker members', () => {

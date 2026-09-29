@@ -1773,6 +1773,11 @@ export class MidenClientInterface {
     });
     recordProveTiming(`${write} staged: prove returned; submitting`);
     await onStage?.('submitting');
+    // The prove and the stage stamp both park, and an eviction during either hands the client to a
+    // successor: submitting on it would be a second borrow of a client this write no longer owns.
+    if (attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
+    }
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
     // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
     attempt.markSubmitting();
@@ -2037,6 +2042,14 @@ export interface ProveAttempt {
    * holds no lock, for the reason `proveInWorker` refuses one.
    */
   holdIsCurrent(): boolean;
+  /**
+   * True once recovery took this write's client away: the client is disposed or marked poisoned,
+   * or the lock hold the write took is no longer the lock's (#1233). A write that took no hold
+   * answers from its client alone, so the lockless unit tests still run. A pre-submit step that sees
+   * true stops with `WasmClientPoisonedError`: its next WASM call would borrow a client the flow no
+   * longer owns.
+   */
+  evicted(): boolean;
 }
 
 /**
@@ -2165,7 +2178,8 @@ export async function proveWithFallback<T>(
       liveness.disposed || hold === null
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
         : proveInWorker(result, hold),
-    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold
+    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
   };
 
   const startedAt = performance.now();
@@ -2201,6 +2215,12 @@ export async function proveWithFallback<T>(
     // ORIGINAL error untouched so `generateTransactionsLoop`'s
     // `isApplyAfterSubmitError` classification still sees it.
     if (shouldDelegate && !submitReached && !isApplyAfterSubmitError(err)) {
+      // An evicted write must not re-run: the fallback would execute, prove and submit on a client
+      // recovery took away, while the row already takes the kill path (#1233).
+      if (attempt.evicted()) {
+        reportProve({ startedAt, step: 'prove_delegate', error: err });
+        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned before the local fallback'));
+      }
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is

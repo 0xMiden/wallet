@@ -245,9 +245,6 @@ describe('MidenClientInterface', () => {
       })
     );
 
-    client.free();
-    expect(client.client.terminate).toBeDefined();
-
     // smoke a few methods
     await client.createMidenWallet('on-chain' as any, new Uint8Array([4]));
     await client.importPublicMidenWalletFromSeed(new Uint8Array([5]));
@@ -277,6 +274,10 @@ describe('MidenClientInterface', () => {
       type: 'consume'
     } as any);
     await client.newTransaction('acc-id', new Uint8Array([1, 2]));
+
+    // Freed last: a disposed client refuses to submit a write (#1233).
+    client.free();
+    expect(client.client.terminate).toBeDefined();
   });
 
   describe('the SDK observation sink', () => {
@@ -2182,6 +2183,23 @@ describe('MidenClientInterface', () => {
 
       expect(staged.executeRequest).toHaveBeenCalledTimes(1);
       expect(staged.submit).toHaveBeenCalledTimes(1);
+    });
+
+    it('a delegated swap whose client was marked poisoned during its prove neither proves locally nor submits', async () => {
+      let client: MidenClientInterfaceType | undefined;
+      const staged = stagedExecuteRequest(options => {
+        if (options?.prover === 'local') return;
+        // Recovery marks an evicted flow's client before it hands the mutex on (#775).
+        client?.markPoisoned();
+        throw new Error('Delegated swap prove timed out after 120000ms waiting for the remote prover');
+      });
+      client = await stagedClient(staged.executeRequest);
+      const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+
+      await expect(client.swapTransaction(swapTx as any)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+
+      expect(staged.prove).toHaveBeenCalledTimes(1);
+      expect(staged.submit).not.toHaveBeenCalled();
     });
 
     it.each(writes)(
