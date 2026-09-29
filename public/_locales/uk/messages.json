@@ -3456,6 +3456,22 @@
     "message": "Повільно",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Недоступно",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Перевірка, чи підтримує цей токен маршрут Slow…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Цей токен не підтримує маршрут Slow.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Не вдалося перевірити цей токен. Поверніться назад і спробуйте ще раз.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Секунди",
     "englishSource": "Seconds"

@@ -3456,6 +3456,22 @@
     "message": "Lent",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Indisponible",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Vérification de la prise en charge de la « Slow route » par ce jeton…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Ce jeton ne prend pas en charge la voie « Slow ».",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Impossible de vérifier ce jeton. Revenez en arrière et réessayez.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Secondes",
     "englishSource": "Seconds"

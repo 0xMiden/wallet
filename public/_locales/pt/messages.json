@@ -3456,6 +3456,22 @@
     "message": "Lento",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Indisponível",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Verificando se este token suporta a rota Slow…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Este token não suporta a rota Slow.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Não foi possível verificar este token. Volte e tente novamente.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Segundos",
     "englishSource": "Seconds"
