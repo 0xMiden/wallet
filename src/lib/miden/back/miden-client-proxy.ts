@@ -814,9 +814,9 @@ type OffscreenSwapDto = {
  *
  * `onStage` (optional) is the write's per-step stage stamp (PR #524). The two
  * pipelines that drive execute → prove → submit as distinct stages supply one — the
- * non-guardian send and the guardian leaf; the writes that hand the SDK one opaque
- * call (`consumeNoteId`, `swapTransaction`, `newTransaction`) have no boundaries to
- * stamp, so they leave it undefined and register nothing.
+ * non-guardian send and the guardian leaf; the other writes (`consumeNoteId`,
+ * `swapTransaction`, `newTransaction`) take no stage callback, so they leave it
+ * undefined and register nothing.
  */
 async function dispatchOffscreenWrite(
   method: string,

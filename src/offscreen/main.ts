@@ -840,9 +840,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
-    // applied) by the time it returns, through the delegated leg's all-in-one
-    // `transactions.submit` or the local leg's staged `submitProven`, so the PSWAP
-    // note may already be on the network. Post-submit, completing beats aborting.
+    // applied) by the time it returns, through its staged submit (in this realm, or
+    // `submitProven` for a worker proof), so the PSWAP note may already be on the
+    // network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
