@@ -58,6 +58,8 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
 - [x] 403 diagnosed: RATE-LIMITING (not allowlist/attestation). com.miden.bread IS allowlisted
       for projectId b54ef53; spaced connections connect 6/6. NOTE: bursts (app+counterparty+
       reown reconnects on one IP) can trip it -> CI may need retry/spacing or a dedicated projectId.
+      Measured before #1246: b54ef53 was the default project id then; #1246 retired it in favor
+      of d18d112eb50cbe764f03e51a90210611, and this check has not been re-run on that id.
 
 ## Deposit half — ✅ GREEN on sim (AggLayer/ETH route, full real UI)
 PASSED (testnet build + local Anvil, 1.6m): real wallet → real WC pairing → real UI deposit
