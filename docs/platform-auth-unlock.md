@@ -14,12 +14,9 @@ by the probe is marked **Unconfirmed**.
 
 ## Decision summary
 
-**Conditional go.** If the owner takes both decisions below, build passkey
-unlock: iCloud Keychain with Touch ID on macOS, Google Password Manager on any
-desktop, and Windows Hello if it returns PRF.
-If only a device-bound wrapping is acceptable, build nothing on macOS now, and
-on Windows 11 only if Windows Hello passes a device test and the owner takes
-decision 2.
+**Go.** The owner took both decisions below on #846, so the implementation
+builds passkey unlock: iCloud Keychain with Touch ID on macOS, Google Password
+Manager on any desktop, and Windows Hello if it returns PRF.
 
 WebAuthn PRF, allowed in extension pages, can wrap the vault key a second time,
 leaving the password wrapping and seed recovery as they are. Chrome's Touch ID
@@ -30,11 +27,15 @@ this profile's storage plus the user's Apple or Google account. The existing
 route, the copy plus enough password guesses, stays. A device test on macOS 15+
 and Windows 11 comes first and stops the work if none passes.
 
-Owner decisions:
+Owner decisions, all taken on #846:
 
 1. Accept synced PRF passkeys as the second wrapping.
 2. Accept the OS password or PIN as equal to Touch ID or Windows Hello,
    which the wallet cannot tell apart.
+3. No periodic password check: platform unlock works until the user disables it.
+4. The ceremony runs in the side panel, where the wallet lives, and in the
+   confirm window for a dApp request; the Unlock page in the toolbar popup and
+   the full-page tab keeps only the password form.
 
 ## Today's vault
 
@@ -292,14 +293,14 @@ A third plain-storage key, `vault_key_platform`, next to the other two
 The salt is not secret: it is stored next to the wrapped key.
 
 Rotating the salt with `eval.second` on each unlock, as WebAuthn Level 3
-suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope:
-the vault key does not rotate, so an old profile copy plus an old output still
-opens the old record.
+suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope: an old
+profile copy holds the old record and the vault it unwraps, so an old output
+still opens it.
 
 ### Where the ceremony runs
 
-- In an extension page: the popup, side panel, full-page tab or confirm window
-  (Surfaces and focus, below).
+- In the side panel or the confirm window (owner decision 4; Surfaces and focus,
+  below). The popup and the full-page tab keep only the password form.
 - Never in the service worker. `CredentialsContainer` is exposed on `Window`
   only ([Credential Management][credman], editor's draft, read 2026-09-28),
   and the probe found `'credentials' in navigator` false in an MV3 service
@@ -320,9 +321,9 @@ Unlock, as proposed:
    `prf: { eval: { first: prfSalt } }`.
 3. It sends the 32-byte PRF output to the service worker in an unlock request
    over the same `INTERCOM` port the password travels on today
-   (`src/lib/store/index.ts:179-185`, `src/lib/intercom/client.ts:271`), under
-   a field name the crash-report redaction treats as secret (First
-   implementation scope, milestone 3).
+   (`src/lib/store/index.ts:179-185`, `src/lib/intercom/client.ts:271`), under a
+   field name the crash-report redaction treats as secret (First implementation
+   scope, milestone 2).
 4. The service worker derives the wrapping key, unwraps the vault-key bytes,
    imports them with `importVaultKey` and continues exactly as `Vault.setup`
    does after `unlockWithPassword` (`src/lib/miden/back/vault.ts:647-662`).
@@ -383,7 +384,8 @@ Enrollment, as proposed:
    ([delegate][cr-delegate]); its effect on iCloud Keychain is
    **Unconfirmed** (Open question 12).
 3. The page sends the password, credential id, salt and PRF output to the
-   service worker.
+   service worker, the PRF output under a field name the crash-report redaction
+   treats as secret (First implementation scope, milestone 2).
 4. The service worker unwraps the vault-key bytes with the password, wraps
    them under the PRF-derived key, unwraps the result once to check it, and
    only then saves `vault_key_platform`.
@@ -620,7 +622,7 @@ as it is today.
 | Uninstall and Web Store reinstall | Removal clears `chrome.storage.local` ([chrome.storage][chrome-storage]), so both wrapped keys go. The credential stays in its provider under `chrome-extension://<id>` (how it is listed: **Unconfirmed**). The reinstalled extension keeps its id and RP ID ([`id_util.h`][cr-id-util]) but has no record for the old credential. From another store the id may differ: **Unconfirmed**. | A fresh install opens onboarding in a tab (`vite.background.config.ts:197-202`); restore from the seed phrase or backup, then enroll again. | No: `vault_key_password` is gone too; recovery is the seed phrase or backup, as today. |
 | Windows Hello PIN reset | A destructive PIN reset deletes the keys in the user's Windows Hello container, listed for Microsoft accounts ([Microsoft Learn][ms-pin-reset], 2026-03-29). Whether consumer passkeys sit in that container: **Unconfirmed**. Reports conflict on whether a PIN change drops passkeys ([Microsoft Q&A][ms-qa-pin], 2025-05, secondary). | Platform unlock fails with no credential found; the password form. | Yes. |
 | Touch ID re-enrollment | Chrome's profile keys use private-key usage and user presence, not the current biometric set ([`credential_store.mm`][cr-credential-store]), so a new fingerprint does not invalidate them (inference); they have no PRF anyway. For iCloud Keychain passkeys Apple documents nothing: **Unconfirmed**. | Expected: nothing. If the credential stopped working: the password form. | Yes. |
-| Password forgotten while platform unlock still works | The credential and both wrappings stay. | Unlock works, but every action that asks for the password fails, among them revealing the seed phrase (`src/lib/miden/back/vault.ts:2695-2702`) and exporting the backup file (`src/lib/miden/back/vault.ts:664-669`). The wallet has no change-password flow: no message type sets a new password (`src/lib/shared/types.ts:12-163`). Forgot password wipes the storage and needs the seed phrase (`src/app/pages/ForgotPassword/ForgotPassword.tsx:113-140`). MetaMask lists the same question ([MetaMask #46400][metamask-46400], open question 3, secondary). | No, and the fallback is gone. When the credential stops working, recovery is the seed phrase or backup file; a user who never backed up the seed phrase can no longer reveal it. The periodic password check in milestone 3 exists for this. |
+| Password forgotten while platform unlock still works | The credential and both wrappings stay. | Unlock works, but every action that asks for the password fails, among them revealing the seed phrase (`src/lib/miden/back/vault.ts:2695-2702`) and exporting the backup file (`src/lib/miden/back/vault.ts:664-669`). The wallet has no change-password flow: no message type sets a new password (`src/lib/shared/types.ts:12-163`). Forgot password wipes the storage and needs the seed phrase (`src/app/pages/ForgotPassword/ForgotPassword.tsx:113-140`). MetaMask lists the same question ([MetaMask #46400][metamask-46400], open question 3, secondary). | No, and the fallback is gone. When the credential stops working, recovery is the seed phrase or backup file; a user who never backed up the seed phrase can no longer reveal it. There is no periodic password check (owner decision 3), so this row's answer is the seed phrase backup. |
 | Credential gone from the provider | The user deleted the passkey in the provider, or the provider no longer offers it on this device (turning off iCloud Keychain, signing Chrome out of GPM: which of these removes it is **Unconfirmed**). `vault_key_platform` stays, now stale. | Platform unlock finds no credential and the password form shows; the wallet should then offer to remove the record or enroll again. | Yes. |
 | A synced passkey on another device | GPM syncs the credential's `hmac-secret` inside its encrypted entity ([`webauthn_credential_specifics.proto`][cr-gpm-proto]). For iCloud Keychain an Apple engineer wrote that PRF values over hybrid differing from local ones was a bug that "should be fixed in the current iOS 18.4 and macOS 15.4 betas" ([Apple developer forums][apple-forum-prf], 2025-02). A GPM passkey therefore yields the same PRF output on every synced device; for iCloud Keychain that is the expected reading, **Unconfirmed**. The record exists only in this profile. | The passkey is listed in the provider on the user's other devices. Another install of the wallet has no record for it and does not offer platform unlock until it enrolls its own. | Yes, on every install. |
 
@@ -714,11 +716,11 @@ bar is weighed at the end of the section.
 - Today the password is typed into the page and sent in `UnlockRequest`
   (`src/lib/store/index.ts:179-185`): code running in an extension page sees
   it, and code in the service worker holds the vault key after any unlock.
-- The PRF output takes the same path (Mechanism, unlock step 3), so the exposure
-  is the same, provided it is kept out of crash reports as the password is
-  (milestone 3). Code in a page can also start its own `get()` with the stored
-  salt; the provider then shows its sheet and asks for the user's verification,
-  which a user expecting an unlock may give.
+- The PRF output takes the same path (Mechanism, enrollment step 3 and unlock
+  step 3), so the exposure is the same, provided it is kept out of crash reports
+  as the password is (milestone 2). Code in a page can also start its own
+  `get()` with the stored salt; the provider then shows its sheet and asks for
+  the user's verification, which a user expecting an unlock may give.
 - One difference: a captured PRF output opens only this record, while a
   captured password also works wherever the user reused it.
 - Malware running as the user can read the profile's storage and wait for
@@ -858,88 +860,75 @@ The mechanism is the one in Mechanism, with RP ID `chrome-extension://<id>`
 
 ### Go/no-go
 
-**Conditional go.** No probe result and no source re-read for this doc argues
-against it.
+**Go**, with the owner's decisions taken on #846. No probe result and no source
+re-read for this doc argues against it.
 
-- Go if the owner takes both decisions. The implementation issue starts with
-  the device test (milestone 1) and stops there if no provider returns a PRF
-  output for the extension's RP ID, with user verification, on macOS 15 or
-  later or on Windows 11.
+- The implementation starts with the device test (milestone 1) and stops there
+  if no provider returns a PRF output for the extension's RP ID, with user
+  verification, on macOS 15 or later or on Windows 11.
 - On macOS, iCloud Keychain is the one provider known both to verify with
   Touch ID and to return PRF, and its support for the extension RP ID is
   **Unconfirmed**. If only GPM passes there, how GPM verifies the user on macOS
   (**Unconfirmed**) decides whether the feature is still Touch ID unlock.
   Likewise on Windows 11: if Hello fails the PRF check, GPM may be the only
   path there, and the feature is then not Windows Hello unlock.
-- No-go if only a device-bound wrapping is acceptable, until a platform
-  authenticator in Chrome offers a device-bound PRF credential, except on
-  Windows 11 if Hello passes the device test and the owner takes decision 2.
-- The evidence sharpened one condition. Whether the popup survives the native OS
-  sheets is **Unconfirmed**, and a Chrome 156 change force-closes popups while a
-  security dialog shows (Surfaces and focus), so milestone 1 also picks the
-  surface the ceremony runs in. After onboarding, Chrome's action opens the side
-  panel instead of the popup (`src/lib/extension/side-panel-handoff.ts:84-91`),
-  so both risks mainly affect wallets whose toolbar action still opens the
-  popup: those whose side-panel handoff did not run or failed, and those whose
-  side-panel restore failed at startup (`src/background.ts:18-33`).
+- The ceremony runs in the side panel and the confirm window (owner decision 4),
+  so the popup's behaviour with the native OS sheets (Surfaces and focus) does
+  not decide the go. A wallet whose toolbar action still opens the popup (its
+  side-panel handoff did not run or failed, or its side-panel restore failed at
+  startup, `src/background.ts:18-33`) unlocks there with the password.
 
 ### First implementation scope
 
 1. **Device test.** On macOS 15 or later and on a current Windows 11 (24H2 or
    25H2), with Chrome 155 and again with Chrome 156 when it ships, using the
    extension RP ID: each provider Chrome offers (its profile store, iCloud
-   Keychain, GPM, Windows Hello), from each surface (popup, side panel,
-   full-page tab, a `windows.create` popup window), with and without a Google
-   account signed in to Chrome (question 3). Record PRF at create and get, the
-   UV and BE flags, the verification methods the sheet accepts, what the
-   provider lists afterwards, and `WebAuthNGetApiVersionNumber` on each Windows
-   build (question 7). An assertion with the same salt from a second Mac or an
-   iPhone over hybrid checks a synced iCloud Keychain passkey (question 5). A
-   Linux machine with GPM and a Windows 10 machine answer the Linux part of
-   question 4 and question 8. The harness is an extension built from the
-   appendix's Method, with no virtual authenticator, extended with a popup, a
-   side panel and a window. Loaded unpacked, its id comes from its path, which
-   serves every question here; the Web Store listing's public key in its
-   manifest `key` ([manifest `key`][chrome-manifest-key]) gives it the store id,
-   needed only to re-check on a device that a Web Store reinstall reaches the
-   same credential (Lifecycle, uninstall row). It settles Open questions 1 to 11
-   and decides, per OS, whether to continue and which surface runs the ceremony.
+   Keychain, GPM, Windows Hello), from the side panel and the confirm window,
+   with and without a Google account signed in to Chrome (question 3). Record
+   PRF at create and get, the UV and BE flags, the verification methods the
+   sheet accepts, what the provider lists afterwards, and
+   `WebAuthNGetApiVersionNumber` on each Windows build (question 7). An
+   assertion with the same salt from a second Mac or an iPhone over hybrid
+   checks a synced iCloud Keychain passkey (question 5). A Linux machine with
+   GPM and a Windows 10 machine answer the Linux part of question 4 and question
+   8. The harness is an extension built from the appendix's Method, with no
+   virtual authenticator, extended with a side panel and a confirm-style window.
+   Loaded unpacked, its id comes from its path, which serves every question
+   here; the Web Store listing's public key in its manifest `key`
+   ([manifest `key`][chrome-manifest-key]) gives it the store id, needed only to
+   re-check on a device that a Web Store reinstall reaches the same credential
+   (Lifecycle, uninstall row). It settles Open questions 1 to 8 and 26 and
+   decides, per OS, whether to continue. The owner runs it on a Mac with Touch
+   ID and a Windows 11 PC as part of the implementation PR.
 2. **Enrollment in Settings, behind the password.** A row in Settings'
    Security group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment
    flow in Mechanism, offered only when `vault_key_password` exists. The row
    shows whether the credential syncs, from the BE flag read at enrollment.
-3. **Unlock with PRF, and the password on every failure.** On the Unlock page
-   (`src/app/pages/Unlock.tsx:330`) and in the confirm window
-   (`src/app/ConfirmPage.tsx:67-68`). A cancel, a `NotAllowedError`, a missing
-   credential or PRF result, a clear UV flag or a failed AES-GCM tag each
-   leaves the password form in place.
-   Two more parts:
-   - A periodic password check: the Unlock page asks for the password instead
-     of the passkey when the password has not been entered for 7 days, so the
-     fallback stays in the user's memory (Lifecycle, forgotten password).
-     Apple asks for the Mac password when it has not been used to unlock for
-     156 hours and biometrics have not been used for 4
-     ([Apple Platform Security][apple-pwd-rules], 2024-12-19). The 7 days are
-     the doc's recommendation, a product setting the owner can change; the
-     time of the last password unlock is stored beside the record.
-   - Crash-report redaction: crash reports are scrubbed by key name
+   - Crash-report redaction, in place before the first PRF output crosses the
+     port: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
      `src/lib/telemetry/redact.ts:350-355`), matching the parts of each key
      against a list (`src/lib/telemetry/redact.ts:242-288`,
      `src/lib/telemetry/redact.ts:313-325`). `password` is caught; a field named
      `prfOutput` would not be. The PRF output therefore travels under a key with
-     a listed part, such as `prfSecret`, or `prf` joins the list, and a
-     redaction test covers it.
+     a listed part, such as `prfSecret`, or `prf` joins the list, in both the
+     enrollment and the unlock request, and a redaction test covers both.
+3. **Unlock with PRF, and the password on every failure.** On the Unlock page in
+   the side panel (`src/app/pages/Unlock.tsx:330`) and in the confirm window
+   (`src/app/ConfirmPage.tsx:67-68`); the Unlock page in the popup and the
+   full-page tab keeps only the password form (owner decision 4). A cancel, a
+   `NotAllowedError`, a missing credential or PRF result, a clear UV flag or a
+   failed AES-GCM tag each leaves the password form in place.
 4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and calls
    `signalUnknownCredential` (Mechanism, enrollment step 2; Open question 12);
    re-enrollment replaces the record. A wallet setup already wipes every storage
    key but the preserved ones (`src/lib/miden/reset.ts:13-18`,
    `src/lib/miden/reset.ts:22-42`), so Forgot password removes the record.
-   Removal is not revocation: the vault key never rotates, so a profile copy
-   taken before removal plus the passkey, if it survives in the provider, still
-   opens the old record. The removal step therefore tells the user to delete the
-   passkey in the provider as well. Open questions 12 to 18 are settled here,
-   before release, by the device tests their rows name.
+   Removal is not revocation: a profile copy taken before removal holds the old
+   record and the vault it unwraps, so with the passkey, if it survives in the
+   provider, still opens the old record. The removal step therefore tells the
+   user to delete the passkey in the provider as well. Open questions 12 to 18
+   are settled here, before release, by the device tests their rows name.
 
 What stays out:
 
@@ -960,10 +949,10 @@ What stays out:
 
 ## Open questions
 
-Every fact this doc marks **Unconfirmed**, and what would settle each.
-Questions 1 to 11 decide feasibility and the surface (milestone 1), 12 to 18
-the lifecycle (milestone 4), and 19 to 25 are narrower; 22, 23 and 25 are not
-relied on.
+Every fact this doc marks **Unconfirmed**, and what would settle each. Questions
+1 to 8 and 26 decide feasibility (milestone 1), 12 to 18 the lifecycle
+(milestone 4), and 19 to 25 are narrower; 9 to 11 (the popup), 22, 23 and 25 are
+not relied on.
 
 | # | Question | Relied on in | Settled by |
 |---|---|---|---|
@@ -975,9 +964,9 @@ relied on.
 | 6 | Does Windows Hello evaluate PRF at create and get in Chrome 147+ on a current Windows 11, with the extension RP ID, and why does MetaMask report that it fails? | Support matrix; Recommendation (the bar on Windows) | Device test on Windows 11 24H2 or 25H2 after KB5077181, with Chrome 155 |
 | 7 | Which Windows build first ships WebAuthn API version 8, which Chrome needs for PRF at create? | Support matrix | Calling `WebAuthNGetApiVersionNumber` ([`webauthn.h`][ms-webauthn-v8]) on each Windows build tested, or a Microsoft statement |
 | 8 | Is there no Hello PRF on Windows 10, as secondary sources say? | Support matrix; Recommendation | Device test on Windows 10 22H2 |
-| 9 | Does an extension popup survive the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155? | Surfaces and focus; Go/no-go | Device test from the popup on macOS and Windows |
-| 10 | Does the Chrome 156 force-close ([Chromium 4b8e494e][cr-popup-m156]) apply to a ceremony started from the popup? | Surfaces and focus; Go/no-go | The same device test on Chrome 156 |
-| 11 | Is Chrome's own WebAuthn dialog still clipped inside a popup, as reported for Chrome 107 ([bitwarden/clients#4365][bitwarden-4365])? | Surfaces and focus | The same device test |
+| 9 | Does an extension popup survive the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | Device test from the popup on macOS and Windows |
+| 10 | Does the Chrome 156 force-close ([Chromium 4b8e494e][cr-popup-m156]) apply to a ceremony started from the popup? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | The same device test on Chrome 156 |
+| 11 | Is Chrome's own WebAuthn dialog still clipped inside a popup, as reported for Chrome 107 ([bitwarden/clients#4365][bitwarden-4365])? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | The same device test |
 | 12 | Does `signalUnknownCredential` from Chrome remove or hide an iCloud Keychain entry, or only GPM ones? | Mechanism; Lifecycle; milestone 4 | Device test: enroll, remove, check the Passwords app |
 | 13 | How does each provider list an orphaned `chrome-extension://<id>` credential after the extension is removed? | Lifecycle (uninstall) | Device test in each provider's list |
 | 14 | Does a consumer Windows Hello "I forgot my PIN" reset delete passkeys, and can a PIN change drop them? Reports conflict ([Microsoft Q&A][ms-qa-pin]) | Lifecycle (PIN reset) | Device test with a Microsoft account and with a local account |
@@ -992,6 +981,32 @@ relied on.
 | 23 | Which attestation does Windows Hello return for `attestation: 'direct'`? Not relied on: the design reads the BE flag, not attestation | None | Device test, only if attestation is ever needed |
 | 24 | Does the iOS Secure Enclave key, created with only `.privateKeyUsage`, prompt at each use? The repo's comments conflict | Today's vault | Device test on an iPhone: a hardware unlock, watching for Face ID |
 | 25 | Do other Chromium browsers (Edge, Brave, Opera) return PRF for the extension RP ID? Ambire's code says Brave's profile passkeys return none (secondary). Not relied on: PRF is detected from a real result, and the password stays | None | A device test in each browser, if one comes into scope |
+| 26 | Does a ceremony started from the side panel, and one from the confirm window, complete with the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155 and in Chrome 156? | Decision summary (decision 4); Go/no-go | Milestone 1's device test from the side panel and the confirm window on macOS and Windows |
+
+### Design points the implementation settles
+
+Review of this doc raised points that are design work for the implementation,
+not facts a device test settles (first raised as #1253 and #1257). Each is
+decided before the milestone that ships the step it names.
+
+- **Every dropped credential, not only a removed one** (milestone 4).
+  Re-enrollment into another provider, the setup wipes (Forgot password, Reset
+  extension, Developer Settings' reset) and two enrollments racing each other
+  also leave a wallet-created credential with no record. One rule covers them:
+  signal only an id a wipe actually removed, after the wipe succeeded; save a
+  record only if the credential it replaces is still the one the page read;
+  and keep the ids still to signal somewhere durable, so a page closing
+  mid-flow loses none. Whether Chrome's signal path accepts an extension
+  caller, and with which `rpId`, is part of question 12.
+
+- **Redaction of free text** (milestone 2). `src/lib/telemetry/redact.ts`
+  matches structured fields and free text (an error message, a breadcrumb)
+  against different lists, so the PRF output's key is covered in both, and
+  the redaction test checks both request shapes as objects and as text.
+
+- **The BE flag across sessions** (milestone 2). The Settings row shows it in
+  later sessions, so enrollment saves it with a named store, and removal and
+  the setup wipes delete it.
 
 ## Appendix: probe
 
