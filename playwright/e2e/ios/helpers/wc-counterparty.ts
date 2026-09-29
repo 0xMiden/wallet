@@ -3,7 +3,7 @@ import { buildApprovedNamespaces } from '@walletconnect/utils';
 import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
-import { WC_PROJECT_ID } from '../../../../src/lib/walletconnect/config';
+import { resolveCounterpartyEnv } from './wc-counterparty-env';
 
 /**
  * Headless WalletConnect v2 counterparty "wallet" for the bridge-IN iOS harness.
@@ -15,20 +15,20 @@ import { WC_PROJECT_ID } from '../../../../src/lib/walletconnect/config';
  * requests — signing + broadcasting to a LOCAL Anvil. The WalletConnect handshake
  * + signing are 100% real; only the chain (Anvil) and the URI delivery are local.
  *
- * Pairing rides the public relay (relay.walletconnect.org) with the app's
- * project id, so it is NOT hermetic on the connection layer (by design — the same
- * external dependency class as bridge-out's hosted services).
+ * Pairing rides the public relay (relay.walletconnect.org), using the
+ * counterparty's own project id when WC_COUNTERPARTY_PROJECT_ID is set, else
+ * config.ts's resolution of the test process's own env - so it is NOT hermetic
+ * on the connection layer (by design - the same external dependency class as
+ * bridge-out's hosted services).
  */
 
-const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
 // The counterparty authenticates its OWN relay connection, independent of the
-// app's — WC peers don't need to share a projectId. Prefer a dedicated one
+// app's - WC peers don't need to share a projectId. Prefer a dedicated one
 // (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
-// the chance of tripping the free-tier rate limit that connection bursts hit.
-// Trimmed and empty-as-unset: an unset, empty or blank WC_COUNTERPARTY_PROJECT_ID
-// falls back to WC_PROJECT_ID, the app's own resolved project id.
-const PROJECT_ID = (process.env.WC_COUNTERPARTY_PROJECT_ID ?? '').trim() || WC_PROJECT_ID;
-const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
+// the chance of tripping the rate limit that connection bursts hit; the trimmed,
+// empty-as-unset resolution (and the RELAY_URL / ANVIL_RPC defaults) live in
+// wc-counterparty-env.ts.
+const { relayUrl: RELAY_URL, projectId: PROJECT_ID, anvilRpc: ANVIL_RPC } = resolveCounterpartyEnv();
 const CHAIN_ID = 11155111;
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).
 const DEFAULT_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
