@@ -1175,29 +1175,32 @@ describe('MidenClientInterface', () => {
     // lock held, and every later claim queued behind it. The delegated prove is bounded and
     // pre-submit, so the fallback re-proves locally on the same notes (#1233 staged the consume).
     jest.useFakeTimers();
-    const staged = stagedExecuteRequest();
-    // Delegated attempt: the prove never settles. The local re-prove succeeds.
-    staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
-    const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
-    mockStagedSdk();
-    const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    try {
+      const staged = stagedExecuteRequest();
+      // Delegated attempt: the prove never settles. The local re-prove succeeds.
+      staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
+      mockStagedSdk();
+      const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const pending = client.consumeNoteId({
-      accountId: 'acc-id',
-      noteId: 'note-1',
-      type: 'consume',
-      delegateTransaction: true
-    } as any);
+      const pending = client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
 
-    await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
+      await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
 
-    expect(await pending).toBe(fakeTransactionResult);
-    expect(staged.prove).toHaveBeenCalledTimes(2);
-    // First delegated (no explicit prover resolves in this test), then the local prover.
-    expect(staged.prove.mock.calls[0]?.[0]?.prover).toBeUndefined();
-    expect(staged.prove.mock.calls[1]?.[0]?.prover).toBe('local');
-    jest.useRealTimers();
+      expect(await pending).toBe(fakeTransactionResult);
+      expect(staged.prove).toHaveBeenCalledTimes(2);
+      // First delegated (no explicit prover resolves in this test), then the local prover.
+      expect(staged.prove.mock.calls[0]?.[0]?.prover).toBeUndefined();
+      expect(staged.prove.mock.calls[1]?.[0]?.prover).toBe('local');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
