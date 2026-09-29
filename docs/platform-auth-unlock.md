@@ -383,24 +383,25 @@ Enrollment, as proposed:
 2. Outputs at create are optional ([WebAuthn Level 3 section
    10.1.4][webauthn-l3]). If the response has no `prf.results.first`, the page
    runs `get()` once with the new credential in `allowCredentials`. No output
-   from either means the authenticator has no PRF, and enrollment stops with
-   nothing stored in the wallet. The `create()` has already made a credential
-   in the provider, though: on macOS the likely case is a Chrome-profile
-   passkey, which stays listed in `chrome://settings/passkeys` until the user
-   deletes it there ([Chromium 5c360860][cr-cbd-m126]). A credential that a
-   re-enrollment replaces stays in its provider the same way.
-   `PublicKeyCredential.signalUnknownCredential` (Chrome 132+,
-   [MDN browser-compat-data][mdn-bcd-pkc], v8.1.3) asks the provider to hide
-   such an entry and is known to hide only GPM entries
-   ([delegate][cr-delegate]); its effect on iCloud Keychain is
-   **Unconfirmed** (Open question 12).
+   from either means the authenticator has no PRF, and enrollment stops with no
+   record saved; its credential id goes to the to-signal list (Design points,
+   below). The `create()` has already made a credential in the provider, though:
+   on macOS the likely case is a Chrome-profile passkey, which stays listed in
+   `chrome://settings/passkeys` until the user deletes it there ([Chromium
+   5c360860][cr-cbd-m126]). A credential that a re-enrollment replaces stays in
+   its provider the same way. `PublicKeyCredential.signalUnknownCredential`
+   (Chrome 132+, [MDN browser-compat-data][mdn-bcd-pkc], v8.1.3) asks the
+   provider to hide such an entry and is known to hide only GPM entries
+   ([delegate][cr-delegate]); its effect on iCloud Keychain is **Unconfirmed**
+   (Open question 12).
 3. The page sends the password, credential id, salt and PRF output and the BE
    flag to the service worker, the PRF output under a field name the
    crash-report redaction treats as secret (First implementation scope,
    milestone 2).
-4. The service worker unwraps the vault-key bytes with the password, wraps
-   them under the PRF-derived key, unwraps the result once to check it, and
-   only then saves `vault_key_platform`.
+4. The service worker unwraps the vault-key bytes with the password, wraps them
+   under the PRF-derived key, unwraps the result once to check it, and only then
+   saves `vault_key_platform`, through the write queue and its checks (Design
+   points, below).
 
 A legacy wallet has no `vault_key_password` to unwrap, so this path does not
 apply to it as written.
@@ -627,7 +628,7 @@ as it is today.
 
 | Event | What happens to the credential | What the user sees | Password still unlocks? |
 |---|---|---|---|
-| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves nothing in the wallet but leaves its credential in the provider (Mechanism, enrollment step 2; Open question 12). | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used, and a leftover entry in that provider. | Yes: `vault_key_password` is not touched. |
+| Enrollment | A new credential under RP ID `chrome-extension://<id>` in the provider Chrome offers (which one comes first on macOS: **Unconfirmed**); `vault_key_platform` is written next to `vault_key_password`. An authenticator with no PRF output leaves no record in the wallet but leaves its credential in the provider (Mechanism, enrollment step 2; Open question 12). | The password prompt, then Chrome's or the OS's passkey sheet; on a refusal, a message that this authenticator cannot be used, and a leftover entry in that provider. | Yes: `vault_key_password` is not touched. |
 | Re-enrollment | The new record replaces `vault_key_platform`; the old credential stays in its provider unless removed (Mechanism, enrollment step 2; Open question 12). After Forgot password, setup wipes every storage key but the preserved ones (`src/lib/miden/reset.ts:22-42`, `src/lib/miden/reset.ts:67-81`), so the record goes and the new vault key needs a new enrollment. | The enrollment flow again; the old entry may stay listed in the provider. | Yes. |
 | Device loss | The record was on the lost device. A synced credential (iCloud Keychain, GPM) stays usable elsewhere but has no record to unwrap there; a device-bound one is gone. | On a new device: restore from the seed phrase or a backup file, set a password, enroll again. | Not applicable: the vault was on the lost device; recovery is the seed phrase or backup, as today. |
 | Browser-profile reset | Deleting the profile deletes its `chrome.storage.local`, record included. "Reset settings" resets "Extensions and themes" and "Cookies and site data" and keeps saved passwords ([Chrome Help][chrome-reset], read 2026-09-28); whether extension storage survives it is **Unconfirmed**. iCloud Keychain, GPM and Windows Hello keep the credential outside the profile (**Unconfirmed** as documented behaviour). | Profile deleted: onboarding. Reset settings: unlock as before if storage survived (**Unconfirmed**). | Yes while the storage survives; both wrappings go if it does not. |
@@ -940,14 +941,16 @@ re-read for this doc argues against it.
    full-page tab keeps only the password form (owner decision 4). A cancel, a
    `NotAllowedError`, a missing credential or PRF result, a clear UV flag or a
    failed AES-GCM tag each leaves the password form in place.
-4. **Removal and re-enrollment.** Removal deletes `vault_key_platform` and calls
-   `signalUnknownCredential` (Mechanism, enrollment step 2; Open question 12);
-   re-enrollment replaces the record. A wallet setup already wipes every storage
-   key but the preserved ones (`src/lib/miden/reset.ts:13-18`,
-   `src/lib/miden/reset.ts:22-42`), so Forgot password removes the record.
-   Removal is not revocation (Mechanism, The stored record), so the removal step
-   also tells the user to delete the passkey in the provider. Open questions 12
-   to 18 are settled here, before release, by the device tests their rows name.
+4. **Removal and re-enrollment.** Removal queues the record's credential id on
+   the to-signal list, deletes `vault_key_platform`, and a page then calls
+   `signalUnknownCredential` for it (Mechanism, enrollment step 2; Design
+   points, below; Open question 12); re-enrollment replaces the record. A wallet
+   setup already wipes every storage key but the preserved ones
+   (`src/lib/miden/reset.ts:13-18`, `src/lib/miden/reset.ts:22-42`), so Forgot
+   password removes the record. Removal is not revocation (Mechanism, The stored
+   record), so the removal step also tells the user to delete the passkey in the
+   provider. Open questions 12 to 18 are settled here, before release, by the
+   device tests their rows name.
 
 What stays out:
 
@@ -1008,15 +1011,51 @@ Review of this doc raised points that are design work for the implementation,
 not facts a device test settles (first raised as #1253 and #1257). Each is
 decided before the milestone that ships the step it names.
 
-- **Every dropped credential, not only a removed one** (milestone 4).
+- **Every dropped credential, not only a removed one** (milestones 2 and 4).
   Re-enrollment into another provider, the setup wipes (Forgot password, Reset
-  extension, Developer Settings' reset) and two enrollments racing each other
-  also leave a wallet-created credential with no record. One rule covers them:
-  signal only an id a wipe actually removed, after the wipe succeeded; save a
-  record only if the credential it replaces is still the one the page read;
-  and keep the ids still to signal somewhere durable, so a page closing
-  mid-flow loses none. Whether Chrome's signal path accepts an extension
-  caller, and with which `rpId`, is part of question 12.
+  extension, Developer Settings' reset), an enrollment that stops without PRF,
+  a page closed mid-enrollment and two enrollments racing each other all leave
+  a wallet-created credential with no record. The wallet tracks each
+  credential from the moment `create()` resolves: before the step-2 `get()`
+  fallback and before step 3, the page hands the new id to the service worker
+  as a pending enrollment, with the credential id of the record it read at
+  step 1, or none. The enrollment is live while that page stays connected. A
+  committed save drops the pending entry. A save the checks below refuse, a
+  no-PRF stop or an abandoned enrollment (the page gives it up or goes away,
+  or the service worker finds it pending when it starts) moves the id to the
+  to-signal list, and a save is refused once its id is there. A page signals
+  only an id that no record holds and no live enrollment owns, and the service
+  worker drops it from the list once the call returns. Whether Chrome's signal
+  path accepts an extension caller, and with which `rpId`, is part of
+  question 12.
+
+- **The to-signal list** (milestones 2 and 4). The pending enrollments and the
+  ids to signal live in one plain-storage key, `platform_credentials_to_signal`,
+  added to `PRESERVED_STORAGE_KEYS` (`src/lib/miden/reset.ts:13`), so neither
+  `clearStorage` nor `resetStorageDestructive` deletes it. The service worker
+  cannot signal (Mechanism, Where the ceremony runs), so before a setup wipe, a
+  removal or a replacing save deletes a record, it queues the record's
+  credential id on the list, and a later page signals it.
+
+- **One writer at a time for the record** (milestone 2). Every write to
+  `vault_key_platform` or to the to-signal list (the enrollment save, removal,
+  the setup wipes and the list's own updates) runs on one serial queue in the
+  service worker. Reset extension and Developer Settings' reset, which wipe
+  from a page today (`src/options.tsx:92`,
+  `src/screens/developer-settings/DeveloperSettings.tsx:231`), hand their
+  storage wipe to that queue; if the service worker does not answer within a
+  few seconds, the page writes a preserved reset-request marker and reloads
+  the runtime, and the fresh service worker runs the wipe on its queue at
+  start, queuing the record's credential id first, before it serves anything.
+  A stuck worker is replaced by the reload, so the recovery tool never
+  blocks, and no wipe deletes a record untracked or writes beside a live
+  queue. Inside the queue, just before writing, the enrollment
+  save re-reads `vault_key_platform` and the `vault_key_password` ciphertext
+  its unwrap used, and writes only if both are unchanged: the record still
+  holds the credential the enrollment started from, or still none, and no
+  wipe or setup has replaced the password wrapping. A save then cannot land
+  between a wipe's read and its remove (`src/lib/miden/reset.ts:34-35`),
+  survive into a new wallet, or pass the check alongside a second save.
 
 - **Redaction of free text** (milestone 2). `src/lib/telemetry/redact.ts`
   matches structured fields and free text (an error message, a breadcrumb)
