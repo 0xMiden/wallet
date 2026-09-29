@@ -161,6 +161,8 @@ function resetControl() {
     inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
     inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
     inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
+    inlineDecodeGuardianHistory: jest.fn(async () => ({ __inlineSummary: true })),
+    inlineGetGuardianResultCommitment: jest.fn(async () => '0xinlinecommitment'),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -187,6 +189,8 @@ function resetControl() {
       importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
       recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
       resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
+      decodeGuardianHistory: (...a: any[]) => G.__px.inlineDecodeGuardianHistory(...a),
+      getGuardianResultCommitment: (...a: any[]) => G.__px.inlineGetGuardianResultCommitment(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
@@ -1448,6 +1452,35 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('no note id');
   });
+});
+
+describe('MidenClientProxy - Guardian history ops', () => {
+  it.each([
+    {
+      name: 'decodeGuardianHistory',
+      invoke: (proxy: any) => proxy.decodeGuardianHistory('summary'),
+      inline: () => G.__px.inlineDecodeGuardianHistory,
+      arg: 'summary',
+      expected: { __inlineSummary: true }
+    },
+    {
+      name: 'getGuardianResultCommitment',
+      invoke: (proxy: any) => proxy.getGuardianResultCommitment(new Uint8Array([4, 2])),
+      inline: () => G.__px.inlineGetGuardianResultCommitment,
+      arg: new Uint8Array([4, 2]),
+      expected: '0xinlinecommitment'
+    }
+  ])(
+    'flag ON but no chrome.offscreen API → $name runs inline under withWasmClientLock',
+    async ({ invoke, inline, arg, expected }) => {
+      installChromeMock({ withOffscreen: false });
+      const { midenClientProxy } = await loadProxy(true);
+      await expect(invoke(midenClientProxy)).resolves.toEqual(expected);
+      expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+      expect(inline()).toHaveBeenCalledWith(arg);
+      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (invalid-note detail batch)', () => {

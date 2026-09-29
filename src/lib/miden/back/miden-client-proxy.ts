@@ -1431,7 +1431,7 @@ export const midenClientProxy = {
 
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
   async decodeGuardianHistory(encoded: string) {
-    if (!USE_OFFSCREEN_CLIENT) {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () => (await getMidenClient()).decodeGuardianHistory(encoded));
     }
     const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
@@ -1440,7 +1440,7 @@ export const midenClientProxy = {
   },
 
   async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
-    if (!USE_OFFSCREEN_CLIENT) {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () => (await getMidenClient()).getGuardianResultCommitment(bytes));
     }
     const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
