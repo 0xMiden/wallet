@@ -530,6 +530,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, epochQuote?.quoteResult.tokenIn]);
   const depositAmount = quotedDeposit ?? amount;
+  // What the Review hero prints; its fiat prices this figure, not the exact quote.
+  const reviewAmount = quotedDeposit
+    ? formatMoneyAmount(quotedDeposit, 'pays', token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL)
+    : formatMoneyAmount(amount, 'typed');
   const fastFeeUsd = useMemo(() => {
     const rawIn = epochQuote?.quoteResult.tokenIn;
     const rawOut = epochQuote?.quoteResult.tokenOut;
@@ -672,17 +676,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={
-                quotedDeposit
-                  ? formatMoneyAmount(
-                      quotedDeposit,
-                      'pays',
-                      token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
-                    )
-                  : formatMoneyAmount(amount, 'typed')
-              }
+              amount={reviewAmount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
-              fiat={token === 'USDC' ? Number(depositAmount) : undefined}
+              fiat={token === 'USDC' ? Number(reviewAmount) : undefined}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               networkName={networkName}
@@ -727,8 +723,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [
       amount,
       bridgeTxId,
-      depositAmount,
-      quotedDeposit,
+      reviewAmount,
       error,
       evmAddress,
       epochStatus,

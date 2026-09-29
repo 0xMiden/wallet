@@ -109,6 +109,9 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.5050')}>
         padded amount
       </button>
+      <button data-testid="set-amount-four-places" onClick={() => onAmountChange('10.6512')}>
+        four-place amount
+      </button>
       <button data-testid="open-token-drawer" onClick={onSelectToken}>
         token
       </button>
@@ -122,15 +125,18 @@ jest.mock('./EvmBridgeDepositForm', () => ({
 jest.mock('./EvmBridgeDepositReview', () => ({
   EvmBridgeDepositReview: ({
     amount,
+    fiat,
     outputAmount,
     onConfirm
   }: {
     amount: string;
+    fiat?: number;
     outputAmount?: string;
     onConfirm: () => void;
   }) => (
     <div>
       <span data-testid="review-amount">{amount}</span>
+      <span data-testid="review-fiat">{fiat}</span>
       <span data-testid="review-output">{outputAmount}</span>
       <button data-testid="confirm-deposit" onClick={onConfirm}>
         confirm
@@ -214,6 +220,19 @@ const reachFastReview = async () => {
   fireEvent.click(screen.getByTestId('continue'));
   await settle();
   fireEvent.click(await screen.findByTestId('confirm-route'));
+  await settle();
+};
+
+/** Drive USDC (the default token) + Slow route to Review. The amount is typed on the default Fast route, which quotes it. */
+const reachSlowUsdcReview = async () => {
+  Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+  fireEvent.click(screen.getByTestId('set-amount-four-places'));
+  await settle();
+  fireEvent.click(screen.getByTestId('continue'));
+  await settle();
+  fireEvent.click(await screen.findByTestId('pick-slow'));
+  await settle();
+  fireEvent.click(screen.getByTestId('confirm-route'));
   await settle();
 };
 
@@ -303,6 +322,25 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
     expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+  });
+
+  it('prices the Fast-route deposit on the Review at the rounded-up figure it shows', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
+    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.66$/);
+  });
+
+  it('prices a Slow-route USDC deposit on the Review at the typed amount it shows', async () => {
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.6512$/);
+    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.6512$/);
   });
 
   it('shows the Fast "you receive" as the typed minTokenOut, not the quote', async () => {
