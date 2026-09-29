@@ -881,6 +881,13 @@ describe('waitForTransactionCompletion — error subscription', () => {
 
 describe('generateTransactionsLoop error paths', () => {
   const dummySign = jest.fn(async () => new Uint8Array([1]));
+  // Each test below restores the lock it stubs only after its assertions, so a failing one would
+  // hand its throwing stub to every later test in the file.
+  const lockSdk = require('../sdk/miden-client');
+  const realLock = lockSdk.withWasmClientLock;
+  afterEach(() => {
+    lockSdk.withWasmClientLock = realLock;
+  });
 
   it('returns void when there are no queued transactions', async () => {
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
