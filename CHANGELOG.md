@@ -34,6 +34,7 @@
 - [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 - [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
+- [CHANGE][ci] The changelog check also fails a pull request that changes or removes a released heading's version (dating it still passes) or moves a released entry under another version, compares the file with the pull request's merge base instead of reading a diff, and reads headings, sections and `---` lines through one parser that the release notes use too (#1190).
 
 ### Fixes
 
