@@ -124,7 +124,9 @@ const candidateRows = async (at: number): Promise<ITransaction[]> => {
 };
 
 const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string } | undefined => {
-  const noteId = row.outputNoteIds?.[0];
+  // The row holds one delivery state, so one note's receipt or re-push can speak only for a single-note row.
+  if (row.outputNoteIds?.length !== 1) return undefined;
+  const noteId = row.outputNoteIds[0];
   if (!noteId || !row.secondaryAccountId) return undefined;
   return { noteId, recipient: row.secondaryAccountId };
 };

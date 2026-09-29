@@ -392,12 +392,14 @@ export const recordNoteDelivery = async (
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.noteDelivery = noteDelivery;
-    // History renders the label, not `noteDelivery`, so a delivered note must retire its warning there too.
-    if ((noteDelivery === 'relayed' || noteDelivery === 'confirmed') && tx.displayMessage) {
-      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
-    }
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
+    // History renders the label, not `noteDelivery`, so a delivered note retires its warning there too, but only
+    // on a row of at most one note: the row's single state cannot speak for several.
+    const delivered = noteDelivery === 'relayed' || noteDelivery === 'confirmed';
+    if (delivered && (tx.outputNoteIds?.length ?? 0) <= 1 && tx.displayMessage) {
+      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
+    }
   });
 };
 

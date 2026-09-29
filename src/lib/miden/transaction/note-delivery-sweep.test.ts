@@ -549,15 +549,51 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Sent');
   });
 
-  it.each([
-    ['Completed - a private note could not be delivered'],
-    ['Completed - 2 private notes could not be delivered']
-  ])('drops from a custom row labelled %p once it is relayed', async displayMessage => {
-    rows.push(row({ type: 'execute', noteDelivery: 'undelivered', displayMessage }));
+  it('drops from a single-note custom row once it is relayed', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        noteDelivery: 'undelivered',
+        displayMessage: 'Completed - a private note could not be delivered'
+      })
+    );
 
     await recordNoteDelivery('tx-1', 'relayed');
 
     expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  // The row holds one delivery state, and a verdict on one of its notes says nothing of the other.
+  it.each([
+    ['Completed - a private note could not be delivered'],
+    ['Completed - 2 private notes could not be delivered']
+  ])('stays as %p on a two-note row recorded relayed', async displayMessage => {
+    rows.push(
+      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
+    );
+
+    await recordNoteDelivery('tx-1', 'relayed');
+
+    expect(rows[0]!.displayMessage).toBe(displayMessage);
+  });
+
+  it('stays on a two-note row, which the sweep neither re-pushes nor records', async () => {
+    const displayMessage = 'Completed - a private note could not be delivered';
+    rows.push(
+      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      nextRelayAt: NOW - 1,
+      displayMessage
+    });
   });
 
   it('stays on an undelivered send whose re-push fails again', async () => {
