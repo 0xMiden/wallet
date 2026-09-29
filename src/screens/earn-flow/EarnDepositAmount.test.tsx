@@ -287,8 +287,8 @@ describe('EarnDepositAmount after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, with no vault in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+  it('keeps the failure said while a retry is out, with no vault in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();

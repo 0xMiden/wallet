@@ -37,6 +37,10 @@ export function useEarnPositions(): {
   summary: EarnSummary;
   positions: EarnPosition[];
   vaults: EarnVault[];
+  /**
+   * No data (live or kept) and no error, including while the page is covered. A retry after a failure keeps the
+   * error and reports false.
+   */
   isLoading: boolean;
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;

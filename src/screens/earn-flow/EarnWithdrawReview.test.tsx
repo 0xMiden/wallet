@@ -299,8 +299,8 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+  it('keeps the failure said while a retry is out, and names only the route in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="unknown" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();

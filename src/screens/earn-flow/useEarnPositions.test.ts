@@ -355,6 +355,38 @@ describe('useEarnPositions', () => {
       expect(result.current.isLoading).toBe(true);
     });
   });
+
+  describe('a retry after a failed load, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    const renderInCache = () => {
+      const cache = new Map();
+      return renderHook(() => useEarnPositions(), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(SWRConfig, { value: { provider: () => cache } }, children)
+      });
+    };
+
+    beforeEach(() => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('keeps the error and reports no loading while the retry is out', async () => {
+      jest
+        .mocked(fetchEarnPositions)
+        .mockRejectedValueOnce(new Error('positions down'))
+        .mockReturnValue(new Promise(() => undefined));
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.loadError).toBe('positions down'));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+
+      // SWR's own isLoading is true here (a read out, no data): the hook's is not, since an error is kept.
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.loadError).toBe('positions down');
+    });
+  });
 });
 
 describe('earnItemLoadState', () => {
