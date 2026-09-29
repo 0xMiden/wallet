@@ -99,10 +99,11 @@ describe('AssetRow', () => {
   it.each(['verified', 'unknown'])('hides the Unverified mark for a %s token', verification => {
     mockVerify.mockReturnValue(verification);
 
-    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+    const asset = makeAsset();
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.queryByText('unverifiedToken')).toBeNull();
-    expect(mockVerify).toHaveBeenCalledWith('tok-1');
+    expect(mockVerify).toHaveBeenCalledWith(asset.tokenId);
   });
 
   it('draws the Unverified mark as an xs warning pill', () => {
