@@ -26,7 +26,10 @@ export interface MeetGuardianPoint {
   bodyKey: string;
 }
 
-/** The three facts the step asks the user to tick before Continue opens. */
+/**
+ * The three facts the step asks the user to tick before it goes on: Continue opens only then, and the
+ * picker its Change action opens (`onboarding/navigator`) returns here until they are.
+ */
 export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'local-state', titleKey: 'meetGuardianLocalStateTitle', bodyKey: 'meetGuardianLocalStateBody' },
   { id: 'seed-phrase', titleKey: 'meetGuardianSeedPhraseTitle', bodyKey: 'meetGuardianSeedPhraseBody' },

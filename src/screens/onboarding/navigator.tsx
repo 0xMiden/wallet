@@ -14,7 +14,7 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
-import { MeetGuardianScreen } from './common/MeetGuardian';
+import { MEET_GUARDIAN_POINTS, MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
@@ -186,6 +186,11 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     [onAction]
   );
 
+  const onBack = useCallback(() => {
+    setNavigationDirection('backward');
+    onAction?.({ id: 'back' });
+  }, [onAction]);
+
   const renderStep = useCallback(() => {
     const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
@@ -252,11 +257,15 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
     // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
+    // The picker goes on only once Meet's three facts are ticked, since otherwise it would skip them; before
+    // that it returns to Meet, whose card shows the pick and whose Continue waits for the facts. A no-guardian
+    // pick is not recorded, so it is dropped there; Meet's own link offers it once the facts are ticked.
     const onPickerSubmit = (payload: { guardianId: string; guardianEndpoint: string }) => {
       if (payload.guardianId !== NO_GUARDIAN_ID) {
         setMeetGuardianProgress(prev => ({ ...prev, chosenId: payload.guardianId, pickedByUser: true }));
       }
-      onChooseGuardianSubmit(payload);
+      if (MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id])) onChooseGuardianSubmit(payload);
+      else onBack();
     };
 
     switch (step) {
@@ -356,6 +365,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     meetGuardianProgress,
     isLoading,
     onForwardAction,
+    onBack,
     seedPhrase,
     wordslist,
     useBiometric,
@@ -371,11 +381,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     confirmCreating,
     importViaKey
   ]);
-
-  const onBack = () => {
-    setNavigationDirection('backward');
-    onAction?.({ id: 'back' });
-  };
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
   // over the step it replaces, which parks at `pageSlideParallax` under the `pageSlideDim` dim; going
