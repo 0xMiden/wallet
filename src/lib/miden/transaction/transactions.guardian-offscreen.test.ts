@@ -435,7 +435,7 @@ const valueMovingCases = (): Case[] => [
 // custom-proposal sends that cross the SAME leaf as send/swap — bridged-send
 // (agglayer) previews its pre-built request into a custom proposal; earn-deposit
 // carries a pre-seeded `requestBytes` so `ensureGuardianRecallableSendRequestBytes`
-// short-circuits (no WasmWebClient / getSyncHeight) and routes through the SAME
+// short-circuits (no height or account read) and routes through the SAME
 // custom proposal. They match the value-moving cases on routing / byte-identity /
 // kill-window; they DIVERGE only on the errorCode classifier (→ Failed, not
 // Completed — see the dedicated block below), so they are their own case list.
