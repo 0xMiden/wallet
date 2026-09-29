@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test';
 
 import {
+  DRAIN_DUMP_MARGIN_MS,
   DRAIN_STALL_WINDOW_MS,
   drainProgress,
+  extendTestTimeoutForDrain,
   readDrainSnapshot,
   startDrainDeadline,
   type DrainRow,
@@ -143,6 +145,29 @@ describe('startDrainDeadline', () => {
       monotonic.mockRestore();
       wall.mockRestore();
     }
+  });
+});
+
+describe('extendTestTimeoutForDrain', () => {
+  const fakeInfo = (timeout: number): { timeout: number; setTimeout: jest.Mock } => ({
+    timeout,
+    setTimeout: jest.fn()
+  });
+
+  it('extends a 600s timeout by (cap - budget) + DRAIN_DUMP_MARGIN_MS for a given budget', () => {
+    const info = fakeInfo(600_000);
+    extendTestTimeoutForDrain(240_000, info);
+    expect(info.setTimeout).toHaveBeenCalledWith(600_000 + 240_000 + DRAIN_DUMP_MARGIN_MS);
+  });
+
+  it('leaves timeout 0 untouched (setTimeout not called)', () => {
+    const info = fakeInfo(0);
+    extendTestTimeoutForDrain(240_000, info);
+    expect(info.setTimeout).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op with no info', () => {
+    expect(() => extendTestTimeoutForDrain(240_000, undefined)).not.toThrow();
   });
 });
 

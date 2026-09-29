@@ -45,6 +45,11 @@ export interface DrainDeadline {
   elapsedMs(): number;
 }
 
+/** The drain's outer bound, twice its budget: the one place the cap is computed. */
+function drainCapMs(budgetMs: number): number {
+  return 2 * budgetMs;
+}
+
 /**
  * Starts a drain's deadline for `budgetMs`. Before the budget it always continues, so a queue that never moves fails
  * exactly where the old flat deadline did. From the budget on it continues only while the last progress is younger
@@ -69,10 +74,29 @@ export function startDrainDeadline(budgetMs: number, now: () => number = () => p
       if (elapsed < budgetMs) return 'continue';
       const moving = lastProgressAt !== null && at - lastProgressAt < DRAIN_STALL_WINDOW_MS;
       if (!moving) return 'stalled';
-      return elapsed >= 2 * budgetMs ? 'cap' : 'continue';
+      return elapsed >= drainCapMs(budgetMs) ? 'cap' : 'continue';
     },
     elapsedMs: () => now() - startedAt
   };
+}
+
+/** Extra time past the cap for a capped or stalled drain's own verdict line and `dumpTransactions` dump to print. */
+export const DRAIN_DUMP_MARGIN_MS = 15_000;
+
+/** The slice of Playwright's TestInfo this helper needs, declared locally so this file stays runner-free. */
+interface DrainTimeoutInfo {
+  timeout: number;
+  setTimeout(ms: number): void;
+}
+
+/**
+ * Extends the running test's timeout so it outlasts a drain that runs to its cap, plus
+ * {@link DRAIN_DUMP_MARGIN_MS} of headroom (#1266 fix round 1: the test timeout otherwise fires first
+ * and the drain's diagnostics never print). A no-op with no `info` (outside a test) or a 0 timeout (none set).
+ */
+export function extendTestTimeoutForDrain(budgetMs: number, info: DrainTimeoutInfo | undefined): void {
+  if (info === undefined || info.timeout === 0) return;
+  info.setTimeout(info.timeout + (drainCapMs(budgetMs) - budgetMs) + DRAIN_DUMP_MARGIN_MS);
 }
 
 /**

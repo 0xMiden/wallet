@@ -1,6 +1,12 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
-import { DRAIN_STALL_WINDOW_MS, readDrainSnapshot, startDrainDeadline, type DrainVerdict } from './drain-progress';
+import {
+  DRAIN_STALL_WINDOW_MS,
+  extendTestTimeoutForDrain,
+  readDrainSnapshot,
+  startDrainDeadline,
+  type DrainVerdict
+} from './drain-progress';
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
@@ -2267,6 +2273,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // Fresh reload + metadata injection + land on the Pending list. See reloadAndPreparePending.
     await this.reloadAndPreparePending();
+
+    // A drain that runs to its cap must outlast the test's own timeout, or its verdict line and
+    // dumpTransactions dump never print (#1266 fix round 1). test.info() throws outside a test.
+    let testInfo: TestInfo | undefined;
+    try {
+      testInfo = test.info();
+    } catch {
+      testInfo = undefined;
+    }
+    extendTestTimeoutForDrain(timeoutMs, testInfo);
 
     // Start the clock AFTER reload/prepare. That step costs ~8-12s of fixed
     // sleeps, and billing it against the caller's budget silently turned a 120s
