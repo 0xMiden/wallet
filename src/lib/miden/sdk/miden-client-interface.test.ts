@@ -1904,42 +1904,43 @@ describe('MidenClientInterface', () => {
 
     // Scope doMocks inside isolateModulesAsync so they don't leak to other
     // tests in this file (Jest's doMock state is per-module-registry).
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('lib/platform', () => ({
-        isMobile: () => true,
-        isExtension: () => false,
-        isDesktop: () => false
-      }));
-      mockStagedSdk({ TransactionProver: { newCallbackProver, newLocalProver } });
-      jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
+    try {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('lib/platform', () => ({
+          isMobile: () => true,
+          isExtension: () => false,
+          isDesktop: () => false
+        }));
+        mockStagedSdk({ TransactionProver: { newCallbackProver, newLocalProver } });
+        jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
 
-      const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-      const result = await client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: false
-      } as any);
-      expect(result).toBe(fakeTransactionResult);
-    });
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        const result = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: false
+        } as any);
+        expect(result).toBe(fakeTransactionResult);
+      });
 
-    // The mobile branch picks newCallbackProver, not newLocalProver.
-    expect(newCallbackProver).toHaveBeenCalledTimes(1);
-    expect(newLocalProver).not.toHaveBeenCalled();
-    // ...and forwards a function (the callback closure) into it.
-    const firstCall = newCallbackProver.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    expect(typeof firstCall![0]).toBe('function');
+      // The mobile branch picks newCallbackProver, not newLocalProver.
+      expect(newCallbackProver).toHaveBeenCalledTimes(1);
+      expect(newLocalProver).not.toHaveBeenCalled();
+      // ...and forwards a function (the callback closure) into it.
+      const firstCall = newCallbackProver.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      expect(typeof firstCall![0]).toBe('function');
 
-    // The staged prove then receives that closure-wrapping prover instance (#1233).
-    expect(staged.prove.mock.calls.at(-1)?.[0]?.prover).toBe('callback-prover-instance');
-
-    // Important: jest.doMock persists past jest.resetModules — explicitly
-    // undo the mobile/native-prover mocks so the next test's default
-    // isMobile()=false / no-native-prover environment is restored.
-    jest.dontMock('lib/platform');
-    jest.dontMock('@miden/native-prover');
+      // The staged prove then receives that closure-wrapping prover instance (#1233).
+      expect(staged.prove.mock.calls.at(-1)?.[0]?.prover).toBe('callback-prover-instance');
+    } finally {
+      // jest.doMock persists past jest.resetModules, so undo the mobile and native-prover mocks even
+      // when this test fails; otherwise every later test in the file runs with isMobile() true.
+      jest.dontMock('lib/platform');
+      jest.dontMock('@miden/native-prover');
+    }
   });
 
   it('consumeNoteId surfaces SDK exception with name+message in prove-timing log', async () => {
