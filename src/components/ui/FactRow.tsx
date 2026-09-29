@@ -12,7 +12,8 @@ export interface IconCircleProps {
 
 /**
  * The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's.
- * A glyph drawn in `currentColor` takes `ink` from it, since nothing above sets a text colour.
+ * It sets `text-ink`, which a glyph drawn in `currentColor` takes. An SVG whose root declares `fill="none"`
+ * must be passed `fill="currentColor"` or it draws nothing; an SVG with its own fills keeps them.
  */
 export const IconCircle: React.FC<IconCircleProps> = ({ children, size = 'md', className }) => (
   <span
