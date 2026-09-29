@@ -15,10 +15,13 @@ by the probe is marked **Unconfirmed**.
 ## Decision summary
 
 **Go.** The owner took the decisions below on #846, so the implementation builds
-passkey unlock: iCloud Keychain with Touch ID on macOS, Google Password Manager
-on any desktop, and Windows Hello, each where the device test (milestone 1)
-shows it returning a PRF output for the extension's RP ID with user verification
-(Go/no-go).
+passkey unlock on macOS 15 or later and Windows 11, the systems the owner's
+device test runs on (milestone 1): iCloud Keychain with Touch ID and Google
+Password Manager on macOS 15 or later, and Windows Hello and Google Password
+Manager on Windows 11, each where that test shows it returning a PRF output for
+the extension's RP ID with user verification (Go/no-go). Linux, ChromeOS,
+Windows 10 and macOS before 15 keep password-only unlock until a device test
+covers them from the side panel and the confirm window (questions 2 and 26).
 
 WebAuthn PRF, allowed in extension pages, can wrap the vault key a second time,
 leaving the password wrapping and seed recovery as they are. Chrome's Touch ID
@@ -912,27 +915,36 @@ re-read for this doc argues against it.
    sheet accepts, what the provider lists afterwards, and
    `WebAuthNGetApiVersionNumber` on each Windows build (question 7). An
    assertion with the same salt from a second Mac or an iPhone over hybrid
-   checks a synced iCloud Keychain passkey (question 5). A Linux machine with
-   GPM and a Windows 10 machine answer the Linux part of question 4 and question
-   8. The harness is an extension built from the appendix's Method, with no
-   virtual authenticator, extended with a side panel and a confirm-style window.
-   Loaded unpacked, its id comes from its path, which serves every question
-   here; the Web Store listing's public key in its manifest `key`
-   ([manifest `key`][chrome-manifest-key]) gives it the store id, needed only to
-   re-check on a device that a Web Store reinstall reaches the same credential
-   (Lifecycle, uninstall row). It settles Open questions 1 to 8 and 26 and
-   decides, per OS, whether to continue, by the rules in Go/no-go. The owner
-   runs it on a Mac with Touch ID and a Windows 11 PC as part of the
-   implementation PR.
+   checks a synced iCloud Keychain passkey (question 5). Linux, ChromeOS and
+   Windows 10 are outside this run (Decision summary), so the Linux part of
+   question 4 and question 8 wait for a device test on those systems. The
+   harness is an extension built from the appendix's Method, with no virtual
+   authenticator, extended with a side panel and a confirm-style window. Loaded
+   unpacked, its id comes from its path, which serves every question here; the
+   Web Store listing's public key in its manifest `key` ([manifest
+   `key`][chrome-manifest-key]) gives it the store id, needed only to re-check
+   on a device that a Web Store reinstall reaches the same credential
+   (Lifecycle, uninstall row). It settles Open questions 1 to 7 and 26 (question
+   4 without its Linux part) and decides, per OS, whether to continue, by the
+   rules in Go/no-go. The owner runs it on a Mac with Touch ID and a Windows 11
+   PC as part of the implementation PR.
 2. **Enrollment in Settings, behind the password.** A row in Settings' Security
    group (`src/app/pages/Settings.tsx:183-201`) runs the enrollment flow in
-   Mechanism, offered only when `vault_key_password` exists. It starts
-   enrollment only in the side panel (owner decision 4; `useAppEnv`'s
-   `sidePanel`, `src/app/env.ts:39`); in the popup and the full-page tab the row
-   shows its state and points to the side panel. The row says whether the
-   credential can sync (the BE flag), not whether it syncs, from the record's
-   `backupEligible` field, a display hint that decides nothing (Mechanism, PRF,
-   and the key it yields).
+   Mechanism, offered only on macOS 15 or later and Windows 11 (Decision
+   summary) and only when `vault_key_password` exists; the page reads the
+   version with
+   `navigator.userAgentData.getHighEntropyValues(['platformVersion'])`, whose
+   result also names the platform, treats a Windows major version of 13 or more
+   as Windows 11 ([Microsoft Learn][ms-detect-win11], read 2026-09-29) and a
+   macOS major version of 15 or more as macOS 15 or later (on macOS the value is
+   the system's own major, minor and patch version, [User-Agent Client Hints
+   section 3.10][ua-ch-platform-version], read 2026-09-29), and does not offer
+   the row when the value is unavailable. It starts enrollment only in the side
+   panel (owner decision 4; `useAppEnv`'s `sidePanel`, `src/app/env.ts:39`); in
+   the popup and the full-page tab the row shows its state and points to the
+   side panel. The row says whether the credential can sync (the BE flag), not
+   whether it syncs, from the record's `backupEligible` field, a display hint
+   that decides nothing (Mechanism, PRF, and the key it yields).
    - Crash-report redaction, in place before the first PRF output crosses the
      port: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
@@ -979,14 +991,15 @@ What stays out:
 ## Open questions
 
 Every fact this doc marks **Unconfirmed**, and what would settle each. Questions
-1 to 8 and 26 decide feasibility (milestone 1), 12 to 18 the lifecycle
-(milestone 4), and 19 to 25 are narrower; 9 to 11 (the popup), 22, 23 and 25 are
-not relied on.
+1 to 7 and 26 decide feasibility on macOS 15 or later and Windows 11 (milestone
+1), 8 and the Linux part of 4 only once Windows 10 or Linux comes into scope
+(Decision summary), 12 to 18 the lifecycle (milestone 4), and 19 to 25 are
+narrower; 9 to 11 (the popup), 22, 23 and 25 are not relied on.
 
 | # | Question | Relied on in | Settled by |
 |---|---|---|---|
 | 1 | Does iCloud Keychain return PRF at create and get for RP ID `chrome-extension://<id>` in Chrome on macOS 15+? MetaMask lists the same question ([MetaMask #46400][metamask-46400]) | Support matrix; Recommendation | Device test on macOS 15+ with Chrome 155 |
-| 2 | Does GPM return PRF for that RP ID? The only evidence is secondary ([MetaMask #46400][metamask-46400]) | Support matrix; Recommendation | The same device test, on macOS and Windows |
+| 2 | Does GPM return PRF for that RP ID? The only evidence is secondary ([MetaMask #46400][metamask-46400]) | Support matrix; Recommendation | The same device test, on macOS 15 or later and Windows 11; Linux, ChromeOS, Windows 10 and macOS before 15 wait for their own device test (Decision summary) |
 | 3 | Which store does Chrome on macOS offer first for a new platform credential, now that GPM also saves desktop passkeys? | Support matrix; Lifecycle (Enrollment) | Device test, with and without a Google account signed in to Chrome |
 | 4 | Which user verification methods satisfy each provider: the macOS passkey sheet besides Touch ID (the login password), and GPM on macOS, Windows and Linux (the GPM PIN or the OS prompt)? | Security comparison; Recommendation (decision 2) | Device tests on macOS, Windows and Linux, declining the biometric prompt |
 | 5 | Does a synced iCloud Keychain passkey give the same PRF output on a second device? Apple wrote a hybrid mismatch "should be fixed in the current iOS 18.4 and macOS 15.4 betas" ([Apple developer forums][apple-forum-prf]) | Security comparison (synced passkeys); Lifecycle (synced passkey) | Device test: enroll on one Mac, assert with the same salt from a second Mac or an iPhone over hybrid |
@@ -1010,7 +1023,7 @@ not relied on.
 | 23 | Which attestation does Windows Hello return for `attestation: 'direct'`? Not relied on: the design reads the BE flag, not attestation | None | Device test, only if attestation is ever needed |
 | 24 | Does the iOS Secure Enclave key, created with only `.privateKeyUsage`, prompt at each use? The repo's comments conflict | Today's vault | Device test on an iPhone: a hardware unlock, watching for Face ID |
 | 25 | Do other Chromium browsers (Edge, Brave, Opera) return PRF for the extension RP ID? Ambire's code says Brave's profile passkeys return none (secondary). Not relied on: PRF is detected from a real result, and the password stays | None | A device test in each browser, if one comes into scope |
-| 26 | Does a ceremony started from the side panel, and one from the confirm window, complete with the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155 and in Chrome 156? | Decision summary (decision 4); Go/no-go | Milestone 1's device test from the side panel and the confirm window on macOS and Windows |
+| 26 | Does a ceremony started from the side panel, and one from the confirm window, complete with the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155 and in Chrome 156? | Decision summary (decision 4); Go/no-go | Milestone 1's device test from the side panel and the confirm window on macOS 15 or later and Windows 11; Linux, ChromeOS, Windows 10 and macOS before 15 wait for their own device test (Decision summary) |
 
 ### Design points the implementation settles
 
@@ -1223,6 +1236,7 @@ page then:
 [metamask-help]: https://support.metamask.io/configure/wallet/passkeys/
 [metamask-key-derivation]: https://github.com/MetaMask/core/blob/4ac8715616b371b7b9f585718a7d44bad01875a9/packages/passkey-controller/src/key-derivation.ts
 [metamask-prf-hook]: https://github.com/MetaMask/metamask-extension/blob/a7977f64104bd573ebb2024f3c9f09f18b1c4d2d/ui/hooks/usePasskeyPRFSupport.ts
+[ms-detect-win11]: https://learn.microsoft.com/en-us/microsoft-edge/web-platform/how-to-detect-win11
 [ms-kb5077181]: https://support.microsoft.com/en-us/topic/february-10-2026-kb5077181-os-builds-26200-7840-and-26100-7840-f0fa9e54-a22a-4a06-96b6-bf5b2aded506
 [ms-passkeys]: https://learn.microsoft.com/en-us/windows/security/identity-protection/passkeys/
 [ms-pin-reset]: https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/pin-reset
@@ -1230,5 +1244,6 @@ page then:
 [ms-webauthn-v8]: https://github.com/microsoft/webauthn/commit/706d98d73a8c3d888e77f0d524f630d551b194c3
 [nist-gcm]: https://csrc.nist.gov/pubs/sp/800/38/d/final
 [rabby-biometric]: https://github.com/RabbyHub/Rabby/blob/e2b98a27e9ef979ab121e81e591fcf5ad79d6e19/src/ui/utils/biometric.ts
+[ua-ch-platform-version]: https://wicg.github.io/ua-client-hints/#get-the-platform-version
 [w3c-list-2023]: https://lists.w3.org/Archives/Public/public-webauthn/2023Dec/0078.html
 [webauthn-l3]: https://www.w3.org/TR/webauthn-3/
