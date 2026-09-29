@@ -16,6 +16,7 @@ import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
+import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 // The orchestrator's own decisions are what these tests are about — the gating,
 // the queue and the terminal flag write — so every source it drives is stubbed.
@@ -27,8 +28,16 @@ jest.mock('./miden-client-proxy', () => ({
     drainPrivateNoteTransport: jest.fn(),
     importRecoveryNoteBytes: jest.fn(),
     resolveRecoveryScanRange: jest.fn(),
-    recoverPublicNotesRange: jest.fn()
+    recoverPublicNotesRange: jest.fn(),
+    decodeGuardianHistory: jest.fn(),
+    getGuardianResultCommitment: jest.fn()
   }
+}));
+// The node a terminal fee answer came from; only the cases that run the real history pass read it.
+let mockFeeScope = 'rpc-a|testnet';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => mockFeeScope
 }));
 jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: (fn: () => unknown) => fn()
@@ -208,6 +217,7 @@ beforeEach(() => {
   mockUncompleted.mockResolvedValue([]);
   mockFetchProgress.mockResolvedValue(null);
   mockReadGeneration.mockResolvedValue('gen-1');
+  mockFeeScope = 'rpc-a|testnet';
   mockProxy.getAccount.mockResolvedValue({} as never);
   mockProxy.drainPrivateNoteTransport.mockResolvedValue(undefined as never);
   mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
@@ -1163,7 +1173,9 @@ describe('release on lock', () => {
     }
   });
 
-  it('leaves a run that ended history-failed reserved', async () => {
+  // The terminal answer is the gate's to keep, so a history-failed run holds no reservation, and it is
+  // never in the release set either: a lock must not free a later run of the same account in flight.
+  it('keeps a run that ended history-failed out of the lock release', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest
       .mocked(recoverGuardianHistory)
@@ -1171,8 +1183,20 @@ describe('release on lock', () => {
 
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
-    releaseGuardianRecoveriesOnLock();
-    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    const drain = pending();
+    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(() => drain.promise as never);
+    try {
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(2);
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    } finally {
+      drain.resolve();
+      await drainDetachedRun();
+      // An unconsumed one-shot would answer the next test's drain.
+      mockProxy.drainPrivateNoteTransport.mockReset();
+    }
   });
 
   it('retries a notes pass that fails a source and finishes after the lock', async () => {
@@ -1235,13 +1259,13 @@ describe('release on lock', () => {
   });
 });
 
-describe('an operator the account may never have used', () => {
-  /** The real pass reads IndexedDB and storage, which settle on macrotasks the microtask drain never reaches. */
-  async function settleRealHistory(done: () => boolean) {
-    for (let i = 0; i < 500 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 0));
-    await drainDetachedRun();
-  }
+/** The real history pass reads IndexedDB and storage, which settle on macrotasks the microtask drain never reaches. */
+async function settleRealHistory(done: () => boolean) {
+  for (let i = 0; i < 500 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 0));
+  await drainDetachedRun();
+}
 
+describe('an operator the account may never have used', () => {
   it('keeps the flag while it does not serve history, and asks it again after the next lock', async () => {
     const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
     const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
@@ -1289,6 +1313,66 @@ describe('an operator the account may never have used', () => {
         .mocked(recoverGuardianHistory)
         .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
     }
+  });
+});
+
+describe('a node that reports no fee', () => {
+  it('stops recovery for that node only, and a switch to another node is offered again at once', async () => {
+    const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
+    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+      'lib/miden/guardian/history-storage'
+    );
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const timestamp = '2026-08-01T00:00:00Z';
+    jest.mocked(GuardianHttpClient).mockImplementation(
+      () =>
+        ({
+          setSigner: jest.fn(),
+          getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+          getDeltaProposals: jest.fn().mockResolvedValue([]),
+          getDeltaHistory: jest.fn().mockResolvedValue({
+            entries: [
+              {
+                nonce: 1,
+                status: 'canonical',
+                timestamp,
+                newCommitment: 'commitment-1',
+                inputNotes: [],
+                outputNotes: [],
+                decodeWarnings: []
+              }
+            ]
+          }),
+          getDelta: jest.fn().mockResolvedValue({
+            accountId: account.publicKey,
+            nonce: 1,
+            prevCommitment: '',
+            newCommitment: 'commitment-1',
+            deltaPayload: { txSummary: { data: '1' }, signatures: [] },
+            status: { status: 'canonical', timestamp },
+            metadata: { proposal: { proposalType: 'p2id' } }
+          })
+        }) as never
+    );
+    mockProxy.decodeGuardianHistory.mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
+    mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
+    jest.mocked(hasFailedGuardianHistory).mockImplementation(actual.hasFailedGuardianHistory);
+    jest.mocked(recoverGuardianHistory).mockImplementationOnce(actual.recoverGuardianHistory);
+    const steps = () => mockReportProgress.mock.calls.map(([progress]) => progress.step);
+
+    await maybeStartGuardianRecovery(account);
+    await settleRealHistory(() => steps().some(step => step === 'history-failed' || step === 'history-partial'));
+    expect(steps()).toContain('history-failed');
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+    expect(recoverGuardianHistory).toHaveBeenCalledTimes(1);
+    expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+
+    mockFeeScope = 'rpc-b|testnet';
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+    expect(recoverGuardianHistory).toHaveBeenCalledTimes(2);
   });
 });
 

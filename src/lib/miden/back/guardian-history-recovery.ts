@@ -4,6 +4,7 @@ import Dexie from 'dexie';
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -94,9 +95,16 @@ export async function hasFailedGuardianHistory(account: WalletAccount): Promise<
   const state = await readGuardianHistoryState();
   const accountId = canonicalWalletAccountId(account.publicKey);
   const network = getEffectiveNetworkName();
+  const scope = cacheScope();
+  // A node's "no fee" answer is terminal only for that node and this history version, so a Developer Settings
+  // switch or a release that bumps the version lifts it at the next pass.
   return Object.values(state.checkpoints).some(
     checkpoint =>
-      checkpoint.accountId === accountId && checkpoint.network === network && checkpoint.failure === 'fee-metadata'
+      checkpoint.accountId === accountId &&
+      checkpoint.network === network &&
+      checkpoint.failure === 'fee-metadata' &&
+      checkpoint.version === GUARDIAN_HISTORY_VERSION &&
+      checkpoint.feeScope === scope
   );
 }
 
@@ -325,7 +333,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               lowestNonce
             ),
             entryCount,
-            failure: undefined
+            failure: undefined,
+            feeScope: undefined
           };
           if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
         }
@@ -337,7 +346,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         )
           throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
-          await saveGuardianHistoryCheckpoint(context.generation, { ...checkpoint, failure: 'fee-metadata' });
+          await saveGuardianHistoryCheckpoint(context.generation, {
+            ...checkpoint,
+            failure: 'fee-metadata',
+            feeScope: cacheScope()
+          });
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
         sourceFailures++;

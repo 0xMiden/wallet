@@ -55,6 +55,8 @@ export interface GuardianHistoryCheckpoint {
   /** Sessions in which an operator the account may never have used answered that it serves no history. */
   unsupportedPasses?: number;
   failure?: GuardianHistoryFailure;
+  /** The node (`cacheScope`) whose answer made a `fee-metadata` failure terminal; it holds only for that node. */
+  feeScope?: string;
 }
 
 export function recoveredAction(proposal?: ProposalMetadata): ITransactionType {

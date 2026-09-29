@@ -12,7 +12,7 @@ import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { ITransactionStatus } from '../db/types';
-import { GUARDIAN_HISTORY_VERSION, historyCheckpointId } from '../guardian/history';
+import { GUARDIAN_HISTORY_VERSION, type GuardianHistoryCheckpoint, historyCheckpointId } from '../guardian/history';
 import {
   clearGuardianHistoryCheckpoints,
   readGuardianHistoryState,
@@ -22,6 +22,7 @@ import { exportDb, importDb, transactions } from '../repo';
 import {
   classifyHistoryFailure,
   forgetUnsupportedHistorySources,
+  hasFailedGuardianHistory,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
   recoverGuardianHistory
 } from './guardian-history-recovery';
@@ -59,6 +60,9 @@ jest.mock('lib/miden-chain/constants', () => ({
   MIDEN_GUARDIAN_ENDPOINTS: new Map([['testnet', ['https://one/', 'https://two']]])
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+// The node a terminal fee answer came from: the effective RPC URL and network name.
+let mockFeeScope = 'rpc-a|testnet';
+jest.mock('lib/miden-chain/native-asset', () => ({ cacheScope: () => mockFeeScope }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: async () => 'https://one' }));
 jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
 jest.mock('./miden-client-proxy', () => ({
@@ -119,6 +123,7 @@ function source(endpoint: string, pages: HistoryPage[]) {
 beforeEach(async () => {
   jest.clearAllMocks();
   forgetUnsupportedHistorySources();
+  mockFeeScope = 'rpc-a|testnet';
   await transactions.clear();
   await clearGuardianHistoryCheckpoints();
   clients = new Map();
@@ -654,10 +659,51 @@ it('stops recovery and retains the failure when fee metadata is unavailable', as
   );
   expect(checkpoint?.completed).toBe(false);
   expect(checkpoint?.failure).toBe('fee-metadata');
+  expect(checkpoint?.feeScope).toBe('rpc-a|testnet');
   createClient.mockClear();
   expect((await run()).failed).toBe(true);
   expect(createClient).not.toHaveBeenCalled();
   expect(await transactions.count()).toBe(0);
+});
+
+it('asks for the fee again once the wallet points at another node', async () => {
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
+  expect((await run()).failed).toBe(true);
+  expect(await hasFailedGuardianHistory(account)).toBe(true);
+
+  mockFeeScope = 'rpc-b|testnet';
+  expect(await hasFailedGuardianHistory(account)).toBe(false);
+  source('https://one', [{ entries: [entry(2)], nextCursor: 'next' }, { entries: [entry(1)] }]);
+  createClient.mockClear();
+  const result = await run();
+  expect(result.failed).toBeUndefined();
+  expect(result.sourceFailures).toBe(0);
+  expect(createClient.mock.calls.map(call => call[1])).toContain('https://one');
+  expect(await transactions.count()).toBe(3);
+  const checkpoint = await operatorCheckpoint('https://one');
+  expect(checkpoint).toMatchObject({ completed: true });
+  expect(checkpoint?.failure).toBeUndefined();
+  expect(checkpoint?.feeScope).toBeUndefined();
+});
+
+it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
+  ['saved before fee answers recorded their node', {}],
+  ['saved by another history version', { feeScope: 'rpc-a|testnet', version: GUARDIAN_HISTORY_VERSION - 1 }]
+])('does not stop on a fee checkpoint %s', async (_label, fields) => {
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id: historyCheckpointId('testnet', 'account', 'https://one'),
+    network: 'testnet',
+    accountId: 'account',
+    operator: 'https://one',
+    version: GUARDIAN_HISTORY_VERSION,
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    failure: 'fee-metadata',
+    ...fields
+  });
+  expect(await hasFailedGuardianHistory(account)).toBe(false);
 });
 
 it('fills missing Guardian-switch endpoints from a richer copy on another source', async () => {

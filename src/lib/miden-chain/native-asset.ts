@@ -19,7 +19,7 @@ import { withRpcTimeout } from './rpc-timeout';
 // The in-memory guard below (`invalidateOnEndpointChange`) re-discovers when
 // either changes. (`v4`: added network name; v3 keyed by RPC URL only, v2 by
 // base network name — both are discarded, which is intended.)
-function cacheScope(): string {
+export function cacheScope(): string {
   return `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
 }
 function idCacheKey(): string {

@@ -678,7 +678,8 @@ export async function recoverPendingNotes(
  * refused start, a rejected eligibility query, or a wallet lock — since those
  * are transient and should be retried within this same backend lifetime; and
  * a failed pass's entry is released by the next lock
- * (`releaseGuardianRecoveriesOnLock`).
+ * (`releaseGuardianRecoveriesOnLock`). A terminal history failure keeps no
+ * entry: `hasFailedGuardianHistory` is the stop, re-read on every offer.
  */
 const startedRecoveries = new Set<string>();
 
@@ -740,7 +741,12 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // pass the check above while the first one's Dexie query is in flight.
   startedRecoveries.add(account.publicKey);
   try {
-    if (await hasFailedGuardianHistory(account)) return false;
+    // The terminal fee answer is re-read on every offer, so it holds no reservation: a node switch lifts it
+    // within this backend lifetime.
+    if (await hasFailedGuardianHistory(account)) {
+      startedRecoveries.delete(account.publicKey);
+      return false;
+    }
     if (!(await isSafeToRunNow())) {
       startedRecoveries.delete(account.publicKey);
       return false;
@@ -830,6 +836,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         step: 'history-failed',
         restored: history.restored
       });
+      // The gate in maybeStartGuardianRecovery is the stop from here, not the reservation.
+      startedRecoveries.delete(account.publicKey);
       return;
     }
     // A deferred source (an operator that does not serve history yet) keeps the flag and retries here too.
