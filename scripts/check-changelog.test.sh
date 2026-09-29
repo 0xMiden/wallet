@@ -265,6 +265,42 @@ printf '#!/bin/sh\ncase "$*" in *latest=*) exit 3 ;; esac\nexec %s "$@"\n' "$rea
 chmod +x "$shim/awk"
 expect 2 'a comparison that fails exits 2, not 0' "$r" PATH="$shim:$PATH"
 
+# --- a released entry stays under its version, however it is moved ---
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+replace_line "$r" '## 1.15.13 (TBD)' '## 1.16.4 (TBD)'
+expect 1 'renaming a released stale (TBD) heading to a new version fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '## 1.16.2 (2026-09-24)' "$(printf '\n## 1.16.4 (TBD)')"
+expect 1 'a new heading inserted inside a released section fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+delete_line "$r" '- [FIX][all] Released entry (#2).'
+insert_after "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Released entry (#2).'
+expect 1 'a released entry cut and pasted under the open section fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+delete_line "$r" '## 1.15.14 (2026-07-29)'
+expect 1 'deleting a released heading so its entries join the released section above fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+delete_line "$r" '## 1.16.2 (2026-09-24)'
+expect 1 'deleting a released heading so its entries join the open section above fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Released entry (#2).' '- [FIX][all] Second released entry (#5).'
+git -C "$r" commit -q -am 'two released entries'
+git -C "$r" update-ref refs/remotes/origin/main HEAD
+delete_line "$r" '- [FIX][all] Released entry (#2).'
+insert_after "$r" '- [FIX][all] Second released entry (#5).' '- [FIX][all] Released entry (#2).'
+expect 0 'reordering released entries inside their section passes' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '# Changelog' "$(printf '\n## 1.16.4 (TBD)\n')"
+delete_line "$r" '- [FIX][all] Open entry (#1).'
+insert_after "$r" '## 1.16.4 (TBD)' "$(printf '\n- [FIX][all] Open entry (#1).')"
+expect 0 'moving an entry between unreleased sections passes' "$r"
+
 # --- the release notes read sections through the same parser ---
 notes="$repo_root/scripts/changelog-notes.sh"
 

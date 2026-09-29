@@ -89,7 +89,9 @@ echo "The \"CHANGELOG.md\" file has been updated."
 # base's count, in file order, is judged. An added line fails under a released version (an entry
 # there edits notes that already shipped and misses the next release) and under a heading with no
 # X.Y.Z version (the release notes match a full version, so it would never be published); an added
-# entry fails in the preamble or outside every section, where prose is fine.
+# entry fails in the preamble or outside every section, where prose is fine. An entry that leaves a
+# released version and appears under another fails too: that is what a renamed, inserted or deleted
+# heading, or a cut and paste, does to a published entry.
 awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefile="${work}/base" '
     function text() { return substr($0, length($1) + length($2) + length($3) + 4) }
     function xyz(v) { return v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ }
@@ -112,6 +114,14 @@ awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefil
     FILENAME == basefile { base[g, t]++; next }
     { n++; hline[n] = $1; hgroup[n] = g; htext[n] = t; head[g, t]++ }
     END {
+        # Copies of each entry that left released versions: base count minus working count, per
+        # released version, where positive. An entry gained elsewhere while one left moved out.
+        for (k in base) {
+            split(k, key, SUBSEP)
+            if (key[1] !~ /^v/ || !released(substr(key[1], 2)) || !entry(key[2])) continue
+            d = base[k] - ((k in head) ? head[k] : 0)
+            if (d > 0) { left[key[2]] += d; from[key[2]] = substr(key[1], 2) }
+        }
         for (i = 1; i <= n; i++) {
             g = hgroup[i]
             t = htext[i]
@@ -120,6 +130,7 @@ awk -F '\t' -v latest="${latest_release}" -v file="${CHANGELOG_FILE}" -v basefil
             if (g ~ /^v/ && released(v)) report(i, "under " v ", which is not newer than the latest release, " latest)
             else if (g ~ /^v/ && !xyz(v)) report(i, "under a heading with no X.Y.Z version (\"" v "\")")
             else if (g !~ /^v/ && entry(t)) report(i, "an entry outside every version section")
+            else if (entry(t) && left[t] > 0) { report(i, "a released entry moved out of " from[t] ", which is already released"); left[t]-- }
         }
         exit bad ? 1 : 0
     }
