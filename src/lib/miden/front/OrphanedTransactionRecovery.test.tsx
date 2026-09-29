@@ -93,7 +93,8 @@ describe('OrphanedTransactionRecovery', () => {
     // remounts inside a live app process. A second run would still be safe,
     // because `failInterruptedTransactions` spares this realm's rows by id
     // (`markStartedInThisRealm`) and rows another realm of this session started
-    // by the `SESSION_STARTED_AT` cutoff.
+    // by a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the
+    // sweep's clock.
     mockGetAllUncompleted.mockResolvedValue([{ id: 'tx-orphan' }]);
 
     const first = render(<OrphanedTransactionRecovery />);

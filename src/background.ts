@@ -41,8 +41,9 @@ if (process.env.TARGET_BROWSER === 'chrome') {
 // the browser closed: the tab/SW driving it is gone and nothing will resume it.
 // The sweep fails those and spares this realm's rows by id
 // (`markStartedInThisRealm`; the startup kick can start one first) and rows
-// another realm of this session started by the `SESSION_STARTED_AT` cutoff
-// (see `failInterruptedTransactions` in transaction/cancel.ts). Failing them
+// another realm of this session started by a stamp from `SESSION_STARTED_AT`
+// to `MAX_WAIT_BEFORE_CANCEL` past the sweep's clock (see
+// `failInterruptedTransactions` in transaction/cancel.ts). Failing them
 // immediately means a send interrupted mid-prove doesn't sit on "Sending" for
 // up to 30 min waiting on the age-based reaper (issue #282). Registered
 // synchronously at the top level so it survives MV3 SW eviction.

@@ -9,7 +9,8 @@ import { useMidenContext } from './client';
  * a second sweep and a second kick. A second sweep would still be safe, because
  * `failInterruptedTransactions` spares this realm's rows by id
  * (`markStartedInThisRealm`) and rows another realm of this session started by
- * the `SESSION_STARTED_AT` cutoff; the latch only saves the redundant work.
+ * a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the sweep's
+ * clock; the latch only saves the redundant work.
  */
 let coldStartSweepDone = false;
 
@@ -67,7 +68,8 @@ export function OrphanedTransactionRecovery(): null {
         // drove such a row died with that process. A row this realm already
         // started (the unlock kick can start one first, #1202) is spared by id
         // (`markStartedInThisRealm`), and a row another realm of this session
-        // started by the `SESSION_STARTED_AT` cutoff.
+        // started by a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL`
+        // past the sweep's clock.
         //
         // The age-gated `cancelStuckTransactions()` this replaces was an order of
         // magnitude too slow to unblock the queue: MAX_WAIT_BEFORE_CANCEL is 30
@@ -90,10 +92,11 @@ export function OrphanedTransactionRecovery(): null {
         if (disposed) return;
 
         // Only Queued rows and this process's own in-flight rows can remain after
-        // that sweep, plus an earlier row not stamped before `SESSION_STARTED_AT`
-        // (stamped in the same second, or the clock stepped back across the
-        // restart), which falls to the age-gated reaper. Drive the FIFO loop the
-        // same way the dApp and auto-consume flows do.
+        // that sweep, plus an earlier row stamped from `SESSION_STARTED_AT` to
+        // `MAX_WAIT_BEFORE_CANCEL` past the sweep's clock (stamped in the same
+        // second, or the clock stepped back across the restart), which falls to
+        // the age-gated reaper. Drive the FIFO loop the same way the dApp and
+        // auto-consume flows do.
         const uncompleted = await getAllUncompletedTransactions();
         if (disposed || uncompleted.length === 0) return;
         startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);

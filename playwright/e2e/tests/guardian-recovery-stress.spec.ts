@@ -501,8 +501,9 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
  *     `failInterruptedTransactions`, src/background.ts / transaction/cancel.ts)
  *     deliberately FAILS the rows an earlier session left in flight, sparing
  *     the rows this realm started by id (markStartedInThisRealm) and rows
- *     another realm of this session started by the SESSION_STARTED_AT cutoff
- *     (transaction/cancel.ts), and requires a manual Retry for the failed ones --
+ *     another realm of this session started by a stamp from SESSION_STARTED_AT
+ *     to MAX_WAIT_BEFORE_CANCEL past the sweep's clock (transaction/cancel.ts),
+ *     and requires a manual Retry for the failed ones --
  *     it does NOT auto-resume (a resubmit could trip the node's nullifier check).
  *   - The unpacked test extension never fires `runtime.onStartup` on a relaunch
  *     anyway (Chrome treats `--load-extension` as a fresh install each launch,

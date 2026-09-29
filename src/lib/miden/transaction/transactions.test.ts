@@ -1276,7 +1276,10 @@ describe('transactions utilities', () => {
         { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
         { ...base, id: 'legacy' },
         { ...base, id: 'same-second', processingStartedAt: SESSION_STARTED_AT },
-        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 }
+        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 },
+        { ...base, id: 'at-threshold', processingStartedAt: SESSION_STARTED_AT + 60 + MAX_WAIT_BEFORE_CANCEL },
+        { ...base, id: 'past-threshold', processingStartedAt: SESSION_STARTED_AT + 61 + MAX_WAIT_BEFORE_CANCEL },
+        { ...base, id: 'far-future', processingStartedAt: SESSION_STARTED_AT + 60 + MAX_WAIT_BEFORE_CANCEL + 3600 }
       ];
       mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
         toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
@@ -1297,7 +1300,39 @@ describe('transactions utilities', () => {
         nowSpy.mockRestore();
       }
 
-      expect(modifiedIds.sort()).toEqual(['legacy', 'orphan']);
+      expect(modifiedIds.sort()).toEqual(['far-future', 'legacy', 'orphan', 'past-threshold']);
+    });
+
+    it('bounds a future stamp by the clock read after the table read (#1202)', async () => {
+      const row = {
+        id: 'stamped-during-read',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10,
+        processingStartedAt: SESSION_STARTED_AT + 61 + MAX_WAIT_BEFORE_CANCEL
+      };
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + 60) * 1000);
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn(async () => {
+          nowSpy.mockReturnValue((SESSION_STARTED_AT + 61) * 1000);
+          return [row].filter(pred);
+        })
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+      try {
+        await failInterruptedTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(modifiedIds).toEqual([]);
     });
 
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {

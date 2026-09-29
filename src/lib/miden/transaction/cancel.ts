@@ -461,12 +461,18 @@ export const cancelStaleQueuedTransactions = async () => {
 /**
  * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
  * `failInterruptedTransactions` spares, by id, the rows this realm started, whatever the clock does,
- * and judges every other row by this cutoff, which covers the rows another realm of this session
- * started. `generateTransactionWithProvider` (index.ts, which imports this module) is the only writer
- * of the Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that write.
- * For a row another realm started the stamp is all the sweep has: a row an earlier process or browser
- * session started is stamped before the cutoff unless it was stamped in the second this realm loaded
- * or the clock stepped back across the restart; such a row is spared and falls to the age-gated reaper.
+ * and spares any other row only when its stamp lies in a window from this cutoff to
+ * `MAX_WAIT_BEFORE_CANCEL` past the sweep's own second, which covers the rows another realm of this
+ * session started. `generateTransactionWithProvider` (index.ts, which imports this module) is the only
+ * writer of the Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that
+ * write. For a row another realm started the stamp is all the sweep has. A stamp later than the sweep's
+ * second means the clock moved backwards after it: within the reaper's threshold it may be a live row
+ * another realm of this session stamped, so it is spared and left to the reaper, which reaps a dead one
+ * within the skew plus the threshold (`isTransactionStuck`), the allowance `pipelineMayStillBeRunning`
+ * gives `cancelledInFlightAt`; beyond it no live pipeline can explain the stamp, and the row fails. A
+ * row an earlier process or browser session started is stamped before the cutoff unless it was stamped
+ * in the second this realm loaded or the clock stepped back across the restart; such a row inside the
+ * window is spared and falls to the age-gated reaper.
  */
 export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
 
@@ -490,8 +496,12 @@ export const markStartedInThisRealm = (id: string): void => {
  * process or session, so nothing will ever resume it. A row this realm started is live and is
  * spared by its id (`markStartedInThisRealm`), whatever the clock does, so the sweep is sound
  * whichever runs first: the unlock kick or the startup kick can move a Queued row before the sweep
- * reads the table. A row another realm of this session started is spared when stamped at or after
- * `SESSION_STARTED_AT`. A row with no stamp predates the field and is treated as an orphan.
+ * reads the table. A row another realm of this session started is spared when stamped from
+ * `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the second the sweep reads its clock, just
+ * after it reads the table, so a row stamped during that read is judged by a clock at least as late
+ * as its stamp. A later stamp means the clock moved backwards after it: within the reaper's threshold
+ * the row may be live and is left to the reaper; further out no live pipeline can explain it, and it
+ * fails. A row with no stamp predates the field and is treated as an orphan.
  *
  * The steady-state `cancelStuckTransactions` reaper only ages these out after
  * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
@@ -507,10 +517,14 @@ export const markStartedInThisRealm = (id: string): void => {
  * marks that same edge case Failed, so this is not a new regression).
  */
 export const failInterruptedTransactions = async () => {
-  const transactions = (await getTransactionsInProgress()).filter(
+  const inProgress = await getTransactionsInProgress();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const transactions = inProgress.filter(
     tx =>
       !startedInThisRealm.has(tx.id) &&
-      (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT)
+      (tx.processingStartedAt === undefined ||
+        tx.processingStartedAt < SESSION_STARTED_AT ||
+        tx.processingStartedAt > nowSeconds + MAX_WAIT_BEFORE_CANCEL)
   );
   await Promise.all(
     transactions.map(async tx =>
