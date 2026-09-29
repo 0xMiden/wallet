@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "請為此次提領輸入有效的 Sepolia 地址。",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "請為此次提領輸入有效的 Arc 測試網地址。",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx 提領功能僅限於 Miden 測試網中已設定的 faucet。",
@@ -100,8 +100,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "您的錢包將會開啟，以便核准確切金額並在 Sepolia 上簽名。",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "您的錢包將開啟以核准確切金額，並在來源網路進行簽署。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "您將收到",
@@ -116,8 +116,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "您的錢包將要求您核准 $tokenSymbol$，並在 Sepolia 上簽署存款交易。確認後，資金將匯入 Miden。",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "您的錢包會要求您批准 $tokenSymbol$ 並在來源網路簽署存款。資金在確認後將抵達 Miden。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -1467,6 +1467,209 @@
   "amount": {
     "message": "金額",
     "englishSource": "Amount"
+  },
+  "cash": {
+    "message": "現金",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "購買",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "賣出",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "買入或賣出",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "您出售",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "選擇服務供應商",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "購買 USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "賣出 USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "卡片或銀行轉帳",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "銀行轉帳",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "供應商預覽 — 結帳功能尚未連接。",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "即將推出",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "請繼續閱讀 $provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "此帳戶沒有以太坊地址，因此無法購買 USDCx。請使用在此錢包中建立的帳戶。",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "此版本不提供結帳功能。",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "無法啟動結帳流程。請重試。",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "結帳詳情與您的訂單不符，因此無法開啟結帳頁面。請重新嘗試。",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "結帳已關閉",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "結帳功能已關閉，因為其收款地址與您的錢包不符。此畫面並未進行任何付款。",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "購買",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "購買 USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "購買完成",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "購買失敗",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "您可以離開此畫面。錢包會持續在「活動」中追蹤您的訂單。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "您的 USDC 已存入您的 Miden 帳戶。",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "訂單未完成。若您已付款，請聯絡 Transak 客服並提供您的訂單資訊。",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "訂單進度",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ 的第 $current$ 步驟",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "付款",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "流入以太坊的資金",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "橋接交易已發送",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "與 Miden 進行橋接",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "在 Miden 上領取獎勵",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "已完成",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "檢視進度",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "購買 $symbol$",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ 來源：Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "小數點",
+    "englishSource": "Decimal point"
   },
   "mainAssetBalanceIsZero": {
     "message": "您的 Miden 點數（主要資產）餘額為零。支付手續費需使用 Miden 點數。",
@@ -4435,8 +4638,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "請在您的錢包中核准此請求，並在 Sepolia 確認期間保持此畫面開啟。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "請在您的錢包中批准此請求，並在來源網路確認期間保持此畫面開啟。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "跨鏈存入失敗",
@@ -4447,8 +4650,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 交易已確認。待跨鏈轉移完成後，您的資金將顯示於 Miden 上。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "來源交易已確認。當跨鏈轉帳完成後，您的資金將會顯示在 Miden 上。",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "在 Etherscan 上查看",
@@ -4527,8 +4730,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepolia 交易已確認。目前正等待 Circle 驗證存款，之後才會在 Miden 上鑄造 USDCx。",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "來源交易已確認。目前正在等待 Circle 認證這筆存款，之後才會於 Miden 上鑄造 USDCx。",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "在區塊鏈瀏覽器上查看",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle 已對該筆存款進行認證。USDCx 即將在 Miden 上發行。",
@@ -4959,8 +5166,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "此橋接服務運行於以太坊 Sepolia 網。請勿連接內含真實資金的錢包。請創建一個全新錢包，並僅存入 Sepolia ETH。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "此橋接服務使用 Arc 測試網處理 USDC，並使用 Ethereum Sepolia 處理 ETH。請勿連接存有真實資金的錢包。請建立一個全新的錢包，並僅存入測試代幣。",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "協助改善錢包",
@@ -5142,8 +5349,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "此橋接功能將以太坊 Sepolia 測試代幣轉移至 Miden。切勿從以太坊主網或任何其他真實網路進行橋接。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "此橋接功能可將 Arc 測試網的 USDC 或以太坊 Sepolia 的 ETH 轉移至 Miden。切勿從主網或任何其他真實網路進行橋接。",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隱藏轉帳：$count$",

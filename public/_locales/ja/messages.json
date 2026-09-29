@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "この出金には、有効なSepoliaアドレスを入力してください。",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "この出金には、有効なArcテストネットのアドレスを入力してください。",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCxの引き出しは、Midenテストネット上で設定済みのfaucetでのみ利用可能です。",
@@ -100,8 +100,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "お持ちのウォレットが開き、正確な金額を承認し、Sepolia上で署名を行うことになります。",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "ウォレットが開き、正確な金額を承認し、ソースネットワーク上で署名を行います。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "受け取る",
@@ -116,8 +116,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "お使いのウォレットから、$tokenSymbol$ の承認と、Sepolia での入金の署名を求めるメッセージが表示されます。確認後、Miden に資金が入金されます。",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "ウォレットは、$tokenSymbol$の承認を求め、ソースネットワーク上で入金を署名するよう促します。確認後、資金はMidenに到着します。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -1467,6 +1467,209 @@
   "amount": {
     "message": "金額",
     "englishSource": "Amount"
+  },
+  "cash": {
+    "message": "現金",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "購入",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "売却",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "購入または売却",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "支払いは",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "あなたは販売します",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "プロバイダーを選択",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "USDCxを購入する",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "USDCxを売却する",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "カードまたは銀行振込",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "銀行振込",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "プロバイダープレビュー — チェックアウトはまだ接続されていません。",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "近日公開予定",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "続きはこちら：$provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "このアカウントにはイーサリアムアドレスがないため、USDCxを購入することはできません。このウォレットで作成されたアカウントを使用してください。",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "このビルドではチェックアウト機能は利用できません。",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "チェックアウトを開始できませんでした。もう一度お試しください。",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "決済の詳細がご注文内容と一致しなかったため、決済画面が開きませんでした。もう一度お試しください。",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "チェックアウトは終了しました",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "宛先アドレスがお客様のウォレットと一致しなかったため、チェックアウトはキャンセルされました。この画面からは支払いは行われませんでした。",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "購入",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "USDCの購入",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "購入完了",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "購入に失敗しました",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "この画面を閉じて構いません。ウォレットは「アクティビティ」で注文の追跡を継続します。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "USDCがMidenアカウントに入金されました。",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "注文は完了しませんでした。お支払いを済ましている場合は、注文番号を明記の上、Transakのサポートまでご連絡ください。",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "注文の進捗状況",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ のステップ$current$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "支払い",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "イーサリアムに送金される資金",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "ブリッジ取引が送信されました",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Midenへのブリッジング",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Midenでのクレーム",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "完了",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "進捗状況を確認",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "$symbol$を購入する",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ via Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "小数点",
+    "englishSource": "Decimal point"
   },
   "mainAssetBalanceIsZero": {
     "message": "Midenクレジット（主要資産）の残高はゼロです。手数料の支払いにMidenクレジットが必要です。",
@@ -4435,8 +4638,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "ウォレットでリクエストを承認し、Sepoliaによる確認が完了するまでこの画面を開いたままにしておいてください。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "ウォレットでリクエストを承認し、送信元ネットワークが確認を完了するまでこの画面を開いたままにしておいてください。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "ブリッジへの入金が失敗しました",
@@ -4447,8 +4650,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepoliaでの取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "送信元トランザクションは確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscanで表示",
@@ -4527,8 +4730,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepoliaでの取引は確認されました。Miden上でUSDCxが鋳造される前に、Circleによる預入の認証を待っています。",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "ソーストランザクションは確認されました。Miden上でUSDCxが発行される前に、Circleによる入金の認証を待っています。",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "ブロックエクスプローラーで表示",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circleは預入を認証しました。USDCxはまもなくMiden上で発行される予定です。",
@@ -4959,8 +5166,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "このブリッジは、USDCにはArc Testnetを、ETHにはEthereum Sepoliaを使用しています。実際の資金が入っているウォレットを接続しないでください。新しいウォレットを作成し、テスト用トークンのみを投入してください。",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "ウォレットの改善にご協力ください",
@@ -5142,8 +5349,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "このブリッジは、イーサリアム・セポリアのテストトークンをMidenへ移動させるものです。イーサリアムのメインネットやその他の実稼働ネットワークからブリッジを行わないでください。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "このブリッジは、Arc TestnetのUSDCまたはEthereum SepoliaのETHをMidenへ移動させます。メインネットやその他の実稼働ネットワークからは決してブリッジを行わないでください。",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隠された送金：$count$",
