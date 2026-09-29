@@ -62,6 +62,10 @@ export function earnItemLoadState(
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
+  /**
+   * Each `stale` when the latest read did not load it: the read failed and SWR kept an earlier read's data, or its
+   * owner failed and it was carried from an earlier read. A stale position arms no withdrawal.
+   */
   positions: EarnPosition[];
   vaults: EarnVault[];
   /**
@@ -172,7 +176,10 @@ export function useEarnPositions(): {
     const outage = everyOwnerFailed ? data?.errors[0]?.error : undefined;
     const loadError = readError ? (readError instanceof Error ? readError.message : String(readError)) : outage;
     return {
-      positions: (data?.positions ?? []).map(mapEarnPosition),
+      positions: (data?.positions ?? []).map(position => ({
+        ...mapEarnPosition(position),
+        stale: Boolean(readError) || failedOwners.has(position.owner)
+      })),
       vaults: (data?.vaults ?? []).map(mapEarnVault),
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,

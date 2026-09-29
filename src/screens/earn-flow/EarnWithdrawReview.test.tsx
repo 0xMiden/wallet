@@ -75,22 +75,30 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronLeft: 'ChevronLeft' }
 }));
 
+// The confirm's onClick as last rendered: a disabled native button dispatches no click, so a test calls it directly.
+let mockConfirmClick: (() => void) | undefined;
+
 jest.mock('components/Button', () => ({
   Button: ({
     title,
     onClick,
     disabled,
-    accent
+    accent,
+    'data-testid': testId
   }: {
     title?: string;
-    onClick?: React.MouseEventHandler<HTMLButtonElement>;
+    onClick?: () => void;
     disabled?: boolean;
     accent?: string;
-  }) => (
-    <button type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
-      {title}
-    </button>
-  ),
+    'data-testid'?: string;
+  }) => {
+    if (testId === 'earn-withdraw-review-confirm') mockConfirmClick = onClick;
+    return (
+      <button type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
+        {title}
+      </button>
+    );
+  },
   ButtonVariant: { Primary: 'Primary' }
 }));
 
@@ -121,6 +129,7 @@ const position: EarnPosition = {
   yearlyEstimate: '+$2 / yr',
   withdrawTime: '~1 minute',
   route: 'Miden -> Aave (Sepolia)',
+  stale: false,
   chartData: [{ label: 'now', value: 42.25 }]
 };
 
@@ -276,7 +285,9 @@ describe('EarnWithdrawReview', () => {
 
 describe('EarnWithdrawReview after a failed load', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     mockPositions = [position];
+    mockConfirmClick = undefined;
   });
   afterEach(() => {
     mockLoadState = { isLoading: false };
@@ -322,7 +333,36 @@ describe('EarnWithdrawReview after a failed load', () => {
     render(<EarnWithdrawReview positionId="position-1" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+  });
+
+  it('disables Withdraw for a position the latest read did not load, under the notice with Retry', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    mockPositions = [{ ...position, stale: true }];
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+    expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
+  });
+
+  it('never signs for a position the latest read did not load, even when its confirm is called', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockImplementation(async args => {
+      args.onRowCreated?.('tx-1');
+      return { txId: 'tx-1', nonce: 'owner:1', gaslessUsed: true };
+    });
+    mockAccount.evmAddress = position.owner;
+    mockLoadState = { isLoading: false, error: 'boom' };
+    mockPositions = [{ ...position, stale: true }];
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    const confirm = mockConfirmClick;
+    if (!confirm) throw new Error('the withdraw confirm did not render');
+    await act(async () => confirm());
+
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
 

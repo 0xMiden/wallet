@@ -684,7 +684,7 @@ describe('useEarnPositions', () => {
       expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps what its sole owner last loaded when a Retry finds that owner failed', async () => {
+    it('keeps what its sole owner last loaded when a Retry finds that owner failed, stale until a read loads it', async () => {
       jest
         .mocked(fetchEarnPositions)
         .mockResolvedValueOnce(liveResult)
@@ -694,7 +694,8 @@ describe('useEarnPositions', () => {
           totalDepositsUSD: 0,
           owners: ['0xabcdef'],
           errors: [{ owner: '0xabcdef', error: 'positions request failed (429)' }]
-        });
+        })
+        .mockResolvedValueOnce(liveResult);
       const { result } = renderInCache();
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
 
@@ -704,6 +705,28 @@ describe('useEarnPositions', () => {
       expect(result.current.positions).toHaveLength(1);
       expect(result.current.vaults).toHaveLength(1);
       expect(result.current.loadError).toBe('positions request failed (429)');
+      expect(result.current.positions[0]?.stale).toBe(true);
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBeUndefined());
+      expect(result.current.positions[0]?.stale).toBe(false);
+    });
+
+    it('marks what it keeps under a failed read stale until a read loads', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.positions[0]?.stale).toBe(true);
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBeUndefined());
+      expect(result.current.positions[0]?.stale).toBe(false);
     });
   });
 });

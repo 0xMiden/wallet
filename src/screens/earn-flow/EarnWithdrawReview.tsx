@@ -43,7 +43,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
   // `Button` fires the tap haptic itself; calling it here too would buzz twice.
   const handleWithdraw = async () => {
-    if (isSubmitting) return;
+    // A position the latest read did not load signs nothing; the disabled button and the notice say why.
+    if (isSubmitting || position.stale) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
       setSubmitError(t('earnWithdrawNotOwned'));
       return;
@@ -99,7 +100,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleWithdraw}
-                disabled={isSubmitting || amountValue <= 0 || !position.id}
+                disabled={isSubmitting || amountValue <= 0 || !position.id || position.stale}
                 className="w-full max-w-none"
               />
             </>
