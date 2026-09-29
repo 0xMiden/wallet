@@ -36,7 +36,8 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    Cash: 'Cash'
   }
 }));
 
@@ -197,6 +198,9 @@ jest.mock('./transactionUtils', () => ({
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
+  // Buy rows: the real predicate and chip, so the buy branch of `buildRowProps` runs as it ships.
+  isBuyEntry: jest.requireActual('./transactionUtils').isBuyEntry,
+  buyStatusOf: jest.requireActual('./transactionUtils').buyStatusOf,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
@@ -1447,4 +1451,44 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+describe('HistoryView buy rows', () => {
+  const renderBuy = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'buy',
+      message: 'Buy',
+      status: 2,
+      buyFiatAmount: '20',
+      buyTokenSymbol: 'USDC',
+      buyPhase: 'bridging',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('buyRowTitle');
+  };
+
+  it('reads pending while the order is in progress, with the Cash glyph and no amount yet', () => {
+    const row = renderBuy();
+    expect(row).toHaveAttribute('data-status', 'pending');
+    expect(row).toHaveAttribute('data-subtitle', 'buyRowSubtitle');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-received');
+    expect(iconNameIn(row)).toBe('Cash');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
+
+  it('reads confirmed once the order completed, with the positive token amount', () => {
+    const row = renderBuy({ buyPhase: 'completed', buyTokenAmount: '19.8' });
+    expect(row).toHaveAttribute('data-status', 'confirmed');
+    expect(row).toHaveAttribute('data-amount-value', '+19.8');
+    expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
+    expect(row).toHaveAttribute('data-amount-direction', 'positive');
+  });
+
+  it('reads failed on a failed order, with the failure colour and no amount', () => {
+    const row = renderBuy({ buyPhase: 'failed', buyTokenAmount: '19.8' });
+    expect(row).toHaveAttribute('data-status', 'failed');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
 });

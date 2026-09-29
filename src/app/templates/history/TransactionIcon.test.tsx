@@ -13,7 +13,7 @@ import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transacti
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn' },
+  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn', Cash: 'cash' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -30,6 +30,18 @@ jest.mock('./transactionUtils', () => ({
   // Faithful to the real one-liner (`entry.earnDepositStatus ?? 'pending'`) so the
   // failed-lending-leg branch is exercised, not stubbed away.
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
+  // Faithful to the real buy helpers: the phase drives the state of a buy row.
+  isBuyEntry: (entry: { txType?: string }) => entry.txType === 'buy',
+  buyStatusOf: (entry: { buyPhase?: string }) => {
+    switch (entry.buyPhase) {
+      case 'completed':
+        return 'confirmed';
+      case 'failed':
+        return 'failed';
+      default:
+        return 'pending';
+    }
+  },
   TRANSACTION_COLORS: { send: '#7697B2', receive: '#839A7D', faucet: '#BA839F', bridge: '#777487' }
 }));
 
@@ -66,6 +78,25 @@ beforeEach(() => {
 });
 
 describe('TransactionIcon', () => {
+  describe('buy transaction branch', () => {
+    it('renders the Cash glyph on the received green while the order is in progress', () => {
+      const { getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'buy', buyPhase: 'bridging' })} size="lg" />
+      );
+      expect(getByTestId('buy-transaction-icon')).toHaveStyle({ backgroundColor: '#839A7D' });
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'cash');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'lg');
+      expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'buy', buyPhase: 'completed' }))).toBe('#839A7D');
+    });
+
+    it('renders the failed cross and the red accent for a failed order', () => {
+      const entry = makeEntry({ txType: 'buy', buyPhase: 'failed' });
+      const { container } = render(<TransactionIcon entry={entry} />);
+      expect(root(container)).toHaveClass('bg-status-negative');
+      expect(getTransactionIconBackgroundColor(entry)).toBe('#CC5D5D');
+    });
+  });
+
   describe('earn transaction branch', () => {
     it('renders the Earn glyph for an opened position even when its persisted icon is RECEIVE', () => {
       const { container, getByTestId } = render(

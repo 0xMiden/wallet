@@ -19,6 +19,7 @@ import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import BuyStatus from 'screens/buy-status/BuyStatus';
 import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
@@ -406,6 +407,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ txId }) => (
       <FullScreenPage>
         <EarnWithdrawStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/buy-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <BuyStatus txId={txId!} />
       </FullScreenPage>
     ))
   ],
