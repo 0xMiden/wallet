@@ -156,6 +156,32 @@ describe('clearStorage', () => {
     expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 
+  // The key-value store holds the vault, so a wipe that stops partway never leaves a wallet that
+  // unlocks without its caps.
+  it('clears the key-value store before the tables', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+
+    await clearStorage();
+
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockTransactionsClear.mock.invocationCallOrder[0]!
+    );
+    expect(mockBrowserStorageClear.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSpendingLimitsClear.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('rejects without clearing the tables when the key-value clear rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    const clearError = new Error('storage clear failed');
+    mockBrowserStorageClear.mockRejectedValueOnce(clearError);
+
+    await expect(clearStorage()).rejects.toBe(clearError);
+
+    expect(mockTransactionsClear).not.toHaveBeenCalled();
+    expect(mockSpendingLimitsClear).not.toHaveBeenCalled();
+  });
+
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
     const order: string[] = [];
     (resetNativeAssetCache as jest.Mock).mockImplementation(async () => {

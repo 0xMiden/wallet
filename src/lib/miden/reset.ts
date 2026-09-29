@@ -44,8 +44,8 @@ async function clearPlatformKeyValueStorage(preservedKeys: readonly string[] = P
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Empties the `transactions` table and wipes the platform key-value store,
- * but deliberately keeps the TridentMain Dexie connection alive. Using
+ * Wipes the platform key-value store and then empties the `transactions` and
+ * `spendingLimits` tables, but deliberately keeps the TridentMain Dexie connection alive. Using
  * `db.delete()` here would fire a `versionchange` event to every other open
  * handle (notably the page's, which was opened lazily by the onboarding UI),
  * force them closed, and leave no path to reopen them short of a page reload
@@ -53,10 +53,15 @@ async function clearPlatformKeyValueStorage(preservedKeys: readonly string[] = P
  * page-side Dexie read and custom-faucet `fetchTokenMetadata` calls racing
  * against a partially-loaded SDK.
  *
+ * The key-value clear comes first, as in `resetStorageDestructive`, because the vault lives there: a clear
+ * that rejects leaves the vault, the caps and the history as they were, and a table clear that rejects
+ * leaves no vault. `clearStorage(false)` clears only the key-value store.
+ *
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
 export async function clearStorage(clearDb: boolean = true) {
+  await clearPlatformKeyValueStorage();
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -65,7 +70,6 @@ export async function clearStorage(clearDb: boolean = true) {
     // promises that resetting app data removes both.
     await Repo.spendingLimits.clear();
   }
-  await clearPlatformKeyValueStorage();
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).

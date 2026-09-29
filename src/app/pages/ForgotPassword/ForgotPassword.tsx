@@ -155,11 +155,17 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // clearClientStorage() above has ALREADY wiped the local wallet, so a
-        // failure here leaves the user with nothing. Swallowing it into
-        // console.error (and then navigating away regardless) showed them an
-        // empty wallet with no explanation — indistinguishable from data loss.
-        // Surface it and stay put so Retry is reachable (#630).
+        // What a failure here leaves depends on the platform. On DESKTOP the
+        // platform key-value store is localStorage (`DesktopStorage`), so
+        // clearClientStorage() above has already removed the stored wallet and a
+        // failure leaves none. On the extension and on mobile the wallet lives in
+        // browser.storage.local / Capacitor Preferences, which clearClientStorage()
+        // cannot reach, so it goes with `Vault.spawn`'s clearStorage(), and a
+        // failure can come before or after that clear and leave it or not.
+        // Swallowing the error into console.error (and then navigating away
+        // regardless) showed an empty wallet with no explanation,
+        // indistinguishable from data loss, so on every platform the page shows
+        // the error and stays put so Retry is reachable (#630).
         console.error(e);
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
