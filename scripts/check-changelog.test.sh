@@ -81,6 +81,23 @@ delete_line() {
   mv "$1/CHANGELOG.tmp" "$1/CHANGELOG.md"
 }
 
+# advance_base <dir> <line> <text>: origin/main gains a commit inserting <text> after <line>, and HEAD
+# stays where it was on a new branch, as a pull request branched before the base moved on.
+advance_base() {
+  local base
+  base=$(git -C "$1" rev-parse HEAD)
+  insert_after "$1" "$2" "$3"
+  git -C "$1" commit -q -am 'the base moves on'
+  git -C "$1" update-ref refs/remotes/origin/main HEAD
+  git -C "$1" checkout -q -b pr "$base"
+}
+
+# strip_final_newline <dir>: drop the CHANGELOG's final newline.
+strip_final_newline() {
+  printf '%s' "$(cat "$1/CHANGELOG.md")" > "$1/CHANGELOG.tmp"
+  mv "$1/CHANGELOG.tmp" "$1/CHANGELOG.md"
+}
+
 # expect <want> <case> <dir> [VAR=value]...: run the gate in <dir> and compare its exit status.
 # <want> is an exact status, or `nonzero` for "must not pass".
 expect() {
@@ -165,18 +182,88 @@ expect 1 'a duplicated version heading fails' "$r"
 # --- failures must not pass ---
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect nonzero 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
+expect 2 'a base ref that does not exist does not pass' "$r" BASE_REF=no-such-branch
 
 r=$(new_repo)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
-expect nonzero 'no release tag to compare against does not pass' "$r"
+expect 2 'no release tag to compare against does not pass' "$r"
 
 r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
 insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
 shim=$(mktemp -d "$work/shim.XXXXXX")
 printf '#!/bin/sh\nexit 2\n' > "$shim/awk"
 chmod +x "$shim/awk"
-expect nonzero 'a failing awk does not pass' "$r" PATH="$shim:$PATH"
+expect 2 'a failing awk does not pass' "$r" PATH="$shim:$PATH"
+
+# --- the diff is not parsed, so git config and the final newline change nothing ---
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+insert_after "$r" '- [FIX][all] Released entry (#2).' '- [FIX][all] Misplaced (#11).'
+expect 1 'a misplaced entry next to another edit fails under diff.interHunkContext' "$r" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.interHunkContext GIT_CONFIG_VALUE_0=10
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+strip_final_newline "$r"
+expect 0 'dropping the final newline with a correct entry passes' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+strip_final_newline "$r"
+expect 1 'a change to the final newline alone is no change' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+printf '\n' >> "$r/CHANGELOG.md"
+git -C "$r" commit -q -am 'a trailing blank line'
+git -C "$r" update-ref refs/remotes/origin/main HEAD
+expect 1 'a file ending in a blank line, unchanged, fails as unchanged' "$r"
+
+# --- headings and sections as the release notes read them ---
+r=$(new_repo v1.15.12 v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf '\n\t## 1.15.12 (2026-07-01)\n\n%s' "$ENTRY")"
+expect 1 'an entry under a tab-led released heading fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf '\n---\n\n%s' "$ENTRY")"
+expect 1 'an entry after a --- line, in no section, fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$(printf '\n---\n\nSee the release page.')"
+expect 0 'prose after a --- line passes' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '# Changelog' "$(printf '\n## 1.17 (TBD)\n\n%s' "$ENTRY")"
+expect 1 'an entry under a heading with no X.Y.Z version fails' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '# Changelog' "$(printf '\n## 1.16.3 (2026-09-30)\n\n%s' "$ENTRY")"
+expect 1 'two headings with one version and different suffixes fail as duplicates' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '# Changelog' "$(printf '\n## 1.16.3 (TBD)\n\n%s' "$ENTRY")"
+expect 1 'the no changelog label does not waive a duplicate version' "$r" NO_CHANGELOG_LABEL=true
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2 v1.16.3)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+expect 1 'an entry under a top (TBD) heading whose version is already tagged fails' "$r"
+
+# --- the merge base, not the base tip ---
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+advance_base "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Landed on the base (#12).'
+expect 1 'a pull request with no CHANGELOG change fails after the base moved on' "$r"
+
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+advance_base "$r" '- [FIX][all] Open entry (#1).' '- [FIX][all] Landed on the base (#12).'
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+expect 0 'a correct entry passes after the base moved on' "$r"
+
+# --- a comparison that fails exits 2: the shim fails only the call carrying the latest release ---
+r=$(new_repo v1.15.13 v1.15.14 v1.16.2)
+insert_after "$r" '- [FIX][all] Open entry (#1).' "$ENTRY"
+real_awk=$(command -v awk)
+shim=$(mktemp -d "$work/shim.XXXXXX")
+printf '#!/bin/sh\ncase "$*" in *latest=*) exit 3 ;; esac\nexec %s "$@"\n' "$real_awk" > "$shim/awk"
+chmod +x "$shim/awk"
+expect 2 'a comparison that fails exits 2, not 0' "$r" PATH="$shim:$PATH"
 
 # --- the release notes read sections through the same parser ---
 notes="$repo_root/scripts/changelog-notes.sh"
