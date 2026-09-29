@@ -5,6 +5,8 @@ import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
@@ -388,7 +390,7 @@ describe('instant balance loading', () => {
     expect(firstRenderData.isLoading).toBe(true);
   });
 
-  it('prices the placeholder row like every other row: 0 without a quote, the quote with one', async () => {
+  it('prices the placeholder row by its faucet, never by the MIDEN symbol (#1131)', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
@@ -408,7 +410,34 @@ describe('instant balance loading', () => {
     await act(async () => {
       useWalletStore.setState({ tokenPrices: { MIDEN: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
     });
-    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 2, change24h: 0.5 });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
+  });
+
+  it("gives the placeholder row its faucet's quote when that faucet is priced", async () => {
+    jest.mocked(getNativeAssetIdSync).mockImplementation(() => MIDEN_USDC_FAUCET);
+    try {
+      testContainer = document.createElement('div');
+      testRoot = createRoot(testContainer);
+      fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
+      let rows: TokenBalanceData[] = [];
+      const BalanceConsumer = () => {
+        rows = useAllBalances('placeholder-priced-faucet-address', {}).data;
+        return null;
+      };
+
+      useWalletStore.setState({ tokenPrices: {} });
+      await act(async () => {
+        testRoot!.render(<BalanceConsumer />);
+      });
+      expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 0, change24h: 0 });
+
+      await act(async () => {
+        useWalletStore.setState({ tokenPrices: { USDC: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+      });
+      expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 2, change24h: 0.5 });
+    } finally {
+      jest.mocked(getNativeAssetIdSync).mockImplementation(() => 'miden-faucet-id');
+    }
   });
 
   it('transitions from default 0 to actual balance after fetch completes', async () => {
