@@ -550,6 +550,23 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
   }
 };
 
+export const GUARDIAN_SWITCH_DISCARDED = 'GuardianSwitchDiscardedError';
+
+/**
+ * The node discarded a landed switch whose local apply failed (#1233), so the switch did not happen.
+ * Thrown out of completion for its caller to fail the row, as the direct path fails its own discard.
+ */
+export class GuardianSwitchDiscardedError extends Error {
+  constructor(transactionId: string) {
+    super(`Guardian switch ${transactionId} did not land: the node discarded it.`);
+    this.name = GUARDIAN_SWITCH_DISCARDED;
+  }
+}
+
+/** Name-based, so it survives module mocking and structured-clone boundaries. */
+export const isGuardianSwitchDiscardedError = (error: unknown): boolean =>
+  error instanceof Error && error.name === GUARDIAN_SWITCH_DISCARDED;
+
 /**
  * Marks a failure that happened BEFORE any `/configure` was issued — a local
  * read that came back truncated, an account the client does not have, a signer

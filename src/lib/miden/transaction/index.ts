@@ -19,6 +19,7 @@ import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   isGuardianAccountUnusable,
+  isGuardianSwitchDiscardedError,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
 import {
@@ -1254,7 +1255,11 @@ const generateTransactionWithProvider = async (
             'Structural-op landed reconcile failed; cancelling (apply-after-submit or refusal)',
             reconcileError
           );
-          await cancelTransactionAfterPipelineStopped(transaction, error);
+          // A switch the node discarded fails on that verdict, as the direct path's discard does (#1233).
+          await cancelTransactionAfterPipelineStopped(
+            transaction,
+            isGuardianSwitchDiscardedError(reconcileError) ? reconcileError : error
+          );
         }
         return;
       }

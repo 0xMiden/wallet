@@ -9,7 +9,12 @@ import {
 } from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
+import {
+  didDirectSwitchLand,
+  finalizeDirectGuardianSwitch,
+  GuardianSwitchDiscardedError,
+  isGuardianSwitchDiscardedError
+} from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
 import { adoptPostSwitchState, type PostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import * as Repo from 'lib/miden/repo';
@@ -753,6 +758,28 @@ export const completeSwitchGuardianTransaction = async (
           return 'unknown';
         })
       : 'post-switch';
+    // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
+    // guardian then never holds a post-switch state. Ask the node about the transaction, as the
+    // direct path does: a discard means the switch did not happen, so the endpoint persisted above
+    // goes back to the previous guardian and the caller fails the row. No verdict keeps the flag.
+    const askNodeAbout = localState === 'pre-switch' ? landed?.transactionId : undefined;
+    if (askNodeAbout !== undefined && (await didDirectSwitchLand(askNodeAbout)) === false) {
+      const { previousGuardianEndpoint } = tx.extraInputs;
+      try {
+        if (!previousGuardianEndpoint) throw new Error('the row records no previous guardian endpoint');
+        await withTimeout(
+          Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, previousGuardianEndpoint)),
+          ENDPOINT_PERSIST_TIMEOUT_MS,
+          'restoring the previous guardian endpoint'
+        );
+      } catch (restoreError) {
+        console.error(
+          'The node discarded the guardian switch, and restoring the previous endpoint failed:',
+          restoreError
+        );
+      }
+      throw new GuardianSwitchDiscardedError(askNodeAbout);
+    }
     try {
       if (localState === 'pre-switch') {
         localStateNotSaved = true;
@@ -821,6 +848,9 @@ export const completeSwitchGuardianTransaction = async (
     // just delivered later and with a generic reason. Spacing the attempts costs
     // nothing on the happy path (it is only reached when a write has already
     // failed) and removes the single-retry coincidence.
+    //
+    // Except the node's discard (#1233): that switch did not happen, so its caller fails the row.
+    if (isGuardianSwitchDiscardedError(error)) throw error;
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
     const completedPayload = {
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',

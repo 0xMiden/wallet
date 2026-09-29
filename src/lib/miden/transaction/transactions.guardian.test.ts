@@ -1073,6 +1073,67 @@ describe('completeSwitchGuardianTransaction', () => {
       expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledTimes(1);
       expect(row().status).toBe(ITransactionStatus.Completed);
     });
+
+    // A pre-switch copy after the bound is also what a switch the node discarded leaves: the
+    // outgoing guardian never holds a post-switch state to adopt. The node's verdict tells them apart.
+    describe('a copy still pre-switch after the bound', () => {
+      beforeEach(() => {
+        // Back to the file's default (no verdict), so a verdict queued here cannot leak forward.
+        mockDidDirectSwitchLand.mockReset();
+        mockDidDirectSwitchLand.mockImplementation(async () => undefined);
+      });
+
+      it('ends a switch the node discarded, restoring the previous endpoint and flagging nothing', async () => {
+        const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
+        mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+        mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+
+        await expect(
+          completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed)
+        ).rejects.toMatchObject({ name: 'GuardianSwitchDiscardedError' });
+
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('0xswitch');
+        expect(multisigService.finalizeGuardianSwitch).not.toHaveBeenCalled();
+        expect(setGuardianEndpoint).toHaveBeenLastCalledWith('acc-1', 'https://old.guardian');
+        // Left for the caller to fail, as the direct path's discard is.
+        expect(row().status).toBe(ITransactionStatus.GeneratingTransaction);
+        expect(row().extraInputs).toBeUndefined();
+      });
+
+      it.each([
+        ['committed', true],
+        ['has no verdict for', undefined]
+      ])('keeps the flag when the node says it %s the switch', async (_label, verdict) => {
+        const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
+        mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+        mockDidDirectSwitchLand.mockResolvedValueOnce(verdict);
+
+        await completeSwitchGuardianTransaction(
+          tx,
+          undefined,
+          multisigService as never,
+          provider as never,
+          true,
+          landed
+        );
+
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('0xswitch');
+        expect(setGuardianEndpoint).toHaveBeenCalledTimes(1);
+        expect(row().status).toBe(ITransactionStatus.Completed);
+        expect(row().extraInputs).toMatchObject({ localStateNotSaved: true, registerFailed: false });
+      });
+
+      it('keeps the flag without asking the node when the failure carried no transaction id', async () => {
+        const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
+        mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+
+        await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, {});
+
+        expect(mockDidDirectSwitchLand).not.toHaveBeenCalled();
+        expect(setGuardianEndpoint).toHaveBeenCalledTimes(1);
+        expect(row().extraInputs).toMatchObject({ localStateNotSaved: true });
+      });
+    });
   });
 });
 
@@ -6829,6 +6890,87 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.transactionId).toBe('exec-tx-hash');
     }
   );
+
+  // #1233: after a failed apply, a copy still pre-switch at the bound can mean the node discarded
+  // the switch. Then it did not happen, and the row ends as the direct path's discard does.
+  it('fails a landed switch the node discarded like the direct path, restoring the previous endpoint', async () => {
+    const txId = 'switch-apply-fail-discarded';
+    const extraInputs = {
+      previousGuardianEndpoint: 'https://old.guardian',
+      newGuardianEndpoint: 'https://new.guardian'
+    };
+    const finalizeGuardianSwitch = jest.fn(async () => {});
+    const service = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch' },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch,
+      abandonCandidate: jest.fn(async () => {}),
+      pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
+      adoptGuardianStateOnce: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        })
+      )
+    });
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs,
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
+    expect(finalizeGuardianSwitch).not.toHaveBeenCalled();
+    expect(setGuardianEndpoint).toHaveBeenLastCalledWith('guardian-acc', 'https://old.guardian');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // The direct path's discard: Failed, naming the node's verdict, never a completed switch.
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.displayMessage).toBe('Failed');
+    expect(row.error).toMatch(/did not land: the node discarded it/);
+    expect(row.extraInputs).not.toHaveProperty('localStateNotSaved');
+  });
 
   // A row that already took the DIRECT path must not have its reconcile ask the
   // outgoing operator for anything. That operator was found unreachable minutes
