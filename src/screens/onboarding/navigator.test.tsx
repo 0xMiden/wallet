@@ -391,6 +391,33 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: false });
   });
 
+  // The picker's fallback to the first online operator covers Meet's auto-pick only, so a pick of the user's
+  // reopens the picker as theirs.
+  it("ChooseGuardian: reopens on a changed pick as the user's own, and on Meet's auto-pick as not", () => {
+    const onAction = jest.fn();
+    const { rerender } = openPickerFromMeet({}, onAction);
+    expect(mockCaptured['choose-guardian'].initialPicked).toBe(false);
+
+    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
+    act(() => mockCaptured['choose-guardian'].onSubmit(pick, { explicit: false }));
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
+    expect(mockCaptured['choose-guardian'].initialPicked).toBe(true);
+  });
+
+  it("ChooseGuardian: an explicit pick of the card's own operator is the user's", () => {
+    const onAction = jest.fn();
+    const { rerender } = openPickerFromMeet({}, onAction, 'g2');
+    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
+    act(() => mockCaptured['choose-guardian'].onSubmit(pick, { explicit: true }));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
+
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: true });
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
+    expect(mockCaptured['choose-guardian'].initialPicked).toBe(true);
+  });
+
   // Until the facts are ticked the picker's Continue returns to Meet, so it says Select, and the fully private
   // account it would drop there is not offered.
   it('ChooseGuardian: reads Select and withholds No guardian until the facts are ticked', () => {

@@ -264,12 +264,20 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // answered online (`requireOnline`). Before the facts are ticked it returns to Meet, whose card shows the
     // pick and whose Continue waits for the facts, so its own Continue reads Select. A no-guardian pick is
     // not recorded and would be dropped there, so the picker withholds it until then; Meet's own link offers
-    // it once the facts are ticked. A pick is the user's own only when it changed the card's operator.
+    // it once the facts are ticked. A pick is the user's own when it changed the card's operator or the picker
+    // reports it explicit (a card activated there, the card's own included); only an untouched Continue on Meet's
+    // auto-pick stays Meet's. The picker reopens on the user's own pick as theirs (`initialPicked`), so its
+    // fallback to the first online operator, which covers Meet's auto-pick only, never substitutes it.
     const meetFactsTicked = MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id]);
-    const onPickerSubmit = (payload: { guardianId: string; guardianEndpoint: string }) => {
+    const onPickerSubmit = (
+      payload: { guardianId: string; guardianEndpoint: string },
+      pick?: { explicit: boolean }
+    ) => {
       if (payload.guardianId !== NO_GUARDIAN_ID) {
         setMeetGuardianProgress(prev =>
-          prev.chosenId === payload.guardianId ? prev : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
+          prev.chosenId === payload.guardianId && !pick?.explicit
+            ? prev
+            : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
         );
       }
       if (meetFactsTicked) onChooseGuardianSubmit(payload);
@@ -310,6 +318,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             onSubmit={onPickerSubmit}
             requireOnline
             initialId={meetGuardianProgress.chosenId}
+            initialPicked={meetGuardianProgress.pickedByUser}
             submitLabel={meetFactsTicked ? undefined : t('select')}
             showNoGuardianOption={meetFactsTicked && getEffectiveAllowNoGuardian()}
           />

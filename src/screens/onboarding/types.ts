@@ -163,7 +163,11 @@ export type SelectRecoveryMethodAction = {
 export interface MeetGuardianProgress {
   checked: Readonly<Record<string, boolean>>;
   chosenId: string | null;
-  /** Picked in the full picker rather than locked in as the fastest, so the card does not call it that. */
+  /**
+   * Picked by the user in the full picker rather than locked in by Meet your Guardian as the fastest. The picker
+   * reopens on it as the user's own pick (`initialPicked`), so its fallback to the first online operator never
+   * substitutes a user's pick: while it is offline nothing is selected (#1083).
+   */
   pickedByUser: boolean;
 }
 
