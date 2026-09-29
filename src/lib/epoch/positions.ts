@@ -1,6 +1,7 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { withRequestTimeout } from 'lib/remote-json';
 
 import { EPOCH_POSITIONS_URL } from './config';
 import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
@@ -161,11 +162,15 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
   return [...seen];
 }
 
+// A stalled request would hold its whole read open, and with it the poll and every Retry that joins it.
+const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
+
 /**
  * Fetch lending positions for ONE EVM owner address. Never rejects: on any
- * failure it resolves to an empty `items` array plus an `error` string, so the
- * `Promise.all` in `fetchEarnPositions` can't be torn down by a single bad
- * address or transient network error.
+ * failure, a request or body read past 15 s included, it resolves to an empty
+ * `items` array plus an `error` string, so the `Promise.all` in
+ * `fetchEarnPositions` can't be torn down by a single bad address or transient
+ * network error.
  */
 async function fetchPositionsForOwner(
   owner: string,
@@ -173,15 +178,17 @@ async function fetchPositionsForOwner(
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string }> {
   const url = `${EPOCH_POSITIONS_URL}/positions?account=${owner}&chains=${chains.join(',')}`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      return { owner, items: [], error: `positions request failed (${res.status})` };
-    }
-    const body: PositionsApiResponse = await res.json();
-    if (!body.success || !body.data || !Array.isArray(body.data.items)) {
-      return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
-    }
-    return { owner, items: body.data.items };
+    return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
+      const res = await fetch(url, { signal });
+      if (!res.ok) {
+        return { owner, items: [], error: `positions request failed (${res.status})` };
+      }
+      const body: PositionsApiResponse = await res.json();
+      if (!body.success || !body.data || !Array.isArray(body.data.items)) {
+        return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
+      }
+      return { owner, items: body.data.items };
+    });
   } catch (err) {
     return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw' };
   }

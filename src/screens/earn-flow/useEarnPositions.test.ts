@@ -386,6 +386,22 @@ describe('useEarnPositions', () => {
       expect(result.current.isLoading).toBe(false);
       expect(result.current.loadError).toBe('positions down');
     });
+
+    it('sends no second request when Retry is tapped again while its read is out', async () => {
+      jest
+        .mocked(fetchEarnPositions)
+        .mockRejectedValueOnce(new Error('positions down'))
+        .mockReturnValue(new Promise(() => undefined));
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.loadError).toBe('positions down'));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await act(async () => result.current.refetch());
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

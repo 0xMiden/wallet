@@ -59,7 +59,9 @@ describe('fetchEarnPositions', () => {
 
     const result = await fetchEarnPositions({ owners: [] });
 
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`account=${CATALOG_ACCOUNT}`));
+    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`account=${CATALOG_ACCOUNT}`), {
+      signal: expect.any(AbortSignal)
+    });
     expect(result.owners).toEqual([]);
     expect(result.positions).toEqual([]);
     expect(result.vaults).toHaveLength(1);
@@ -93,6 +95,34 @@ describe('fetchEarnPositions', () => {
 
     expect(result.positions).toEqual([]);
     expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request unsuccessful' }]);
+  });
+
+  it("settles an owner whose request stalls as that owner's error at 15 s, while the others load", async () => {
+    jest.useFakeTimers();
+    const stalled = '0x2222222222222222222222222222222222222222';
+    // A stalled request ends only when its signal aborts, as a real fetch does.
+    (global.fetch as jest.Mock).mockImplementation((url: string, init?: { signal?: AbortSignal }) =>
+      url.includes(stalled)
+        ? new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+        : Promise.resolve({ ok: true, json: async () => ({ success: true, data: { items: [apiItem('12.5', 12.5)] } }) })
+    );
+    try {
+      let settled = false;
+      const read = fetchEarnPositions({ owners: [OWNER, stalled] }).finally(() => {
+        settled = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+
+      const result = await read;
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+      expect(result.errors).toEqual([{ owner: stalled, error: 'Request timed out after 15000 ms' }]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

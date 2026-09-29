@@ -49,7 +49,10 @@ export function useEarnPositions(): {
    * vault is not failed, though one owner's positions may be.
    */
   loadError?: string;
-  /** Force an immediate re-fetch (backs the error-state Retry). */
+  /**
+   * Re-fetch now (backs the error-state Retry), unless a read is already out: that read brings the result, and a
+   * second would spend the service's 10-per-minute limit.
+   */
   refetch: () => void;
 } {
   const account = useAccount();
@@ -61,6 +64,7 @@ export function useEarnPositions(): {
   const {
     data: liveData,
     error: swrError,
+    isValidating,
     mutate
   } = useRetryableSWR(
     onScreen ? key : null,
@@ -100,8 +104,9 @@ export function useEarnPositions(): {
       error: data?.errors[0]?.error ?? loadError,
       loadError,
       refetch: () => {
-        void mutate();
+        // Every positions request is bounded, so a read out always settles and frees Retry.
+        if (!isValidating) void mutate();
       }
     };
-  }, [data, isLoading, swrError, mutate]);
+  }, [data, isLoading, swrError, isValidating, mutate]);
 }
