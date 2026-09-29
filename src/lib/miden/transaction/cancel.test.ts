@@ -43,11 +43,8 @@ describe('isTransactionStuck', () => {
     expect(isTransactionStuck(1000, 1400, 100, MAX)).toBe(true);
   });
 
-  it('is stuck when the stamp lies further in the future than the threshold (clock moved backwards)', () => {
-    expect(isTransactionStuck(1000, 1000 - MAX - 1, 0, MAX)).toBe(true);
-  });
-
-  it('is NOT stuck when the stamp lies exactly the threshold in the future', () => {
-    expect(isTransactionStuck(1000, 1000 - MAX, 0, MAX)).toBe(false);
+  it('is NOT stuck however far in the future the stamp lies (the clock moved backwards)', () => {
+    // A row this realm is still driving can carry a future stamp after a clock step back (#1202).
+    expect(isTransactionStuck(1000, 1000 - MAX - 1, 0, MAX)).toBe(false);
   });
 });

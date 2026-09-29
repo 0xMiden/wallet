@@ -397,18 +397,9 @@ const activeProcessingSeconds = (processingStartedAt: number, nowSeconds: number
 
 /**
  * Pure stuck-decision: a tx is stuck if it never started processing (crashed
- * mid-transition → `processingStartedAt` undefined) or the magnitude of its ACTIVE
- * (foreground) processing time has exceeded `maxWaitSeconds`. `hiddenSeconds` is the
+ * mid-transition → `processingStartedAt` undefined) or its ACTIVE (foreground)
+ * processing time has exceeded `maxWaitSeconds`. `hiddenSeconds` is the
  * backgrounded time to discount (0 on desktop).
- *
- * The magnitude, as `pipelineMayStillBeRunning` bounds `cancelledInFlightAt`: a stamp
- * further in the future than the threshold means the clock moved backwards after it,
- * so a real orphan, or a row whose driver died, is reaped within the skew plus the
- * threshold rather than the threshold counted from when the clock catches up; a small
- * future skew stays live. `hiddenSecondsForTx` clips hidden time to the stamp's past,
- * so a future stamp gets none. Every reap is marked through
- * `cancelWhilePipelineMayStillRun`, so a live pipeline taken this way keeps Retry
- * waiting out the marker window.
  */
 export function isTransactionStuck(
   processingStartedAt: number | undefined,
@@ -420,7 +411,7 @@ export function isTransactionStuck(
   // with the status change, so undefined means the app crashed mid-transition.
   if (!processingStartedAt) return true;
   const activeElapsed = nowSeconds - processingStartedAt - hiddenSeconds;
-  return Math.abs(activeElapsed) > maxWaitSeconds;
+  return activeElapsed > maxWaitSeconds;
 }
 
 /**
