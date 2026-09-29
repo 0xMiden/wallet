@@ -290,9 +290,10 @@ describe('AssetRow', () => {
     }
 
     it('shows the symbol alone instead of a quantity', () => {
-      render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
+      const asset = unknownAsset();
+      render(<AssetRow asset={asset} tokenPrices={tokenPrices} data-testid="row" />);
 
-      expect(screen.getByTestId('row-amount')).toHaveTextContent('Unknown');
+      expect(screen.getByTestId('row-amount').textContent).toBe(asset.metadata.symbol);
     });
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
