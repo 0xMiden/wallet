@@ -1509,29 +1509,7 @@ export class MidenClientInterface {
         );
         await onStage?.('proving');
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
-        // Explicit prover on the delegated path — see `remoteProver`. `prove({})`
-        // selects the SDK's default-prover fallback, which requires an initialized
-        // client and so never dispatches in the offscreen realm (#718).
-        const sendProver = prover ?? remoteProver();
-        const proven = await attempt.pauseWatchdogForLocalProve(() => {
-          const proving = executed.prove(sendProver ? { prover: sendProver } : {});
-          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated send prove') : proving;
-        });
-        await onStage?.('submitting');
-        // Point of no return: everything below can put this transfer on chain, so a
-        // failure past here must NOT be retried with the local prover — the retry
-        // would build a fresh request (new note serial) and submit a SECOND send.
-        attempt.markSubmitting();
-        const submitted = await proven.submit();
-        // The node has the transfer now: a failed apply is retried while that is safe, and one
-        // that outlasts the retries classifies as submitted, so Retry cannot pay twice (#1233).
-        await applyAfterSubmit({
-          apply: () => submitted.apply(),
-          result: executed.result,
-          readLocalAccount: accountId => this.client.accounts.get(accountId),
-          holdIsCurrent: () => attempt.holdIsCurrent()
-        });
-        return executed.result;
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage);
       },
       dbTransaction.delegateTransaction,
       this.liveness
@@ -1760,51 +1738,18 @@ export class MidenClientInterface {
         // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
         // call - see the doc above buildSendExecuteArgs), so this stays correct however
         // a later SDK passes it.
-        recordProveTiming(`newTransaction delegated: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
+        recordProveTiming(`newTransaction staged: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
         const executed = await this.client.transactions.executeRequest(
           accountId,
           TransactionRequest.deserialize(requestBytes)
         );
-        recordProveTiming('newTransaction delegated: executeRequest returned; proving');
+        recordProveTiming('newTransaction staged: executeRequest returned; proving');
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
-        // Hand `prove()` an EXPLICIT remote prover rather than letting it fall back to
-        // the client's default. Per the SDK: with an explicit prover this is a pure
-        // computation over the TransactionResult that "works on a bare WebClient that
-        // never ran createClient()", and "only the default-prover fallback requires an
-        // initialized client" — naming a chrome.offscreen document as exactly the
-        // prover-only host that has none. Flag-on, this runs offscreen, so `prove({})`
-        // took the fallback and never dispatched: the earn deposit sat here forever
-        // while the remote prover logged no request at all, holding the WASM mutex and
-        // starving sync (#718). The delegated consume alongside it was unaffected
-        // because it is a whole-op `transactions.consume` on the initialized client.
-        const delegatedProver = prover ?? remoteProver();
-        // Bounded for the same reason as the guardian pipeline's identical
-        // `prove({})` and the delegated consume: a delegated prove has no deadline of
-        // its own, so a remote prover that never answers parks the write forever while
-        // it holds the offscreen WASM mutex — starving sync until its circuit breaker
-        // opens (#718). Observed on the earn deposit, where the prove was never even
-        // dispatched to the prover. Safe to bound HERE specifically because proving
-        // strictly precedes `markSubmitting()`: nothing has been broadcast yet, so the
-        // fallback re-proves locally rather than risking a second submission. The #775
-        // watchdog pause covers the local attempt (a passthrough when delegated).
-        const proven = await attempt.pauseWatchdogForLocalProve(() => {
-          const proving = executed.prove(delegatedProver ? { prover: delegatedProver } : {});
-          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated newTransaction prove') : proving;
-        });
-        recordProveTiming('newTransaction delegated: prove returned; submitting');
-        attempt.markSubmitting();
-        const submitted = await proven.submit();
-        recordProveTiming('newTransaction delegated: submit returned; applying');
-        // Same rule as the send's apply (#1233): a dApp transaction or an Agglayer bridge the node
-        // accepted must not end Failed, which reports failure to the dApp or hides the L1 claim.
-        await applyAfterSubmit({
-          apply: () => submitted.apply(),
-          result: executed.result,
-          readLocalAccount: accountId => this.client.accounts.get(accountId),
-          holdIsCurrent: () => attempt.holdIsCurrent()
-        });
-        recordProveTiming('newTransaction delegated: apply returned');
-        return executed.result;
+        // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
+        // reports failure to the dApp or hides the L1 claim (#1233).
+        const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction');
+        recordProveTiming('newTransaction staged: apply returned');
+        return result;
       },
       delegateTransaction,
       this.liveness
@@ -1844,6 +1789,50 @@ export class MidenClientInterface {
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
     // The node already has the transaction: a failed apply is retried while that is safe, and one
     // that outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
+    return executed.result;
+  }
+
+  /**
+   * The in-realm leg of a staged attempt, shared by the plain staged writes so their point of no
+   * return sits in one place (#1233): prove `executed` in this realm, then submit it and apply it.
+   * Everything before `markSubmitting()` is pre-submit, so `proveWithFallback` may re-run a
+   * delegated attempt locally; nothing after it is ever re-run.
+   */
+  private async proveInRealmAndSubmit(
+    executed: TransactionExecution,
+    prover: TransactionProver | undefined,
+    attempt: ProveAttempt,
+    write: 'send' | 'newTransaction',
+    onStage?: (stage: ITransactionStage) => Promise<void> | void
+  ): Promise<TransactionResult> {
+    // An explicit prover on the delegated path, see `remoteProver`: `prove({})` selects the SDK's
+    // default-prover fallback, which needs an initialized client and so never dispatched in the
+    // offscreen realm, where an earn deposit sat forever with the WASM mutex held while the remote
+    // prover logged no request at all (#718).
+    const inRealmProver = prover ?? remoteProver();
+    // Only the delegated prove is bounded: it has no deadline of its own, so a remote prover that
+    // never answers parks the write with the mutex held and starves sync (#718). Bounding it is safe
+    // because it precedes `markSubmitting()`: the fallback re-proves locally rather than submitting
+    // twice. The #775 watchdog pause covers the local attempt (a passthrough when delegated).
+    const proven = await attempt.pauseWatchdogForLocalProve(() => {
+      const proving = executed.prove(inRealmProver ? { prover: inRealmProver } : {});
+      return prover === undefined ? withDelegatedProveTimeout(proving, `Delegated ${write} prove`) : proving;
+    });
+    recordProveTiming(`${write} staged: prove returned; submitting`);
+    await onStage?.('submitting');
+    // Point of no return: a retry past here would build a fresh request (a new note serial) and
+    // submit a second write.
+    attempt.markSubmitting();
+    const submitted = await proven.submit();
+    recordProveTiming(`${write} staged: submit returned; applying`);
+    // The node has the write now: a failed apply is retried while that is safe, and one that
+    // outlasts the retries classifies as submitted, so a Retry cannot pay twice.
     await applyAfterSubmit({
       apply: () => submitted.apply(),
       result: executed.result,
