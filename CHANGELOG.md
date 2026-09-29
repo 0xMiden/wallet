@@ -8,6 +8,7 @@
 
 ### Changes
 
+- [FIX][all] Unlocking on mobile or desktop restarts transactions queued while the wallet was locked, and the startup sweep of interrupted transactions spares any transaction started after the app or browser opened (#1202).
 - [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
 - [FIX][all] An empty or blank `WALLETCONNECT_PROJECT_ID`, or an empty E2E counterparty secret, now falls back to the default Reown project ID instead of a blank one, and that default is defined in one place (#1259).
 - [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
