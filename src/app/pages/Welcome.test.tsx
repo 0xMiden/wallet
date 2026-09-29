@@ -18,10 +18,17 @@ import Welcome from './Welcome';
 
 // The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
 const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
 jest.mock('app/onboarding-finish', () => {
   const actual = jest.requireActual('app/onboarding-finish');
   return {
     ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
     markOnboardingFinishing: () => {
       const mark = actual.markOnboardingFinishing();
       const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
@@ -3100,6 +3107,12 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockFlowProps.current.confirmCreating).toBe(true);
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
   });
 
   it('auto-creates again for a new attempt after a failed one was abandoned', async () => {
@@ -3327,6 +3340,12 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'aa bb cc dd', true, undefined);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
     // The restoring spinner stayed up and no readiness wait ran, so no tap took part.
     expect(mockFlowProps.current.confirmCreating).toBe(true);
     expect(mockFetchState).not.toHaveBeenCalled();
@@ -3353,6 +3372,8 @@ describe('Welcome — side-panel handoff', () => {
     });
 
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // The lookup failure stays on Welcome's own hash step, never through navigateOnFromOnboarding.
+    expect(mockNavigateOn).not.toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianAccountNotFound');
     expect(mockFlowProps.current.confirmCreating).toBe(false);
     expect(handleFor('import').fail).toHaveBeenCalledWith('unknown');
@@ -3409,6 +3430,13 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
     expect(mockFetchState).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    // Two marks were recorded (the failed auto-register's, then the tap's); the tap's is the last.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks.at(-1)!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
   });
 
   it('does not auto-register a wallet-file restore, which keeps its tap', async () => {
