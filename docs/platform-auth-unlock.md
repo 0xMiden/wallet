@@ -14,9 +14,11 @@ by the probe is marked **Unconfirmed**.
 
 ## Decision summary
 
-**Go.** The owner took both decisions below on #846, so the implementation
-builds passkey unlock: iCloud Keychain with Touch ID on macOS, Google Password
-Manager on any desktop, and Windows Hello if it returns PRF.
+**Go.** The owner took the decisions below on #846, so the implementation builds
+passkey unlock: iCloud Keychain with Touch ID on macOS, Google Password Manager
+on any desktop, and Windows Hello, each where the device test (milestone 1)
+shows it returning a PRF output for the extension's RP ID with user verification
+(Go/no-go).
 
 WebAuthn PRF, allowed in extension pages, can wrap the vault key a second time,
 leaving the password wrapping and seed recovery as they are. Chrome's Touch ID
@@ -290,13 +292,19 @@ A third plain-storage key, `vault_key_platform`, next to the other two
 | `credentialId` | The credential's raw id, stored as base64url; passed in `allowCredentials` at unlock, and its raw bytes are the HKDF salt |
 | `prfSalt` | 32 random bytes, the PRF input, one per credential |
 | `wrappedKey` | 12-byte IV, then AES-GCM ciphertext and tag of the 32 vault-key bytes |
+| `backupEligible` | The BE flag from the authenticator data at enrollment, set for a credential that can sync (Support matrix); the Settings row shows it (milestone 2) |
 
 The salt is not secret: it is stored next to the wrapped key.
 
 Rotating the salt with `eval.second` on each unlock, as WebAuthn Level 3
-suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope: an old
-profile copy holds the old record and the vault it unwraps, so an old output
-still opens it.
+suggests ([section 10.1.4][webauthn-l3]), is left out of the first scope.
+Leaving it out has a cost: one captured PRF output opens the record in every
+later profile copy until the user re-enrolls, as a captured password opens
+`vault_key_password` in every copy. Rotation would limit a captured output to
+copies taken before the next unlock. Neither rotation nor removal is revocation:
+a profile copy holds the record and the vault it unwraps as they were when it
+was taken, so the PRF output for its salt, which the passkey yields while it
+survives in its provider, still opens that copy.
 
 ### Where the ceremony runs
 
@@ -386,9 +394,10 @@ Enrollment, as proposed:
    such an entry and is known to hide only GPM entries
    ([delegate][cr-delegate]); its effect on iCloud Keychain is
    **Unconfirmed** (Open question 12).
-3. The page sends the password, credential id, salt and PRF output to the
-   service worker, the PRF output under a field name the crash-report redaction
-   treats as secret (First implementation scope, milestone 2).
+3. The page sends the password, credential id, salt and PRF output and the BE
+   flag to the service worker, the PRF output under a field name the
+   crash-report redaction treats as secret (First implementation scope,
+   milestone 2).
 4. The service worker unwraps the vault-key bytes with the password, wraps
    them under the PRF-derived key, unwraps the result once to check it, and
    only then saves `vault_key_platform`.
@@ -914,7 +923,8 @@ re-read for this doc argues against it.
    enrollment only in the side panel (owner decision 4; `useAppEnv`'s
    `sidePanel`, `src/app/env.ts:39`); in the popup and the full-page tab the row
    shows its state and points to the side panel. The row shows whether the
-   credential syncs, from the BE flag read at enrollment.
+   credential syncs, from the record's `backupEligible` field (Mechanism, The
+   stored record).
    - Crash-report redaction, in place before the first PRF output crosses the
      port: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
@@ -935,11 +945,9 @@ re-read for this doc argues against it.
    re-enrollment replaces the record. A wallet setup already wipes every storage
    key but the preserved ones (`src/lib/miden/reset.ts:13-18`,
    `src/lib/miden/reset.ts:22-42`), so Forgot password removes the record.
-   Removal is not revocation: a profile copy taken before removal holds the old
-   record and the vault it unwraps, so with the passkey, if it survives in the
-   provider, still opens the old record. The removal step therefore tells the
-   user to delete the passkey in the provider as well. Open questions 12 to 18
-   are settled here, before release, by the device tests their rows name.
+   Removal is not revocation (Mechanism, The stored record), so the removal step
+   also tells the user to delete the passkey in the provider. Open questions 12
+   to 18 are settled here, before release, by the device tests their rows name.
 
 What stays out:
 
@@ -978,7 +986,7 @@ not relied on.
 | 9 | Does an extension popup survive the native OS sheets (the Windows Hello dialog, the macOS passkey sheet) in Chrome 155? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | Device test from the popup on macOS and Windows |
 | 10 | Does the Chrome 156 force-close ([Chromium 4b8e494e][cr-popup-m156]) apply to a ceremony started from the popup? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | The same device test on Chrome 156 |
 | 11 | Is Chrome's own WebAuthn dialog still clipped inside a popup, as reported for Chrome 107 ([bitwarden/clients#4365][bitwarden-4365])? Not relied on: the ceremony never runs in the popup (owner decision 4) | None | The same device test |
-| 12 | Does `signalUnknownCredential` from Chrome remove or hide an iCloud Keychain entry, or only GPM ones? | Mechanism; Lifecycle; milestone 4 | Device test: enroll, remove, check the Passwords app |
+| 12 | Does Chrome accept `signalUnknownCredential` from a `chrome-extension://<id>` page, and with which `rpId`? Does it then remove or hide an iCloud Keychain entry, or only GPM ones? | Mechanism; Lifecycle; milestone 4; Design points | Device test: enroll, remove, call `signalUnknownCredential` with `rpId` set to `chrome-extension://<id>` and to `<id>`, recording whether each call resolves or rejects, then check the Passwords app and GPM's passkey list |
 | 13 | How does each provider list an orphaned `chrome-extension://<id>` credential after the extension is removed? | Lifecycle (uninstall) | Device test in each provider's list |
 | 14 | Does a consumer Windows Hello "I forgot my PIN" reset delete passkeys, and can a PIN change drop them? Reports conflict ([Microsoft Q&A][ms-qa-pin]) | Lifecycle (PIN reset) | Device test with a Microsoft account and with a local account |
 | 15 | Does re-enrolling Touch ID fingerprints affect iCloud Keychain passkeys? Apple documents nothing | Lifecycle (Touch ID re-enrollment) | Device test: remove and add a fingerprint, then unlock |
@@ -1015,9 +1023,9 @@ decided before the milestone that ships the step it names.
   against different lists, so the PRF output's key is covered in both, and
   the redaction test checks both request shapes as objects and as text.
 
-- **The BE flag across sessions** (milestone 2). The Settings row shows it in
-  later sessions, so enrollment saves it with a named store, and removal and
-  the setup wipes delete it.
+- **The BE flag across sessions** (milestone 2). The Settings row reads it from
+  the record's `backupEligible` field (Mechanism, The stored record), so removal
+  and the setup wipes delete it with `vault_key_platform`.
 
 ## Appendix: probe
 
@@ -1059,7 +1067,6 @@ page then:
 [android-keystore]: https://developer.android.com/privacy-and-security/keystore
 [apple-forum-prf]: https://developer.apple.com/forums/thread/764730
 [apple-icloud-security]: https://support.apple.com/en-us/102195
-[apple-pwd-rules]: https://support.apple.com/guide/security/face-id-touch-id-passcodes-and-passwords-sec9479035f1/web
 [bitwarden-4365]: https://github.com/bitwarden/clients/issues/4365
 [bitwarden-guard]: https://github.com/bitwarden/clients/blob/bac4c6695c08d14b6100d2c1d22ea81887f9d61a/apps/browser/src/auth/popup/guards/platform-popout.guard.ts
 [bitwarden-hello-thread]: https://community.bitwarden.com/t/encryption-prf-via-windows-hello-passkey/94236/21
