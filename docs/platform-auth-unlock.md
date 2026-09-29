@@ -275,9 +275,15 @@ exists yet: nothing in the repo calls `navigator.credentials`.
   ([NIST SP 800-38D][nist-gcm], 2007-11). The repo's other AES-GCM uses take
   16-byte IVs (`src/lib/miden/passworder.ts:27`,
   `src/lib/miden/passworder.ts:244`); the new record does not copy that.
-- The version in `info` and the credential id as salt bind the record: a
-  record replayed under another version or credential derives a different key
-  and fails the AES-GCM tag, so the tag needs no other binding.
+- The version in `info` and the credential id as salt bind the wrapped key to
+  its record: a record replayed under another version or credential derives a
+  different key and fails the AES-GCM tag, as does one with another
+  `prfSalt`, whose PRF output differs. `backupEligible` (The stored record) is
+  the one field bound by nothing, and it stays out of AES-GCM additional data:
+  it is an unauthenticated display hint, never an input to a decision. No step
+  of the design decides on it, since owner decision 1 accepts synced and
+  device-bound credentials alike, so a changed value changes only what the
+  Settings row says (milestone 2).
 - The vault key and every item encrypted under it stay as they are.
 
 ### The stored record
@@ -923,9 +929,10 @@ re-read for this doc argues against it.
    Mechanism, offered only when `vault_key_password` exists. It starts
    enrollment only in the side panel (owner decision 4; `useAppEnv`'s
    `sidePanel`, `src/app/env.ts:39`); in the popup and the full-page tab the row
-   shows its state and points to the side panel. The row shows whether the
-   credential syncs, from the record's `backupEligible` field (Mechanism, The
-   stored record).
+   shows its state and points to the side panel. The row says whether the
+   credential can sync (the BE flag), not whether it syncs, from the record's
+   `backupEligible` field, a display hint that decides nothing (Mechanism, PRF,
+   and the key it yields).
    - Crash-report redaction, in place before the first PRF output crosses the
      port: crash reports are scrubbed by key name
      (`src/lib/telemetry/crash.ts:144-148`,
@@ -1076,6 +1083,37 @@ decided before the milestone that ships the step it names.
   worker stays reset-pending: it refuses setup and unlock and reports the
   error to the next page that connects.
 
+- **Only the extension's own pages ask for these writes** (milestones 2 and
+  4). The service worker accepts a request that wipes storage (a reset, or a
+  wallet setup, `src/lib/miden/back/vault.ts:874`) or that edits
+  `vault_key_platform`, the pending enrollments or the to-signal list only on
+  a port whose sender origin or URL, which the browser sets, is the
+  extension's own, `chrome-extension://<id>`, and refuses it on a
+  content-script port. Today such a port passes: the manifest injects a
+  content script into every https page (`public/manifest.json:92-98`), and
+  the intercom server checks only the sender's extension id
+  (`src/lib/intercom/server.ts:77`), which a content script shares. The
+  reset-request marker's trust rests on `chrome.storage.local`, which content
+  scripts can write too, so the start-time reset also runs the nonce check:
+  the page writes a random nonce into the marker and the same nonce into a
+  database of its own in the extension origin's IndexedDB, apart from the one
+  the wipe deletes (`src/lib/miden/reset.ts:97`), which a content script,
+  running with the web page's origin, cannot open. The reset runs only when
+  the two nonces match and removes the nonce with the marker; a marker
+  without a match is removed, and the worker starts as usual. A content script
+  can also write `chrome.storage.local` directly, where the marker,
+  `vault_key_platform`, the to-signal list, `vault_key_password` and every
+  wallet key live, so one rule covers the whole area: at start, before any other
+  listener, the service worker restricts it to the extension's own contexts with
+  `chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })`
+  ([chrome.storage][chrome-storage], read 2026-09-29), after which no content
+  script can read or write any of those keys, and the IndexedDB nonce stays as
+  defense in depth; the reference marks the method Chrome 102+, but it accepts
+  `local` only from Chrome 140 ([Chromium a8f1f337][cr-storage-m140],
+  2025-07-04), and on an older Chrome, which the manifest's minimum of 114 still
+  admits (`public/manifest.json:58`), a content script can still write those
+  keys directly.
+
 - **Redaction of free text** (milestone 2). `src/lib/telemetry/redact.ts`
   matches structured fields and free text (an error message, a breadcrumb)
   against different lists, so the PRF output's key is covered in both, and
@@ -1165,6 +1203,7 @@ page then:
 [cr-popup-m133]: https://chromium.googlesource.com/chromium/src/+/eb80440c5a1533072b9605c87746f0ef77740d47
 [cr-popup-m156]: https://chromium.googlesource.com/chromium/src/+/4b8e494ea39fbac80a26968fa0189502a263bec6
 [cr-security-utils]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/components/webauthn/core/browser/webauthn_security_utils.cc
+[cr-storage-m140]: https://chromium.googlesource.com/chromium/src/+/a8f1f337c692360aaec9470a0a91f965011d37a3
 [cr-supported-options]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/authenticator_supported_options.h
 [cr-win-authenticator]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/win/authenticator.cc
 [cr-win-hmac-mc]: https://github.com/chromium/chromium/blob/30c2a44f19b32e0dc50175f3fa392ec41bd741e6/device/fido/win/authenticator.cc#L68
