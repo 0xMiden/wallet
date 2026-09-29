@@ -25,7 +25,7 @@ import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSigne
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment } from './operator-map';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
@@ -69,17 +69,6 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
  * parking the row forever rather than to hit a latency target.
  */
 const DIRECT_REGISTER_TIMEOUT_MS = 30_000;
-
-/**
- * Ceiling on the NEW guardian's unauthenticated `GET /pubkey` — the one network
- * call the direct switch makes BEFORE it signs anything.
- *
- * Same budget as the `/configure` write above, and generous for the same reason:
- * it exists to stop a silent endpoint from parking a non-requeueable row, not to
- * hit a latency target. There is no retry loop behind it — a failure here fails
- * the rotation before any state changed, which is the safe direction.
- */
-const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

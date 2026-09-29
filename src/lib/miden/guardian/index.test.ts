@@ -14,7 +14,7 @@
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
-import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
+import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
@@ -185,6 +185,8 @@ jest.mock('./account', () => ({
 
 // The shared native-HTTP double records each probe's verdict.
 jest.mock('./native-http');
+// A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
+jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
 const { mockProbeVerdicts, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
@@ -853,6 +855,36 @@ describe('MultisigService', () => {
       });
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('malformed key commitment');
+      expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
+    });
+
+    // The probe settles only when its check does, so a new guardian that never answers would hold
+    // its origin routed for the session unless the check carries its own deadline.
+    it('createSwitchGuardianProposal gives up on a new guardian whose pubkey never answers and releases its origin', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        let outcome: string | undefined;
+        void service.createSwitchGuardianProposal('https://new').then(
+          () => {
+            outcome = 'resolved';
+          },
+          (err: Error) => {
+            outcome = err.message;
+          }
+        );
+        // The check runs before the commit, so the post-commit deadline must not end it.
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS + 1);
+        expect(outcome).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS - POST_COMMIT_GUARDIAN_TIMEOUT_MS);
+        expect(outcome).toMatch(/pubkey fetch timed out/);
+      } finally {
+        jest.useRealTimers();
+      }
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
       expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
