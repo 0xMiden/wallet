@@ -422,7 +422,8 @@ describe('EarnVaultDetail with no vault to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
-    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
+    // No subtitle names a placeholder subject: the header's line reads "<asset> on <network>".
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

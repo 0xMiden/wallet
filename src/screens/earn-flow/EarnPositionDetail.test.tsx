@@ -589,5 +589,7 @@ describe('EarnPositionDetail with no position to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^earnPositionsTitle$/);
+    // No subtitle names a placeholder subject: the header's line reads "<asset> on <network>".
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
   });
 });
