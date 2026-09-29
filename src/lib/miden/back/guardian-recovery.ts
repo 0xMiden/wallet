@@ -519,7 +519,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
         checkpointedBlock = result.sourceFailures === 0 ? startBlock : null;
         let scannedToBlock = startBlock;
         // A work list rather than a fixed stride, because a chunk can come back
-        // `saturated` — too wide for the node, or holding more tag matches than
+        // `saturated` - too wide for the node, or holding more tag matches than
         // one op should import. Halves are pushed to the FRONT, so ranges are
         // still completed in ascending order and `scannedToBlock` stays a true
         // watermark. Each retry is its own offscreen op, which is the point: the
@@ -556,7 +556,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
               console.warn(`[GuardianRecovery] Block ${blockFrom} stayed saturated for ${account.publicKey}; skipping`);
             } else if (chunk.nextNoteOffset !== undefined && chunk.nextNoteOffset > noteOffset) {
               // The range fits but its notes do not: same range, next page. The
-              // strict advance is what makes this terminate — the offset crosses
+              // strict advance is what makes this terminate - the offset crosses
               // the realm boundary as JSON, and one that failed to move would
               // re-run this page forever.
               pending.unshift([blockFrom, blockTo, chunk.nextNoteOffset]);
