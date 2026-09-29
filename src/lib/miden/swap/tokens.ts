@@ -205,7 +205,7 @@ export function strictPriceSymbolFor(canonicalId: string, symbol: string): strin
  * would otherwise refuse every spend of that faucet, and display surfaces would show it no price
  * (#1131).
  */
-export function allowlistedPriceSymbols(): string[] {
+export function _allowlistedPriceSymbolsForTest(): string[] {
   return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];
 }
 

@@ -6,7 +6,6 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 import { isCoveredSymbol } from 'lib/prices/usd';
 
 import {
-  allowlistedPriceSymbols,
   canonicalFaucetId,
   deriveRequestAmount,
   getDefaultSwapPair,
@@ -22,6 +21,7 @@ import {
   TOKEN_IMIDEN,
   TOKEN_IUSDT,
   tokenQuote,
+  _allowlistedPriceSymbolsForTest,
   _resetNormalizedFaucetIdsForTest,
   _setSwapTokensForTest,
   SWAP_TOKEN_DECIMALS,
@@ -130,7 +130,7 @@ describe('swap token price symbols', () => {
   it('quotes every allowlisted price symbol, including ETH, BTC and USDC', () => {
     mockGetNativeAssetIdSync.mockReturnValue(null);
 
-    const symbols = allowlistedPriceSymbols();
+    const symbols = _allowlistedPriceSymbolsForTest();
 
     expect(symbols).toEqual(expect.arrayContaining(['ETH', 'BTC', 'USDC']));
     symbols.forEach(symbol => expect(isCoveredSymbol(symbol)).toBe(true));
