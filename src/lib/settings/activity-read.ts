@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { createListenerSet } from 'lib/listener-set';
+import { onLocalStorageCleared } from 'lib/local-storage-cleared';
 
 import { ACTIVITY_READ_MAX_IDS, ACTIVITY_READ_STORAGE_KEY } from './constants';
 
@@ -71,19 +72,31 @@ function sameState(a: ActivityReadState, b: ActivityReadState): boolean {
   return keys.length === Object.keys(b.ids).length && keys.every(id => b.ids[id] === a.ids[id]);
 }
 
+function forget() {
+  cached = undefined;
+  notify();
+}
+
 // Every extension window (popup, side panel, full-page tab) keeps its own cache over one shared
 // localStorage value, so each merges the others' writes as they land. Another window's removal or
-// clear (a wallet reset) drops the cache instead, and the next read takes the device's value again.
+// clear (a wallet reset) drops the cache instead, and the next read takes the device's value again;
+// the window that clears learns of it through reset.ts's announcement below. A value that does not
+// parse is ignored: this window keeps its copy, and its next mark writes over it.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
     if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
-    const incoming = event.key === null ? undefined : parse(event.newValue);
-    const next = incoming && cached ? merge(cached, incoming) : undefined;
+    if (event.newValue === null) return forget();
+    const incoming = parse(event.newValue);
+    if (!incoming) return;
+    const next = cached ? merge(cached, incoming) : undefined;
     if (next && cached && sameState(next, cached)) return;
     cached = next;
     notify();
   });
 }
+
+// A clear in this document (a reset) fires no storage event here; reset.ts announces it instead.
+onLocalStorageCleared(forget);
 
 function parse(raw: string | null): ActivityReadState | undefined {
   if (!raw) return undefined;
@@ -158,12 +171,7 @@ export function markActivitiesRead(entries: readonly { id: string; timestamp: nu
   // window's copy alone.
   const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
   const unread = entries.filter(({ id, timestamp }) => !isActivityRead(current, id, timestamp));
-  if (unread.length === 0) {
-    if (cached && sameState(current, cached)) return;
-    cached = current;
-    notify();
-    return;
-  }
+  if (unread.length === 0) return;
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp
   // (an incoming transfer that never carried a `receivedAt`) is recorded just past it rather than
   // at a `now` the mark may already have reached, where the write would drop it.

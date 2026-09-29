@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { localStorageCleared } from 'lib/local-storage-cleared';
+
 import {
   getActivityReadState,
   isActivityRead,
@@ -223,25 +225,45 @@ describe('several windows (#1106)', () => {
     expect(result.current).toBe(before);
   });
 
-  it('forgets its copy when another window removes the key, and reads the device again', () => {
+  it.each([
+    ['clears storage', null],
+    ['removes the key', ACTIVITY_READ_STORAGE_KEY]
+  ])('forgets its copy when another window %s, and reads the device again', (_, key) => {
     getActivityReadState();
     markActivityRead('tx:a', NOW_S + 10);
-    writeFromOtherWindow({ seenBefore: NOW_S + 100, ids: {} });
+    const { result } = renderHook(() => useActivityReadState());
+    localStorage.clear();
+    writeFromOtherWindow({ seenBefore: NOW_S + 5, ids: {} });
 
-    storageEvent(ACTIVITY_READ_STORAGE_KEY, null);
+    storageEvent(key, null);
 
-    expect(getActivityReadState()).toEqual({ seenBefore: NOW_S + 100, ids: {} });
+    expect(result.current).toEqual({ seenBefore: NOW_S + 5, ids: {} });
+    expect(isActivityRead(result.current, 'tx:a', NOW_S + 10)).toBe(false);
   });
 
-  it('forgets its copy when another window clears storage, and reads the device again', () => {
+  it('forgets its copy when this window clears storage itself', () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 100);
+    localStorage.clear();
+    localStorageCleared();
+    jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 60_000);
+
+    const state = getActivityReadState();
+    expect(state.seenBefore).toBe(NOW_S + 60);
+    expect(isActivityRead(state, 'tx:a', NOW_S + 100)).toBe(false);
+  });
+
+  it('keeps its copy when another window writes a value it cannot read', () => {
     getActivityReadState();
     markActivityRead('tx:a', NOW_S + 10);
-    localStorage.clear();
-    writeFromOtherWindow({ seenBefore: NOW_S + 100, ids: {} });
+    localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, 'not json');
+    jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 60_000);
 
-    storageEvent(null, null);
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, 'not json');
 
-    expect(getActivityReadState()).toEqual({ seenBefore: NOW_S + 100, ids: {} });
+    const state = getActivityReadState();
+    expect(state.seenBefore).toBe(NOW_S);
+    expect(isActivityRead(state, 'tx:a', NOW_S + 10)).toBe(true);
   });
 
   it('re-renders nobody when an already-read activity is marked again', () => {
@@ -257,17 +279,6 @@ describe('several windows (#1106)', () => {
     act(() => markActivityRead('tx:a', NOW_S + 10));
 
     expect(renders).toBe(before);
-  });
-
-  it("adopts another window's reads even when this mark changes nothing itself", () => {
-    getActivityReadState();
-    markActivityRead('tx:a', NOW_S + 10);
-    const { result } = renderHook(() => useActivityReadState());
-    writeFromOtherWindow({ seenBefore: NOW_S, ids: { 'tx:a': NOW_S + 10, 'tx:b': NOW_S + 20 } });
-
-    act(() => markActivityRead('tx:a', NOW_S + 10));
-
-    expect(isActivityRead(result.current, 'tx:b', NOW_S + 20)).toBe(true);
   });
 
   it('re-renders nobody when another window writes what this one already holds', () => {
