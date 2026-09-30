@@ -79,9 +79,9 @@ const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
  * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` and to the shared
  * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS` (./serialize), which bounds the pre-sign
  * pubkey check on both switch paths, this file's `createSwitchGuardianProposal`
- * included: generous, because expiring early costs an attempt out of the
- * budget, and its job is only to convert silence into a failure the loop can
- * consume.
+ * included, and each pubkey attempt of account creation (./account): generous,
+ * because expiring early costs an attempt out of the budget, and its job is
+ * only to convert silence into a failure the loop can consume.
  */
 export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)

@@ -14,7 +14,11 @@ import type { GuardianProvider } from 'lib/shared/types';
 import { withTimeout } from './discover';
 import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
-import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS, withGuardianRateLimitRetry } from './serialize';
+import {
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+  NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS,
+  withGuardianRateLimitRetry
+} from './serialize';
 import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -427,11 +431,15 @@ export async function createGuardianAccount(
 
     if (!skipRegistration) {
       assertLive('before guardian registration');
-      await withGuardianRateLimitRetry(() => multisig.registerOnGuardian(), {
-        deadlineMs: rateLimitDeadline,
-        sleepFn: sleepKeepingWorkerAlive,
-        afterWait
-      });
+      await withGuardianRateLimitRetry(
+        () =>
+          withTimeout(
+            multisig.registerOnGuardian(),
+            NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS,
+            `Guardian ${guardianEndpoint} registration`
+          ),
+        { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
+      );
     }
     assertLive('before the sync');
     await webClient.sync();

@@ -20,7 +20,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
-import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS, NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS } from './serialize';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -188,8 +188,14 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 jest.mock('./native-http');
-// A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
-jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
+// Deadlines no other deadline shares, so a test can tell which one a call reads. The
+// registration's sits under the #906 cases' 60 s Retry-After, so a ceiling on the whole
+// 429 retry would fail them.
+jest.mock('./serialize', () => ({
+  ...jest.requireActual('./serialize'),
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000,
+  NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS: 50_000
+}));
 const { mockProbeVerdicts, registerGuardianOrigin, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
@@ -548,6 +554,39 @@ describe('createGuardianAccount', () => {
     await expect(createGuardianAccount(webClient as never, new Uint8Array(32))).rejects.toThrow(
       'Failed to create Guardian account'
     );
+  });
+
+  it('fails account creation when the guardian never answers registration', async () => {
+    const webClient = makeWebClient();
+    const multisig = makeMultisig();
+    multisig.registerOnGuardian.mockImplementationOnce(() => new Promise<void>(() => {}));
+    multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+    jest.useFakeTimers();
+    try {
+      let outcome: unknown = 'pending';
+      void createGuardianAccount(webClient as never, new Uint8Array(32)).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
+      await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS - 1);
+      expect(outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(outcome).toMatchObject({
+        message: 'Failed to create Guardian account',
+        cause: { message: expect.stringContaining('Guardian https://default.guardian.test registration') }
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    expect(webClient.sync).not.toHaveBeenCalled();
+    expect(webClient.keystore.insert).not.toHaveBeenCalled();
   });
 
   // Not yet bound to an account, so on mobile the endpoint stays routed only once it serves a Guardian key.
