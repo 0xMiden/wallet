@@ -236,19 +236,53 @@ describe('fetchEarnPositions', () => {
       );
     });
 
-    it('says when a read dropped a vault, through an owner or the catalog, and not when none was', async () => {
+    it('names each vault a read dropped, through an owner or the catalog, and says when one had no key', async () => {
       const unreadableVault = { ...apiItem(), aprData: {}, lenderInfo: otherLender };
       loadWith([unreadableVault, thirdLender]);
-      expect((await fetchEarnPositions({ owners: [malformed, OWNER] })).vaultsDropped).toBe(true);
+      const keyed = await fetchEarnPositions({ owners: [malformed, OWNER] });
+      expect(keyed.droppedVaultKeys).toEqual(['OTHER_LENDING:11155111']);
+      expect(keyed.vaultDroppedUnkeyed).toBeUndefined();
+
+      loadWith([{ ...apiItem(), chainId: 11155111 }, thirdLender]);
+      const unkeyed = await fetchEarnPositions({ owners: [malformed, OWNER] });
+      expect(unkeyed.vaultDroppedUnkeyed).toBe(true);
+      expect(unkeyed.droppedVaultKeys).toBeUndefined();
 
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         json: async () => ({ success: true, data: { items: [unreadableVault, apiItem()] } })
       });
-      expect((await fetchEarnPositions({ owners: [] })).vaultsDropped).toBe(true);
+      expect((await fetchEarnPositions({ owners: [] })).droppedVaultKeys).toEqual(['OTHER_LENDING:11155111']);
 
       loadWith([thirdLender]);
-      expect((await fetchEarnPositions({ owners: [malformed, OWNER] })).vaultsDropped).toBeUndefined();
+      const clean = await fetchEarnPositions({ owners: [malformed, OWNER] });
+      expect(clean.droppedVaultKeys).toBeUndefined();
+      expect(clean.vaultDroppedUnkeyed).toBeUndefined();
+    });
+
+    it('drops only the vault of an item with no lender info, as one whose key could not be read', async () => {
+      loadWith([{ ...apiItem(), lenderInfo: undefined }, thirdLender]);
+
+      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.positions).toContainEqual(
+        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING' })
+      );
+      expect(result.vaultDroppedUnkeyed).toBe(true);
+    });
+
+    it('drops only a null catalog item, as one whose key could not be read', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, data: { items: [null, apiItem()] } })
+      });
+
+      const result = await fetchEarnPositions({ owners: [] });
+
+      expect(result.errors).toEqual([]);
+      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+      expect(result.vaultDroppedUnkeyed).toBe(true);
     });
 
     it("settles the catalog query's item with no APRs as the catalog's error, with no vaults", async () => {
@@ -388,16 +422,36 @@ describe('carryForward', () => {
     expect(carryForward(undefined, failed)).toBe(failed);
   });
 
-  it('brings back the vaults a read lacks when it dropped a vault, with no owner failed, and no positions', () => {
+  it('brings back the vault a read dropped, with no owner failed, and no positions', () => {
     const previous = read({ positions: [position(OTHER, 7)], vaults: [vault('OTHER_LENDING')], totalDepositsUSD: 7 });
     const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('DUMMY_LENDING')], totalDepositsUSD: 6 });
 
-    const carried = carryForward(previous, { ...loaded, vaultsDropped: true });
+    const carried = carryForward(previous, { ...loaded, droppedVaultKeys: ['OTHER_LENDING:11155111'] });
 
     expect(carried.vaults).toEqual([vault('DUMMY_LENDING'), vault('OTHER_LENDING')]);
     expect(carried.positions).toEqual([position(OWNER, 6)]);
     expect(carried.totalDepositsUSD).toBe(6);
     expect(carryForward(previous, loaded).vaults).toEqual([vault('DUMMY_LENDING')]);
+  });
+
+  describe('when a read that keeps one of three vaults dropped the second', () => {
+    const [first, second, third] = [vault('DUMMY_LENDING'), vault('OTHER_LENDING'), vault('THIRD_LENDING')];
+    const previous = read({ vaults: [first, second, third] });
+    const dropped = read({ vaults: [first], droppedVaultKeys: ['OTHER_LENDING:11155111'] });
+
+    it('brings back that vault alone', () => {
+      expect(carryForward(previous, dropped).vaults).toEqual([first, second]);
+    });
+
+    it('brings back every vault the read lacks when a dropped vault had no key', () => {
+      expect(carryForward(previous, { ...dropped, vaultDroppedUnkeyed: true }).vaults).toEqual([first, second, third]);
+    });
+
+    it('brings back every vault the read lacks when an owner failed', () => {
+      const failed = { ...dropped, errors: [{ owner: OTHER, error: 'positions request failed (429)' }] };
+
+      expect(carryForward(previous, failed).vaults).toEqual([first, second, third]);
+    });
   });
 });
 

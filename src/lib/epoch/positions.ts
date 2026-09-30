@@ -135,26 +135,35 @@ export interface EarnPositionsResult {
    * positions or vaults in this result: carrying what it loaded before is the caller's (see `carryForward`).
    */
   errors: { owner: string; error: string }[];
-  /** Set when a vault an owner or the catalog reported could not be read and was dropped from `vaults`. */
-  vaultsDropped?: boolean;
+  /** `${lenderKey}:${chainId}` of each vault an owner or the catalog reported that could not be read and was dropped. */
+  droppedVaultKeys?: string[];
+  /** Set when a dropped vault's item lacks a string `lenderInfo.lenderKey` or `chainId`, so no key names it. */
+  vaultDroppedUnkeyed?: boolean;
 }
 
 /**
- * `next` with what its failed owners last loaded: `previous`'s positions of every owner in `next.errors` and, when
- * any owner failed or `next` dropped a vault, `previous`'s vaults that `next` lacks. Owners and errors stay `next`'s,
- * so the failure is still reported. With no failed owner and no dropped vault, or nothing loaded before, it is `next`
- * itself.
+ * `next` with what its failed owners last loaded: `previous`'s positions of every owner in `next.errors`, and the
+ * vaults `next` lacks from `previous`: every one when any owner failed or a dropped vault had no key, otherwise only
+ * those `next.droppedVaultKeys` names. Owners and errors stay `next`'s, so the failure is still reported. With no
+ * failed owner and no dropped vault, or nothing loaded before, it is `next` itself.
  */
 export function carryForward(
   previous: EarnPositionsResult | undefined,
   next: EarnPositionsResult
 ): EarnPositionsResult {
-  if (!previous || (next.errors.length === 0 && !next.vaultsDropped)) return next;
+  const carryEveryVault = next.errors.length > 0 || next.vaultDroppedUnkeyed;
+  if (!previous || (!carryEveryVault && !next.droppedVaultKeys?.length)) return next;
   const failed = new Set(next.errors.map(({ owner }) => owner));
   const positions = [...next.positions, ...previous.positions.filter(({ owner }) => failed.has(owner))];
   const vaultKey = ({ lenderKey, chainId }: EarnVaultInfo) => `${lenderKey}:${chainId}`;
   const loaded = new Set(next.vaults.map(vaultKey));
-  const vaults = [...next.vaults, ...previous.vaults.filter(vault => !loaded.has(vaultKey(vault)))];
+  const dropped = new Set(next.droppedVaultKeys);
+  const vaults = [
+    ...next.vaults,
+    ...previous.vaults.filter(
+      vault => !loaded.has(vaultKey(vault)) && (carryEveryVault || dropped.has(vaultKey(vault)))
+    )
+  ];
   return { ...next, positions, vaults, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 
@@ -315,16 +324,18 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const positions: EarnPosition[] = [];
   const vaultsByKey = new Map<string, EarnVaultInfo>();
   const errors: { owner: string; error: string }[] = [];
-  let vaultsDropped = false;
+  const droppedVaultKeys: string[] = [];
+  let vaultDroppedUnkeyed = false;
   for (const result of results) {
     if (result.error) {
       errors.push({ owner: result.owner, error: result.error });
     }
     // An owner fails alone, like a failed request, when its holdings cannot be read (an item's positions, or a field a
     // funded position copies), so the read does not reject after its requests are spent. An item whose vault cannot be
-    // read drops only that vault and marks the read, so the caller keeps the one it showed before; a funded item's
-    // vault reads only fields its positions already checked, so it is never dropped. A query whose items leave no vault
-    // fails too, so a malformed catalog never reads as nothing to show.
+    // read drops only that vault and records its key, or that it had none, so the caller keeps the one it showed before
+    // (see `carryForward`); the key is read so that it never throws, so an item with no lenderInfo, or a null catalog
+    // item, drops only its vault. A funded item's vault reads only fields its positions already checked, so it is never
+    // dropped. A query whose items leave no vault fails too, so a malformed catalog never reads as nothing to show.
     const ownerPositions: EarnPosition[] = [];
     const ownerVaults: EarnVaultInfo[] = [];
     try {
@@ -333,7 +344,13 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
         try {
           ownerVaults.push(chainItemVault(item));
         } catch (err) {
-          vaultsDropped = true;
+          const lenderKey = item?.lenderInfo?.lenderKey;
+          const chainId = item?.chainId;
+          if (typeof lenderKey === 'string' && typeof chainId === 'string') {
+            droppedVaultKeys.push(`${lenderKey}:${chainId}`);
+          } else {
+            vaultDroppedUnkeyed = true;
+          }
           console.warn(`[epoch] positions vault unreadable for ${result.owner}, dropped`, err);
         }
         ownerPositions.push(...itemPositions);
@@ -362,6 +379,7 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     totalDepositsUSD,
     owners,
     errors,
-    ...(vaultsDropped ? { vaultsDropped } : {})
+    ...(droppedVaultKeys.length > 0 ? { droppedVaultKeys } : {}),
+    ...(vaultDroppedUnkeyed ? { vaultDroppedUnkeyed } : {})
   };
 }
