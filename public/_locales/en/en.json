@@ -1229,5 +1229,13 @@
   "activityAcceptingTransfer": "Accepting…",
   "transfersSection": "Transfers",
   "activityUnread": "Unread",
-  "revealRecoveryPhrase": "Reveal recovery phrase"
+  "revealRecoveryPhrase": "Reveal recovery phrase",
+  "hideToken": "Hide token",
+  "unhideToken": "Unhide token",
+  "tokenHiddenNotice": "Hidden from Home. It stays in your wallet and its transfers can still be claimed.",
+  "hiddenAssets": "Hidden assets",
+  "hiddenAssetsCount": "Hidden assets ($count$)",
+  "unhide": "Unhide",
+  "unhideTokenLabel": "Unhide $name$",
+  "hiddenTokensError": "Could not update hidden tokens. Please try again."
 }
