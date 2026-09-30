@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
-import { markOnboardingFinishing } from 'app/onboarding-finish';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
@@ -139,9 +139,18 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // The wipe and registerWallet can each fail here; a failure usually
-        // comes after the wipe, so it surfaces the reason and stays put so
-        // Retry is reachable (#630).
+        // The wipe and registerWallet can each fail here, and what a failure
+        // leaves depends on the platform. On DESKTOP the platform key-value
+        // store is localStorage (`DesktopStorage`), so clearClientStorage()
+        // above removes the stored wallet, and a failure after it, the usual
+        // case, leaves none. On the extension and on mobile the wallet lives in
+        // browser.storage.local / Capacitor Preferences, which clearClientStorage()
+        // cannot reach, so it goes with `Vault.spawn`'s clearStorage(), and a
+        // failure can come before or after that clear and leave it or not.
+        // Swallowing the error into console.error (and then navigating away
+        // regardless) showed an empty wallet with no explanation,
+        // indistinguishable from data loss, so on every platform the page shows
+        // the error and stays put so Retry is reachable (#630).
         console.error(e);
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
@@ -247,7 +256,7 @@ const ForgotPassword: FC = () => {
             if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
             // Guardian recovery just completed — hand off to the side panel like
             // first-run onboarding rather than always entering in-tab (#428).
-            navigate(postOnboardingRoute());
+            navigateOnFromOnboarding(postOnboardingRoute());
           } finally {
             setIsLoading(false);
             finishMark.release();

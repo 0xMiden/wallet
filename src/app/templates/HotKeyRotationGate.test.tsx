@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { markOnboardingFinishing, ONBOARDING_FINISH_BUDGET_MS } from 'app/onboarding-finish';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -36,6 +37,10 @@ let mockBalancesLoading = false;
 let mockFaucetId: string | null = 'native-faucet';
 let mockClaimable: { data?: ConsumableNote[]; isFallback: boolean } = { data: [], isFallback: false };
 const mockEnqueue = jest.fn(async (..._args: unknown[]): Promise<string | null> => 'claim-tx');
+// Defaults keep the gate's handoff-screen exemption off for every test but its own (#1097).
+let mockAppEnv: { fullPage: boolean } = { fullPage: false };
+let mockLocation: { pathname: string } = { pathname: '/' };
+let mockHandoffAvailable = false;
 
 let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
@@ -87,6 +92,23 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+jest.mock('app/env', () => ({
+  useAppEnv: () => mockAppEnv
+}));
+
+// Partial mock: only `useLocation` is driven; `navigate` (used by the recovery-seed
+// prompt's onClose) keeps its real implementation, as it takes no wrapping provider.
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  useLocation: () => mockLocation
+}));
+
+// Partial mock: only `canHandoffToSidePanel` is driven, so the gate exempts the real handoff routes.
+jest.mock('lib/extension/side-panel-handoff', () => ({
+  ...jest.requireActual('lib/extension/side-panel-handoff'),
+  canHandoffToSidePanel: () => mockHandoffAvailable
+}));
 
 jest.mock('lib/dexie-live-query', () => ({
   subscribeToLiveQuery: (query: () => unknown, observer: { next: (value: unknown) => void }) => {
@@ -279,6 +301,9 @@ describe('HotKeyRotationGate', () => {
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
     mockUseTransactionRow.mockReturnValue({ row: undefined, loaded: true });
+    mockAppEnv = { fullPage: false };
+    mockLocation = { pathname: '/' };
+    mockHandoffAvailable = false;
   });
 
   it('renders nothing when there is no account or no rotation flag', () => {
@@ -539,13 +564,22 @@ describe('HotKeyRotationGate', () => {
       mockPlatform.isExtension = true;
       mockTable = [
         shortfallRow(),
-        fundingRow('claim-1', { status: ITransactionStatus.GeneratingTransaction, processingStartedAt: 5 })
+        fundingRow('claim-1', {
+          status: ITransactionStatus.GeneratingTransaction,
+          processingStartedAt: 5,
+          requeueStreak: { arm: 'guardian-unreachable', count: 2 }
+        })
       ];
 
       render(<HotKeyRotationGate />);
 
+      // An orphan reset is not a requeue down a guardian arm, so the claim's backoff starts over (#1223).
       await waitFor(() =>
-        expect(mockTable[1]).toMatchObject({ status: ITransactionStatus.Queued, processingStartedAt: undefined })
+        expect(mockTable[1]).toMatchObject({
+          status: ITransactionStatus.Queued,
+          processingStartedAt: undefined,
+          requeueStreak: undefined
+        })
       );
       await waitFor(() => expect(mockRequestSW).toHaveBeenCalled());
       expect(mockInitiate).not.toHaveBeenCalled();
@@ -1146,6 +1180,111 @@ describe('HotKeyRotationGate', () => {
       await screen.findByTestId('hot-key-rotation-failed');
       expect(screen.getByText(TRANSACTION_VAULT_SHORTFALL_ERROR)).toBeInTheDocument();
       expect(screen.queryByText(/assertion failed/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the onboarding-tab handoff screens (#1097)', () => {
+    beforeEach(() => {
+      mockAppEnv = { fullPage: true };
+      mockHandoffAvailable = true;
+    });
+
+    it.each(['/finish-side-panel', '/help-improve-wallet'])(
+      'renders nothing and starts no rotation on %s',
+      async route => {
+        mockLocation = { pathname: route };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+      }
+    );
+
+    it('renders the gate on a non-handoff full-page route', async () => {
+      mockLocation = { pathname: '/' };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the consent screen when the side panel is unavailable', async () => {
+      mockLocation = { pathname: '/help-improve-wallet' };
+      mockHandoffAvailable = false;
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the handoff screen inside the side-panel window itself', async () => {
+      mockLocation = { pathname: '/finish-side-panel' };
+      mockAppEnv = { fullPage: false };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    // The mark is module-global, so each test releases its own after unmounting the gate, and no rotation starts
+    // after the test.
+    it("renders nothing and starts no rotation at '/' while the onboarding tab finishes, and gates once the mark is released", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+
+        act(() => mark.release());
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
+    });
+
+    it("gates once the finishing mark's budget runs out", async () => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mark = markOnboardingFinishing();
+      try {
+        mark.arm();
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        act(() => {
+          jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS - 1);
+        });
+        expect(container).toBeEmptyDOMElement();
+
+        act(() => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    it("renders the gate at '/' while the onboarding tab finishes without a side panel", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        mockHandoffAvailable = false;
+        render(<HotKeyRotationGate />);
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
     });
   });
 });

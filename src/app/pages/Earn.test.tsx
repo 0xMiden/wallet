@@ -18,7 +18,10 @@ import Earn from './Earn';
 jest.mock('screens/earn-flow/components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
-  )
+  ),
+  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+    `${subject.asset} on ${subject.network}`
 }));
 jest.mock('screens/earn-flow/ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
@@ -156,11 +159,11 @@ describe('Earn page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
   });
 
-  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
-    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
-    // must not lift and flash "$0" back.
+  it('keeps the failure said, and the summary gone, while a retry is out', () => {
+    // The hook keeps the error through a retry and reports it as not loading: the failed state must not
+    // lift and flash "$0" back.
     const refetch = jest.fn();
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
@@ -236,10 +239,17 @@ describe('Earn page', () => {
       expect(card).not.toHaveClass('bg-fill');
     });
 
+    // Each card names its position as the page it opens does: the protocol over its asset on its
+    // network, never the old "{protocol} • {asset}" join.
+    positions.forEach((position, index) => {
+      const card = cards[index]!;
+      expect(card).not.toHaveTextContent(`${position.protocol} • ${position.asset}`);
+      expect(within(card).getByText(position.protocol)).toHaveClass('text-row-title');
+      expect(within(card).getByText(`${position.asset} on ${position.network}`)).toHaveClass('text-muted');
+    });
+
     const first = positions[0]!;
     const firstCard = cards[0]!;
-    // Protocol + asset are joined by a bullet in a single node.
-    expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
     expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
     expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
@@ -255,9 +265,7 @@ describe('Earn page', () => {
     const positionCard = within(positionsSection())
       .getAllByRole('button')
       .find(button => button.textContent !== 'earnSeeAll')!;
-    expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
-      'text-ink'
-    );
+    expect(within(positionCard).getByText(positions[0]!.protocol)).toHaveClass('text-ink');
     expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;

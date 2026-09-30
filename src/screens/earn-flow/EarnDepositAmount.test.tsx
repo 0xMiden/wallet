@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -99,7 +100,7 @@ jest.mock('./useEarnPositions', () => {
 // The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
 // capture from when balances were read (0 here: read before any quote), which the screen must not
 // trust; its price comes from the live quote in the store.
-const USDC_ROW = { tokenId: '0xusdcfaucet', balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+const USDC_ROW = { tokenId: MIDEN_USDC_FAUCET, balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
 let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
@@ -117,7 +118,7 @@ jest.mock('lib/store', () => ({
 // faucet constants and the id normalizer are used here.
 jest.mock('lib/epoch', () => ({
   MIDEN_USDC_DECIMALS: 6,
-  MIDEN_USDC_FAUCET: '0xusdcfaucet',
+  MIDEN_USDC_FAUCET: jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
   normalizeMidenIdToHex: (id: string) => id.toLowerCase()
 }));
 
@@ -151,7 +152,7 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-token-id', '0xusdcfaucet');
+    expect(select).toHaveAttribute('data-token-id', MIDEN_USDC_FAUCET);
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
@@ -287,8 +288,8 @@ describe('EarnDepositAmount after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, with no vault in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+  it('keeps the failure said while a retry is out, with no vault in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();

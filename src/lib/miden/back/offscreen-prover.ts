@@ -91,8 +91,8 @@ export function isCriticalOpInFlight(): boolean {
  * Inside the offscreen document itself this returns false FIRST (via
  * {@link isInOffscreenDocument}): a doc cannot spawn a sub-doc, and re-dispatching
  * OFFSCREEN_PROVE from inside would deadlock (no in-doc handler), so an
- * offscreen-doc write must prove locally on its own `useWorker:false` WASM
- * (issue #260 flip-prep #4).
+ * offscreen-doc write proves locally in the doc's own prove worker
+ * (issue #260 flip-prep #4, #945).
  */
 export function isOffscreenAvailable(): boolean {
   if (isInOffscreenDocument()) return false;
@@ -198,13 +198,14 @@ export type ProveViaOffscreenResult = {
  * Send an executed `TransactionResult` (serialized bytes) to the offscreen
  * prover and await the proven `ProvenTransaction` (serialized bytes).
  *
- * `proverDescriptor` is the string returned by `TransactionProver.serialize()`
- * — `"local"` or `"remote|<endpoint>[|<timeout_ms>]"`. Pass `null` to make
- * the offscreen doc construct a fresh local prover (the common case).
+ * `proverDescriptor` is `null` or `"local"`: either way the offscreen document
+ * proves in its own prove worker (#945). The one caller always passes `null`.
+ * Any other string answers `ok: false` with `unsupported prover descriptor`,
+ * refused by the offscreen document before the worker, which proves locally only.
  */
 export async function proveViaOffscreen(
   txResultBytes: Uint8Array,
-  proverDescriptor: string | null
+  proverDescriptor: 'local' | null
 ): Promise<ProveViaOffscreenResult> {
   // Increment BEFORE ensureOffscreenDocument so an interleaving deadline kill
   // sees us as in-flight. Decrement in finally.

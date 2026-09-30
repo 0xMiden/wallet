@@ -2,6 +2,7 @@ import semver from 'semver';
 
 import { isAndroid, isExtension, isIOS, isMobile } from 'lib/platform';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
+import { fetchBoundedJson, type JsonFetch, readTimestampedEntry } from 'lib/remote-json';
 
 import { UpdateController } from './controller';
 import { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
@@ -47,21 +48,11 @@ export interface UpdateNotificationRuntime {
   subscribe(listener: (reason: UpdateRefreshReason) => void): Promise<() => void> | (() => void);
 }
 
-interface ManifestResponse {
-  ok: boolean;
-  headers?: { get(name: string): string | null };
-  text?(): Promise<string>;
-  json(): Promise<unknown>;
-}
-
 interface RuntimeDependencies {
   createAdapter(): Promise<UpdateAvailabilityAdapter>;
   storage: StorageProvider;
   now(): number;
-  fetchManifest(
-    input: string,
-    init: { cache: 'no-store'; headers: { Accept: string }; signal?: AbortSignal }
-  ): Promise<ManifestResponse>;
+  fetchManifest: JsonFetch;
   subscribe(listener: (reason: UpdateRefreshReason) => void): Promise<() => void> | (() => void);
 }
 
@@ -107,20 +98,14 @@ export async function createUpdateNotificationRuntime(
     if (injected) return injected;
     const cached = await readCachedManifest(storage, now());
     if (cached) return cached;
-    const response = await fetchManifest(RELEASE_MANIFEST_URL, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(MANIFEST_REQUEST_TIMEOUT_MS)
+    const body = await fetchBoundedJson(fetchManifest, RELEASE_MANIFEST_URL, {
+      maxBytes: MANIFEST_MAX_BYTES,
+      timeoutMs: MANIFEST_REQUEST_TIMEOUT_MS
     });
-    if (!response.ok) throw new Error('Update manifest request failed');
-    // The declared length is the cheap rejection; the body is measured too,
-    // because a chunked or re-encoded response declares nothing useful.
-    const declaredLength = Number(response.headers?.get('content-length') ?? '0');
-    if (declaredLength > MANIFEST_MAX_BYTES) throw new Error('Update manifest is too large');
     // Validate before storing: the cache is device storage every realm reads for
     // six hours, so it holds the bounded shape the schema allows, not whatever
     // the network returned.
-    const manifest = parseUpdateManifest(await readBoundedBody(response));
+    const manifest = parseUpdateManifest(body);
     // Optional metadata: a storage failure only costs the next realm a refetch.
     await storage.set({ [MANIFEST_CACHE_KEY]: { fetchedAt: now(), body: manifest } }).catch(() => undefined);
     return manifest;
@@ -149,20 +134,11 @@ export async function createDefaultAdapter(): Promise<UpdateAvailabilityAdapter>
   return new (await import('./desktop')).DesktopUpdateAdapter();
 }
 
-async function readBoundedBody(response: ManifestResponse): Promise<unknown> {
-  if (!response.text) return response.json();
-  const raw = await response.text();
-  if (raw.length > MANIFEST_MAX_BYTES) throw new Error('Update manifest is too large');
-  return JSON.parse(raw);
-}
-
 async function readCachedManifest(storage: StorageProvider, now: number): Promise<unknown | null> {
   try {
-    const cached = (await storage.get([MANIFEST_CACHE_KEY]))[MANIFEST_CACHE_KEY];
-    if (typeof cached !== 'object' || cached === null) return null;
-    const { fetchedAt, body } = cached as { fetchedAt?: unknown; body?: unknown };
-    if (typeof fetchedAt !== 'number' || now - fetchedAt >= MANIFEST_CACHE_MS || now < fetchedAt) return null;
-    return body ?? null;
+    const cached = readTimestampedEntry((await storage.get([MANIFEST_CACHE_KEY]))[MANIFEST_CACHE_KEY]);
+    if (!cached || now - cached.fetchedAt >= MANIFEST_CACHE_MS || now < cached.fetchedAt) return null;
+    return cached.body ?? null;
   } catch {
     return null;
   }

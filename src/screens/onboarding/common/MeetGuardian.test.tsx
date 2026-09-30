@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -126,7 +126,7 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
-  it('opens the "What is a Guardian?" sheet from the section header', () => {
+  it('opens the "What is a Guardian?" sheet from the card, while the first round is still out', () => {
     renderScreen();
 
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
@@ -146,7 +146,7 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
   });
 
-  it("offers the chosen operator's change action as TextAction's row, with its one haptic and focus ring", () => {
+  it("offers the chosen operator's change action beside its name, with its one haptic and focus ring", () => {
     const onChooseDifferent = jest.fn();
     const view = renderScreen({ onChooseDifferent });
     view.setVerdicts({
@@ -154,11 +154,12 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
     });
 
-    // The action closes the section, after the card rather than inside it.
+    // "Change" sits in the card's top row, on the same line as the operator.
     const action = screen.getByTestId('meet-guardian-choose-different');
-    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(action);
-    expect(screen.getByTestId('meet-guardian-card')).not.toContainElement(action);
-    expect(action).toHaveClass('focus-visible:ring-accent-primary', 'w-full', 'justify-between');
+    expect(screen.getByTestId('meet-guardian-card')).toContainElement(action);
+    expect(action.parentElement).toContainElement(screen.getByTestId('meet-guardian-name'));
+    expect(action).toHaveTextContent('meetGuardianChange');
+    expect(action).toHaveClass('focus-visible:ring-accent-primary', 'text-accent-tint-ink');
     fireEvent.click(action);
     expect(onChooseDifferent).toHaveBeenCalledTimes(1);
     expect(hapticLight).toHaveBeenCalledTimes(1);
@@ -182,16 +183,9 @@ describe('MeetGuardianScreen', () => {
     // No status and no number while it is up: the ranking is one moment's measurement.
     expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
     expect(screen.queryByText(/42/)).toBeNull();
-    expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
-    expect(screen.getByText('guardianBioGateway')).toBeInTheDocument();
-    expect(screen.getByText('meetGuardianCannotMoveFunds')).toBeInTheDocument();
-    expect(screen.getByText('meetGuardianBacksUpState')).toBeInTheDocument();
-    expect(screen.getByText('meetGuardianCanSwitch')).toBeInTheDocument();
-    // Every guarantee is drawn with the same check, none with a cross.
-    const card = screen.getByTestId('meet-guardian-card');
-    expect(card.querySelectorAll('li')).toHaveLength(3);
-    expect(card.querySelectorAll('li .bg-positive-tint')).toHaveLength(3);
-    expect(screen.getByTestId('meet-guardian-fastest')).toHaveTextContent('meetGuardianFastestOf:2');
+    // What it does and does not do, in one sentence that names it.
+    expect(screen.getByTestId('meet-guardian-summary')).toHaveTextContent('meetGuardianSummary:Gateway Operator');
+    expect(screen.getByTestId('meet-guardian-header')).toHaveTextContent('meetGuardianYourGuardian');
 
     const button = screen.getByTestId('meet-guardian-continue');
     expect(button).toBeEnabled();
@@ -270,7 +264,7 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
   });
 
-  it('Choose a different Guardian hands off to the host', () => {
+  it("the card's Change action hands off to the host", () => {
     const onChooseDifferent = jest.fn();
     const view = renderScreen({ onChooseDifferent });
     tickAll();
@@ -323,7 +317,7 @@ describe('MeetGuardianScreen', () => {
     }
   );
 
-  it('drops the "fastest" caption for an operator the user picked in the full picker', () => {
+  it('keeps an operator the user picked in the full picker, however it ranks', () => {
     const view = renderScreen({
       initialProgress: {
         checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
@@ -337,7 +331,6 @@ describe('MeetGuardianScreen', () => {
     });
 
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
-    expect(screen.queryByText(/meetGuardianFastestOf/)).toBeNull();
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
@@ -355,44 +348,43 @@ describe('MeetGuardianScreen', () => {
     });
 
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
-  it('names the only operator without a count when the network has one', () => {
+  it('offers the only operator on a network with one, still with the change action', () => {
     mockGetGuardianOptions.mockReturnValue([{ ...OZ }]);
     const view = renderScreen();
     tickAll();
     view.setVerdicts({ [OZ.endpoint]: { status: 'online', latencyMs: 30 } });
-    expect(screen.getByText('meetGuardianOnlyOperator')).toBeInTheDocument();
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
+    expect(screen.getByTestId('meet-guardian-summary')).toHaveTextContent('meetGuardianSummary:OpenZeppelin');
+    expect(screen.getByTestId('meet-guardian-choose-different')).toBeInTheDocument();
   });
 });
 
 describe('MeetGuardianScreen: shared pieces', () => {
-  it('draws the header, the guarantees and the checklist from the shared components', () => {
+  it('draws the Guardian as one outlined card and the checklist from the shared components', () => {
     const view = renderScreen();
     view.setVerdicts({
       [OZ.endpoint]: { status: 'online', latencyMs: 120 },
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
     });
 
-    // The header is SectionHeader, flush, with the info action as its action.
-    const header = screen.getByTestId('meet-guardian-header');
-    expect(header).toHaveClass('px-0', 'pb-0');
-    expect(within(header).getByRole('heading', { level: 2 })).toHaveTextContent('meetGuardianYourGuardian');
-    expect(within(header).getByTestId('meet-guardian-info')).toBeInTheDocument();
-
-    // The guarantees are FactRow items with a small tinted IconCircle, in an outlined list.
-    const list = screen.getByTestId('meet-guardian-guarantees');
-    expect(list.tagName).toBe('UL');
-    expect(list).toHaveClass('rounded-2xl', 'border', 'border-hairline');
-    const items = Array.from(list.children);
-    expect(items).toHaveLength(3);
-    for (const item of items) {
-      expect(item.tagName).toBe('LI');
-      expect(item).toHaveAttribute('data-slot', 'fact-row');
-      expect(item.querySelector('[data-slot="icon"]')).toHaveClass('size-5', 'bg-positive-tint');
-    }
+    // One outlined card: the operator's row, then a hairline and the sentence, then the footer.
+    const card = screen.getByTestId('meet-guardian-card');
+    expect(card).toHaveClass('rounded-2xl', 'border', 'border-hairline', 'bg-page');
+    const summary = screen.getByTestId('meet-guardian-summary');
+    expect(summary).toHaveClass('text-caption-heading', 'text-muted');
+    expect(summary.parentElement).toHaveClass('border-t', 'border-hairline');
+    // The explainer link is the card's footer, on the fill well under its own hairline.
+    const footer = screen.getByTestId('meet-guardian-footer');
+    expect(footer).toHaveClass('border-t', 'border-hairline', 'bg-fill');
+    expect(footer).toContainElement(screen.getByTestId('meet-guardian-info'));
+    expect(card.lastElementChild).toBe(footer);
+    expect(card).toHaveClass('overflow-hidden');
+    // No second list of guarantees, speed pill or bio: the sentence carries them.
+    expect(card.querySelector('ul')).toBeNull();
+    expect(screen.queryByTestId('meet-guardian-fastest')).toBeNull();
 
     // The checklist keeps each row's own inset through ListGroup, not a page override, and its full height.
     const group = screen.getAllByRole('checkbox')[0]!.parentElement!;
@@ -403,19 +395,29 @@ describe('MeetGuardianScreen: shared pieces', () => {
     expect(screen.getByTestId('meet-guardian-name')).toHaveClass('truncate', 'max-w-full');
   });
 
-  it('offers the one change action, the row, while checking and when no operator answers', () => {
+  it('says no operator answers inside the same card, beside its change action and above its footer', () => {
     const view = renderScreen();
-    const row = () => screen.getByTestId('meet-guardian-choose-different');
-    expect(screen.getByTestId('meet-guardian-checking')).not.toContainElement(row());
-    expect(screen.getByTestId('meet-guardian-section').lastElementChild).toBe(row());
-    expect(row()).toHaveClass('w-full', 'justify-between');
+    const action = () => screen.getByTestId('meet-guardian-choose-different');
+    expect(screen.getByTestId('meet-guardian-checking')).toContainElement(action());
 
     view.setVerdicts({
       [OZ.endpoint]: { status: 'offline' },
       [GATEWAY.endpoint]: { status: 'offline' }
     });
-    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
-    expect(row()).toHaveClass('w-full', 'justify-between');
+    const section = screen.getByTestId('meet-guardian-section');
+    expect(section.children).toHaveLength(1);
+    const card = section.firstElementChild!;
+    expect(card).toHaveClass('rounded-2xl', 'border', 'border-hairline');
+    expect(card).toHaveAttribute('aria-busy', 'false');
+    // The notice takes the operator's place in the card's row, and no sentence follows it.
+    const notice = screen.getByTestId('meet-guardian-none-reachable');
+    expect(notice).toHaveTextContent('meetGuardianNoneReachable');
+    expect(action().parentElement).toContainElement(notice);
+    expect(action()).toHaveTextContent('meetGuardianChange');
+    expect(screen.queryByTestId('meet-guardian-summary')).toBeNull();
+    expect(card.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(card.lastElementChild).toBe(screen.getByTestId('meet-guardian-footer'));
+    expect(screen.getByTestId('meet-guardian-footer')).toContainElement(screen.getByTestId('meet-guardian-info'));
   });
 
   it('keeps the change action the same element, focus and all, when the round settles', () => {
@@ -434,26 +436,50 @@ describe('MeetGuardianScreen: shared pieces', () => {
     expect(document.activeElement).toBe(action);
   });
 
-  it("holds the card's shape while checking: a three-row placeholder where the guarantees will be", () => {
+  it.each(['meet-guardian-choose-different', 'meet-guardian-info'])(
+    'keeps %s the same element, focus and all, when the round settles with no operator reachable',
+    testId => {
+      const view = renderScreen();
+      const target = screen.getByTestId(testId);
+      act(() => target.focus());
+
+      view.setVerdicts({ [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } });
+
+      expect(document.activeElement).toBe(target);
+      expect(target.isConnected).toBe(true);
+      expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+      expect(screen.getByTestId(testId)).toBe(target);
+    }
+  );
+
+  it.each(['meet-guardian-choose-different', 'meet-guardian-info'])(
+    'keeps %s the same element, focus and all, when an operator answers after none did',
+    testId => {
+      const view = renderScreen();
+      view.setVerdicts({ [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } });
+      const target = screen.getByTestId(testId);
+      act(() => target.focus());
+
+      view.setVerdicts({
+        [OZ.endpoint]: { status: 'online', latencyMs: 30 },
+        [GATEWAY.endpoint]: { status: 'offline' }
+      });
+
+      expect(document.activeElement).toBe(target);
+      expect(target.isConnected).toBe(true);
+      expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
+      expect(screen.getByTestId(testId)).toBe(target);
+    }
+  );
+
+  it("holds the card's shape while checking: the logo row, then two placeholder lines for the sentence", () => {
     renderScreen();
 
-    const placeholder = within(screen.getByTestId('meet-guardian-checking')).getByTestId(
-      'meet-guardian-guarantees-placeholder'
-    );
-    expect(placeholder.tagName).toBe('UL');
-    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
-    expect(placeholder.children).toHaveLength(3);
-  });
-
-  it('tags the fastest operator with a neutral pill, not a status colour', () => {
-    const view = renderScreen();
-    view.setVerdicts({
-      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
-      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
-    });
-
-    const tag = screen.getByTestId('meet-guardian-fastest');
-    expect(tag).toHaveClass('bg-fill', 'text-ink');
-    expect(tag).not.toHaveClass('bg-positive-tint');
+    const card = screen.getByTestId('meet-guardian-checking');
+    expect(card).toHaveAttribute('aria-busy', 'true');
+    expect(card).toHaveClass('rounded-2xl', 'border', 'border-hairline');
+    const lines = card.querySelector('[aria-hidden="true"]')!;
+    expect(lines.children).toHaveLength(2);
+    expect(screen.queryByTestId('meet-guardian-summary')).toBeNull();
   });
 });

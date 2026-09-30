@@ -1,18 +1,23 @@
 import React, { FC } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber, AssetListItem, Sparkline } from 'components/ui';
+import { AnimatedNumber, AssetListItem, Pill, Sparkline } from 'components/ui';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
   asset: TokenBalanceData;
   tokenPrices: TokenPrices;
   onClick?: () => void;
+  /** Draws the 1D sparkline (the default). Off, the row fetches none and gives its width to the name. */
+  sparkline?: boolean;
   'data-testid'?: string;
 }
 
@@ -27,7 +32,15 @@ const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixe
  * Binance (flat-grey fallback for unindexed symbols), fiat price, and
  * coloured 24h delta.
  */
-export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data-testid': dataTestId }) => {
+export const AssetRow: FC<AssetRowProps> = ({
+  asset,
+  tokenPrices,
+  onClick,
+  sparkline = true,
+  'data-testid': dataTestId
+}) => {
+  const { t } = useTranslation();
+  const verification = useTokenVerification(asset.tokenId);
   const { metadata, balance } = asset;
   // `balance` was divided by `metadata.decimals` upstream, so when those
   // decimals are the unknown-token placeholder's guess the number is not the
@@ -51,7 +64,8 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
   const formatQuantity = adaptiveFormatterFor(balance);
   const formatFiat = adaptiveFormatterFor(fiatValue);
 
-  const points = useTokenSparkline(priceSymbol, '1D');
+  // An empty symbol is the hook's "fetch nothing".
+  const points = useTokenSparkline(sparkline ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
   const sparkColor =
@@ -72,7 +86,7 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
           metadata.symbol
         )
       }
-      chart={<Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />}
+      chart={sparkline ? <Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} /> : undefined}
       price={
         scaleIsKnown && quote ? (
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
@@ -82,6 +96,13 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
         quote && direction
           ? { value: <AnimatedNumber value={quote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
+      }
+      badge={
+        verification === 'unverified' ? (
+          <Pill size="xs" tone="warning">
+            {t('unverifiedToken')}
+          </Pill>
+        ) : undefined
       }
       onClick={onClick}
       data-testid={dataTestId}

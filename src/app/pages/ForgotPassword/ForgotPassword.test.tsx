@@ -8,6 +8,28 @@ import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/t
 
 import ForgotPassword from './ForgotPassword';
 
+// The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
+const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
+jest.mock('app/onboarding-finish', () => {
+  const actual = jest.requireActual('app/onboarding-finish');
+  return {
+    ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
+    markOnboardingFinishing: () => {
+      const mark = actual.markOnboardingFinishing();
+      const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
+      mockMarks.push(recorded);
+      return recorded;
+    }
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read/write at call time (must be `mock`-prefixed so
 // jest allows referencing them inside hoisted `jest.mock` factories).
@@ -344,6 +366,12 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
   });
 
   it('holds the finishing mark while it registers and releases it after navigating on', async () => {

@@ -16,6 +16,8 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
+import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isUnconfirmedFailure, isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
@@ -68,8 +70,9 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   earnWithdrawAmountFields,
-  formatBridgeOutputAmount,
+  earnWithdrawShowsSource,
   formatDate,
+  formatMoneyAmount,
   isBridgeInEntry,
   swapSettlementOf
 } from './transactionUtils';
@@ -126,18 +129,14 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
-  // Only a genuine Epoch quote (unbounded precision) is rounded for display here. A
-  // Slow-route bridge-in's amounts, and a bridge-out's Miden-side send amount on EITHER
-  // route (always what was typed, capped by AmountInput at 6 decimals, never a quote), are
-  // shown as stored. `bridgeRowDisplay` already applies this same rule to a bridge-out's OUT
-  // side (it formats `bridgeOutputAmount` only, an Epoch-only field, and passes the
-  // Agglayer/no-quote fallback to `entry.amount` through unformatted), so this component
-  // reformats nothing further for bridge-out. `break-all` + `min-w-0` keep an unexpectedly
-  // long value from widening the page (#752).
-  const isEpochBridgeIn = bridgeIn && entry.bridgeInProvider === 'epoch';
-  const inAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(rawInAmount) : rawInAmount) ?? '-';
-  const displayedOutAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(outAmount) : outAmount) ?? inAmount;
+  // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
+  // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
+  // Miden-side amount, already exact. The row helpers above format the out side, as the list row
+  // shows it, so it is not formatted again, and a missing one is never filled from the in side.
+  // `break-all` + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inKind = entry.bridgeInFromEarnWithdraw ? 'receives' : entry.bridgeInProvider === 'epoch' ? 'pays' : 'typed';
+  const inAmount = (bridgeIn ? formatMoneyAmount(entry.bridgeInSourceAmount, inKind, inSymbol) : entry.amount) ?? '-';
+  const displayedOutAmount = outAmount ?? '-';
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
@@ -177,7 +176,9 @@ function formatFiatDisplayAmount(
   // No estimate for a token the feed does not quote, rather than its amount at $1 a unit.
   const quote = tokenQuote(tokenPrices, faucetId, tokenSymbol);
 
-  if (!displayAmount.isFinite() || !quote) {
+  // Nor for an amount outside the display window, which the money helper passes through as written: expanding it
+  // here writes out every digit.
+  if (!isDisplayable(displayAmount) || !quote) {
     return undefined;
   }
 
@@ -432,7 +433,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
-            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined)
+            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined
         };
 
         if (tx.type === 'swap') {
@@ -592,10 +594,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // and vanish between renders as metadata lands, which is worse than absent.
   // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
-  const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, entry.amount, entry.faucetId, entry.token, tokenPrices)
-      : undefined;
   // One entry per faucet the claim swept up, each with the asset and quantity
   // that faucet contributed. Resolved through the SAME helper as the hero badge
   // over it, so the two cannot disagree about what a faucet is called - and
@@ -604,19 +602,45 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     spansMultipleAssets && transaction
       ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
       : [];
+  // The hero and the badge print one amount. An Earn withdrawal's is already formatted, and an
+  // Earn deposit's and a (cancelled) bridge-out's are the amount typed, each as its Activity row shows it.
+  const historyAmount =
+    entry?.amount === undefined
+      ? undefined
+      : entry.txType === 'earn-withdraw'
+        ? entry.amount
+        : entry.txType === 'earn-deposit' || entry.txType === 'bridged-send'
+          ? formatMoneyAmount(entry.amount, 'typed')
+          : formatDisplayAmount(entry.amount);
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
+  const badgeShowsHistoryAmount =
+    entry?.txType === 'send' || entry?.txType === 'bridged-send' || entry?.txType === 'earn-deposit';
   const historySummaryBadgeContent =
-    transactionSummaryBadgeContent &&
-    entry?.amount !== undefined &&
-    entry.token &&
-    (entry.txType === 'send' || entry.txType === 'bridged-send' || entry.txType === 'earn-deposit')
+    transactionSummaryBadgeContent && historyAmount !== undefined && entry?.token && badgeShowsHistoryAmount
       ? {
           ...transactionSummaryBadgeContent,
-          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+          lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
+  // The estimate prices the figure the hero prints: a bridge-in's out side, the row's own amount on
+  // SwapDetail and on a badge that prints it (a claim's, at full precision), and historyAmount otherwise.
+  const heroPrintsRowAmount =
+    (entry?.txType === 'swap' && requestedToken !== null) ||
+    (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
+  const pricedAmount =
+    entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+  // An Earn withdrawal's row names the native asset it credits, so while its hero prints the redeemed USDC that
+  // side is priced through the Earn collateral faucet.
+  const pricedFaucetId =
+    earnWithdraw !== null && transaction !== undefined && earnWithdrawShowsSource(earnWithdraw, transaction.amount)
+      ? getEarnCollateralFaucet()
+      : entry?.faucetId;
+  const approximateUsdAmount =
+    pricedAmount !== undefined && entry?.token && !spansMultipleAssets
+      ? formatFiatDisplayAmount(t, pricedAmount, pricedFaucetId, entry.token, tokenPrices)
+      : undefined;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
@@ -624,7 +648,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   return (
     <PageLayout hideToolbar>
       <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
-      <div className="flex flex-1 flex-col min-h-0 px-4">
+      {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
+          section labels, the ID chips) resolve to the heading face here, and the text that sets no
+          face of its own inherits it. */}
+      <div className="flex flex-1 flex-col min-h-0 px-4 face-heading">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -681,9 +708,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                      {entry.amount !== undefined && (
-                        <span className="text-ink">{formatDisplayAmount(entry.amount)}</span>
-                      )}
+                      {historyAmount !== undefined && <span className="text-ink">{historyAmount}</span>}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
                   )}
@@ -728,8 +753,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             </div>
 
-            {/* Transfer Details */}
-            <div className="mt-4">
+            {/* Transfer Details: flush under the hero, whose own 20px is the gap above the rule. */}
+            <div>
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
@@ -854,11 +879,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
@@ -903,11 +930,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnDepositDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}

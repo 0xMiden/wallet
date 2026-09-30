@@ -125,15 +125,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
+      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        <TokenLogo symbol={logoSymbol ?? token.name} size="sm" />
       ) : embedded ? (
-        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
+        <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
+      <span className="font-heading text-xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 

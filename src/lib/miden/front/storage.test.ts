@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 
 import { deferred, SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
+import { storageCleared } from 'lib/storage-cleared';
 
 import {
   fetchFromStorage,
@@ -311,15 +312,63 @@ describe('storage utilities', () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it('returns no-op cleanup on mobile/desktop', () => {
+    it('does not register the extension listener on mobile/desktop', () => {
       mockIsExtension.mockReturnValue(false);
       const callback = jest.fn();
 
       const cleanup = onStorageChanged('my-key', callback);
 
       expect(typeof cleanup).toBe('function');
-      // Should not register listener on mobile/desktop
       expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
+    it('re-reads its key and calls back with the value once this document wipes the platform store', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith('restored-value');
+    });
+
+    it('calls back with undefined, not null, when the re-read finds nothing', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({});
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith(undefined);
+    });
+
+    it('stops calling back once its cleanup unsubscribes', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      const cleanup = onStorageChanged('my-key', callback);
+      cleanup();
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('calls back nothing when the re-read fails', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockRejectedValue(new Error('boom'));
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
     });
   });
 
@@ -465,6 +514,43 @@ describe('storage utilities', () => {
         warn.mockRestore();
         jest.doMock('webextension-polyfill', mockPolyfillModule);
         jest.resetModules();
+      }
+    });
+  });
+
+  describe('re-reads registered for a wipe', () => {
+    it('resolves only once every registered re-read has', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+        const held = deferred<void>();
+        registerStorageReread(() => held.promise);
+
+        let settled = false;
+        const reread = rereadFresh().then(() => {
+          settled = true;
+        });
+        await flushPromises();
+        expect(settled).toBe(false);
+
+        held.resolve();
+        await reread;
+        expect(settled).toBe(true);
+      });
+    });
+
+    it('resolves when a registered re-read rejects, and logs it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+          const failure = new Error('store unreadable');
+          registerStorageReread(() => Promise.reject(failure));
+
+          await expect(rereadFresh()).resolves.toBeUndefined();
+          expect(warn).toHaveBeenCalledWith(expect.any(String), failure);
+        });
+      } finally {
+        warn.mockRestore();
       }
     });
   });

@@ -75,6 +75,11 @@ describe('isTransactionStuck', () => {
     // wall-clock elapsed = 400s, hidden = 100s → active 300s > 120s
     expect(isTransactionStuck(1000, 1400, 100, MAX)).toBe(true);
   });
+
+  it('is NOT stuck however far in the future the stamp lies (the clock moved backwards)', () => {
+    // A row this realm is still driving can carry a future stamp after a clock step back (#1202).
+    expect(isTransactionStuck(1000, 1000 - MAX - 1, 0, MAX)).toBe(false);
+  });
 });
 
 // The background notice follows the same rule as every other reader of a failed row (#1250):

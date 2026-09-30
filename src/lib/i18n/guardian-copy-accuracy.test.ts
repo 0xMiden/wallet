@@ -931,14 +931,7 @@ describe('Meet your Guardian copy survives machine translation', () => {
   // word ("d$operators$s"), and a protected term can land glued to its neighbour ("infraestruturblockchaine").
   // Only CURRENT translations are checked: an entry whose englishSource no longer matches is stale, is
   // dropped from the rendered bundle and is re-translated by CI, so it cannot reach a user.
-  const BIO_KEYS = [
-    'guardianBioGeneric',
-    'guardianBioOpenZeppelin',
-    'guardianBioGateway',
-    'guardianBioLambdaClass',
-    'guardianBioKoda'
-  ];
-  const NEW_KEYS = Object.keys(enJson).filter(key => /^(meetGuardian|guardianBio|setUpYourAccount)/.test(key));
+  const NEW_KEYS = Object.keys(enJson).filter(key => /^(meetGuardian|setUpYourAccount)/.test(key));
   const UNSPACED_LOCALES = ['ja', 'ko', 'zh_CN', 'zh_TW'];
   // A plural ("Guardians", "blockchains") is a word, not a glue.
   const GLUED = /\p{L}(?:blockchain|Guardian|\$\w+\$)|(?:blockchain|Guardian)(?!s\b)\p{L}|\$\w+\$\p{L}/iu;
@@ -949,9 +942,8 @@ describe('Meet your Guardian copy survives machine translation', () => {
   };
 
   it('covers the new keys, so the sweep below has a subject', () => {
-    expect(NEW_KEYS).toEqual(
-      expect.arrayContaining([...BIO_KEYS, 'meetGuardianFastestOf', 'meetGuardianCannotMoveFunds'])
-    );
+    // Two keys the step still reads: the summary, with its `$name$` placeholder, and the Change action.
+    expect(NEW_KEYS).toEqual(expect.arrayContaining(['meetGuardianSummary', 'meetGuardianChange']));
   });
 
   it('keeps en/messages.json on the same English as en.json for every new key', () => {
@@ -964,11 +956,6 @@ describe('Meet your Guardian copy survives machine translation', () => {
         englishSource: enJson[key]
       });
     }
-  });
-
-  it.each(EXPECTED_LOCALES)('%s: the operator bios carry no placeholder', locale => {
-    const offenders = BIO_KEYS.filter(key => current(locale, key)?.includes('$'));
-    expect(offenders).toEqual([]);
   });
 
   it.each(EXPECTED_LOCALES.filter(locale => !UNSPACED_LOCALES.includes(locale)))(

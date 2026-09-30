@@ -59,6 +59,8 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const declinedItems = items.filter(
     item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
   );
+  // What a Restore passes, so it brings back exactly the declines `hiddenCount` told the user about.
+  const declinedIds = declinedItems.map(item => item.note.id);
 
   const reject = async (note: ClaimableNoteWithMetadata) => {
     const accepted = await confirm({
@@ -101,6 +103,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     isLoadingNotes,
     hidden,
     declinedItems,
+    declinedIds,
     hiddenCount: declinedItems.length
   };
 }
