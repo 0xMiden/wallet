@@ -323,6 +323,11 @@ function looksLikeWasmTrap(event: ErrorEvent): boolean {
   return isTrapShaped(event.error, event.message, event.filename);
 }
 
+/** A genuine trap object, the only thing a caught-trap retire accepts: never a message that merely reads like one. */
+function isWasmRuntimeError(error: unknown): error is WebAssembly.RuntimeError {
+  return typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError;
+}
+
 /**
  * The predicate itself, over the three things a delivery mechanism can give us.
  * Split out because a trap does not always arrive as an `ErrorEvent`: an
@@ -330,7 +335,7 @@ function looksLikeWasmTrap(event: ErrorEvent): boolean {
  * own.
  */
 function isTrapShaped(error: unknown, rawMessage?: unknown, rawFilename?: unknown): boolean {
-  if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) {
+  if (isWasmRuntimeError(error)) {
     return true;
   }
   // A rejection reason is not always an `Error`: a trap that crosses a worker
@@ -532,7 +537,7 @@ function reclaimWhenIdle(retainers: Iterable<LockHolder>): Promise<unknown> | nu
 }
 
 function onRealmError(event: ErrorEvent): void {
-  if (!looksLikeWasmTrap(event)) return;
+  if (!looksLikeWasmTrap(event) || wasRetiredForCaughtTrap(event.error)) return;
   recoverFromTrap(event.error ?? new Error(event.message || 'unknown WASM trap'));
 }
 
@@ -546,7 +551,7 @@ function onRealmError(event: ErrorEvent): void {
  * no filename, and its reason must independently look like a trap.
  */
 function onRealmRejection(event: PromiseRejectionEvent): void {
-  if (!isTrapShaped(event.reason)) return;
+  if (!isTrapShaped(event.reason) || wasRetiredForCaughtTrap(event.reason)) return;
   recoverFromTrap(event.reason);
 }
 
@@ -587,6 +592,18 @@ function recoverFromTrap(cause: unknown): void {
 }
 
 /**
+ * Every trap `retireWasmClientForCaughtTrap` accepted. A trap is retired once: a catch that retired and rethrew it
+ * leaves its lock nothing to do, and the same object reaching a realm listener afterwards (its caller left it
+ * unhandled, or it also surfaced as an uncaught error) must not evict the successor that already built a fresh
+ * client. A new trap is a new object, so it is still evicted at once.
+ */
+const retiredTrapCauses = new WeakSet<object>();
+
+function wasRetiredForCaughtTrap(cause: unknown): boolean {
+  return typeof cause === 'object' && cause !== null && retiredTrapCauses.has(cause);
+}
+
+/**
  * Retire the client for a trap the mutex owner caught itself, which never reaches
  * `onRealmError` or `onRealmRejection`: without this the aborted module stays in the
  * slot and every later caller is handed it.
@@ -608,6 +625,9 @@ function recoverFromTrap(cause: unknown): void {
  */
 export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown): void {
   if (currentHolder === null || hold !== currentHolder) return;
+  // Deduped by cause, not by hold: a client rebuilt later in the same hold can trap again.
+  if (wasRetiredForCaughtTrap(cause)) return;
+  if (typeof cause === 'object' && cause !== null) retiredTrapCauses.add(cause);
   console.error('[miden-client] WASM trap caught by its own lock holder - poisoning client singletons in place:', {
     hold: currentHolder.label ?? 'unlabelled',
     cause
@@ -1093,6 +1113,10 @@ export async function withWasmClientLock<T>(
     running.catch(() => {});
     return await Promise.race([running, holder.aborted]);
   } catch (err) {
+    // A trap that rejects the callback instead of abandoning it reaches no realm
+    // listener, so the lock retires it through its own holder, still the owner here
+    // (an evicted hold settles with WasmClientPoisonedError from `aborted` instead).
+    if (isWasmRuntimeError(err)) retireWasmClientForCaughtTrap(holder, err);
     // A locked vault reported by this hold's sign rides out on the hold's own
     // rejection, the one tag `isLockedError` reads; keyed by the hold, so no other
     // operation can inherit it (#878).
@@ -1161,6 +1185,10 @@ export async function tryWithWasmClientLock<T>(
     // surface as an unhandled rejection and evict the successor.
     running.catch(() => {});
     return { ran: true, value: await Promise.race([running, holder.aborted]) };
+  } catch (err) {
+    // See withWasmClientLock: a trap that rejects the callback is retired here.
+    if (isWasmRuntimeError(err)) retireWasmClientForCaughtTrap(holder, err);
+    throw err;
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();

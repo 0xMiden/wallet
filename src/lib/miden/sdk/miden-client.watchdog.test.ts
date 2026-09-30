@@ -1197,6 +1197,7 @@ describe('poisoned client recovery', () => {
 
   interface IsolatedLockModule {
     withWasmClientLock: typeof withWasmClientLock;
+    tryWithWasmClientLock: typeof tryWithWasmClientLock;
     yieldWasmClientLock: typeof yieldWasmClientLock;
     getMidenClient: () => Promise<unknown>;
     resetMidenClient: () => Promise<void>;
@@ -1855,4 +1856,194 @@ describe('poisoned client recovery', () => {
     expect(create).toHaveBeenCalledTimes(3);
     unsubscribe();
   });
+
+  it('a trap that rejects its hold is retired by the lock, which still hands the mutex on', async () => {
+    const { mod, free, markPoisoned, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const before = await mod.getMidenClient();
+
+    const one = mod.withWasmClientLock(async () => {
+      await mod.getMidenClient();
+      throw trap;
+    });
+    const outcome = one.catch((error: unknown) => error);
+    let queuedRan = false;
+    const queued = mod.withWasmClientLock(async () => {
+      queuedRan = true;
+    });
+    expect(await outcome).toBe(trap);
+    await queued;
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(queuedRan).toBe(true);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(await mod.getMidenClient()).not.toBe(before);
+    expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
+  it.each<[string, unknown]>([
+    ['an eviction', new WasmClientPoisonedError('realm-error')],
+    ['a plain Error', new Error('boom')],
+    ['a trap-shaped string', 'RuntimeError: unreachable']
+  ])('a hold rejecting with %s retires nothing', async (_kind, thrown) => {
+    const { mod, markPoisoned } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const before = await mod.getMidenClient();
+
+    await expect(
+      mod.withWasmClientLock(async () => {
+        await mod.getMidenClient();
+        throw thrown;
+      })
+    ).rejects.toBe(thrown);
+    expect(markPoisoned).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+    expect(await mod.getMidenClient()).toBe(before);
+    unsubscribe();
+  });
+
+  it('a trap its hold already retired is not retired again by the lock', async () => {
+    const { mod, markPoisoned } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    await mod.getMidenClient();
+
+    await expect(
+      mod.withWasmClientLock(async hold => {
+        await mod.getMidenClient();
+        mod.retireWasmClientForCaughtTrap(hold, trap);
+        throw trap;
+      })
+    ).rejects.toBe(trap);
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("an evicted hold's late trap leaves the successor's client alone", async () => {
+    const { mod, markPoisoned, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    await mod.getMidenClient();
+
+    let openFirst!: () => void;
+    const firstGate = new Promise<void>(resolve => {
+      openFirst = resolve;
+    });
+    const corpse = mod.withWasmClientLock(async () => {
+      await mod.getMidenClient();
+      await firstGate;
+      throw trap;
+    });
+    const corpseRejects = expectRejection(corpse, { name: 'WasmClientPoisonedError' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await corpseRejects;
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    const successor = await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+
+    let openSecond!: () => void;
+    const secondGate = new Promise<void>(resolve => {
+      openSecond = resolve;
+    });
+    const successorHold = mod.withWasmClientLock(async () => {
+      await secondGate;
+      return mod.getMidenClient();
+    });
+    openFirst();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    openSecond();
+    await expect(successorHold).resolves.toBe(successor);
+    unsubscribe();
+  });
+
+  it('a trap that rejects a try-lock hold is retired by that lock', async () => {
+    const { mod, markPoisoned, create } = await loadIsolated();
+    const listener = jest.fn();
+    const unsubscribe = mod.onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const before = await mod.getMidenClient();
+
+    await expect(
+      mod.tryWithWasmClientLock(async () => {
+        await mod.getMidenClient();
+        throw trap;
+      })
+    ).rejects.toBe(trap);
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(await mod.getMidenClient()).not.toBe(before);
+    expect(create).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
+  it.each<[string, (trap: WebAssembly.RuntimeError) => void]>([
+    [
+      'an unhandled rejection',
+      trap => window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: trap }))
+    ],
+    [
+      'an uncaught error',
+      trap =>
+        window.dispatchEvent(new ErrorEvent('error', { error: trap, message: 'Uncaught RuntimeError: unreachable' }))
+    ]
+  ])(
+    'a trap the lock already retired does not evict the successor when it also arrives as %s',
+    async (_kind, deliver) => {
+      const { mod, markPoisoned, create } = await loadIsolated();
+      const listener = jest.fn();
+      const unsubscribe = mod.onWasmClientPoisoned(listener);
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      await mod.getMidenClient();
+
+      await expect(
+        mod.withWasmClientLock(async () => {
+          await mod.getMidenClient();
+          throw trap;
+        })
+      ).rejects.toBe(trap);
+      expect(markPoisoned).toHaveBeenCalledTimes(1);
+
+      let openGate!: () => void;
+      const gate = new Promise<void>(resolve => {
+        openGate = resolve;
+      });
+      let outcome: unknown;
+      void mod
+        .withWasmClientLock(async () => {
+          await mod.getMidenClient();
+          await gate;
+          return 'done';
+        })
+        .then(
+          value => {
+            outcome = { value };
+          },
+          (error: unknown) => {
+            outcome = { error };
+          }
+        );
+      await jest.advanceTimersByTimeAsync(0);
+      expect(create).toHaveBeenCalledTimes(2);
+      deliver(trap);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(markPoisoned).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(outcome).toBeUndefined();
+
+      openGate();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(outcome).toEqual({ value: 'done' });
+      unsubscribe();
+    }
+  );
 });

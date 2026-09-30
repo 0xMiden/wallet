@@ -234,7 +234,6 @@ it('reports a summary whose notes do not decode as invalid data and still frees 
   expect(mockFree).toHaveBeenCalledTimes(1);
 });
 
-const trap = new WebAssembly.RuntimeError('unreachable');
 const eviction = new WasmClientPoisonedError('realm-error');
 const summarySites: Array<[string, (failure: Error) => void, string, number]> = [
   [
@@ -262,18 +261,22 @@ const summarySites: Array<[string, (failure: Error) => void, string, number]> = 
     1
   ]
 ];
-const summaryCrossings = summarySites.flatMap(([site, fail, message, evictionFrees]) => [
-  {
-    site,
-    fail,
-    kind: 'a trap',
-    failure: trap,
-    rejection: expect.objectContaining({ name: 'GuardianHistoryDataError', message, cause: trap }),
-    retired: 1,
-    summaryFrees: 0
-  },
-  { site, fail, kind: 'an eviction', failure: eviction, rejection: eviction, retired: 0, summaryFrees: evictionFrees }
-]);
+// A fresh trap per site: the lock module is shared by every row, and it retires a trap object only once.
+const summaryCrossings = summarySites.flatMap(([site, fail, message, evictionFrees]) => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  return [
+    {
+      site,
+      fail,
+      kind: 'a trap',
+      failure: trap,
+      rejection: expect.objectContaining({ name: 'GuardianHistoryDataError', message, cause: trap }),
+      retired: 1,
+      summaryFrees: 0
+    },
+    { site, fail, kind: 'an eviction', failure: eviction, rejection: eviction, retired: 0, summaryFrees: evictionFrees }
+  ];
+});
 
 it.each(summaryCrossings)(
   'charges $kind at $site to the summary only after retiring a trapped client through its own hold',
@@ -321,10 +324,13 @@ const resultSites: Array<[string, (failure: Error) => void, number]> = [
     1
   ]
 ];
-const resultCrossings = resultSites.flatMap(([site, fail, evictionFrees]) => [
-  { site, fail, kind: 'a trap', failure: trap, retired: 1, resultFrees: 0 },
-  { site, fail, kind: 'an eviction', failure: eviction, retired: 0, resultFrees: evictionFrees }
-]);
+const resultCrossings = resultSites.flatMap(([site, fail, evictionFrees]) => {
+  const trap = new WebAssembly.RuntimeError('unreachable');
+  return [
+    { site, fail, kind: 'a trap', failure: trap, retired: 1, resultFrees: 0 },
+    { site, fail, kind: 'an eviction', failure: eviction, retired: 0, resultFrees: evictionFrees }
+  ];
+});
 
 it.each(resultCrossings)(
   'passes $kind at $site through unchanged, retiring a trapped client through its own hold',

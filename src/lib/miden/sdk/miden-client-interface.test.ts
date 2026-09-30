@@ -1,4 +1,9 @@
+import type { WasmLockHold } from './miden-client';
+
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
+
+/** Never the mutex owner, so a catch handed it can never retire anything. */
+const NO_HOLD = {} as unknown as WasmLockHold;
 
 describe('MidenClientInterface', () => {
   afterEach(() => {
@@ -191,7 +196,7 @@ describe('MidenClientInterface', () => {
     // smoke a few methods
     await client.createMidenWallet('on-chain' as any, new Uint8Array([4]));
     await client.importPublicMidenWalletFromSeed(new Uint8Array([5]));
-    await client.importNoteBytes(new Uint8Array([1, 2]));
+    await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
     await client.getInputNoteDetails();
     await client.getConsumableNotes('id');
     await client.exportNote('note', {} as any);
@@ -2457,6 +2462,48 @@ describe('MidenClientInterface', () => {
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
     });
 
+    it('rethrows a trap from the prover descriptor instead of proving on the trapped client', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      const stubs = buildOffscreenStubs();
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: {
+          newLocalProver: jest.fn(() => ({
+            serialize: () => {
+              throw trap;
+            }
+          }))
+        },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toBe(trap);
+      expect(stubs.proveViaOffscreen).not.toHaveBeenCalled();
+      expect(inner.executeTransaction).not.toHaveBeenCalled();
+    });
+
     it('throws and logs when proveLocallyViaOffscreen pipeline fails', async () => {
       const fakeWasm = buildWasmStub();
       const inner = {
@@ -2573,7 +2620,7 @@ describe('MidenClientInterface', () => {
       const noteDeserialize = jest.fn();
       const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await client.importNoteBytes(new Uint8Array([1, 2]));
+      await client.importNoteBytes(new Uint8Array([1, 2]), NO_HOLD);
 
       expect(noteFileDeserialize).toHaveBeenCalled();
       expect(noteDeserialize).not.toHaveBeenCalled();
@@ -2597,7 +2644,7 @@ describe('MidenClientInterface', () => {
         fromExpectedNote
       });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]));
+      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
 
       expect(noteDeserialize).toHaveBeenCalled();
       // NoteDetails built from the note's assets + recipient, then wrapped.
@@ -2628,7 +2675,7 @@ describe('MidenClientInterface', () => {
       }));
       const { client, importMock, fromExpectedNote } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await client.importNoteBytes(new Uint8Array([9, 9, 9]));
+      await client.importNoteBytes(new Uint8Array([9, 9, 9]), NO_HOLD);
 
       expect(metadata).toHaveBeenCalled();
       const [, tagArg, afterBlockArg] = fromExpectedNote.mock.calls[0]!;
@@ -2647,7 +2694,7 @@ describe('MidenClientInterface', () => {
       });
       const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+      await expect(client.importNoteBytes(new Uint8Array([0]), NO_HOLD)).rejects.toThrow(
         /neither a serialized NoteFile nor a serialized Note/
       );
       expect(importMock).not.toHaveBeenCalled();
@@ -2665,7 +2712,7 @@ describe('MidenClientInterface', () => {
       const noteDeserialize = jest.fn(() => reject('raw-note-failure'));
       const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
 
-      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+      await expect(client.importNoteBytes(new Uint8Array([0]), NO_HOLD)).rejects.toThrow(
         /NoteFile parse error: raw-notefile-failure; Note parse error: raw-note-failure/
       );
       expect(importMock).not.toHaveBeenCalled();

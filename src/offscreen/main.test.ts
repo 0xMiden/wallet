@@ -434,6 +434,8 @@ function resetControl() {
     // Overridable so a test can choose between a transport-shaped failure (which
     // is what marks a prover outage) and a semantic one (which must not).
     guardianProveFailureMessage: 'remote prover deadline expired',
+    // When set, the failing prove throws this instead of an Error carrying the message above.
+    guardianProveError: undefined as Error | undefined,
     guardianSubmitted: false,
     guardianApplied: false,
     deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
@@ -457,7 +459,7 @@ function resetControl() {
           if (options?.prover?.__local) throw new Error('in-realm prove reached');
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
-            throw new Error(g2.__off.guardianProveFailureMessage);
+            throw g2.__off.guardianProveError ?? new Error(g2.__off.guardianProveFailureMessage);
           }
           return {
             submit: jest.fn(async () => {
@@ -2474,6 +2476,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches importNoteBytes → imports into the offscreen store and ships the id back as bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportNoteBytes = jest.fn(async (_bytes: Uint8Array, _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return '0ximportedid';
+    });
     const sendResponse = jest.fn();
     const noteBytes = new Uint8Array([0xab, 0xcd, 0xef]);
     capturedListener!(callReq({ method: 'importNoteBytes', argsB64: [encodeArg(noteBytes)] }), {}, sendResponse);
@@ -2482,6 +2489,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // The raw note bytes crossed intact and were imported into THIS client's store.
     expect(G.__off.clientImportNoteBytes).toHaveBeenCalledTimes(1);
     expect(Array.from(G.__off.clientImportNoteBytes.mock.calls[0][0])).toEqual([0xab, 0xcd, 0xef]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
@@ -2489,6 +2498,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches proposal-note import and restores note bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportRecoveryNoteBytes = jest.fn(async (_notes: Uint8Array[], _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return { imported: 1, failures: 0 };
+    });
     const sendResponse = jest.fn();
     const encodedNotes = [Buffer.from([1, 2]).toString('base64'), Buffer.from([3]).toString('base64')];
     const ret = capturedListener!(
@@ -2504,6 +2518,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       new Uint8Array([1, 2]),
       new Uint8Array([3])
     ]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportRecoveryNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 1,
@@ -3604,6 +3620,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
     expect(G.__off.guardianApplied).toBe(true);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a trap from the delegated prove fails the write without a local re-prove', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    G.__off.guardianProveError = new WebAssembly.RuntimeError('unreachable');
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'unreachable' });
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('delegated guardian prove failed'),
+      expect.anything()
+    );
   });
 
   it('guardianPipeline (delegated): a worker failure on the fallback leg fails the write before submit (#945)', async () => {

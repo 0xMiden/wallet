@@ -50,6 +50,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 // in flight" downgrade is exercised against real bookkeeping, not a stub.
 
 type OnMessageListener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
+type WasmLockHold = import('lib/miden/sdk/miden-client').WasmLockHold;
 
 let fakeChrome: any;
 let docExists = false;
@@ -325,7 +326,7 @@ describe('MidenClientProxy — flag routing', () => {
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(4);
     expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
-    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes, G.__px.inlineHold);
     expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
     expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
     expect(imported).toEqual({ imported: 2, failures: 0 });
@@ -1403,12 +1404,15 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
   });
 
   // ── importNoteBytes (store WRITE) ─────────────────────────────────────────
+  const callerHold = { mock: 'caller-hold' } as unknown as WasmLockHold;
+
   it('flag OFF → importNoteBytes imports into the inline client store and returns the id', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const bytes = new Uint8Array([1, 2, 3]);
-    const id = await midenClientProxy.importNoteBytes(bytes);
+    const id = await midenClientProxy.importNoteBytes(bytes, callerHold);
 
-    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes);
+    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes, callerHold);
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     expect(id).toBe('0ximportedid');
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -1422,7 +1426,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       durationMs: 3
     }));
 
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]));
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]), callerHold);
     await flush();
     fireReady();
     const id = await p;
@@ -1432,7 +1436,8 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('importNoteBytes');
     expect(env.deadline_ms).toBe(15_000);
-    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON.
+    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON, and the hold stays in this realm.
+    expect(env.argsB64).toHaveLength(1);
     expect(env.argsB64[0].startsWith('b:')).toBe(true);
     expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xab, 0xcd]);
     expect(id).toBe('0xoffscreenid');
@@ -1446,7 +1451,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       resultB64: null,
       durationMs: 1
     }));
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([1])).catch((e: Error) => e);
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([1]), callerHold).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await p;

@@ -23,7 +23,7 @@ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
   InputNoteDetails,
@@ -1406,15 +1406,16 @@ export const midenClientProxy = {
    * would be lost to the dormant SW store).
    *
    * Flag off (default): BYTE-IDENTICAL — inline `(await getMidenClient()).
-   * importNoteBytes(bytes)` (caller owns the lock). Flag on: forward to the
+   * importNoteBytes(bytes, hold)` under the caller's lock, whose hold retires a
+   * trap the import catches. Flag on: forward to the
    * offscreen doc so the import hits the realm that owns the synced store. It is a
    * quick store op (no prove / sign — NOT a `criticalOp`); a wedge is reclaimed by
    * the read deadline. Returns the imported note's id / details commitment (the
    * `importAllNotes` caller discards it).
    */
-  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
+  async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).importNoteBytes(noteBytes);
+      return (await getMidenClient()).importNoteBytes(noteBytes, hold);
     }
     const resultB64 = await this.call('importNoteBytes', [noteBytes], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) {
@@ -1459,7 +1460,9 @@ export const midenClientProxy = {
 
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));
+      return withWasmClientLock(async hold =>
+        (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes, hold)
+      );
     }
     const encodedNotes = proposalNoteBytes.map(bytesToB64);
     const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {
