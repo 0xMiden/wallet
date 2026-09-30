@@ -678,9 +678,10 @@ export class MultisigService {
    * guardians.
    */
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
+    // Beside the registration, never ahead of it: the old operator is often why the switch was made.
+    void this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
-      await this.recordCommittedGuardianSwitch();
       const updatedStateBase64 = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
@@ -724,9 +725,12 @@ export class MultisigService {
     }
   }
 
+  // Everything is taken before the first await: finalize moves guardianEndpoint on, and the id is cleared so the
+  // history is pushed at most once, whatever the push's outcome.
   private async recordCommittedGuardianSwitch(): Promise<void> {
     if (!this.switchProposalId || !this.requestSigner) return;
     const proposalId = this.switchProposalId;
+    this.switchProposalId = undefined;
     try {
       const guardian = new GuardianHttpClient(this.guardianEndpoint);
       guardian.setSigner(this.requestSigner);
@@ -740,7 +744,6 @@ export class MultisigService {
         POST_COMMIT_GUARDIAN_TIMEOUT_MS,
         'Recording the committed Guardian switch'
       );
-      this.switchProposalId = undefined;
     } catch (error) {
       // The switch has committed. A history failure must not stop registration.
       console.warn('[Guardian] Failed to retain committed switch history on the old operator:', error);
