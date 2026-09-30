@@ -1476,9 +1476,9 @@ describe('Vault.revealHotKey', () => {
   });
 
   it('rejects when the EVM secret is present in storage but decrypts to nothing', async () => {
-    // `isStored` says yes and the decrypt still yields an empty value — a record
-    // written by an interrupted backfill. The pair must not be assembled from it:
-    // a half-empty pair encodes to `hot:` and reads as a valid-looking export.
+    // `isStored` says yes and the decrypt still yields an empty value. The pair
+    // must not be assembled from it: a half-empty pair encodes to `hot:` and
+    // reads as a valid-looking export.
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
     const account: WalletAccount = {

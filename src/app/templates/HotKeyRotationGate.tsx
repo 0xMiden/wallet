@@ -25,7 +25,7 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
- * Guardian accounts recovered via seed phrase carry `requiresHotKeyRotation` —
+ * Guardian accounts recovered via seed phrase carry `requiresHotKeyRotation`:
  * they have no usable local hot key and cannot sign, sync, or transact until a
  * `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate auto-initiates the

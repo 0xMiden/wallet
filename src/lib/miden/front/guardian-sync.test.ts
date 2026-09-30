@@ -716,14 +716,13 @@ describe('syncGuardianAccounts', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
-  it('skips Guardian accounts with no hot key and no rotation flag (a crashed mid-create write)', async () => {
-    // Neither hotPublicKey nor requiresHotKeyRotation is set: an in-flight
-    // create that crashed before finishing. getOrCreateMultisigService would
-    // throw "missing hotPublicKey" on it every cycle; skip it instead. This
-    // record has no recovery path and should fail loudly elsewhere, not spam
-    // the sync loop.
+  it('skips a Guardian record with neither a hot key nor the rotation flag', async () => {
+    // Neither hotPublicKey nor requiresHotKeyRotation is set.
+    // getOrCreateMultisigService would throw "missing hotPublicKey" on it every
+    // cycle; skip it instead. There is no hot-bound service to build for this
+    // record, and it must fail loudly elsewhere, not spam the sync loop.
     storeState.accounts = [
-      { publicKey: 'guardian-legacy', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
+      { publicKey: 'guardian-no-hot-key', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
       { publicKey: 'guardian-active', type: WalletType.Guardian, hotPublicKey: 'hot-active' }
     ];
     const sync = jest.fn(async () => {});
@@ -731,7 +730,7 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
 
-    // Only the active account is synced; the legacy one is skipped, no throw.
+    // Only the active account is synced; the record with no hot key is skipped, no throw.
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider, true);
   });

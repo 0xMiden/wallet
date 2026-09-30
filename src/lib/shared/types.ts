@@ -504,10 +504,10 @@ export interface WalletAccount {
    */
   keyDerivation?: KeyDerivation;
   /**
-   * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
-   * Epoch lending position owner. Stamped at account creation and restore.
-   * Absent on accounts imported from a private key (hdIndex -1). Public data:
-   * the matching private key lives AES-GCM-encrypted under the vault key at
+   * Wallet-derived EVM address (BIP-44 m/44'/60'/{walletTypeIndex}'/0/{hdIndex}),
+   * used as the Epoch lending position owner. Stamped at account creation and
+   * restore. Absent on importAccountFromPrivateKey accounts. Public data: the
+   * matching private key lives AES-GCM-encrypted under the vault key at
    * `accevmsecretkey_<address>` and is only ever decrypted transiently per
    * signing operation.
    */
