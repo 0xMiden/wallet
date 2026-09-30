@@ -227,7 +227,11 @@ export function recoveredHistoryRecord(
   delta: DeltaObject,
   summary?: GuardianSummary
 ): ITransaction {
-  if (delta.accountId.toLowerCase() !== canonicalAccountId.toLowerCase() || delta.nonce !== entry.nonce) {
+  if (
+    typeof delta.accountId !== 'string' ||
+    delta.accountId.toLowerCase() !== canonicalAccountId.toLowerCase() ||
+    delta.nonce !== entry.nonce
+  ) {
     throw new GuardianHistoryDataError('Guardian delta identity does not match the history entry');
   }
   if (entry.status !== 'canonical' || delta.status.status !== 'canonical' || !Number.isSafeInteger(entry.nonce)) {

@@ -133,6 +133,9 @@ function fullNote(note: Note): GuardianHistoryNote {
 
 // Call only while the SDK lock is held in the client realm.
 export async function decodeGuardianSummary(encoded: string): Promise<GuardianSummary> {
+  // Every realm's dispatch reaches this with whatever it was handed, so the contract does not rest on the caller's check.
+  if (typeof encoded !== 'string' || encoded.length === 0)
+    throw new GuardianHistoryDataError('Guardian summary is missing');
   if (encoded.length > 4_000_000) throw new GuardianHistoryDataError('Guardian summary is too large');
   // Load fee metadata in the same realm that separates the output notes.
   await getNativeAssetId();

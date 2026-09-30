@@ -325,8 +325,12 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               return guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session }));
             }, check);
             dataSession = answer.session;
+            // The delta already parsed and mapped inside getDelta, so a summary missing from it is the operator's data.
+            const encoded = answer.delta.deltaPayload.txSummary?.data;
+            if (typeof encoded !== 'string' || encoded.length === 0)
+              throw new GuardianHistoryDataError('Guardian history delta carries no summary');
             await check();
-            const summary = await midenClientProxy.decodeGuardianHistory(answer.delta.deltaPayload.txSummary.data);
+            const summary = await midenClientProxy.decodeGuardianHistory(encoded);
             const record = recoveredHistoryRecord(
               account.publicKey,
               canonicalAccountId,

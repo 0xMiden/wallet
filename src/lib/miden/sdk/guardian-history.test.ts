@@ -154,6 +154,19 @@ it('bounds the summary before deserialization', async () => {
   expect(getVerificationBaseFee).not.toHaveBeenCalled();
 });
 
+it.each([null, undefined, 42, ''])(
+  'reports a missing summary (%p) as invalid data before the fee lookup',
+  async value => {
+    const error = await decodeGuardianSummary(value as unknown as string).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(GuardianHistoryDataError);
+    expect((error as Error).name).toBe('GuardianHistoryDataError');
+    expect((error as Error).message).toBe('Guardian summary is missing');
+    expect(getNativeAssetId).not.toHaveBeenCalled();
+    expect(getVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockFree).not.toHaveBeenCalled();
+  }
+);
+
 it.each<[string, (failure: Error) => void]>([
   [
     'b64ToU8',

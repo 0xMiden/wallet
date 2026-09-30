@@ -7,6 +7,7 @@ import {
   recoveredHistoryRecord,
   sameNonemptyNotes
 } from './history';
+import { GuardianHistoryDataError } from './history-errors';
 import type { ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -316,6 +317,19 @@ it('rejects mismatched canonical identity and commitments', () => {
   expect(() =>
     recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, delta(), { ...summary, accountId: 'other' })
   ).toThrow('another account');
+});
+
+it.each([undefined, 42])('files a delta whose account id is %p as an identity mismatch', accountId => {
+  const served = { ...delta(), accountId } as unknown as DeltaObject;
+  let thrown: unknown;
+  try {
+    recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, served, summary);
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(GuardianHistoryDataError);
+  expect((thrown as Error).message).toBe('Guardian delta identity does not match the history entry');
+  expect(recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, delta(), summary).recovery?.nonce).toBe(12);
 });
 
 it('normalizes operators and accepts only exact nonempty note sets', () => {

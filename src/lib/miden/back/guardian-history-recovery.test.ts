@@ -965,6 +965,41 @@ it('counts a summary that fails its decode as invalid data once per session, up 
   expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
 });
 
+it.each<[string, DeltaObject]>([
+  ['no summary', { ...delta(3), deltaPayload: {} } as unknown as DeltaObject],
+  [
+    'a null summary',
+    { ...delta(3), deltaPayload: { txSummary: { data: null }, signatures: [] } } as unknown as DeltaObject
+  ],
+  [
+    'an empty summary',
+    { ...delta(3), deltaPayload: { txSummary: { data: '' }, signatures: [] } } as unknown as DeltaObject
+  ]
+])(
+  'counts a delta with %s as invalid data once per session, up to the cap, without decoding it',
+  async (_kind, served) => {
+    const client = source('https://two', []);
+    jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+    jest.spyOn(client, 'getDelta').mockResolvedValue(served);
+    const first = await run();
+    expect(first.sourceFailures).toBe(1);
+    expect(first.failed).toBeUndefined();
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+    forgetUnsupportedHistorySources();
+    const second = await run();
+    expect(second.sourceFailures).toBe(1);
+    expect(second.failed).toBeUndefined();
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 2 });
+
+    forgetUnsupportedHistorySources();
+    expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, failed: true, deferredSources: 0 });
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
+    const decoded = jest.mocked(midenClientProxy.decodeGuardianHistory).mock.calls.map(([value]) => value);
+    expect(decoded).toEqual(['2', '1']);
+  }
+);
+
 it.each<[string, (client: GuardianHttpClient) => void]>([
   [
     'the delta names another account',
