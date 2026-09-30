@@ -107,17 +107,12 @@ export const zustandProvider: GuardianAccountProvider = {
  *
  * Only Guardian accounts that actually carry a `hotPublicKey` are synced:
  * `getOrCreateMultisigService` binds a service against the hot signer and throws
- * without one. Every account lacking a hot key is skipped, which covers:
- *   - rotation-pending accounts (`requiresHotKeyRotation`, adopted via recovery
- *     or flagged by the legacy-Guardian migration) awaiting the Activate Device
- *     Key banner, and
- *   - legacy single-signer Guardian records that haven't been migrated yet —
- *     e.g. the brief window after a wallet UPGRADE (new code, old storage) and
- *     before the forced re-unlock runs `migrateLegacyGuardianAccounts`. Without
- *     this guard those records made the frontend AutoSync throw "missing
- *     hotPublicKey" every ~3s. Skipping them is correct, not a silence: there is
- *     genuinely no hot-bound service to build, and recovery happens via the
- *     migration → banner → activation path, not here.
+ * without one. Every account lacking a hot key is skipped: recovered accounts
+ * awaiting hot-key rotation (`requiresHotKeyRotation`, adopted via recovery),
+ * pending the Activate Device Key banner. Without this guard those records
+ * made the frontend AutoSync throw "missing hotPublicKey" every ~3s. Skipping
+ * them is correct, not a silence: there is genuinely no hot-bound service to
+ * build, and recovery happens via the banner → activation path, not here.
  * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up.
  *
  * This also means the `update_guardian` threshold-2 hardening is intentionally
@@ -1467,7 +1462,7 @@ const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, lab
  * on-chain state), so a spurious run is harmless.
  */
 async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<SelfHealOutcome> {
-  // Legacy single-key record (pre-migration) has nothing to cold-sign with.
+  // A hot-key-only import (spawnFromHotKey) has no cold key to sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
 
   let attempted = false;
@@ -1871,8 +1866,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // with nothing in the console to say so. The resolver propagates read
     // failures by design (that is what lets the drift reconciler tell "named no
     // operator" from "could not find out"), so the degradation has to be chosen
-    // here. `Vault.backfillGuardianEndpoints` isolates per account for the same
-    // reason.
+    // here.
     let endpoint: string;
     try {
       endpoint = await resolveGuardianEndpoint(account);

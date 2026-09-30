@@ -2,7 +2,6 @@
  * Wallet-derived EVM identity tests for `lib/miden/back/vault.ts`:
  *   - `Vault.spawn` stamps `evmAddress` + persists the encrypted leaf key
  *   - `createHDAccount` stamps the next address index
- *   - `backfillEvmAddresses` is idempotent and skips imported accounts
  *   - `signEvm` round-trips (message / typed-data digest / transaction)
  *     recover to the stamped address
  *   - rejection branches surface as PublicError
@@ -209,34 +208,11 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
   });
 });
 
-describe('Vault.backfillEvmAddresses', () => {
-  it('stamps missing addresses, skips imported accounts, and is idempotent', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0), { ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
-
-    await vault.backfillEvmAddresses();
-    const first = await vault.fetchAccounts();
-    expect(first.find(acc => acc.publicKey === 'acc-pub-key-1')!.evmAddress).toBe(EVM_ADDR_0);
-    expect(first.find(acc => acc.publicKey === 'acc-imported')!.evmAddress).toBeUndefined();
-
-    await vault.backfillEvmAddresses();
-    const second = await vault.fetchAccounts();
-    expect(second).toEqual(first);
-  });
-
-  it('leaves accounts untouched when the vault has no mnemonic', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0)], '');
-    await vault.backfillEvmAddresses();
-    const accounts = await vault.fetchAccounts();
-    expect(accounts[0]!.evmAddress).toBeUndefined();
-  });
-});
-
 describe('Vault.signEvm round-trips', () => {
   let vault: Vault;
 
   beforeEach(async () => {
-    vault = await seedVault([hdAccount('acc-pub-key-1', 0)]);
-    await vault.backfillEvmAddresses();
+    vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
   });
 
   it('message: recovers the stamped address', async () => {

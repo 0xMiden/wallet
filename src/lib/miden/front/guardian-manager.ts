@@ -146,8 +146,8 @@ export async function getOrCreateMultisigService(
       throw new Error('Account is not a Guardian account');
     }
     // Hot pubkey lives on the WalletAccount record (set at create time). A
-    // Guardian account without it is either a legacy single-Falcon-key record
-    // (pre-migration) or an in-flight write that crashed mid-create — both are
+    // Guardian account without it is either a recovered account still awaiting
+    // hot-key rotation or an in-flight write that crashed mid-create — both are
     // unsigned states that should fail loudly rather than silently fall back.
     if (!account.hotPublicKey) {
       throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);

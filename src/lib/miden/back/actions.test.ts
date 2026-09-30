@@ -431,9 +431,6 @@ describe('actions', () => {
   describe('unlock', () => {
     const unlockableVault = () => ({
       fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
-      migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
-      backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
-      backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
       fetchAccounts: jest.fn().mockResolvedValue([]),
       fetchSettings: jest.fn().mockResolvedValue({}),
       getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -521,24 +518,9 @@ describe('actions', () => {
 
     it.each(['stored', 'removing', 'removed', 'unavailable'])('unlocks with seed status %s', async status => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
-      // The guardian-endpoint backfill makes external HTTP and must NOT gate the
-      // unlock UI: model it as a promise that never settles and assert unlock()
-      // still resolves (fired detached), while still proving it ran at unlock.
-      let backfillStarted = false;
       const mockVaultInstance = {
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue(status),
         removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
-        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
-        // Unlock also backfills wallet-derived EVM addresses onto legacy HD
-        // accounts (needed by the earn flow) before reading the accounts list.
-        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
-        // ...and stamps a per-account guardianEndpoint onto legacy Guardian
-        // accounts that predate the field (#408 stage 2) — detached, so a
-        // hanging operator probe can't stall unlock.
-        backfillGuardianEndpoints: jest.fn(() => {
-          backfillStarted = true;
-          return new Promise<void>(() => {}); // never resolves
-        }),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -546,19 +528,30 @@ describe('actions', () => {
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
-      // Resolves even though backfillGuardianEndpoints never settles.
       await unlock('password123');
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
       expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalledTimes(Number(status === 'removing'));
-      expect(mockVaultInstance.migrateLegacyGuardianAccounts).toHaveBeenCalled();
-      expect(mockVaultInstance.backfillEvmAddresses).toHaveBeenCalled();
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
-      // Backfill was kicked off at unlock but did not block it.
-      expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
-      expect(backfillStarted).toBe(true);
+    });
+
+    it('unlocks without running any account migration', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const migrations = {
+        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
+        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined)
+      };
+      Vault.setup.mockResolvedValueOnce({ ...unlockableVault(), ...migrations });
+
+      await unlock('pw');
+
+      expect(mockUnlocked).toHaveBeenCalled();
+      expect(migrations.migrateLegacyGuardianAccounts).not.toHaveBeenCalled();
+      expect(migrations.backfillEvmAddresses).not.toHaveBeenCalled();
+      expect(migrations.backfillGuardianEndpoints).not.toHaveBeenCalled();
     });
 
     it('still unlocks when the resumed seed removal fails, leaving the status at removing', async () => {
@@ -570,9 +563,6 @@ describe('actions', () => {
       const mockVaultInstance = {
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
         removeSeedPhrase: jest.fn().mockRejectedValue(new Error('Removal failed')),
-        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
-        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
-        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -596,9 +586,6 @@ describe('actions', () => {
       const mockVaultInstance = {
         fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
         removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
-        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
-        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
-        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),

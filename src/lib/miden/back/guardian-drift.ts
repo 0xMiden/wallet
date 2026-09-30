@@ -523,8 +523,8 @@ async function runGuardianDriftPass(
   //                way on any single window, so this takes the duration rule.
   //  - `'absent'`  no endpoint is stored at all. Nothing denied anything, so
   //                this must not inherit `'denied'`'s immediacy — which is what
-  //                a boolean initialized to `true` gave it: a legacy record
-  //                whose backfill had not run yet was accused on the FIRST
+  //                a boolean initialized to `true` gave it: an account with no
+  //                stored endpoint was accused on the FIRST
   //                window off an `'unavailable'` round, i.e. off our own probes
   //                failing, when a complete round might have named a built-in
   //                and repaired it silently.
@@ -541,8 +541,7 @@ async function runGuardianDriftPass(
       // any probe runs, so a stale or hostile URL that echoes the account's
       // on-chain commitment vetoes reconciliation for good — green pill, no
       // `needs-user-input`, and the wallet keeps pushing proposals to an
-      // operator with no on-chain authority. `backfillGuardianEndpoints` cannot
-      // undo it either; it only touches accounts with NO stored endpoint.
+      // operator with no on-chain authority.
       //
       // So the claim gets corroborated instead of believed. The built-ins report
       // themselves over the same unauthenticated endpoint, but the asymmetry is

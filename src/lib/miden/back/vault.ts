@@ -67,12 +67,8 @@ import {
 } from './recovery-authorization';
 import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
-import {
-  getGuardianCommitmentFromAccount,
-  getSignerDetailsFromAccount,
-  resolveGuardianEndpoint
-} from '../guardian/account';
-import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
+import { normalizeHex } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, makeSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
@@ -237,7 +233,7 @@ const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSec
 // so role-aware signWord (Phase 3) can route hot vs cold by storage entity.
 const accColdSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccColdSecretKey);
 // Wallet-derived EVM private key blobs, keyed by lowercased EVM address.
-// Derived once per account (creation / unlock backfill) so the signing path
+// Derived once per account (creation / restore) so the signing path
 // never has to decrypt the mnemonic — see Vault.signEvm.
 const accEvmSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccEvmSecretKey);
 const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
@@ -384,7 +380,6 @@ export class Vault {
         record = await fetchAndDecryptOneWithLegacyFallBack<SeedRemovalRecord>(seedRemovalStrgKey, this.vaultKey);
         break;
       case 'stored': {
-        await this.backfillEvmAddresses();
         const accounts = await this.fetchAccounts();
         const recoveryPublicKeys: string[] = [];
         for (const account of accounts) {
@@ -2250,246 +2245,6 @@ export class Vault {
     });
   }
 
-  /**
-   * One-time, in-place migration of legacy single-signer Guardian accounts to
-   * the 3-key model. Called on every unlock; idempotent (a no-op once an
-   * account carries `coldPublicKey` or `requiresHotKeyRotation`).
-   *
-   * A pre-3-key Guardian account's on-chain signer is the HD key derived at its
-   * index — which is exactly what the 3-key model calls the *cold* key (both are
-   * `AuthSecretKey.ecdsaWithRNG(deriveClientSeed(Guardian, mnemonic, hdIndex))`).
-   * So migrating is purely local + offline: re-derive that key into the cold
-   * slot and flag the account `requiresHotKeyRotation`. The account then surfaces
-   * the Activate Device Key banner, and a single cold-signed `update_signers`
-   * installs the hardware-backed hot key — the same path a seed-recovered account
-   * takes. No funds move and nothing is destructive; routine use simply waits on
-   * that one activation.
-   *
-   * Best-effort by design: any failure is swallowed so a migration hiccup can
-   * never block unlock.
-   */
-  async migrateLegacyGuardianAccounts(): Promise<void> {
-    if ((await this.fetchSeedPhraseStatus()) !== 'stored') return;
-    try {
-      const allAccounts = await this.fetchAccounts();
-      // Legacy = a Guardian record with neither the cold key nor the
-      // pending-rotation flag, i.e. created before the 3-key model. Require a
-      // real HD index: imported Guardian accounts are tagged hdIndex = -1, and
-      // deriveClientSeed(..., -1) would derive the wrong cold key (or throw), so
-      // they can't be migrated by re-deriving from the mnemonic.
-      const legacy = allAccounts.filter(
-        acc => acc.type === WalletType.Guardian && !acc.coldPublicKey && !acc.requiresHotKeyRotation && acc.hdIndex >= 0
-      );
-      if (legacy.length === 0) return;
-
-      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
-      if (!mnemonic) return; // can't derive the cold key without the seed — leave untouched
-
-      // accountId -> derived cold public key, for the records we successfully migrated.
-      // Strip an optional `0x` and lower-case so commitments compare regardless
-      // of how each side formats its hex.
-      const normalizeCommitmentHex = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex).toLowerCase();
-
-      const migrated = new Map<string, string>();
-      for (const acc of legacy) {
-        try {
-          // Legacy records predate `keyDerivation`, so they derived under the legacy scheme.
-          const coldSeed = deriveClientSeed(mnemonic, {
-            keyDerivation: LEGACY_KEY_DERIVATION,
-            walletType: WalletType.Guardian,
-            authScheme: 'ecdsa',
-            hdIndex: acc.hdIndex
-          });
-          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-          const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
-          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
-
-          // Verify the derived cold key actually matches the account's on-chain
-          // signer BEFORE installing it. The derivation assumes the legacy signer
-          // was `ecdsaWithRNG(deriveClientSeed(Guardian, mnemonic, hdIndex))`; if
-          // that assumption is wrong for this account (a differently-derived or
-          // Falcon signer), installing the derived key + flagging rotation would
-          // let the user start an activation that can never authorize on-chain.
-          // Best-effort: only BLOCK on a confirmed mismatch; if the on-chain
-          // account can't be loaded/read, migrate unverified (no regression).
-          const coldCommitment = normalizeCommitmentHex(coldSk.publicKey().toCommitment().toHex());
-          try {
-            const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(acc.publicKey));
-            if (sdkAccount) {
-              const { commitment: onChainSigner } = await getSignerDetailsFromAccount(sdkAccount, false);
-              if (normalizeCommitmentHex(onChainSigner) !== coldCommitment) {
-                console.warn(
-                  `[Vault.migrateLegacyGuardianAccounts] derived cold key does not match on-chain signer for ${acc.publicKey}; skipping (needs manual recovery)`
-                );
-                continue;
-              }
-            } else {
-              console.warn(
-                `[Vault.migrateLegacyGuardianAccounts] on-chain account unavailable to verify cold key for ${acc.publicKey}; migrating unverified`
-              );
-            }
-          } catch (verifyErr) {
-            console.warn(
-              `[Vault.migrateLegacyGuardianAccounts] cold-key verification failed for ${acc.publicKey} (migrating unverified):`,
-              verifyErr
-            );
-          }
-
-          await persistRecoveredGuardianColdKey(this.vaultKey, coldPublicKey, coldSecretKeyHex);
-          migrated.set(acc.publicKey, coldPublicKey);
-        } catch (e) {
-          console.warn('[Vault.migrateLegacyGuardianAccounts] skipped one account (non-fatal):', acc.publicKey, e);
-        }
-      }
-      if (migrated.size === 0) return;
-
-      const nextAccounts = allAccounts.map(acc =>
-        migrated.has(acc.publicKey)
-          ? { ...acc, coldPublicKey: migrated.get(acc.publicKey)!, requiresHotKeyRotation: true }
-          : acc
-      );
-      await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
-      console.log(
-        `[Vault.migrateLegacyGuardianAccounts] migrated ${migrated.size} legacy Guardian account(s) to 3-key (rotation pending)`
-      );
-    } catch (e) {
-      // Migration is best-effort — a failure must never block unlock.
-      console.warn('[Vault.migrateLegacyGuardianAccounts] failed (non-fatal):', e);
-    }
-  }
-
-  /**
-   * Idempotent, best-effort backfill of the wallet-derived EVM identity for
-   * HD accounts created before `evmAddress` existed. Called on every unlock
-   * (see Actions.unlock); a failure must never block unlock. Imported
-   * accounts (hdIndex < 0) are skipped forever — their keys aren't derivable
-   * from the mnemonic.
-   */
-  async backfillEvmAddresses(): Promise<void> {
-    if ((await this.fetchSeedPhraseStatus()) !== 'stored') return;
-    try {
-      const allAccounts = await this.fetchAccounts();
-      if (!allAccounts.some(acc => !acc.evmAddress && acc.hdIndex >= 0)) return;
-
-      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
-      if (!mnemonic) return; // no seed (keyless encrypted-file import) — leave untouched
-
-      const nextAccounts: WalletAccount[] = [];
-      for (const acc of allAccounts) {
-        if (acc.evmAddress || acc.hdIndex < 0) {
-          nextAccounts.push(acc);
-          continue;
-        }
-        const evmKey = deriveEvmKeyPair(mnemonic, acc.type, acc.hdIndex);
-        await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
-        nextAccounts.push({ ...acc, evmAddress: evmKey.address });
-      }
-      await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
-    } catch (e) {
-      console.warn('[Vault.backfillEvmAddresses] failed (non-fatal):', e);
-    }
-  }
-
-  /**
-   * Idempotent, best-effort backfill of the per-account `guardianEndpoint` for
-   * LEGACY Guardian accounts created before that field existed (#408 stage 2).
-   * Called on every unlock (see Actions.unlock); a failure must never block
-   * unlock.
-   *
-   * For each Guardian record that carries no `guardianEndpoint`, this reads the
-   * on-chain guardian public-key commitment and resolves it to a built-in
-   * operator — the exact commitment → operator → endpoint path
-   * `resolveGuardianDrift` uses at runtime — then stamps the operator's endpoint
-   * plus the commitment baseline onto the record. After that,
-   * `resolveGuardianEndpoint` reads the per-account field instead of the legacy
-   * global `GUARDIAN_URL_STORAGE_KEY` (which stage 3 froze as a read-only,
-   * never-written last-resort fallback rather than removing — a legacy account
-   * on a custom guardian the backfill can't resolve still needs it).
-   *
-   * The built-in-operator commitment→option map is built ONCE up front
-   * (`buildOperatorKeyMap`) and each account's on-chain commitment is looked up
-   * against it — so K legacy accounts cost a single operator HTTP probe round,
-   * not one per account (which is what `identifyGuardianOperator` would do).
-   *
-   * NOT awaited on the unlock critical path — the caller (Actions.unlock) fires
-   * this AFTER `unlocked(...)`, detached, so the operator HTTP probes never gate
-   * the unlock UI transition.
-   *
-   * FUNDS-ADJACENT — a wrong endpoint breaks the guardian, so the rules are:
-   *  - NEVER overwrite an existing `guardianEndpoint` (the filter skips any
-   *    already-stamped account, which also makes repeat runs a no-op).
-   *  - On NO operator match (operator unreachable right now, or a custom /
-   *    self-hosted / rotated guardian) LEAVE the account untouched — never
-   *    stamp a guessed or default endpoint. It simply retries on the next
-   *    unlock, and `resolveGuardianEndpoint`'s global-key fallback covers it in
-   *    the meantime.
-   *
-   * Per-account try/catch: one account's failure can't block the others. The
-   * WASM account read is lock-guarded; the built-in-operator HTTP probe inside
-   * `buildOperatorKeyMap` runs outside the lock (mirrors `resolveGuardianDrift`).
-   */
-  async backfillGuardianEndpoints(): Promise<void> {
-    try {
-      const allAccounts = await this.fetchAccounts();
-      const legacy = allAccounts.filter(acc => acc.type === WalletType.Guardian && !acc.guardianEndpoint);
-      if (legacy.length === 0) return;
-
-      // One probe round for all legacy accounts. If every operator is
-      // unreachable this comes back empty — every lookup then misses and the
-      // accounts are left untouched for the next unlock to retry.
-      const operatorMap = await buildOperatorKeyMap();
-
-      for (const acc of legacy) {
-        try {
-          const onChainCommitment = await withWasmClientLock(async hold => {
-            const client = await getMidenClient();
-            // The client build can park; re-check ownership before borrowing it.
-            assertWasmHoldCurrent(hold, 'in backfillGuardianEndpoints before the account read');
-            const sdkAccount = await client.getAccount(acc.publicKey);
-            // The commitment read walks the returned Account's storage — a
-            // borrow of the client's RefCell, not a snapshot — so ownership is
-            // re-checked after the read's parking await too. A throw lands in
-            // the per-account catch below: the account is left unstamped and
-            // retries next unlock, this backfill's designed failure mode.
-            assertWasmHoldCurrent(hold, 'in backfillGuardianEndpoints after the account read');
-            return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-          });
-          // No on-chain guardian commitment to resolve (account not synced yet,
-          // or not actually a guardian account) — leave it; retry next unlock.
-          if (!onChainCommitment) continue;
-
-          // Same lookup identifyGuardianOperator does internally. undefined =>
-          // no built-in operator holds this commitment (operator down / custom /
-          // self-hosted / rotated key). Do NOT guess an endpoint — leave the
-          // account untouched so the global-key fallback still covers it and the
-          // next unlock retries once the operator is reachable again.
-          const operator = operatorMap.get(normalizeHex(onChainCommitment));
-          if (!operator) continue;
-
-          // The epoch is the one read before this pass's probes, and the compare
-          // and save wait for the accounts write queue, so a rotation or drift
-          // repair that landed meanwhile turns this stamp `stale` and the account
-          // retries next unlock. Unlock does not await this detached pass, so the
-          // wait cannot deadlock it.
-          const stamp = await getAccountsWriteQueue().add(() =>
-            this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
-              guardianEndpoint: operator.endpoint,
-              guardianOperatorCommitment: onChainCommitment
-            })
-          );
-          if (stamp.outcome === 'stale') {
-            console.warn('[Vault.backfillGuardianEndpoints] binding changed mid-backfill; skipping:', acc.publicKey);
-          }
-        } catch (e) {
-          console.warn('[Vault.backfillGuardianEndpoints] skipped one account (non-fatal):', acc.publicKey, e);
-        }
-      }
-    } catch (e) {
-      // Best-effort — a failure must never block unlock.
-      console.warn('[Vault.backfillGuardianEndpoints] failed (non-fatal):', e);
-    }
-  }
-
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();
@@ -2998,7 +2753,7 @@ function isValidHex(s: string): boolean {
 
 /**
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
- * at account creation / unlock backfill. BIP-44 Ethereum path
+ * at account creation / restore. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
  * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment

@@ -448,8 +448,8 @@ export interface WalletAccount {
   type: WalletType;
   hdIndex: number;
   // Set on Guardian accounts created with the 3-key model (hot + cold + guardian).
-  // Absent on non-Guardian accounts and on legacy single-signer Guardian records
-  // produced before the migration; consumers should treat absence as "not 3-key".
+  // Absent on non-Guardian accounts. A seed-recovered account has no hot key until
+  // its rotation lands, and a hot-key-only import has no cold key.
   hotPublicKey?: string;
   coldPublicKey?: string;
   // True for Guardian accounts adopted via seed-phrase recovery — the on-chain
@@ -505,9 +505,8 @@ export interface WalletAccount {
   keyDerivation?: KeyDerivation;
   /**
    * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
-   * Epoch lending position owner. Stamped at account creation and backfilled
-   * on unlock. Absent on imported accounts (hdIndex -1) and on records written
-   * before this field existed (until the unlock backfill runs). Public data —
+   * Epoch lending position owner. Stamped at account creation and restore.
+   * Absent on accounts imported from a private key (hdIndex -1). Public data:
    * the matching private key lives AES-GCM-encrypted under the vault key at
    * `accevmsecretkey_<address>` and is only ever decrypted transiently per
    * signing operation.

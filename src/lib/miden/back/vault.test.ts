@@ -12,7 +12,6 @@ import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transac
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { getAccountsWriteQueue } from './accounts-write-queue';
 import { PublicError } from './defaults';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import {
@@ -208,33 +207,21 @@ jest.mock('lib/secure-hot-key', () => ({
   signHotDigest: jest.fn()
 }));
 
-// migrateLegacyGuardianAccounts verifies the derived cold key against the
-// on-chain index-0 signer via getSignerDetailsFromAccount. Mock it so tests can
-// drive the match / mismatch branches.
+// provideRecoverySeed reads the on-chain cold signer via getSignerDetailsFromAccount.
+// Mock it so tests can drive the match / mismatch branches.
 const mockGetSignerDetailsFromAccount = jest.fn();
 // createHDAccount resolves a second Guardian account's endpoint from the sibling
 // account's per-account field via resolveGuardianEndpoint. Default: echo the
 // account's guardianEndpoint (the real function's first-preference), then a
-// stand-in default — so the per-account field wins over any global key.
+// stand-in default.
 const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
-// backfillGuardianEndpoints reads the on-chain guardian commitment off the SDK
-// account via getGuardianCommitmentFromAccount; mock it so tests drive the
-// resolve / no-commitment branches.
-const mockGetGuardianCommitmentFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
-  getGuardianCommitmentFromAccount: (...a: unknown[]) => mockGetGuardianCommitmentFromAccount(...a),
   resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
 }));
 
-// backfillGuardianEndpoints builds the operator commitment->option map ONCE via
-// buildOperatorKeyMap, then looks each account's commitment up against it. Mock
-// the map build to drive the match / no-match branches (an empty map or a
-// missing key => custom / self-hosted / rotated / operator down); normalizeHex
-// mirrors the real strip-0x + lowercase so lookups compare equal.
-const mockBuildOperatorKeyMap = jest.fn();
+// normalizeHex mirrors the real strip-0x + lowercase so commitments compare equal.
 jest.mock('../guardian/operator-map', () => ({
-  buildOperatorKeyMap: (...a: unknown[]) => mockBuildOperatorKeyMap(...a),
   normalizeHex: (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase()
 }));
 
@@ -3247,308 +3234,6 @@ describe('Vault hardware branches', () => {
   });
 });
 
-describe('Vault.migrateLegacyGuardianAccounts', () => {
-  const sdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
-
-  beforeEach(() => {
-    // Cold-key derivation is mocked to a fixed key; `deriveClientSeed` still runs
-    // real BIP-39 over VALID_MNEMONIC but the seed it produces is ignored here.
-    // The derived key's commitment is `0x020304` (the verification compares this
-    // against the on-chain index-0 signer below).
-    sdk.AuthSecretKey.ecdsaWithRNG.mockImplementation(() => ({
-      publicKey: () => ({
-        serialize: () => new Uint8Array([0x00, 0x02, 0x03, 0x04]),
-        toCommitment: () => ({ toHex: () => '0x020304' })
-      }),
-      serialize: () => new Uint8Array([0xab, 0xcd])
-    }));
-    // By default the on-chain account is present and its index-0 signer matches
-    // the derived cold commitment, so the legacy account migrates (verified).
-    mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
-    mockGetSignerDetailsFromAccount.mockReset();
-    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: '020304' });
-  });
-
-  const legacyGuardian = {
-    publicKey: 'guardian-legacy',
-    name: 'Guardian 1',
-    isPublic: true,
-    type: WalletType.Guardian,
-    hdIndex: 0
-  };
-  const normalAcc = { publicKey: 'normal-1', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
-  const already3Key = {
-    publicKey: 'guardian-3key',
-    name: 'Guardian 2',
-    isPublic: true,
-    type: WalletType.Guardian,
-    hdIndex: 1,
-    coldPublicKey: 'existing-cold',
-    hotPublicKey: 'existing-hot'
-  };
-
-  it('migrates a legacy single-key Guardian account to the 3-key model in place', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
-    await vault.migrateLegacyGuardianAccounts();
-
-    const accounts = await vault.fetchAccounts();
-    const migrated = accounts.find(a => a.publicKey === 'guardian-legacy')!;
-    expect(migrated.coldPublicKey).toBe('020304'); // serialize().slice(1) of [00,02,03,04]
-    expect(migrated.requiresHotKeyRotation).toBe(true);
-    // The derived cold key is persisted into the cold slot.
-    const coldHex = await fetchAndDecryptOneWithLegacyFallBack(
-      keys.accColdSecretKey('020304'),
-      (vault as any).vaultKey
-    );
-    expect(coldHex).toBe('abcd');
-  });
-
-  it('leaves non-Guardian and already-3-key accounts untouched', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
-    await vault.migrateLegacyGuardianAccounts();
-
-    const accounts = await vault.fetchAccounts();
-    const normal = accounts.find(a => a.publicKey === 'normal-1')!;
-    const threeKey = accounts.find(a => a.publicKey === 'guardian-3key')!;
-    expect(normal.coldPublicKey).toBeUndefined();
-    expect(normal.requiresHotKeyRotation).toBeUndefined();
-    expect(threeKey.coldPublicKey).toBe('existing-cold');
-    expect(threeKey.requiresHotKeyRotation).toBeUndefined();
-  });
-
-  it('skips imported Guardian accounts (hdIndex < 0) — they cannot be re-derived', async () => {
-    // Imported Guardian accounts are tagged hdIndex = -1; deriving a cold key
-    // from the mnemonic at a negative index would be wrong, so they're excluded.
-    const importedGuardian = {
-      publicKey: 'guardian-imported',
-      name: 'Guardian Imported',
-      isPublic: true,
-      type: WalletType.Guardian,
-      hdIndex: -1
-    };
-    const vault = await seedVault('pw', { accounts: [importedGuardian] as any });
-    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
-    await vault.migrateLegacyGuardianAccounts();
-
-    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
-    const imported = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-imported')!;
-    expect(imported.coldPublicKey).toBeUndefined();
-    expect(imported.requiresHotKeyRotation).toBeUndefined();
-  });
-
-  it('is idempotent — a second run derives nothing', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    await vault.migrateLegacyGuardianAccounts();
-    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
-    await vault.migrateLegacyGuardianAccounts();
-    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
-  });
-
-  it('skips a legacy account whose derived cold key does NOT match the on-chain signer', async () => {
-    // The on-chain index-0 signer is some other commitment — installing the
-    // re-derived key + flagging rotation would arm an activation that can never
-    // authorize on-chain, so the account is left untouched.
-    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'deadbeef' });
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    await vault.migrateLegacyGuardianAccounts();
-
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.coldPublicKey).toBeUndefined();
-    expect(acc.requiresHotKeyRotation).toBeUndefined();
-  });
-
-  it('migrates unverified when the on-chain account is unavailable to verify against', async () => {
-    // Can't load the account (e.g. not synced yet) → can't confirm a mismatch →
-    // fall back to migrating so the account isn't permanently stuck. No regression.
-    mockGetAccount.mockResolvedValue(null);
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    await vault.migrateLegacyGuardianAccounts();
-
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.coldPublicKey).toBe('020304');
-    expect(acc.requiresHotKeyRotation).toBe(true);
-    expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
-  });
-
-  it('never throws (best-effort) — a failure cannot block unlock', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
-    await expect(vault.migrateLegacyGuardianAccounts()).resolves.toBeUndefined();
-  });
-});
-
-describe('Vault.backfillGuardianEndpoints', () => {
-  const legacyGuardian = {
-    publicKey: 'guardian-legacy',
-    name: 'Guardian 1',
-    isPublic: true,
-    type: WalletType.Guardian,
-    hdIndex: 0
-  };
-  const stampedGuardian = {
-    publicKey: 'guardian-stamped',
-    name: 'Guardian 2',
-    isPublic: true,
-    type: WalletType.Guardian,
-    hdIndex: 1,
-    guardianEndpoint: 'https://already.example'
-  };
-  const normalAcc = { publicKey: 'normal-1', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
-  const operator = { id: 'open-zeppelin', name: 'OpenZeppelin', endpoint: 'https://oz.example' };
-
-  beforeEach(() => {
-    // On-chain account present; its guardian commitment reads back as 'abc123'.
-    mockGetAccount.mockReset();
-    mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
-    mockGetGuardianCommitmentFromAccount.mockReset();
-    mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
-    // By default the operator map holds the account's commitment, so the legacy
-    // account gets stamped.
-    mockBuildOperatorKeyMap.mockReset();
-    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', operator]]));
-  });
-
-  it('stamps a matched legacy Guardian account with the operator endpoint + commitment', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc] as any });
-    await vault.backfillGuardianEndpoints();
-
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.guardianEndpoint).toBe('https://oz.example');
-    expect(acc.guardianOperatorCommitment).toBe('abc123');
-    // Resolved by looking the on-chain commitment up in the built-in-operator
-    // map — the same commitment -> operator path guardian-drift uses, built once
-    // and (like guardian-drift) without an explicit network argument.
-    expect(mockBuildOperatorKeyMap).toHaveBeenCalledWith();
-    // A non-Guardian account is never touched.
-    const normal = (await vault.fetchAccounts()).find(a => a.publicKey === 'normal-1')!;
-    expect(normal.guardianEndpoint).toBeUndefined();
-  });
-
-  it('builds the operator key map ONCE regardless of how many legacy accounts there are', async () => {
-    const secondLegacy = {
-      publicKey: 'guardian-legacy-2',
-      name: 'Guardian 3',
-      isPublic: true,
-      type: WalletType.Guardian,
-      hdIndex: 2
-    };
-    const vault = await seedVault('pw', { accounts: [legacyGuardian, secondLegacy] as any });
-    await vault.backfillGuardianEndpoints();
-
-    // K accounts => a single operator probe round, not one per account.
-    expect(mockBuildOperatorKeyMap).toHaveBeenCalledTimes(1);
-    const accounts = await vault.fetchAccounts();
-    expect(accounts.find(a => a.publicKey === 'guardian-legacy')!.guardianEndpoint).toBe('https://oz.example');
-    expect(accounts.find(a => a.publicKey === 'guardian-legacy-2')!.guardianEndpoint).toBe('https://oz.example');
-  });
-
-  it('skips a Guardian account that already carries a guardianEndpoint (idempotent, never overwrites)', async () => {
-    const vault = await seedVault('pw', { accounts: [stampedGuardian] as any });
-    await vault.backfillGuardianEndpoints();
-
-    // Already-stamped accounts are filtered out before the map is built or any
-    // on-chain read happens.
-    expect(mockBuildOperatorKeyMap).not.toHaveBeenCalled();
-    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-stamped')!;
-    expect(acc.guardianEndpoint).toBe('https://already.example');
-  });
-
-  it('leaves a NO-MATCH account untouched — never stamps a guessed/default endpoint', async () => {
-    // Operator down / custom / self-hosted / rotated key => commitment absent
-    // from the map (here: empty map, e.g. every operator unreachable).
-    mockBuildOperatorKeyMap.mockResolvedValue(new Map());
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    await vault.backfillGuardianEndpoints();
-
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.guardianEndpoint).toBeUndefined();
-    expect(acc.guardianOperatorCommitment).toBeUndefined();
-  });
-
-  it('leaves an account with no on-chain commitment untouched (retries next unlock)', async () => {
-    mockGetGuardianCommitmentFromAccount.mockReturnValue(undefined);
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    await vault.backfillGuardianEndpoints();
-
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.guardianEndpoint).toBeUndefined();
-    expect(acc.guardianOperatorCommitment).toBeUndefined();
-  });
-
-  it("one account's error does not block the others", async () => {
-    const secondLegacy = {
-      publicKey: 'guardian-legacy-2',
-      name: 'Guardian 3',
-      isPublic: true,
-      type: WalletType.Guardian,
-      hdIndex: 2
-    };
-    // First account's on-chain read throws; second resolves fine.
-    mockGetGuardianCommitmentFromAccount
-      .mockImplementationOnce(() => {
-        throw new Error('boom');
-      })
-      .mockReturnValue('abc123');
-    const vault = await seedVault('pw', { accounts: [legacyGuardian, secondLegacy] as any });
-    await vault.backfillGuardianEndpoints();
-
-    const accounts = await vault.fetchAccounts();
-    expect(accounts.find(a => a.publicKey === 'guardian-legacy')!.guardianEndpoint).toBeUndefined();
-    expect(accounts.find(a => a.publicKey === 'guardian-legacy-2')!.guardianEndpoint).toBe('https://oz.example');
-  });
-
-  it('never throws (best-effort) — a failure cannot block unlock', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
-    await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
-  });
-
-  it('stamps inside the accounts write queue, so a rotation that lands first turns the stamp stale', async () => {
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-    const updateBinding = jest.spyOn(vault, 'updateGuardianBinding');
-    let reachStamp!: () => void;
-    const stampReached = new Promise<void>(resolve => {
-      reachStamp = resolve;
-    });
-    mockGetGuardianCommitmentFromAccount.mockImplementationOnce(() => {
-      reachStamp();
-      return 'abc123';
-    });
-    let releaseQueue!: () => void;
-    const queueHeld = new Promise<void>(resolve => {
-      releaseQueue = resolve;
-    });
-    // A rotation completion holds the queue while the backfill probes.
-    const rotation = getAccountsWriteQueue().add(async () => {
-      await queueHeld;
-      await vault.setGuardianEndpoint('guardian-legacy', 'https://rotated.example');
-    });
-
-    const backfill = vault.backfillGuardianEndpoints();
-    await stampReached;
-    await new Promise(resolve => setTimeout(resolve, 0));
-    // The probes are done, and the stamp waits for the queue instead of writing.
-    expect(updateBinding).not.toHaveBeenCalled();
-
-    releaseQueue();
-    await rotation;
-    await backfill;
-    // The stamp ran after the rotation, with the epoch read before its probes, and was refused.
-    expect(updateBinding).toHaveBeenLastCalledWith('guardian-legacy', 0, {
-      guardianEndpoint: 'https://oz.example',
-      guardianOperatorCommitment: 'abc123'
-    });
-    await expect(updateBinding.mock.results[updateBinding.mock.results.length - 1]!.value).resolves.toEqual({
-      outcome: 'stale'
-    });
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.guardianEndpoint).toBe('https://rotated.example');
-    expect(acc.guardianOperatorCommitment).toBeUndefined();
-    expect(acc.guardianEpoch).toBe(1);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // WASM-lock eviction mid-flow (#788 follow-up). An evicted operation is
 // ABANDONED, not cancelled: the watchdog hands the mutex to a successor while
@@ -3758,31 +3443,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockAccountsInsert).not.toHaveBeenCalled();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
     expect((globalThis as any).__vaultTestLockLabels).toContain('vault-import-private-key');
-  });
-
-  it('backfillGuardianEndpoints: eviction during the account read leaves the account unstamped (non-fatal)', async () => {
-    const legacyGuardian = {
-      publicKey: 'guardian-legacy',
-      name: 'Guardian 1',
-      isPublic: true,
-      type: WalletType.Guardian,
-      hdIndex: 0
-    };
-    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', { id: 'oz', endpoint: 'https://oz.example' }]]));
-    mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
-    mockMidenClient.getAccount.mockImplementationOnce(async () => {
-      revokeWasmHold();
-      return { id: () => ({ toString: () => 'guardian-legacy' }) };
-    });
-    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
-
-    // Best-effort by design: the per-account catch swallows the abandonment…
-    await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
-    // …but the commitment read (a borrow of the returned Account) never ran,
-    // and no endpoint was stamped — the account simply retries next unlock.
-    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
-    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
-    expect(acc.guardianEndpoint).toBeUndefined();
   });
 });
 
@@ -4122,6 +3782,21 @@ describe('seed phrase removal', () => {
     };
     const vault = await seedVault('password123', { accounts: [account] });
     await expect(vault.removeSeedPhrase()).rejects.toThrow();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+  });
+
+  it('keeps the phrase when an HD account has no stored EVM key', async () => {
+    const account: WalletAccount = {
+      publicKey: 'hd-account',
+      name: 'HD',
+      type: WalletType.OnChain,
+      hdIndex: 0,
+      isPublic: true,
+      authScheme: 'ecdsa'
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+
+    await expect(vault.removeSeedPhrase()).rejects.toThrow('seedRemovalKeysNotReady');
     expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
   });
 

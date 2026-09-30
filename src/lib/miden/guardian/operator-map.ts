@@ -160,17 +160,6 @@ async function probeBuiltInOperators(network?: MIDEN_NETWORK_NAME): Promise<Buil
   return { byCommitment, contested, asked: options.length, answered };
 }
 
-/**
- * Commitment → built-in operator for one probe round, for callers resolving MANY
- * commitments against a single fan-out (`Vault.backfillGuardianEndpoints`). An
- * absent key conflates all three outcomes `identifyGuardianOperator` separates
- * below, which that caller can afford: its only action on a miss is to leave the
- * account untouched and retry on the next unlock.
- */
-export async function buildOperatorKeyMap(network?: MIDEN_NETWORK_NAME): Promise<Map<string, ResolvedGuardianOption>> {
-  return (await probeBuiltInOperators(network)).byCommitment;
-}
-
 /** Result of a built-in-operator lookup: a named holder, a negative, or neither. */
 export type GuardianOperatorLookup =
   | { outcome: 'identified'; operator: ResolvedGuardianOption }

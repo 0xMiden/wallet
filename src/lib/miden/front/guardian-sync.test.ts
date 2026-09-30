@@ -716,12 +716,12 @@ describe('syncGuardianAccounts', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
-  it('skips legacy Guardian accounts with no hot key (un-migrated / upgrade window)', async () => {
-    // A pre-3-key Guardian record carries neither hotPublicKey nor the
-    // requiresHotKeyRotation flag — e.g. right after a wallet upgrade and before
-    // the forced re-unlock runs migrateLegacyGuardianAccounts. getOrCreateMultisigService
-    // would throw "missing hotPublicKey" on it every cycle; skip it instead. The
-    // account is recovered by migration → Activate Device Key banner, not here.
+  it('skips Guardian accounts with no hot key and no rotation flag (a crashed mid-create write)', async () => {
+    // Neither hotPublicKey nor requiresHotKeyRotation is set: an in-flight
+    // create that crashed before finishing. getOrCreateMultisigService would
+    // throw "missing hotPublicKey" on it every cycle; skip it instead. This
+    // record has no recovery path and should fail loudly elsewhere, not spam
+    // the sync loop.
     storeState.accounts = [
       { publicKey: 'guardian-legacy', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
       { publicKey: 'guardian-active', type: WalletType.Guardian, hotPublicKey: 'hot-active' }
@@ -1712,35 +1712,6 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       sync.mockResolvedValue(undefined);
       await runSyncs(1);
       expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
-    });
-
-    // The operator the sync talks to is whatever `resolveGuardianEndpoint`
-    // returns, so the detector has to key on THAT and not on the raw field.
-    // Keying on the field was wrong in both directions.
-    it('does not fire on the unlock-time backfill, which stamps the endpoint already in use', async () => {
-      const pk = 'rotate-backfill';
-      // No per-account endpoint: this account resolves through the fallback.
-      storeState.accounts = [at(pk, undefined)] as never;
-      const sync = jest.fn().mockResolvedValue(undefined);
-      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
-
-      await runSyncs(1);
-      const stamped = getGuardianLastSyncAt(pk);
-      expect(stamped).toEqual(expect.any(Number));
-
-      // The backfill writes the value the account was ALREADY resolving to.
-      // Nothing about the operator changed, so nothing may be dropped — keying on
-      // the raw field saw `'' !== 'https://…'`, called it a rotation, and threw
-      // away a valid sync stamp (flipping the pill Online → Checking) along with
-      // the 401 streak and the self-heal budget.
-      //
-      // The tick behind the backfill FAILS, so a dropped stamp cannot be masked
-      // by the same tick re-earning one: only the absence of a reset preserves it.
-      storeState.accounts = [at(pk, 'https://guardian.test')] as never;
-      sync.mockRejectedValue(new Error('Failed to fetch'));
-      await runSyncs(1);
-
-      expect(getGuardianLastSyncAt(pk)).toBe(stamped);
     });
 
     it('fires when the resolved default moves under an account with no endpoint of its own', async () => {

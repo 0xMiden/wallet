@@ -17,7 +17,6 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 
 import {
-  buildOperatorKeyMap,
   checkEndpointCommitment,
   identifyGuardianOperator,
   normalizeHex,
@@ -87,33 +86,7 @@ describe('normalizeHex', () => {
   });
 });
 
-describe('buildOperatorKeyMap', () => {
-  it('maps each reachable operator commitment (normalized) to its ResolvedGuardianOption', async () => {
-    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
-
-    expect(map.get('aaa')?.id).toBe('open-zeppelin');
-    expect(map.get('bbb')?.id).toBe('gateway');
-    expect(map.get('ccc')?.id).toBe('lambda-class');
-    expect(map.get('ddd')?.id).toBe('kodax');
-  });
-
-  it('skips an operator whose endpoint is unreachable, without throwing', async () => {
-    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
-      throw new Error('network unreachable');
-    });
-
-    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
-
-    // The first operator (open-zeppelin) fails and is skipped; the other
-    // built-in operators are still present.
-    expect(map.get('aaa')).toBeUndefined();
-    expect(map.get('bbb')?.id).toBe('gateway');
-    expect(map.get('ccc')?.id).toBe('lambda-class');
-    expect(map.get('ddd')?.id).toBe('kodax');
-  });
-});
-
-// `network` is optional on both entry points and is forwarded UNDEFAULTED, so
+// `network` is optional and is forwarded UNDEFAULTED, so
 // the resolution lands on `getGuardianOptionsForNetwork` — the EFFECTIVE
 // network. A default parameter here (the build-baked `DEFAULT_NETWORK`) meant
 // that with a developer endpoint override active the wallet probed a different
@@ -123,18 +96,6 @@ describe('buildOperatorKeyMap', () => {
 describe('the no-argument default', () => {
   afterEach(() => {
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
-  });
-
-  it('builds the map from the effective network operator set', async () => {
-    mockEffectiveNetwork = MIDEN_NETWORK_NAME.DEVNET;
-
-    const map = await buildOperatorKeyMap();
-
-    // Devnet runs exactly one built-in operator, and it is not one of the four
-    // the build-baked network would have probed.
-    expect(map.get('eee')?.endpoint).toBe('https://guardian-stg.openzeppelin.com');
-    expect(map.get('aaa')).toBeUndefined();
-    expect(map.size).toBe(1);
   });
 
   it('identifies an operator against the effective network operator set', async () => {
@@ -292,15 +253,6 @@ describe('the built-in set excludes the developer URL override', () => {
     mockGuardianUrlOverride = '';
   });
 
-  it('does not probe the override endpoint', async () => {
-    mockGuardianUrlOverride = 'https://dev-override.guardian.test';
-
-    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
-
-    expect(map.get('fff')).toBeUndefined();
-    expect(map.get('aaa')?.id).toBe('open-zeppelin');
-  });
-
   it('does not let the override corroborate a commitment', async () => {
     mockGuardianUrlOverride = 'https://dev-override.guardian.test';
 
@@ -418,8 +370,8 @@ describe('mobile CORS-bypass registration', () => {
     expect(registerGuardianOrigin).toHaveBeenCalledWith('https://custom.guardian.test');
   });
 
-  it('registers every built-in origin it probes from buildOperatorKeyMap', async () => {
-    await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
+  it('registers every built-in origin it probes from identifyGuardianOperator', async () => {
+    await identifyGuardianOperator('0xAAA', MIDEN_NETWORK_NAME.TESTNET);
     expect(registerGuardianOrigin).toHaveBeenCalledWith('https://guardian.openzeppelin.com');
     expect(registerGuardianOrigin).toHaveBeenCalledWith('https://miden-guardian.lambdaclass.com');
   });

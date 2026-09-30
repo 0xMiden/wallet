@@ -25,9 +25,9 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
- * Guardian accounts recovered via seed phrase (and legacy accounts migrated on
- * unlock) carry `requiresHotKeyRotation` — they have no usable local hot key
- * and cannot sign, sync, or transact until a `replace_signer` rotation lands.
+ * Guardian accounts recovered via seed phrase carry `requiresHotKeyRotation` —
+ * they have no usable local hot key and cannot sign, sync, or transact until a
+ * `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate auto-initiates the
  * rotation and paints a full-screen overlay that blocks all wallet
  * interaction; the flag clearing (via `Vault.swapHotKey` → accountsUpdated →

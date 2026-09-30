@@ -355,11 +355,11 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
-        // Resuming an interrupted removal is best-effort like the two migrations
-        // below it. It reaches the keystore, a client build and the offscreen
-        // document, and it throws seedRemovalFailed by design; letting that
-        // escape would leave the wallet permanently unopenable, because the
-        // status stays 'removing' and every retry re-runs the same failing step.
+        // Resuming an interrupted removal is best-effort. It reaches the keystore, a
+        // client build and the offscreen document, and it throws seedRemovalFailed by
+        // design; letting that escape would leave the wallet permanently unopenable,
+        // because the status stays 'removing' and every retry re-runs the same failing
+        // step.
         // Staying at 'removing' is the designed outcome - it is what the
         // seedRemovalIncomplete notice asks the user to retry.
         // It also takes the same mutual exclusion the explicit Settings removal
@@ -375,13 +375,6 @@ export function unlock(password?: string) {
             })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
-        // Bring any pre-3-key Guardian accounts into the 3-key model in place
-        // (best-effort, never throws) so they surface the Activate Device Key
-        // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
-        await vault.migrateLegacyGuardianAccounts();
-        // Stamp wallet-derived EVM addresses on pre-existing HD accounts
-        // (best-effort, never throws) before the accounts list is read below.
-        await vault.backfillEvmAddresses();
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -394,16 +387,6 @@ export function unlock(password?: string) {
           ownMnemonic,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
-        // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
-        // predate the field, by resolving their on-chain guardian commitment to a
-        // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
-        // unlike the local-only migrations above it makes external guardian HTTP,
-        // which must never gate the unlock UI transition. Best-effort +
-        // idempotent; resolveGuardianDrift and the next unlock reconcile anything
-        // left unresolved.
-        void vault
-          .backfillGuardianEndpoints()
-          .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
       } finally {
         syncRealmInsertKeySink();
       }
@@ -631,9 +614,9 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
 // practice: `resolveGuardianDrift` fires them on unlock, which is exactly when
 // the recovery is running.
 //
-// Queued HERE rather than inside the Vault methods, because
-// `migrateLegacyGuardianAccounts` calls two of those methods while unlock
-// already holds this queue — queueing inside them would deadlock it.
+// Queued HERE rather than inside the Vault methods, for the reason
+// `Vault.updateGuardianBinding` documents: callers that already hold this queue
+// reach those methods directly, so queueing inside them would deadlock.
 
 export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
   return withUnlocked(({ vault }) =>
