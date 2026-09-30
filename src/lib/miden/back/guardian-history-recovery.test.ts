@@ -1792,16 +1792,31 @@ it('visits the previous operator of a switch the wallet made itself', async () =
   expect(createClient.mock.calls.map(call => call[1])).toContain('http://localhost:3001');
 });
 
-const failedSwitch = (previousGuardianEndpoint: string, newGuardianEndpoint: string) =>
+const switchRow = (
+  status: ITransactionStatus,
+  previousGuardianEndpoint: string,
+  newGuardianEndpoint: string,
+  extra: Record<string, unknown> = {}
+) =>
   transactions.add({
-    id: 'failed-switch',
+    id: 'switch-row',
     type: 'switch-guardian',
     accountId: 'account',
-    status: ITransactionStatus.Failed,
+    status,
     initiatedAt: 1,
     displayIcon: 'DEFAULT',
-    extraInputs: { previousGuardianEndpoint, newGuardianEndpoint }
+    extraInputs: { previousGuardianEndpoint, newGuardianEndpoint, ...extra }
   });
+const failedSwitch = (previousGuardianEndpoint: string, newGuardianEndpoint: string) =>
+  switchRow(ITransactionStatus.Failed, previousGuardianEndpoint, newGuardianEndpoint);
+// Its first history read answers that it serves no history: unsupported, a failure for an own operator.
+const servesNoHistory = (endpoint: string) => {
+  const client = source(endpoint, []);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'no history'));
+};
 
 it('does not visit the target of a switch that never committed', async () => {
   const target = source('http://localhost:3002', []);
@@ -1820,6 +1835,33 @@ it('visits the previous operator of a switch whose row ended Failed', async () =
   const visited = createClient.mock.calls.map(call => call[1]);
   expect(visited).toContain('http://localhost:3001');
   expect(visited).not.toContain('http://localhost:3002');
+});
+
+it('visits the target of a completed switch as an operator the account used', async () => {
+  servesNoHistory('http://localhost:3002');
+  await switchRow(ITransactionStatus.Completed, 'https://one', 'http://localhost:3002', {
+    endpointPersistFailed: true
+  });
+  const result = await run();
+  expect(createClient.mock.calls.map(call => call[1])).toContain('http://localhost:3002');
+  expect(result.sourceFailures).toBe(1);
+  expect(result.deferredSources).toBe(0);
+});
+
+// Production defers the whole pass while a switch is in flight; with shouldYield at null this pins line 183's arm.
+it.each([
+  ['queued', ITransactionStatus.Queued],
+  ['generating', ITransactionStatus.GeneratingTransaction]
+])('visits the origin but not the target of a switch still %s', async (_name, status) => {
+  servesNoHistory('http://localhost:3001');
+  source('http://localhost:3002', []);
+  await switchRow(status, 'http://localhost:3001', 'http://localhost:3002');
+  const result = await run();
+  const visited = createClient.mock.calls.map(call => call[1]);
+  expect(visited).toContain('http://localhost:3001');
+  expect(visited).not.toContain('http://localhost:3002');
+  expect(result.sourceFailures).toBe(1);
+  expect(result.deferredSources).toBe(0);
 });
 
 it('does not visit an operator named by a row restored from a backup file', async () => {
