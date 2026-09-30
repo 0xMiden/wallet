@@ -306,15 +306,15 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
 });
 
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
-  it("the Guardian selector's BASE_REF comes from the event payload", () => {
-    const src = configSource('.github/workflows/pr-e2e-guardian-lifecycle.yml');
-    expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its full-history checkout and pull request read along with it", () => {
+    expect(jobIfAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', 'select-guardian-e2e:')).toBe(
+      `\${{ ${FULL} }}`
+    );
   });
 
-  it('the Guardian selector keeps a pull request based on main or next, and deselects any other branch, marker or not', () => {
+  it('the Guardian selector runs for a pull request into main or next and for push and dispatch', () => {
     const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
     const arms = [
-      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'feature', PR_BODY: 'Guardian PR: #5', expected: 'run=false' },
       { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'next', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'push', BASE_REF: '', PR_BODY: '', expected: 'run=true' }

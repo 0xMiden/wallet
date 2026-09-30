@@ -11,8 +11,12 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
+  # Name and work read the same base value (#1071): the selector, its full-history
+  # checkout and its pull request read all run only under FULL, so a stacked pull
+  # request skips them along with the heavy job and the gate that need them.
   select-guardian-e2e:
     name: Select Guardian E2E
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
     runs-on: ubuntu-slim
     outputs:
       run: ${{ steps.select.outputs.run }}
@@ -37,17 +41,12 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BODY: ${{ steps.pull-request.outputs.body }}
         run: |
           set -euo pipefail
           run=false
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             run=true
-          elif [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
-            # Name and work read the same base value (#1071): a stacked pull
-            # request is deselected here, before the marker or path checks run.
-            run=false
           elif printf '%s\n' "$PR_BODY" \
             | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
             run=true
