@@ -320,6 +320,13 @@ export interface EarnWithdrawAmountFields {
 }
 
 /**
+ * Whether a Smart Withdraw shows its redeemed source side rather than the credited amount: until the
+ * credit lands, and on a received row that recorded no amount. The estimate prices the same side.
+ */
+export const earnWithdrawShowsSource = (extra: IEarnWithdrawExtraInputs, rowAmount: bigint | undefined): boolean =>
+  !(extra.phase === 'received' && rowAmount !== undefined);
+
+/**
  * Which side of a Smart Withdraw the activity shows.
  *
  * While the withdrawal is in flight (or dead) the only known figure is the
@@ -337,7 +344,7 @@ export const earnWithdrawAmountFields = (
   rowAmount: bigint | undefined,
   destinationMetadata: AssetMetadata | undefined
 ): EarnWithdrawAmountFields => {
-  if (extra.phase === 'received' && rowAmount !== undefined) {
+  if (!earnWithdrawShowsSource(extra, rowAmount)) {
     return {
       // The whole point of this branch is that the received leg is denominated
       // in the DESTINATION faucet's asset, so its decimals are load-bearing. If

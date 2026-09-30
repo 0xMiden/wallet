@@ -16,6 +16,7 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isUserCancelledTransaction } from 'lib/miden/activity';
@@ -69,6 +70,7 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   earnWithdrawAmountFields,
+  earnWithdrawShowsSource,
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -625,9 +627,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
   const pricedAmount =
     entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+  // An Earn withdrawal's row names the native asset it credits, so while its hero prints the redeemed USDC that
+  // side is priced through the Earn collateral faucet.
+  const pricedFaucetId =
+    earnWithdraw !== null && transaction !== undefined && earnWithdrawShowsSource(earnWithdraw, transaction.amount)
+      ? getEarnCollateralFaucet()
+      : entry?.faucetId;
   const approximateUsdAmount =
     pricedAmount !== undefined && entry?.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, pricedAmount, entry.faucetId, entry.token, tokenPrices)
+      ? formatFiatDisplayAmount(t, pricedAmount, pricedFaucetId, entry.token, tokenPrices)
       : undefined;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =

@@ -3140,6 +3140,10 @@ describe('HistoryDetails earn-withdraw', () => {
     ...overrides
   });
 
+  // Production writes the native faucet as both the row's faucet and the destination the withdrawal credits.
+  const nativeWithdrawTx = (extraInputs: Record<string, unknown>, overrides: Tx = {}): Tx =>
+    earnWithdrawTx({ destinationFaucetId: 'chain-native', ...extraInputs }, { faucetId: 'chain-native', ...overrides });
+
   beforeEach(() => {
     mockRetryEarnWithdrawReceive.mockClear();
     mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
@@ -3181,19 +3185,62 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(screen.queryByText('0.001')).not.toBeInTheDocument();
   });
 
-  // The helper passes an amount outside the display window through as written; expanding it for the estimate would
-  // write out ten million digits.
-  it('estimates no fiat value for a withdrawal amount outside the display window', async () => {
-    mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
-    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
-    const { rerender } = await renderAndLoad();
-    expect(screen.getByText(/historyDetailsFiatApprox/)).toBeInTheDocument();
+  // Until the credit lands the hero prints the redeemed USDC, not the native asset the row's faucet names, so that USDC
+  // is what the estimate prices.
+  it.each(['redeeming', 'delivering', 'failed'])('prices a %s withdrawal as the USDC its hero shows', async phase => {
+    setMockRow(nativeWithdrawTx({ phase, sourceAmount: '10.50' }));
+    await renderAndLoad();
 
-    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '9e9999999' }));
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.getByText('historyDetailsFiatApprox_$21.00')).toBeInTheDocument();
+  });
+
+  // No quote means no estimate, not the USDC at $1 a unit. And the helper passes an amount outside the display window
+  // through as written; expanding it for the estimate would write out ten million digits.
+  it('estimates no fiat value without a quote, or for a withdrawal amount outside the display window', async () => {
+    mockWalletStore.setState({ tokenPrices: {} });
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
+    const { rerender } = await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+
+    act(() => mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } } }));
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '9e9999999' }));
     rerender(<HistoryDetails transactionId="tx-1" />);
     await flush();
 
     expect(screen.getByText('9e9999999')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  // Once credited the hero prints the native asset, which the feed does not quote whatever its faucet calls itself.
+  it('prices no estimate for a received withdrawal credited in the native asset', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
+    setMockRow(nativeWithdrawTx({ phase: 'received' }, { amount: 999n }));
+    await renderAndLoad();
+
+    expect(screen.getByText('999')).toBeInTheDocument();
+    expect(screen.getByText('USDC')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  it('prices a received withdrawal that has no credited amount as the USDC it shows', async () => {
+    setMockRow(nativeWithdrawTx({ phase: 'received', sourceAmount: '10.50' }, { amount: undefined }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.getByText('historyDetailsFiatApprox_$21.00')).toBeInTheDocument();
+  });
+
+  // Without extra inputs the hero prints the row's own native amount, so no Earn side is priced as USDC.
+  it('prices no estimate for a restored withdrawal with no extra inputs', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
+    setMockRow(earnWithdrawTx({}, { faucetId: 'chain-native', extraInputs: undefined, restoredFromBackup: true }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(screen.getByText('USDC')).toBeInTheDocument();
     expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
   });
 
