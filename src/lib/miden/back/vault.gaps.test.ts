@@ -332,7 +332,7 @@ describe('Vault instance getPublicKeyForCommitment', () => {
 
   it('wraps missing-secret errors in a PublicError', async () => {
     const vault = await seedVault('pw');
-    // No secret key stored under 'pkc-missing' → fetchAndDecryptOneWithLegacyFallBack throws.
+    // No secret key stored under 'pkc-missing' → fetchAndDecryptOne throws.
     await expect(vault.getPublicKeyForCommitment('pkc-missing')).rejects.toThrow(PublicError);
   });
 });
@@ -367,7 +367,7 @@ describe('Vault.fetchAccounts: not-array throw', () => {
   it('throws PublicError when the persisted accounts slot is not an array', async () => {
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    // Overwrite the accounts slot with a non-array value — fetchAndDecryptOneWithLegacyFallBack
+    // Overwrite the accounts slot with a non-array value: fetchAndDecryptOne
     // will return the bogus shape and the Array.isArray guard must reject it.
     await encryptAndSaveMany([[keys.accounts, { not: 'an-array' }]], vaultKey);
     await expect(vault.fetchAccounts()).rejects.toThrow(PublicError);
@@ -479,7 +479,7 @@ describe('Vault.revealPrivateKey: not-found path', () => {
   it('throws PublicError when the stored secret is empty/falsy after decrypt', async () => {
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    // Persist an empty string under the expected slot. fetchAndDecryptOneWithLegacyFallBack
+    // Persist an empty string under the expected slot. fetchAndDecryptOne
     // returns the falsy value, so the `if (!secretKeyHex)` guard fires.
     await encryptAndSaveMany([[keys.accAuthSecretKey('acc-empty'), '']], vaultKey);
     await expect(Vault.revealPrivateKey('acc-empty', 'pw')).rejects.toThrow(PublicError);

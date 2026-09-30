@@ -146,49 +146,6 @@ function importKey(keyData: ArrayBuffer) {
   return crypto.subtle.importKey('raw', keyData, 'PBKDF2', false, ['deriveBits', 'deriveKey']);
 }
 
-/**
- * @deprecated
- */
-export function generateKeyLegacy(password: string) {
-  const buf = Buffer.alloc(32, password);
-  return importKey(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-}
-
-/**
- * @deprecated
- */
-export function deriveKeyLegacy(key: CryptoKey, salt: Uint8Array) {
-  return deriveKey(key, salt, 310_000);
-}
-
-/**
- * Generate the key hash from a password (for keychain storage)
- *
- * This generates the same SHA-256 hash used by generateKey, but returns
- * the raw hash as a base64 string for secure storage in the OS keychain.
- *
- * @param password - The user's password
- * @returns Base64-encoded SHA-256 hash of the password
- */
-export async function generateKeyHash(password: string): Promise<string> {
-  const hash = await crypto.subtle.digest('SHA-256', Buffer.from(password, 'utf-8'));
-  return Buffer.from(hash).toString('base64');
-}
-
-/**
- * Generate a CryptoKey from a stored key hash
- *
- * This recreates the passKey from a hash that was previously stored
- * in the OS keychain. Used for biometric unlock on desktop.
- *
- * @param keyHash - Base64-encoded SHA-256 hash from generateKeyHash
- * @returns CryptoKey that can be used with deriveKey for encryption/decryption
- */
-export async function generateKeyFromHash(keyHash: string): Promise<CryptoKey> {
-  const hashBuffer = Buffer.from(keyHash, 'base64');
-  return importKey(hashBuffer.buffer.slice(hashBuffer.byteOffset, hashBuffer.byteOffset + hashBuffer.byteLength));
-}
-
 // ============================================================================
 // Vault Key Model
 // ============================================================================

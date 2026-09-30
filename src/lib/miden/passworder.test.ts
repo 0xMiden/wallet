@@ -5,15 +5,11 @@ import {
   decryptJson,
   decryptVaultKeyWithPassword,
   deriveKey,
-  deriveKeyLegacy,
   encrypt,
   encryptJson,
   encryptVaultKeyWithPassword,
   exportKey,
   generateKey,
-  generateKeyFromHash,
-  generateKeyHash,
-  generateKeyLegacy,
   generateSalt,
   generateVaultKey,
   importVaultKey,
@@ -108,44 +104,6 @@ describe('passworder', () => {
       const bad = await deriveKey(await generateKey('b'), generateSalt(), 1000);
       const enc = await encryptJson({ x: 1 }, good);
       await expect(decryptJson(enc, bad)).rejects.toBeTruthy();
-    });
-  });
-
-  describe('legacy helpers', () => {
-    it('generateKeyLegacy + deriveKeyLegacy still produce a usable key', async () => {
-      const passKey = await generateKeyLegacy('legacy-pw');
-      const derived = await deriveKeyLegacy(passKey, generateSalt());
-      const payload = { legacy: true };
-      const enc = await encrypt(payload, derived);
-      const dec = await decrypt(enc, derived);
-      expect(dec).toEqual(payload);
-    });
-  });
-
-  describe('generateKeyHash / generateKeyFromHash', () => {
-    it('produces a stable base64 hash for the same password', async () => {
-      const h1 = await generateKeyHash('same-password');
-      const h2 = await generateKeyHash('same-password');
-      expect(h1).toBe(h2);
-      expect(h1).toMatch(/^[A-Za-z0-9+/=]+$/);
-    });
-
-    it('produces different hashes for different passwords', async () => {
-      expect(await generateKeyHash('a')).not.toBe(await generateKeyHash('b'));
-    });
-
-    it('generateKeyFromHash round-trips encryption with generateKey-derived key', async () => {
-      const password = 'pw-round-trip';
-      const hash = await generateKeyHash(password);
-      const fromHash = await generateKeyFromHash(hash);
-      const fromPassword = await generateKey(password);
-
-      const salt = generateSalt();
-      const d1 = await deriveKey(fromHash, salt);
-      const d2 = await deriveKey(fromPassword, salt);
-      const enc = await encrypt({ value: 1 }, d1);
-      const dec = await decrypt(enc, d2);
-      expect(dec).toEqual({ value: 1 });
     });
   });
 

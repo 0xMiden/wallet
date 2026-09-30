@@ -14,14 +14,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
-import {
-  encryptAndSaveMany,
-  fetchAndDecryptOneWithLegacyFallBack,
-  getPlain,
-  isStored,
-  removeMany,
-  savePlain
-} from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 jest.setTimeout(30_000);
@@ -537,6 +530,18 @@ describe('Vault (static)', () => {
     it('rejects with PublicError when called without password and no hardware', async () => {
       // No vault set up at all — setup() should throw "Password required" wrapped in PublicError
       await expect(Vault.setup()).rejects.toThrow(PublicError);
+    });
+
+    it('refuses a password unlock when no password protector exists', async () => {
+      // A check value under a PBKDF2 password key and no `vault_key_password` slot:
+      // the storage a wallet from before the vault-key model left behind.
+      const salt = Passworder.generateSalt();
+      const derived = await Passworder.deriveKey(await Passworder.generateKey('pw-old'), salt, 310_000);
+      const { dt, iv } = await Passworder.encrypt('any-check', derived);
+      const digest = await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'));
+      memoryStore[Buffer.from(digest).toString('hex')] = Buffer.from(salt).toString('hex') + iv + dt;
+
+      await expect(Vault.setup('pw-old')).rejects.toThrow('Invalid password');
     });
 
     it('retire drops the sink this vault installed (#878)', async () => {
@@ -1752,9 +1757,9 @@ describe('Vault.createHDAccount', () => {
     // Verify the non-WASM steps that createHDAccount performs all succeed
     // in isolation, so if the overall call rejects we know the failure is
     // downstream (i.e. withWasmClientLock).
-    const { fetchAndDecryptOneWithLegacyFallBack } = await import('./safe-storage');
+    const { fetchAndDecryptOne } = await import('./safe-storage');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const m = await fetchAndDecryptOneWithLegacyFallBack<string>(keys.mnemonic, vaultKey);
+    const m = await fetchAndDecryptOne<string>(keys.mnemonic, vaultKey);
     expect(m).toBe(VALID_MNEMONIC);
     const { deriveMidenAccountSeed, mnemonicToSeed } = require('@miden/hd-key');
     const seed = mnemonicToSeed(m);
@@ -2557,40 +2562,7 @@ describe('Vault.importAccountFromPrivateKey', () => {
   });
 });
 
-describe('Vault.legacyPasswordUnlock + insertKeyCallback', () => {
-  it('legacy unlock succeeds when the storage is seeded with a legacy check', async () => {
-    // Stage a legacy-formatted check using the password's PBKDF2 key
-    const pwKey = await Passworder.generateKey('legacy-pw');
-    const salt = Passworder.generateSalt();
-    const derived = await Passworder.deriveKeyLegacy(pwKey, salt);
-    const { dt, iv } = await Passworder.encrypt('any-check', derived);
-    const Buffer = require('buffer').Buffer;
-    const saltHex = Buffer.from(salt).toString('hex');
-    const payload = saltHex + iv + dt;
-    // Wrap the storage key the same way safe-storage does
-    const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
-      'hex'
-    );
-    memoryStore[wrapped] = payload;
-    // No vault_key_password slot present → setup() falls into legacyPasswordUnlock
-    const vault = await Vault.setup('legacy-pw');
-    expect(vault).toBeInstanceOf(Vault);
-  });
-
-  it('legacy unlock rejects on the wrong password', async () => {
-    const pwKey = await Passworder.generateKey('right-pw');
-    const salt = Passworder.generateSalt();
-    const derived = await Passworder.deriveKeyLegacy(pwKey, salt);
-    const { dt, iv } = await Passworder.encrypt('any-check', derived);
-    const Buffer = require('buffer').Buffer;
-    const saltHex = Buffer.from(salt).toString('hex');
-    const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from(keys.check, 'utf-8'))).toString(
-      'hex'
-    );
-    memoryStore[wrapped] = saltHex + iv + dt;
-    await expect(Vault.setup('wrong-pw')).rejects.toThrow(PublicError);
-  });
-
+describe('Vault.spawn + insertKeyCallback', () => {
   it('spawn acquires its client under a labelled hold, then constructs under its own labelled hold (#878)', async () => {
     (globalThis as any).__vaultTestLockLabels = [];
     (globalThis as any).__vaultTestLockNested = 0;
@@ -3370,34 +3342,30 @@ describe('insert-performing holds after a lock (#878)', () => {
 });
 
 describe('recovery seed waiting time', () => {
-  it.each([false, true])('resumes after an hour, with a legacy row: %s', async legacyRow => {
+  it('resumes after an hour', async () => {
     const account: WalletAccount = {
       publicKey: 'guardian-recovery',
       name: 'Guardian',
       type: WalletType.Guardian,
       hdIndex: 0,
       isPublic: false,
+      authScheme: 'ecdsa',
       coldPublicKey: '020304'
     };
     const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
     const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
     transaction.type = 'replace-hot-key';
-    transaction.awaitingRecoverySeed = legacyRow;
+    transaction.awaitingRecoverySeed = false;
     const startedAt = transaction.initiatedAt;
     const now = jest.spyOn(Date, 'now').mockReturnValue((startedAt + 60) * 1000);
     await Repo.transactions.add(transaction);
     try {
       await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
-      const expectedPause = startedAt + Number(!legacyRow) * 60;
+      const expectedPause = startedAt + 60;
       expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
       now.mockReturnValue((startedAt + 3660) * 1000);
       await vault.prepareRecoveryTransaction(transaction.id);
       expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
-      if (legacyRow) {
-        await Repo.transactions.where({ id: transaction.id }).modify(tx => {
-          delete tx.recoverySeedRequestedAt;
-        });
-      }
       const action = getRecoveryAction(transaction);
       await expect(vault.provideRecoverySeed(transaction.id, 'invalid', action)).rejects.toThrow();
       expect((await Repo.transactions.get(transaction.id))?.awaitingRecoverySeed).toBe(true);
@@ -3417,7 +3385,7 @@ describe('recovery seed waiting time', () => {
       const resumed = await Repo.transactions.get(transaction.id);
       expect(resumed?.awaitingRecoverySeed).toBe(false);
       expect(resumed?.recoverySeedRequestedAt).toBeUndefined();
-      const expectedStart = startedAt + 3600 + Number(legacyRow) * 60;
+      const expectedStart = startedAt + 3600;
       expect(resumed?.initiatedAt).toBe(expectedStart);
       await cancelStaleQueuedTransactions();
       expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Queued);
@@ -3760,7 +3728,7 @@ describe('Vault.spawnFromHotKey', () => {
       await Passworder.decryptVaultKeyWithPassword(protector, 'pw')
     );
     const storageKey = `${ck('accevmsecretkey')}_${evmAddress.toLowerCase()}`;
-    await expect(fetchAndDecryptOneWithLegacyFallBack<string>(storageKey, authenticatedKey)).resolves.toBe(EVM_KEY);
+    await expect(fetchAndDecryptOne<string>(storageKey, authenticatedKey)).resolves.toBe(EVM_KEY);
     const digest = await crypto.subtle.digest('SHA-256', Buffer.from(storageKey, 'utf-8'));
     const encrypted = memoryStore[Buffer.from(digest).toString('hex')];
     expect(encrypted).toEqual(expect.any(String));
@@ -3769,9 +3737,7 @@ describe('Vault.spawnFromHotKey', () => {
     // The hot secret is persisted under the accAuthSecretKey slot in its
     // canonical serialized form (signWord's hot path reads exactly this).
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    await expect(fetchAndDecryptOneWithLegacyFallBack<string>(keys.accAuthSecretKey('dead'), vaultKey)).resolves.toBe(
-      '01beef'
-    );
+    await expect(fetchAndDecryptOne<string>(keys.accAuthSecretKey('dead'), vaultKey)).resolves.toBe('01beef');
 
     // No mnemonic was written: the wallet is born seed-less and every
     // seed-status gate engages.

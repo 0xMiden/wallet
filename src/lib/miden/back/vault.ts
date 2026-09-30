@@ -21,7 +21,7 @@ import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
 import {
   encryptAndSaveMany,
-  fetchAndDecryptOneWithLegacyFallBack,
+  fetchAndDecryptOne,
   getPlain,
   isStored,
   removeMany,
@@ -181,7 +181,6 @@ const VAULT_KEY_HARDWARE_STORAGE_KEY = 'vault_key_hardware';
 
 enum StorageEntity {
   Check = 'check',
-  MigrationLevel = 'migration',
   Mnemonic = 'mnemonic',
   SeedRemoval = 'seedremoval',
   AccAuthSecretKey = 'accauthsecretkey',
@@ -189,12 +188,10 @@ enum StorageEntity {
   AccEvmSecretKey = 'accevmsecretkey',
   AccAuthPubKey = 'accauthpubkey',
   AccPubKey = 'accpubkey',
-  AccViewKey = 'accviewkey',
   CurrentAccPubKey = 'curraccpubkey',
   Accounts = 'accounts',
   Settings = 'settings',
-  OwnMnemonic = 'ownmnemonic',
-  LegacyMigrationLevel = 'mgrnlvl'
+  OwnMnemonic = 'ownmnemonic'
 }
 
 const checkStrgKey = createStorageKey(StorageEntity.Check);
@@ -340,11 +337,11 @@ export class Vault {
 
   private static async fetchSeedPhraseStatusFromKey(vaultKey: CryptoKey): Promise<SeedPhraseStatus> {
     if (await isStored(seedRemovalStrgKey)) {
-      const record = await fetchAndDecryptOneWithLegacyFallBack<SeedRemovalRecord>(seedRemovalStrgKey, vaultKey);
+      const record = await fetchAndDecryptOne<SeedRemovalRecord>(seedRemovalStrgKey, vaultKey);
       return record.status;
     }
     if (!(await isStored(mnemonicStrgKey))) return 'unavailable';
-    const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
+    const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey);
     return mnemonic ? 'stored' : 'unavailable';
   }
 
@@ -355,7 +352,7 @@ export class Vault {
       case 'removed':
         return;
       case 'removing':
-        record = await fetchAndDecryptOneWithLegacyFallBack<SeedRemovalRecord>(seedRemovalStrgKey, this.vaultKey);
+        record = await fetchAndDecryptOne<SeedRemovalRecord>(seedRemovalStrgKey, this.vaultKey);
         break;
       case 'stored': {
         const accounts = await this.fetchAccounts();
@@ -448,9 +445,7 @@ export class Vault {
     }
     await Repo.transactions.update(transactionId, {
       awaitingRecoverySeed: true,
-      recoverySeedRequestedAt:
-        transaction.recoverySeedRequestedAt ??
-        (transaction.awaitingRecoverySeed ? transaction.initiatedAt : Math.floor(Date.now() / 1000))
+      recoverySeedRequestedAt: transaction.recoverySeedRequestedAt ?? Math.floor(Date.now() / 1000)
     });
     return { ready: false };
   }
@@ -519,12 +514,15 @@ export class Vault {
     try {
       updated = await Repo.transactions
         .where({ id: transactionId })
-        .filter(tx => tx.status === ITransactionStatus.Queued && tx.awaitingRecoverySeed === true)
+        .filter(
+          tx =>
+            tx.status === ITransactionStatus.Queued &&
+            tx.awaitingRecoverySeed === true &&
+            tx.recoverySeedRequestedAt !== undefined
+        )
         .modify(tx => {
           const resumedAt = Math.floor(Date.now() / 1000);
-          // Older rows have no pause time. Give them a new expiry interval.
-          const pausedAt = tx.recoverySeedRequestedAt ?? tx.initiatedAt;
-          tx.initiatedAt += Math.max(0, resumedAt - pausedAt);
+          tx.initiatedAt += Math.max(0, resumedAt - tx.recoverySeedRequestedAt!);
           tx.awaitingRecoverySeed = false;
           delete tx.recoverySeedRequestedAt;
         });
@@ -662,10 +660,8 @@ export class Vault {
         // rather than a dead end.
         const hasStoredMnemonic = await isStored(mnemonicStrgKey);
         const [seedPhrase, accounts] = await Promise.all([
-          hasStoredMnemonic
-            ? fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey)
-            : Promise.resolve(''),
-          fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey)
+          hasStoredMnemonic ? fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey) : Promise.resolve(''),
+          fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey)
         ]);
         if (!Array.isArray(accounts)) {
           throw new PublicError('Accounts not found');
@@ -719,10 +715,7 @@ export class Vault {
 
               let secretKeyHex: string;
               try {
-                secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
-                  accAuthSecretKeyStrgKey(publicKeyCommitment),
-                  vaultKey
-                );
+                secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKeyCommitment), vaultKey);
               } catch (cause) {
                 fail('secret-read', cause);
               }
@@ -788,8 +781,7 @@ export class Vault {
           'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with your recovery phrase.'
         );
       }
-      // Legacy wallet - fall back to old password-based unlock
-      return Vault.legacyPasswordUnlock(password);
+      throw new PublicError('Invalid password');
     }
 
     try {
@@ -798,21 +790,6 @@ export class Vault {
     } catch {
       throw new PublicError('Invalid password');
     }
-  }
-
-  /**
-   * Legacy password unlock for wallets created before vault key model
-   * This maintains backward compatibility with existing wallets
-   */
-  private static async legacyPasswordUnlock(password: string): Promise<CryptoKey> {
-    const passKey = await Passworder.generateKey(password);
-    // Verify password by trying to decrypt the check value
-    try {
-      await fetchAndDecryptOneWithLegacyFallBack<any>(checkStrgKey, passKey);
-    } catch {
-      throw new PublicError('Invalid password');
-    }
-    return passKey;
   }
 
   static async spawn(
@@ -1629,7 +1606,7 @@ export class Vault {
   async fetchSettings(): Promise<WalletSettings> {
     return withError('Failed to fetch settings', async () => {
       if (!(await isStored(settingsStrgKey))) return DEFAULT_SETTINGS;
-      const settings = await fetchAndDecryptOneWithLegacyFallBack<WalletSettings>(settingsStrgKey, this.vaultKey);
+      const settings = await fetchAndDecryptOne<WalletSettings>(settingsStrgKey, this.vaultKey);
       return { ...DEFAULT_SETTINGS, ...settings };
     });
   }
@@ -1646,7 +1623,7 @@ export class Vault {
         throw new PublicError(getMessage('seedRequiredForAccountCreation'));
       console.log('[Vault.createHDAccount] Step 1: start, walletType =', walletType);
       const [mnemonic, allAccounts] = await Promise.all([
-        fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey),
+        fetchAndDecryptOne<string>(mnemonicStrgKey, this.vaultKey),
         this.fetchAccounts()
       ]);
       console.log('[Vault.createHDAccount] Step 2: mnemonic + accounts loaded, count =', allAccounts.length);
@@ -2015,10 +1992,7 @@ export class Vault {
       // old blobs (inert) — never a broken pointer.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
         try {
-          const oldCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
-            accAuthSecretKeyStrgKey(oldHotPubKey),
-            this.vaultKey
-          );
+          const oldCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(oldHotPubKey), this.vaultKey);
           await secureHotKey.deleteHotKey(oldCiphertext);
         } catch (e) {
           console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
@@ -2239,10 +2213,7 @@ export class Vault {
       }
     }
 
-    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-      accAuthSecretKeyStrgKey(publicKey),
-      this.vaultKey
-    );
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
     const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
 
@@ -2265,10 +2236,7 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
-    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-      accAuthSecretKeyStrgKey(publicKey),
-      this.vaultKey
-    );
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
     const wasmSigningInputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputs, 'hex')));
     const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
@@ -2329,19 +2297,13 @@ export class Vault {
       }
     }
     if (isCold) {
-      const coldHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accColdSecretKeyStrgKey(publicKey),
-        this.vaultKey
-      );
+      const coldHex = await fetchAndDecryptOne<string>(accColdSecretKeyStrgKey(publicKey), this.vaultKey);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
       return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
     }
 
-    const hotCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
-      accAuthSecretKeyStrgKey(publicKey),
-      this.vaultKey
-    );
+    const hotCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }
 
@@ -2359,7 +2321,7 @@ export class Vault {
       if (!account?.evmAddress) {
         throw new PublicError('Account has no EVM key');
       }
-      const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<Hex>(
+      const privateKeyHex = await fetchAndDecryptOne<Hex>(
         accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
         this.vaultKey
       );
@@ -2380,7 +2342,7 @@ export class Vault {
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
     try {
-      const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
+      const sk = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
       let secretKeyBytes = new Uint8Array(Buffer.from(sk, 'hex'));
       const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
       // Skip first byte (type prefix) from serialized public key
@@ -2392,7 +2354,7 @@ export class Vault {
   }
 
   async getAuthSecretKey(key: string) {
-    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
     return secretKey;
   }
 
@@ -2416,7 +2378,7 @@ export class Vault {
     return withError('Failed to reveal recovery phrase', async () => {
       if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
         throw new PublicError(getMessage('seedPhraseRemoved'));
-      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey);
       if (!MNEMONIC_PATTERN.test(mnemonic)) {
         throw new PublicError('Mnemonic does not match the expected pattern');
       }
@@ -2444,10 +2406,7 @@ export class Vault {
       // The private key comes from the seed phrase. Refuse after removal, as the mnemonic reveal does.
       if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
         throw new PublicError(getMessage('recoverySeedRequired'));
-      const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accAuthSecretKeyStrgKey(accountPubKeyCommitment),
-        vaultKey
-      );
+      const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(accountPubKeyCommitment), vaultKey);
       if (!secretKeyHex) {
         throw new PublicError('Private key not found for this account');
       }
@@ -2478,7 +2437,7 @@ export class Vault {
       // one signal that holds in every one of those states, and it is what revealHotKey uses.
       // No `.catch` here on purpose: a guard built from stored state fails CLOSED, so an unreadable
       // accounts record aborts the export instead of silently disabling the refusal.
-      const accounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const accounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = (Array.isArray(accounts) ? accounts : []).find(acc =>
         sameWalletAccountId(acc.publicKey, accountPublicKey)
       );
@@ -2517,21 +2476,20 @@ export class Vault {
           readerFailure = new PublicError('The export asked for a key that belongs to a different account');
           throw readerFailure;
         }
-        const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
-          accAuthSecretKeyStrgKey(commitment),
-          vaultKey
-        ).catch(cause => {
-          // A keystore callback's throw crosses the SDK boundary as its message alone, so this is
-          // the whole diagnostic a failed export will ever have. Only an ABSENT key may be reported
-          // as an absent key - safe-storage signals that with STORAGE_ITEM_NOT_FOUND - while a
-          // decrypt or storage failure keeps its own cause instead of being mislabelled.
-          if (cause instanceof Error && cause.message === STORAGE_ITEM_NOT_FOUND) {
-            readerFailure = new PublicError('Authentication key not found for account export');
-            throw readerFailure;
+        const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), vaultKey).catch(
+          cause => {
+            // A keystore callback's throw crosses the SDK boundary as its message alone, so this is
+            // the whole diagnostic a failed export will ever have. Only an ABSENT key may be reported
+            // as an absent key - safe-storage signals that with STORAGE_ITEM_NOT_FOUND - while a
+            // decrypt or storage failure keeps its own cause instead of being mislabelled.
+            if (cause instanceof Error && cause.message === STORAGE_ITEM_NOT_FOUND) {
+              readerFailure = new PublicError('Authentication key not found for account export');
+              throw readerFailure;
+            }
+            console.error('[accountFileExport] could not read the authentication key:', cause);
+            throw cause;
           }
-          console.error('[accountFileExport] could not read the authentication key:', cause);
-          throw cause;
-        });
+        );
         if (!secretKeyHex) {
           readerFailure = new PublicError('Authentication key not found for account export');
           throw readerFailure;
@@ -2564,7 +2522,7 @@ export class Vault {
   static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
     return withError('Failed to reveal everyday key', async () => {
-      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const allAccounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
@@ -2572,17 +2530,14 @@ export class Vault {
       if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
         throw new PublicError('Everyday key is only available for activated Guardian accounts');
       }
-      const ciphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accAuthSecretKeyStrgKey(account.hotPublicKey),
-        vaultKey
-      );
+      const ciphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(account.hotPublicKey), vaultKey);
       if (!ciphertext) {
         throw new PublicError('Everyday key ciphertext not found');
       }
       if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
       if (!(await isStored(evmStorageKey))) throw new PublicError(getMessage('evmPrivateKeyMissing'));
-      const evmPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(evmStorageKey, vaultKey);
+      const evmPrivateKey = await fetchAndDecryptOne<string>(evmStorageKey, vaultKey);
       if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
@@ -2625,7 +2580,7 @@ export class Vault {
   async getOwnedRecords() {}
 
   async fetchAccounts() {
-    const accounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, this.vaultKey);
+    const accounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, this.vaultKey);
     if (!Array.isArray(accounts)) {
       throw new PublicError('Accounts not found');
     }

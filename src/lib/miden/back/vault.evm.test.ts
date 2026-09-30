@@ -27,7 +27,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOne, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 const memoryStore: Record<string, any> = {};
@@ -188,10 +188,7 @@ describe('Vault.spawn: EVM identity stamping', () => {
     expect(accounts[0]!.evmAddress).toBe(EVM_ADDR_0);
 
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<`0x${string}`>(
-      keys.accEvmSecretKey(EVM_ADDR_0),
-      vaultKey
-    );
+    const privateKeyHex = await fetchAndDecryptOne<`0x${string}`>(keys.accEvmSecretKey(EVM_ADDR_0), vaultKey);
     expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
   });
 });
