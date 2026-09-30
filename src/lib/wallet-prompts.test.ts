@@ -2295,7 +2295,8 @@ describe('bridge prompts', () => {
   // F-050: a stamp ahead of the clock (a clock stepped back, or a stamp written while
   // the clock ran fast) is untrusted, the way the faucet marker's stampedAhead already
   // is in this file - it pauses the background poll until the clock reaches it, rather
-  // than reading as already elapsed.
+  // than reading as already elapsed. The stamp here is only an hour ahead, well inside
+  // the window's own magnitude, so only the sign rule excludes it.
   it('pauses the background poll for a Failed-unconfirmed row whose completedAt is ahead of the clock', async () => {
     const now = Math.floor(Date.now() / 1000);
     const aggFutureFailure = baseBridge({
@@ -2304,7 +2305,7 @@ describe('bridge prompts', () => {
       mayHaveSubmitted: true,
       transactionId: '0xfuture',
       initiatedAt: now - 60 * 60,
-      completedAt: now + 25 * 60 * 60,
+      completedAt: now + 60 * 60,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
     const epochFutureFailure = baseBridge({
@@ -2312,7 +2313,7 @@ describe('bridge prompts', () => {
       status: ITransactionStatus.Failed,
       mayHaveSubmitted: true,
       initiatedAt: now - 60 * 60,
-      completedAt: now + 25 * 60 * 60,
+      completedAt: now + 60 * 60,
       extraInputs: {
         provider: 'epoch',
         epochStatus: 'pending',
@@ -2329,6 +2330,49 @@ describe('bridge prompts', () => {
       destinationAddress: '0xdest',
       intentNonce: 'n-future-failure'
     });
+  });
+
+  // F-053: the same guard is symmetric with time - once the clock reaches the stamp
+  // it once was ahead of, the row reads as within the window again and the poll
+  // resumes on its own, with no separate unpause step.
+  it('resumes the background poll once the clock passes a stamp that was ahead of it', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggFutureFailure = baseBridge({
+      id: 'agg-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfuture',
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochFutureFailure = baseBridge({
+      id: 'epoch-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-future-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggFutureFailure, epochFutureFailure);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((now + 2 * 60 * 60) * 1000);
+    try {
+      await reconcileBridgedSends();
+
+      expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xfuture');
+      expect(pollEpochIntentFill).toHaveBeenCalledWith({
+        destinationAddress: '0xdest',
+        intentNonce: 'n-future-failure'
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   // F-051: the future-stamp check sits inside the failedUnconfirmed expression only,
