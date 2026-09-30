@@ -11,7 +11,7 @@
 
 import type { OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
-import { ApplyAfterSubmitError } from './sdk-error-code';
+import { ApplyAfterSubmitError, type LandedTransaction } from './sdk-error-code';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
@@ -54,10 +54,6 @@ const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(res
  */
 export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<void> {
   const sleep = options.sleep ?? defaultSleep;
-  // Read up front, while this hold still owns the client the result is a borrow of.
-  const current = options.holdIsCurrent();
-  const transactionId = current ? readTransactionId(options.result) : undefined;
-  const privateOutputNotes = current ? countPrivateOutputNotes(options.result) : undefined;
   let lastError: unknown;
   try {
     await options.apply();
@@ -79,7 +75,20 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
       report(options, error);
     }
   }
-  throw new ApplyAfterSubmitError(lastError, { transactionId, privateOutputNotes });
+  throw new ApplyAfterSubmitError(lastError, readLanded(options));
+}
+
+/**
+ * Read only once every attempt failed, and only while this hold still owns the client the result is a
+ * borrow of: an evicted holder never becomes current again, so a current hold means no eviction
+ * happened. An evicted hold reports no facts and touches nothing.
+ */
+function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
+  if (!options.holdIsCurrent()) return {};
+  return {
+    transactionId: readTransactionId(options.result),
+    privateOutputNotes: countPrivateOutputNotes(options.result)
+  };
 }
 
 function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {

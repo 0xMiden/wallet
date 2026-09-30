@@ -42,12 +42,19 @@ const arrange = (overrides: Partial<ApplyAfterSubmitRetry<string>> = {}, local: 
 
 describe('applyAfterSubmit (#1233)', () => {
   it('applies once and reads nothing when the first apply lands', async () => {
-    const options = arrange();
+    const executedTransaction = jest.fn(() => ({
+      id: () => ({ toHex: () => '0xtx' }),
+      accountId: () => 'acc',
+      initialAccountHeader: () => withCommitment(INITIAL),
+      outputNotes: () => ({ notes: () => [] })
+    }));
+    const options = arrange({ result: { executedTransaction } });
 
     await applyAfterSubmit(options);
 
     expect(options.apply).toHaveBeenCalledTimes(1);
     expect(options.readLocalAccount).not.toHaveBeenCalled();
+    expect(executedTransaction).not.toHaveBeenCalled();
   });
 
   it('a first failure then success does not wrap', async () => {
@@ -271,6 +278,24 @@ describe('applyAfterSubmit (#1233)', () => {
 
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(extractLanded(error)).toEqual({ transactionId: '0xtx' });
+  });
+
+  it('a hold evicted during the retries leaves the id and the count unread', async () => {
+    const id = jest.fn(() => ({ toHex: () => '0xtx' }));
+    const outputNotes = jest.fn(() => ({ notes: () => [outputNote(NoteType.Private)] }));
+    const executed = { id, accountId: () => 'acc', initialAccountHeader: () => withCommitment(INITIAL), outputNotes };
+    const holdIsCurrent = jest.fn(() => false).mockReturnValueOnce(true);
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const options = arrange({ apply, holdIsCurrent, result: { executedTransaction: () => executed } });
+
+    const error = await applyAfterSubmit(options).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toEqual({});
+    expect(id).not.toHaveBeenCalled();
+    expect(outputNotes).not.toHaveBeenCalled();
   });
 
   it('an evicted hold leaves the id and the count unread (#1233)', async () => {
