@@ -1,7 +1,7 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -138,13 +138,18 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  * {@link WALLET_FAILURE_REASONS} for why an unstamped cancel is final rather than unconfirmed.
  * False whenever {@link isVaultShortfallRow} holds, even with `mayHaveSubmitted` set: a
  * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
+ * False whenever {@link isBridgeRouteFailedRow} holds too: a bridged-send its own route
+ * evidence (the allocator or the fill poll) reports failed is settled by that, not unknown.
  */
 export function isUnconfirmedFailure(
-  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs'>>
 ): boolean {
   if (row.status !== ITransactionStatus.Failed) return false;
   // A vault shortfall is provable straight from the error, so it stays a definite failure.
   if (isVaultShortfallRow(row)) return false;
+  // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
+  if (isBridgeRouteFailedRow(row)) return false;
   const reason = row.rawError ?? row.error;
   return (
     row.mayHaveSubmitted === true ||
@@ -345,6 +350,21 @@ export function isVaultShortfallRow(row: Pick<ITransaction, 'type' | 'status' | 
   if (row.error === TRANSACTION_VAULT_SHORTFALL_ERROR) return true;
   const raw = row.rawError ?? row.error;
   return raw !== undefined && isVaultShortfallError(raw);
+}
+
+/**
+ * True for a Failed `bridged-send` whose own route evidence proves the allocator rejected the
+ * intent, or the fill itself failed - `extraInputs.epochStatus === 'failed'`. That is what
+ * `markBridgedSendFailed` writes when the allocator rejects an intent whose note already
+ * committed (funds reclaimable), and what the Epoch fill poll persists when the allocator
+ * reports the fill failed (#1250).
+ */
+export function isBridgeRouteFailedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.type !== 'bridged-send' || row.status !== ITransactionStatus.Failed) return false;
+  const extraInputs: Partial<IBridgedSendExtraInputs> | undefined = row.extraInputs;
+  return extraInputs?.epochStatus === 'failed';
 }
 
 /** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */

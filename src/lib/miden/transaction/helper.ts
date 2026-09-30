@@ -416,12 +416,13 @@ export const completeVerifiedLandedTransaction = async (
   // the ambiguous post-submit abort — the case this whole function exists for —
   // permanently counted as a failure and never as a success.
   //
-  // Deliberately without a duration. The only caller is `requeueFailedTransaction`,
-  // which runs when the user taps Retry — possibly days after `initiatedAt`. That
-  // interval is "how long until somebody came back", and putting it in the field
-  // a reader uses to watch for latency regressions would let a handful of them
-  // own the tail of every send's distribution. There is no honest interval to
-  // report here, so none is.
+  // Deliberately without a duration. Both callers can run arbitrarily long after
+  // `initiatedAt` - `requeueFailedTransaction` when the user taps Retry, and
+  // `updateBridgeClaimStatus` when a bridge claim or fill write reconciles a row
+  // days later (#1250) - so that interval means "how long until somebody came
+  // back", and putting it in the field a reader uses to watch for latency
+  // regressions would let a handful of them own the tail of every send's
+  // distribution. There is no honest interval to report here, so none is.
   if (reconciled !== undefined) {
     reportOperation({ operation: operationOfType(reconciled.type), result: 'completed' });
   }

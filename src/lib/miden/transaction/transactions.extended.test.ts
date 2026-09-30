@@ -24,6 +24,7 @@ import {
   requestCustomTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
+  updateBridgeClaimStatus,
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
@@ -1095,6 +1096,89 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(row.extraInputs.epochStatus).toBe('failed');
       expect(row.extraInputs.reclaimHeight).toBe(12345);
     });
+  });
+});
+
+// This row's own route evidence promotes a Failed bridged-send to Completed, or leaves it Failed
+// (#1250) - never a sibling's, and never when the merged write itself reports the route failed.
+describe('updateBridgeClaimStatus', () => {
+  const pushFailedBridgedSend = (overrides: Record<string, unknown> = {}) =>
+    txStore.push({
+      id: 'bs-1',
+      type: 'bridged-send',
+      status: ITransactionStatus.Failed,
+      transactionId: '0xabc',
+      error: 'some error',
+      rawError: 'some raw error',
+      displayMessage: 'Bridge failed - funds reclaimable',
+      displayIcon: 'FAILED',
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
+      ...overrides
+    });
+  const row = () => txStore.find(t => t.id === 'bs-1')!;
+
+  it("promotes to Completed when 'ready' is bound to this row's own transaction hash, clearing error/rawError", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().error).toBeUndefined();
+    expect(row().rawError).toBeUndefined();
+    expect(row().displayMessage).toBe('Bridged to EVM');
+    expect(row().displayIcon).toBe('SEND');
+  });
+
+  it("promotes to Completed when 'claimed' is bound to this row's own transaction hash", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it("leaves the row Failed on a 'ready' write with no bound hash", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true });
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+
+  it("leaves the row Failed on a 'ready' write bound to a different row's hash", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xsibling');
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+
+  it("promotes to Completed on a 'not-applicable' write once the Epoch fill confirms", async () => {
+    pushFailedBridgedSend({ extraInputs: { provider: 'epoch', claimStatus: 'not-applicable' } });
+    await updateBridgeClaimStatus('bs-1', 'not-applicable', { epochStatus: 'confirmed', fillTxHash: '0xfill' });
+    expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('leaves the row Failed when the merged write itself reports the Epoch fill failed, even with a fillTxHash', async () => {
+    pushFailedBridgedSend({ extraInputs: { provider: 'epoch', claimStatus: 'not-applicable' } });
+    await updateBridgeClaimStatus('bs-1', 'not-applicable', { epochStatus: 'failed', fillTxHash: '0xfill' });
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+
+  it("leaves the row Failed on a claimStatus 'failed' write", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'failed');
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+
+  it("leaves the row Failed on a 'pending' write", async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'pending');
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('changes no status on an already-Completed row', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Completed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('changes no status on a still-pending (queued) row', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Queued });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Queued);
   });
 });
 

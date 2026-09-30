@@ -224,6 +224,39 @@ describe('BridgeClaimSection', () => {
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
     });
 
+    // Route evidence has to name the deposit it is bound to, so `updateBridgeClaimStatus` can
+    // tell this row's own claim apart from a sibling's (#1250).
+    it("passes the found deposit's tx hash as the tracker's ready write", async () => {
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'ready',
+          { depositReady: true },
+          '0xdeposit-hash'
+        )
+      );
+    });
+
+    it("passes the claimable deposit's tx hash on handleClaim's claiming and claimed writes", async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'claiming', undefined, '0xdeposit-hash')
+      );
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'claimed',
+          { claimTxHash: '0xclaimhash' },
+          '0xdeposit-hash'
+        )
+      );
+    });
+
     it("looks the deposit up against THIS row's own bridge-out transaction", async () => {
       // Several bridge-outs can share one L1 destination. The claim the user
       // makes here is stamped onto this row, so the lookup has to be bound to

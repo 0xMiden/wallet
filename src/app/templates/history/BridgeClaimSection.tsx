@@ -125,7 +125,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       setClaimable(deposit);
       if (status === 'pending' && entry.txId) {
         setStatus('ready');
-        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
+        // Bound to this row's own transaction hash, so the write can only promote THIS row (#1250).
+        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true }, deposit.tx_hash);
       }
       return true;
     }
@@ -171,12 +172,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     hapticMedium();
     setError(null);
     setStatus('claiming');
-    await updateBridgeClaimStatus(entry.txId, 'claiming');
+    await updateBridgeClaimStatus(entry.txId, 'claiming', undefined, claimable.tx_hash);
     try {
       const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
       await tx.wait();
       setStatus('claimed');
-      await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash });
+      await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash }, claimable.tx_hash);
       setClaimable(null);
     } catch (err) {
       console.error('[bridge-claim] claim failed', err);

@@ -296,7 +296,8 @@ describe('isVaultShortfallRow', () => {
 // The one predicate the rotation gate (HotKeyRotationGate.selectors) and Activity History both
 // read a failed row through (#1250), so the two never disagree on which rows are unconfirmed.
 describe('isUnconfirmedFailure', () => {
-  type Row = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>;
+  type Row = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs'>>;
   const failed = (extra: Partial<Row> = {}): Row => ({ type: 'send', status: ITransactionStatus.Failed, ...extra });
 
   it.each<[string, Row]>([
@@ -329,6 +330,14 @@ describe('isUnconfirmedFailure', () => {
     [
       'a user cancel the write stamp reached',
       failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 })
+    ],
+    [
+      'a bridged-send whose fill is still pending, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'pending' } })
+    ],
+    [
+      'a bridged-send whose fill confirmed, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'confirmed' } })
     ]
   ])('is true for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(true);
@@ -351,6 +360,14 @@ describe('isUnconfirmedFailure', () => {
         rawError: 'assertion failed with error code: 644413868907058392',
         mayHaveSubmitted: true
       })
+    ],
+    [
+      'a bridged-send its own route evidence proves failed, mayHaveSubmitted (#1250)',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'failed' } })
+    ],
+    [
+      'a rotation row with no extraInputs at all',
+      { type: 'replace-hot-key', status: ITransactionStatus.Failed, error: 'guardian unreachable' }
     ]
   ])('is false for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(false);

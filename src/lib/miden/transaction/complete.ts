@@ -1,5 +1,6 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import { sameTxHash } from 'lib/agglayer/status';
 import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   matchesEarnDepositIntent,
@@ -16,7 +17,12 @@ import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
-import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
+import {
+  completeVerifiedLandedTransaction,
+  recordNoteDelivery,
+  setTransactionStage,
+  updateTransactionStatus
+} from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -1416,9 +1422,17 @@ const BRIDGED_RECEIVE_SETTLED_PHASES: ReadonlySet<IBridgedReceivePhase> = new Se
 
 /**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
- * long after the Miden-side send has reached `Completed`, so this mutates ONLY
- * `extraInputs` and never touches `status` (which `updateTransactionStatus`
- * would reject as "already finalized"). Used by the activity-detail claim flow.
+ * long after the Miden-side send has reached `Completed`, so this mutates
+ * `extraInputs` directly rather than through `updateTransactionStatus` (which
+ * would reject a Completed row as "already finalized"). Used by the
+ * activity-detail claim flow.
+ *
+ * `boundDepositTxHash` is the Agglayer deposit's own `tx_hash`, passed by a caller that just
+ * looked one up bound to THIS row's `transactionId` (`findClaimableMidenToEvmDeposit`). When the
+ * merged write proves this row's own Miden transaction landed - that hash matches
+ * (`sameTxHash`), or the Epoch fill poll reports `epochStatus: 'confirmed'` - a row that is
+ * Failed in the store is promoted to Completed through `completeVerifiedLandedTransaction`
+ * (#1250). A write whose merged route status is itself 'failed' never promotes.
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1436,12 +1450,33 @@ export const updateBridgeClaimStatus = async (
       | 'fillChainId'
       | 'epochStatus'
     >
-  >
+  >,
+  boundDepositTxHash?: string
 ) => {
+  let merged: IBridgedSendExtraInputs | undefined;
+  let storedTransactionId: string | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
     tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+    merged = tx.extraInputs;
+    storedTransactionId = tx.transactionId;
   });
+
+  const routeFailed = merged?.claimStatus === 'failed' || merged?.epochStatus === 'failed';
+  const agglayerLanded =
+    !routeFailed &&
+    (claimStatus === 'ready' || claimStatus === 'claiming' || claimStatus === 'claimed') &&
+    boundDepositTxHash !== undefined &&
+    storedTransactionId !== undefined &&
+    sameTxHash(boundDepositTxHash, storedTransactionId);
+  const epochLanded = !routeFailed && merged?.epochStatus === 'confirmed';
+  if (agglayerLanded || epochLanded) {
+    await completeVerifiedLandedTransaction(id, {
+      displayMessage: 'Bridged to EVM',
+      displayIcon: 'SEND',
+      completedAt: Math.floor(Date.now() / 1000)
+    });
+  }
 };
 
 /**

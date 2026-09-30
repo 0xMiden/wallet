@@ -475,12 +475,48 @@ describe('History', () => {
         completedAt: 700,
         error: TRANSACTION_VAULT_SHORTFALL_ERROR,
         mayHaveSubmitted: true
+      },
+      // A bridged-send `markBridgedSendFailed` demoted after the allocator rejected the intent: its
+      // own route evidence proves it failed, so it stays a definite failure too (#1250).
+      {
+        id: 'bridge-route-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 800,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+      },
+      // Siblings whose fill has not (yet) reported failed keep reading not-confirmed.
+      {
+        id: 'bridge-fill-pending',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 900,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+      },
+      {
+        id: 'bridge-fill-confirmed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 1000,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
       }
     ]);
     mockGetUncompletedTransactions.mockResolvedValueOnce([]);
 
     await renderHistory();
-    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(6));
 
     const stampedCancel = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-stamped-cancel');
     expect(stampedCancel.isCancelled).toBe(true);
@@ -492,6 +528,17 @@ describe('History', () => {
 
     const rotationShortfall = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-rotation-shortfall');
     expect(rotationShortfall.isUnconfirmed).toBe(false);
+
+    const bridgeRouteFailed = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-route-failed');
+    expect(bridgeRouteFailed.isUnconfirmed).toBe(false);
+
+    const bridgeFillPending = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-fill-pending');
+    expect(bridgeFillPending.isUnconfirmed).toBe(true);
+
+    const bridgeFillConfirmed = mockHistoryViewProps.entries.find(
+      (e: any) => e.key === 'completed-bridge-fill-confirmed'
+    );
+    expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
