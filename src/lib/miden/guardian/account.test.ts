@@ -475,6 +475,18 @@ describe('createGuardianAccount', () => {
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
+  it('creates the account on the normalized commitment of an unprefixed uppercase Guardian key', async () => {
+    multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'AB'.repeat(32), pubkey: 'g-pubkey' });
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+    await createGuardianAccount(makeWebClient() as never, new Uint8Array(32));
+
+    expect(multisigClientConfig.create).toHaveBeenCalledWith(
+      expect.objectContaining({ guardianCommitment: `0x${'ab'.repeat(32)}` }),
+      expect.anything()
+    );
+  });
+
   it('generates a random seed when none is provided', async () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
