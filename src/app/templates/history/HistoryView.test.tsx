@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
 import { springs, tabBarSwap } from 'lib/animation';
@@ -25,10 +25,10 @@ const mockPendingWrapper: { props: Record<string, unknown> | null; renders: Reco
   props: null,
   renders: []
 };
-// Every non-pending `motion.div` (the date-group wrapper), across every commit, in commit order.
-// The "tab shown again" tests need the per-commit history, not just the latest snapshot: the
-// passive-effect recheck that follows the showing commit lands within the same test flush, so a read
-// taken only after `rerender` returns would already see the recheck's reverted transition.
+// Every non-pending `motion.div` (the date-group wrapper), across every commit, in commit order; the
+// scroller mock below keeps the same per-commit history. The "tab shown again" tests need it, not just
+// the latest snapshot: the recheck that follows the showing commit is deferred to a queued microtask
+// (#1198), a separate commit that only an explicit `await act(async () => {})` flushes into view.
 const mockGroupWrapper: { renders: Record<string, unknown>[] } = { renders: [] };
 
 // Icon: expose the requested glyph name + size + className so buildRowProps'
@@ -230,10 +230,8 @@ type MockScrollerProps = {
   loadMore: (page: number) => void;
   useWindow?: boolean;
   getScrollParent?: () => HTMLElement | null;
+  initialLoad?: boolean;
 };
-// `renders` keeps every commit's props, not just the latest: a passive-effect-triggered re-render
-// (the tab-shown-again recheck) lands within the same act() flush as the commit that caused it, so
-// reading only the latest snapshot after that flush would hide the transient commit in between.
 const mockScroller: { props?: MockScrollerProps; renders: MockScrollerProps[] } = { renders: [] };
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
@@ -1569,13 +1567,13 @@ describe('HistoryView - its tab shown again', () => {
   // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
   // never reads `.current`, so a bare DOM node is enough.
   const scrollParentRef = { current: document.createElement('div') };
-  const view = (shown: boolean, onScreen = true) => (
+  const view = (shown: boolean, onScreen = true, hasMore = false) => (
     <PageActiveContext.Provider value={onScreen}>
       <TabActiveContext.Provider value={shown}>
         <HistoryView
           fullHistory
           initialLoading={false}
-          hasMore={false}
+          hasMore={hasMore}
           loadMore={async () => {}}
           entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
           pendingItems={[pending]}
@@ -1591,9 +1589,6 @@ describe('HistoryView - its tab shown again', () => {
       .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
 
   it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
-    // Reads the FIRST commit's props, not the settled DOM: the scroller's recheck (#1198) re-renders
-    // the list right after this commit, within the same test flush, and that later commit is what
-    // `container` would show by the time `rerender` returns.
     const { rerender } = render(view(true));
     rerender(view(false));
     mockGroupWrapper.renders = [];
@@ -1619,33 +1614,36 @@ describe('HistoryView - its tab shown again', () => {
     expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
   });
 
-  // The scroller's own load check runs on mount/update; unskipped in the commit that shows the tab
-  // again, it would re-render History synchronously before framer reads the swap above (#1198). The
-  // mock's `renders` list, not its last-props snapshot, is what makes the transient commit visible:
-  // the passive-effect recheck that follows lands within the same test flush, so a read taken only
-  // after `rerender` returns would already see the recheck's props, never the commit in between.
   it('renders the scroller with initialLoad false in the commit that shows the tab again', () => {
     const { rerender } = render(view(true));
     rerender(view(false));
     mockScroller.renders = [];
     rerender(view(true));
 
-    expect(mockScroller.renders[0]?.initialLoad).toBe(false);
+    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false]);
   });
 
-  it("re-enables initialLoad once that commit's effects flush, changing no other scroller prop", () => {
-    const { rerender } = render(view(true));
-    rerender(view(false));
+  it('takes no recheck render when there is nothing more to page (hasMore false)', async () => {
+    const { rerender } = render(view(true, true, false));
+    rerender(view(false, true, false));
     mockScroller.renders = [];
-    rerender(view(true));
+    rerender(view(true, true, false));
+    await act(async () => {});
 
-    expect(mockScroller.renders).toHaveLength(2);
-    const [shownCommit, recheckCommit] = mockScroller.renders;
-    expect(shownCommit.initialLoad).toBe(false);
-    expect(recheckCommit.initialLoad).toBe(true);
-    expect(recheckCommit.hasMore).toBe(shownCommit.hasMore);
-    expect(recheckCommit.loadMore).toBe(shownCommit.loadMore);
-    expect(recheckCommit.useWindow).toBe(shownCommit.useWindow);
+    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false]);
+  });
+
+  it("re-enables initialLoad once that commit's effects flush when there is more to page (hasMore true), changing no other scroller prop", async () => {
+    const { rerender } = render(view(true, true, true));
+    rerender(view(false, true, true));
+    mockScroller.renders = [];
+    rerender(view(true, true, true));
+    await act(async () => {});
+
+    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false, true]);
+    expect(mockScroller.renders[1]?.hasMore).toBe(mockScroller.renders[0]?.hasMore);
+    expect(mockScroller.renders[1]?.loadMore).toBe(mockScroller.renders[0]?.loadMore);
+    expect(mockScroller.renders[1]?.useWindow).toBe(mockScroller.renders[0]?.useWindow);
   });
 
   it('leaves initialLoad true on every other render: first mount, and a PageActiveContext flip while the tab stays shown', () => {
