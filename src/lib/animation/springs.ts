@@ -20,6 +20,8 @@
  *   overshoot (~7%), settled within ~340ms even across three tabs
  * - `tabIconPop`: the newly active tab icon rising to its pop scale, quickly
  *   and without overshoot, before `tabSwitch` brings it back to rest
+ * - `sheetOpen` / `sheetClose`: a vaul bottom sheet (`lib/animation/sheet.ts`);
+ *   `tabSwitch` and `tabIconPop` at 1.25 times their duration
  */
 
 import type { Transition } from 'framer-motion';
@@ -31,6 +33,11 @@ const tabSwitch: Transition = { type: 'spring', stiffness: 680, damping: 30, mas
 // Damping ratio ≈ 0.87: reaches the pop scale in about a tenth of a second
 // with no visible overshoot past it.
 const tabIconPop: Transition = { type: 'spring', stiffness: 900, damping: 40, mass: 0.6 };
+// The two tab-bar springs at 1.25 times their duration, for a bottom sheet: the travel of a sheet
+// is longer than the travel of a tab highlight, and the tab timing was too fast for it. The damping
+// ratios are the same (stiffness / 1.25², damping / 1.25), so the shape of each curve is the same.
+const sheetOpen: Transition = { type: 'spring', stiffness: 435, damping: 24, mass: 0.8 };
+const sheetClose: Transition = { type: 'spring', stiffness: 576, damping: 32, mass: 0.6 };
 
 export const springs = {
   snappy: { type: 'spring', stiffness: 500, damping: 38, mass: 1 } as Transition,
@@ -40,7 +47,9 @@ export const springs = {
   sheetPresent: { type: 'spring', stiffness: 380, damping: 34, mass: 1 } as Transition,
   dragRelease: { type: 'spring', stiffness: 420, damping: 40, mass: 1 } as Transition,
   tabSwitch,
-  tabIconPop
+  tabIconPop,
+  sheetOpen,
+  sheetClose
 };
 
 export type SpringName = keyof typeof springs;

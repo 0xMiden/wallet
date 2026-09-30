@@ -500,7 +500,7 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
+  // The wallet names its test network in a banner above Home's action bar (TabLayout), not in
   // a banner above every page; the page takes the full height.
   return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };

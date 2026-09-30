@@ -69,6 +69,17 @@ jest.mock('app/hooks/useHasUnreadActivity', () => ({
   useHasUnreadActivity: () => mockHasUnread.value
 }));
 
+// The banner has its own suite. Here it shows its variant, and the real shell mark tells a nested
+// banner to stand down.
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: ({ variant }: { variant?: string }) => (
+    <div data-testid="network-mode-banner" data-variant={variant} />
+  ),
+  NetworkNamedByShell: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="network-named-by-shell">{children}</div>
+  )
+}));
+
 // `springs` is animation config only; the value is irrelevant to behaviour.
 // `usePreset('fade')` returns a stand-in whose values the mount-fade tests
 // look for on the motion wrapper.
@@ -382,7 +393,24 @@ describe('TabLayout — tabs list composition', () => {
 });
 
 describe('TabLayout — test network', () => {
-  it('shows no banner above the tabs', () => {
+  it('shows the home banner above the action bar on a Home-group route', () => {
+    mockLocation.pathname = '/send';
+    renderLayout();
+    const banner = screen.getByTestId('network-mode-banner');
+    expect(banner).toHaveAttribute('data-variant', 'home');
+    expect(
+      banner.compareDocumentPosition(screen.getByTestId('action-bar')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('marks the Home panes as named by the shell, so a review step draws no second banner', () => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(within(screen.getByTestId('network-named-by-shell')).getByTestId('home-swipe')).toBeInTheDocument();
+  });
+
+  it('shows no banner on the other tabs', () => {
+    mockLocation.pathname = '/browser';
     renderLayout();
     expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });

@@ -29,6 +29,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+jest.mock('components/MainnetAccessSheet', () => ({ MainnetAccessSheet: () => null }));
 
 // A load that did not fully succeed is driven per test; the default is a clean load.
 let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };

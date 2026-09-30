@@ -283,8 +283,8 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill); only the
-  // dApp confirm window keeps the full-width banner.
+  // The wallet names its test network in a banner above Home's action bar, which TabLayout draws
+  // (mocked here). The router itself draws no banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
     expect(screen.getByTestId('explore')).toBeInTheDocument();

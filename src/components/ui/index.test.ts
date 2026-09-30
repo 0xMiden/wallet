@@ -23,6 +23,7 @@ import { Button, ButtonVariant } from './Button';
 import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
+import { CodeInput } from './CodeInput';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
@@ -136,6 +137,7 @@ describe('components/ui barrel', () => {
     SubPageLayout,
     ErrorLine,
     ErrorDetails,
+    CodeInput,
     SeedPhraseGrid,
     DappOrigin
   } as const;
