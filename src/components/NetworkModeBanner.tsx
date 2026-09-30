@@ -3,6 +3,7 @@ import React, { createContext, FC, useCallback, useContext, useState } from 'rea
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { MainnetWelcome } from 'components/mainnet-welcome/MainnetWelcome';
 import { MainnetAccessSheet } from 'components/MainnetAccessSheet';
 import { NetworkModeSheet } from 'components/NetworkModeSheet';
 import { redeemMainnetAccessCode } from 'lib/mainnet-access';
@@ -52,6 +53,7 @@ export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confi
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
 
   const onOpen = useCallback(() => {
     hapticLight();
@@ -61,6 +63,13 @@ export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confi
   const onOpenAccess = useCallback(() => {
     hapticLight();
     setAccessOpen(true);
+  }, []);
+
+  // An accepted code starts the welcome. The sheet closes itself on `granted`, under the welcome.
+  const onSubmitCode = useCallback(async (code: string) => {
+    const outcome = await redeemMainnetAccessCode(code);
+    if (outcome === 'granted') setWelcomeOpen(true);
+    return outcome;
   }, []);
 
   const alreadyNamed = useContext(NetworkAlreadyNamed);
@@ -110,7 +119,8 @@ export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confi
         </div>
 
         <NetworkModeSheet open={open} onOpenChange={setOpen} />
-        <MainnetAccessSheet open={accessOpen} onOpenChange={setAccessOpen} onSubmit={redeemMainnetAccessCode} />
+        <MainnetAccessSheet open={accessOpen} onOpenChange={setAccessOpen} onSubmit={onSubmitCode} />
+        <MainnetWelcome open={welcomeOpen} onContinue={() => setWelcomeOpen(false)} />
       </>
     );
   }
