@@ -1792,6 +1792,36 @@ it('visits the previous operator of a switch the wallet made itself', async () =
   expect(createClient.mock.calls.map(call => call[1])).toContain('http://localhost:3001');
 });
 
+const failedSwitch = (previousGuardianEndpoint: string, newGuardianEndpoint: string) =>
+  transactions.add({
+    id: 'failed-switch',
+    type: 'switch-guardian',
+    accountId: 'account',
+    status: ITransactionStatus.Failed,
+    initiatedAt: 1,
+    displayIcon: 'DEFAULT',
+    extraInputs: { previousGuardianEndpoint, newGuardianEndpoint }
+  });
+
+it('does not visit the target of a switch that never committed', async () => {
+  const target = source('http://localhost:3002', []);
+  jest.spyOn(target, 'getDeltaHistory').mockReset().mockRejectedValue(new Error('offline'));
+  await failedSwitch('https://one', 'http://localhost:3002');
+  const result = await run();
+  expect(createClient.mock.calls.map(call => call[1])).not.toContain('http://localhost:3002');
+  expect(result.sourceFailures).toBe(0);
+});
+
+it('visits the previous operator of a switch whose row ended Failed', async () => {
+  source('http://localhost:3001', []);
+  source('http://localhost:3002', []);
+  await failedSwitch('http://localhost:3001', 'http://localhost:3002');
+  await run();
+  const visited = createClient.mock.calls.map(call => call[1]);
+  expect(visited).toContain('http://localhost:3001');
+  expect(visited).not.toContain('http://localhost:3002');
+});
+
 it('does not visit an operator named by a row restored from a backup file', async () => {
   source('http://localhost:3001', []);
   await localSwitch('http://localhost:3001', true);

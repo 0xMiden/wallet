@@ -9,7 +9,7 @@ import type { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
-import type { ITransaction } from '../db/types';
+import { type ITransaction, ITransactionStatus } from '../db/types';
 import { resolveGuardianEndpoint } from '../guardian/account';
 import { withTimeout } from '../guardian/discover';
 import {
@@ -179,7 +179,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   const previous: string[] = [];
   for (const row of local) {
     if (row.recovered || row.restoredFromBackup) continue;
-    for (const value of [row.extraInputs?.previousGuardianEndpoint, row.extraInputs?.newGuardianEndpoint]) {
+    // A switch's origin is always the wallet's own endpoint; its target only once the switch completed.
+    const target = row.status === ITransactionStatus.Completed ? row.extraInputs?.newGuardianEndpoint : undefined;
+    for (const value of [row.extraInputs?.previousGuardianEndpoint, target]) {
       if (typeof value === 'string') previous.push(value);
     }
   }
