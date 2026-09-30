@@ -1,0 +1,40 @@
+name: E2E Base Change
+
+# Local, Guardian Lifecycle and Guardian Bridge-Out E2E run their heavy jobs on a
+# pull request only when its base is main or next (#1071). Changing a pull
+# request's base is an `edited` event, which starts none of those three
+# workflows, so a child kept up to date while still based on its parent and
+# then retargeted would merge on checks that last passed as skipped. This
+# workflow posts each required check as a completed failure on the pull
+# request's head commit the moment its base changes to main or next; a push or
+# a close/reopen then runs the real checks, whose newer runs supersede these.
+# It checks out nothing: pull_request_target runs with the base repository's
+# token, and posting a check run needs no source at all. check-linked-web-sdk-pr.yml
+# posts a required check the same way.
+on:
+  pull_request_target:
+    types: [edited]
+permissions:
+  checks: write
+jobs:
+  e2e-base-change:
+    name: e2e-base-change
+    if: github.event.changes.base.ref.from && (github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failing required checks until the head runs them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          for name in "local-e2e (chrome)" "guardian-lifecycle-e2e-gate" "bridge-guardian-e2e-gate"; do
+            gh api --method POST "repos/$REPO/check-runs" \
+              -f name="$name" \
+              -f head_sha="$HEAD_SHA" \
+              -f status=completed \
+              -f conclusion=failure \
+              -f "output[title]=Base changed to $BASE: push or close and reopen to run full E2E" \
+              -f "output[summary]=This pull request's base changed to $BASE. The full E2E suites have not run against its current head under that base; push a commit, or close and reopen the pull request, to run them."
+          done

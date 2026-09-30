@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -158,6 +158,19 @@ const onBlock = (file: string): string => {
   return body.join('\n');
 };
 
+/** The `permissions:` block, by indentation, as a single string. */
+const permissionsBlock = (file: string): string => {
+  const lines = configSource(file).split('\n');
+  const start = lines.findIndex(line => line === 'permissions:');
+  if (start === -1) throw new Error(`no permissions: block found in ${file}`);
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() !== '' && line.search(/\S/) <= 0) break;
+    body.push(line);
+  }
+  return body.join('\n');
+};
+
 /**
  * Runs a gate's shell with `values` supplied as env vars, the way a step's own `env:`
  * block would. Any `${{ ... }}` GitHub Actions expression still left in the script text
@@ -286,5 +299,85 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     expect(() => runBlockAfter('.github/workflows/pr-e2e-local.yml', 'this anchor does not exist anywhere')).toThrow(
       'no anchor "this anchor does not exist anywhere" found in .github/workflows/pr-e2e-local.yml'
     );
+  });
+});
+
+describe('a base change to main or next posts failing required checks until the head runs them', () => {
+  const file = '.github/workflows/pr-e2e-base-change.yml';
+  const step = '- name: Post failing required checks until the head runs them';
+  const REQUIRED_NAMES = ['local-e2e (chrome)', 'guardian-lifecycle-e2e-gate', 'bridge-guardian-e2e-gate'];
+
+  it('runs only on a pull_request_target edited event, with checks: write and no other permission', () => {
+    expect(onBlock(file)).toBe('  pull_request_target:\n    types: [edited]');
+    expect(permissionsBlock(file)).toBe('  checks: write');
+  });
+
+  it("its job's if gates on a base change landing on main or next", () => {
+    expect(configSource(file)).toMatch(
+      /if: github\.event\.changes\.base\.ref\.from && \(github\.event\.pull_request\.base\.ref == 'main' \|\| github\.event\.pull_request\.base\.ref == 'next'\)/
+    );
+  });
+
+  it('checks out nothing and keeps every event value out of the run: script', () => {
+    expect(configSource(file)).not.toMatch(/actions\/checkout/);
+    expect(runBlockAfter(file, step)).not.toMatch(/\$\{\{/);
+  });
+
+  it('its own job name is none of the required checks it posts', () => {
+    const src = configSource(file);
+    for (const name of REQUIRED_NAMES) {
+      expect(src).not.toMatch(new RegExp(`\\n\\s+name: ${name.replace(/[()[\]]/g, '\\$&')}\\n`));
+    }
+  });
+
+  it('posts all three required names as completed failures on the head commit, naming the base', () => {
+    const body = runBlockAfter(file, step);
+    const stubDir = mkdtempSync(join(tmpdir(), 'gh-stub-'));
+    const logFile = join(stubDir, 'calls.log');
+    const ghPath = join(stubDir, 'gh');
+    writeFileSync(logFile, '');
+    // \x1f (unit separator) joins one call's args on one line: none of gh's real
+    // arguments can contain it, unlike the spaces and parens in a required name.
+    writeFileSync(
+      ghPath,
+      '#!/usr/bin/env bash\nprintf \'%s\\x1f\' "$@" >> "$LOG_FILE"\nprintf \'\\n\' >> "$LOG_FILE"\n'
+    );
+    chmodSync(ghPath, 0o755);
+    try {
+      const result = spawnSync('bash', ['-eo', 'pipefail', '-c', body], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PATH: `${stubDir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          REPO: '0xMiden/wallet',
+          HEAD_SHA: 'deadbeefcafe',
+          BASE: 'main',
+          GH_TOKEN: 'stub-token'
+        }
+      });
+      expect(result.status).toBe(0);
+      const calls = readFileSync(logFile, 'utf8')
+        .split('\n')
+        .filter(line => line.length > 0)
+        .map(line => line.split('\x1f').filter(arg => arg.length > 0));
+      expect(calls).toHaveLength(3);
+      for (const name of REQUIRED_NAMES) {
+        const call = calls.find(args => args.includes(`name=${name}`));
+        expect(call).toBeDefined();
+        expect(call).toEqual(
+          expect.arrayContaining([
+            'repos/0xMiden/wallet/check-runs',
+            `name=${name}`,
+            'head_sha=deadbeefcafe',
+            'status=completed',
+            'conclusion=failure'
+          ])
+        );
+        expect(call!.some(arg => arg.startsWith('output[title]=Base changed to main:'))).toBe(true);
+      }
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
   });
 });
