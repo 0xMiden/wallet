@@ -669,21 +669,10 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
 /* The room a flow CTA's cushion reserves for the tab bar (footer-cushion.ts reads it, 1rem when unset).
  * Declared on TabLayout's root, so only a page inside the layout that draws the bar inherits it: a slide
  * page is a sibling of the covered tab layer, has no bar over it, and keeps 1rem while it slides (#1109).
- * Docked over an iPhone's home indicator the bar reaches 49px into the page, so 4rem keeps the CTA 15px
- * above it (57px and 7px on a home-button iPhone). On Android the tabs stay 8px above the system navigation
- * bar: the bar is 73px plus the inset and sinks by the body's safe-area floor, so it reaches 73px + inset -
- * floor into the page, and the cushion keeps 15px more at any inset. Off-mobile the bar is a floating pill
- * that needs 6rem. */
-[data-tab-layout='docked'] {
-  --navbar-cushion: 4rem;
-}
-[data-tab-layout='docked'][data-navbar-clears-inset] {
-  --navbar-cushion: calc(
-    5.5rem + env(safe-area-inset-bottom) - var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)))
-  );
-}
+ * The bar is a floating capsule on every platform: 58px tall and 8px above the layout's bottom edge, so 5rem
+ * keeps the CTA 14px above it. */
 [data-tab-layout='floating'] {
-  --navbar-cushion: 6rem;
+  --navbar-cushion: 5rem;
 }
 /* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
  * that slide would reflow every frame and leave the slide's start position stale. */

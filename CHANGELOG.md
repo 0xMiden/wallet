@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
+- [CHANGE][ui] The tab bar is one floating glass capsule on every platform: on mobile it replaces the docked bar, it is smaller (58px tall, 64 x 48 tabs), and on iOS it sits directly on the safe-area edge.
 
 ### Changes
 
