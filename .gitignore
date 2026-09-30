@@ -104,3 +104,5 @@ MidenWallet.*/
 backend/node_modules
 backend/.env
 backend/data
+backend/dist
+backend/backups

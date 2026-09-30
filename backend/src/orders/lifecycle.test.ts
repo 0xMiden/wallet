@@ -513,6 +513,82 @@ describe('slow Transak poll', () => {
 });
 
 describe('worker', () => {
+  it('waits for an active relay broadcast before stop completes', async () => {
+    const id = signed();
+    transak.set(id, 'COMPLETED', 10);
+    chain.account.balance = 10n * ONE;
+    let release: () => void = () => {};
+    let entered: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const broadcasting = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const broadcast = chain.broadcastRelay.bind(chain);
+    chain.broadcastRelay = async transaction => {
+      entered();
+      await gate;
+      return broadcast(transaction);
+    };
+    const worker = createWorker(workerOptions());
+    const ticking = worker.tick();
+    try {
+      await broadcasting;
+      const stored = current(id);
+      assertState(stored, 'relay_sent');
+      assert.ok(stored.relayRawTransaction);
+      let stopped = false;
+      const stopping = worker.stop().then(() => {
+        stopped = true;
+      });
+      await worker.trigger(id);
+      assert.equal(stopped, false);
+      release();
+      await Promise.all([ticking, stopping]);
+      assert.equal(stopped, true);
+      assert.deepEqual(chain.broadcasts, [stored.relayRawTransaction]);
+    } finally {
+      release();
+      await worker.stop();
+    }
+  });
+
+  it('waits for an active order on stop and does not start queued or new work', async () => {
+    const first = checkout();
+    const second = checkout('0x3333333333333333333333333333333333333333');
+    let release: () => void = () => {};
+    transak.gate = new Promise(resolve => {
+      release = resolve;
+    });
+    transak.set(first, 'PROCESSING', 10);
+    const worker = createWorker(workerOptions());
+    const ticking = worker.tick();
+    let stopped = false;
+    try {
+      await worker.trigger(second);
+      const stopping = worker.stop().then(() => {
+        stopped = true;
+      });
+      const stoppingAgain = worker.stop();
+      await worker.tick();
+      await worker.trigger(second);
+      assert.equal(stopped, false);
+      assert.deepEqual(transak.calls, [first]);
+      release();
+      await Promise.all([ticking, stopping, stoppingAgain]);
+      assert.equal(stopped, true);
+      assertState(current(first), 'awaiting_signature');
+      assertState(current(second), 'checkout');
+      await worker.tick();
+      await worker.trigger(second);
+      assert.deepEqual(transak.calls, [first]);
+    } finally {
+      release();
+      await worker.stop();
+    }
+  });
+
   it('gives the feed the orders that can still get a Transak update', async () => {
     const open = checkout('0x3333333333333333333333333333333333333333');
     const { id: inFlight } = await relaySent();
@@ -521,7 +597,7 @@ describe('worker', () => {
     try {
       await worker.tick();
     } finally {
-      worker.stop();
+      await worker.stop();
     }
     assert.deepEqual(feed.retained[0], [open]);
     assert.equal(feed.retained[0]?.includes(inFlight), false);
@@ -540,7 +616,7 @@ describe('worker', () => {
     try {
       await worker.tick();
     } finally {
-      worker.stop();
+      await worker.stop();
     }
     const error = entries('worker_error')[0];
     assert.equal(error?.orderId, id);
@@ -572,7 +648,7 @@ describe('worker', () => {
       assert.deepEqual(transak.calls, [first, second]);
       assertState(current(second), 'awaiting_signature');
     } finally {
-      worker.stop();
+      await worker.stop();
     }
   });
 
@@ -589,7 +665,7 @@ describe('worker', () => {
       // A tick in the interval does not call Transak for the other order.
       await worker.tick();
     } finally {
-      worker.stop();
+      await worker.stop();
     }
     assert.deepEqual(transak.calls, [other, id, id]);
     assertState(current(id), 'awaiting_signature');
@@ -605,7 +681,7 @@ describe('worker', () => {
     try {
       await worker.tick();
     } finally {
-      worker.stop();
+      await worker.stop();
     }
     assertState(current(failing), 'checkout');
     // The signed order also asks Transak first, so it fails this tick too. Only the error log is checked here.
@@ -622,7 +698,7 @@ describe('worker', () => {
     try {
       await Promise.all([again.tick(), again.tick()]);
     } finally {
-      again.stop();
+      await again.stop();
     }
     assertState(current(moving), 'relay_sent');
     // The second tick started while the first ran, so it did nothing: one send only.
@@ -676,7 +752,7 @@ describe('relay reservation and recovery', () => {
     try {
       await worker.tick();
     } finally {
-      worker.stop();
+      await worker.stop();
     }
     assert.deepEqual(chain.broadcasts, [reserved.relayRawTransaction, reserved.relayRawTransaction]);
     assert.equal(chain.prepared.size, 1);

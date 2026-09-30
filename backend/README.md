@@ -43,10 +43,115 @@ cd backend
 yarn install
 cp .env.example .env   # then set the values
 yarn dev               # watch mode
+yarn build
 yarn start
 yarn typecheck && yarn test
 curl localhost:8787/health
 ```
+
+## Docker
+
+Run these commands from `backend/`. Create `.env` from `.env.example` and set the Transak credentials and the
+dedicated Sepolia relayer key before starting the service.
+
+```bash
+docker compose up -d --build
+docker compose logs -f backend
+curl http://localhost:8787/health
+```
+
+The image compiles TypeScript and runs JavaScript with Node 22.23.2 as the `node` user. Runtime dependencies are
+installed from `yarn.lock`. The build context excludes environment files, local dependencies, tests and databases.
+The root filesystem is read-only. `/tmp` is temporary writable storage. Secrets come from `.env` at runtime and
+are not part of the image. Restrict access to this file on the host.
+
+Compose sets `PORT=8787` and `DB_PATH=/data/onramp.sqlite`, even if `.env` contains other values. The named volume
+`miden-wallet-backend_backend-data` mounts at `/data`. It stores the order database, its WAL files and the instance
+lock file. Docker creates the volume on first use with permissions for the image's `node` user. Keep the Compose
+project name unchanged so later deployments use the same volume. Existing host data in `backend/data/` is not
+imported automatically. A volume with existing files must permit UID 1000 to read and write them.
+
+`docker compose down`, restart, image rebuild and container replacement preserve this volume.
+**`docker compose down -v` deletes the volume and all stored orders.** Do not use it for routine updates.
+
+The HTTP port binds to host loopback only. Use an HTTPS reverse proxy for remote access. Set `TRUSTED_PROXIES` to
+the actual proxy IP addresses or its dedicated network range. A proxy in another container is not a loopback peer.
+The proxy must replace untrusted forwarded headers. Set `ALLOWED_ORIGINS` for the wallet surfaces that call the API.
+For a physical phone during development, change the host bind address to a reachable interface and set the wallet's
+`BACKEND_URL` to that address. The Android emulator can use `http://10.0.2.2:8787`.
+
+The container needs outbound HTTPS for Transak, the Sepolia RPC and the staging public-IP lookup, plus secure
+WebSocket access for Pusher. `/health` checks HTTP response only; it does not confirm worker progress or external
+service availability. Compose restarts an exited process but does not restart a process only because it is unhealthy.
+
+### Development
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up --build
+```
+
+This configuration mounts `src/` read-only and restarts Node when source files change. Dependencies stay inside
+the image; rebuild after changing `package.json` or `yarn.lock`. It uses the same data volume as the base configuration.
+Do not run both configurations at the same time.
+
+To test the built image with dummy credentials and no external network access:
+
+```bash
+docker build -t miden-wallet-backend:local .
+yarn test:docker
+```
+
+The test uses a separate temporary volume. It checks health, the runtime user, rejection of a second instance,
+graceful shutdown, order persistence after container replacement, and recovery after a forced stop. It removes
+only its own container and volume when it finishes.
+
+### Updates and shutdown
+
+Run one server per database and dedicate its relayer key to that database. Startup takes an exclusive SQLite lock
+in `/data/onramp.sqlite.lock.sqlite` before opening the order database. A second server using the same database
+path exits. This lock works across containers that share the directory on local storage. Do not use a network
+filesystem, delete the lock file, or mount only the database file. Separate volumes cannot coordinate use of the
+same relayer key.
+
+On `SIGTERM` or `SIGINT`, the server stops accepting connections and feed events. It stops new worker operations,
+waits for active HTTP requests and the active order operation, then closes SQLite and releases the instance lock.
+Other queued orders resume after restart. Shutdown has a 30-second deadline; Compose allows 40 seconds before a
+forced stop. A forced exit releases the operating-system lock. Stored relay bytes permit recovery after restart.
+Unsigned checkout challenges and rate limits are held in memory; a restart clears them. A pending challenge must
+be requested again.
+
+For an update, build first, stop the old instance, then start the replacement:
+
+```bash
+docker compose build
+docker compose stop backend
+docker compose up -d --no-build
+```
+
+### Backup and restore
+
+A volume preserves data across container replacement; it does not protect against host disk failure. Store backups
+on a separate system with restricted access. The database can contain signed relay transactions.
+
+For a consistent offline backup, stop the server and copy the whole data directory. Run from `backend/`:
+
+```bash
+docker compose stop backend
+mkdir -p backups
+docker compose run --rm --no-deps -T backend tar -C /data -czf - . > backups/onramp.tar.gz
+docker compose up -d --no-build
+```
+
+Choose a new backup filename for each backup. To restore into an empty data volume, stop the server, then run:
+
+```bash
+docker compose run --rm --no-deps -T backend tar -C /data -xzf - < backups/onramp.tar.gz
+docker compose up -d --no-build
+```
+
+Do not extract over an active or nonempty database directory. Check the backup and the target volume before restore.
+An older backup can omit transactions sent after it was made. Reconcile those transactions and relayer nonces before
+resuming the worker. Test recovery in an isolated environment without external network access first.
 
 ## Layout
 

@@ -1,5 +1,4 @@
 import { createRequire } from 'node:module';
-
 import type * as PusherModule from 'pusher-js';
 import { z } from 'zod';
 
@@ -62,6 +61,7 @@ function isPusherInternal(eventName: string): boolean {
 }
 
 export function createTransakFeed({ pusher, apiKey, onEvent }: TransakFeedOptions): TransakFeed {
+  let closed = false;
   /** The subscribed channels, by order ID. */
   const channels = new Map<string, { name: string; channel: PusherChannelLike; handler: PusherEventHandler }>();
 
@@ -76,12 +76,12 @@ export function createTransakFeed({ pusher, apiKey, onEvent }: TransakFeedOption
   });
 
   function subscribe(orderId: string): void {
-    if (channels.has(orderId)) {
+    if (closed || channels.has(orderId)) {
       return;
     }
     const name = `${apiKey}_${orderId}`;
     const handler: PusherEventHandler = (eventName, data) => {
-      if (isPusherInternal(eventName)) {
+      if (closed || isPusherInternal(eventName)) {
         return;
       }
       const payload = eventLogSchema.safeParse(data);
@@ -124,6 +124,8 @@ export function createTransakFeed({ pusher, apiKey, onEvent }: TransakFeedOption
   }
 
   function close(): void {
+    if (closed) return;
+    closed = true;
     retain([]);
     pusher.disconnect();
   }

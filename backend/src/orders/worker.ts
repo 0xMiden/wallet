@@ -21,7 +21,8 @@ export interface Worker {
    * advances it when it is done. Two advances never run at the same time.
    */
   trigger(orderId: string): Promise<void>;
-  stop(): void;
+  /** Stop new work and wait for the active order to finish. */
+  stop(): Promise<void>;
 }
 
 /** The fields of a `worker_error` line. A Transak error also gives its detail, which has no secret. */
@@ -47,9 +48,18 @@ export function createWorker(options: WorkerOptions): Worker {
     transakPoll: { intervalMs: transakPollIntervalMs, lastCallAt: new Map(), dirty: new Set() }
   };
   let running = false;
+  let stopped = false;
+  const idleWaiters: Array<() => void> = [];
   let timer: NodeJS.Timeout | null = null;
   /** The triggered orders that wait for the running tick or trigger. */
   const pending = new Set<string>();
+
+  function finish(): void {
+    running = false;
+    for (const resolve of idleWaiters.splice(0)) {
+      resolve();
+    }
+  }
 
   async function advance(order: Order): Promise<void> {
     try {
@@ -63,6 +73,7 @@ export function createWorker(options: WorkerOptions): Worker {
   /** Advance each triggered order once. A trigger during this loop goes into the same loop. */
   async function drainPending(): Promise<void> {
     for (const orderId of pending) {
+      if (stopped) return;
       pending.delete(orderId);
       let order: Order | null;
       try {
@@ -104,12 +115,13 @@ export function createWorker(options: WorkerOptions): Worker {
       logEvent('error', 'worker_error', errorFields(error));
     }
     for (const order of orders) {
+      if (stopped) return;
       await advance(order);
     }
   }
 
   async function tick(): Promise<void> {
-    if (running) {
+    if (stopped || running) {
       return;
     }
     running = true;
@@ -117,11 +129,12 @@ export function createWorker(options: WorkerOptions): Worker {
       await runTick();
       await drainPending();
     } finally {
-      running = false;
+      finish();
     }
   }
 
   async function trigger(orderId: string): Promise<void> {
+    if (stopped) return;
     deps.transakPoll.dirty.add(orderId);
     pending.add(orderId);
     if (running) {
@@ -132,14 +145,19 @@ export function createWorker(options: WorkerOptions): Worker {
     try {
       await drainPending();
     } finally {
-      running = false;
+      finish();
     }
   }
 
-  function stop(): void {
+  async function stop(): Promise<void> {
+    stopped = true;
+    pending.clear();
     if (timer !== null) {
       clearInterval(timer);
       timer = null;
+    }
+    if (running) {
+      await new Promise<void>(resolve => idleWaiters.push(resolve));
     }
   }
 

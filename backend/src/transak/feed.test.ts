@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-
 import { z } from 'zod';
 
 import {
@@ -99,6 +98,20 @@ beforeEach(() => {
 });
 
 describe('createTransakFeed', () => {
+  it('does not subscribe or trigger work after close', () => {
+    feed.add('a');
+    const handler = pusher.channel('a').handlers[0];
+    assert.ok(handler);
+    feed.close();
+    feed.close();
+    feed.add('b');
+    feed.retain(['c']);
+    handler('ORDER_COMPLETED', {});
+    assert.deepEqual(events, []);
+    assert.deepEqual(pusher.subscribed, [`${API_KEY}_a`]);
+    assert.equal(pusher.disconnected, true);
+  });
+
   it('subscribes the missing channels and unsubscribes the others on retain', () => {
     feed.retain(['a', 'b']);
     assert.deepEqual(pusher.subscribed, [`${API_KEY}_a`, `${API_KEY}_b`]);
