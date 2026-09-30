@@ -189,12 +189,98 @@ const gateExit = (script: string, values: Record<string, string>): number | null
   }).status;
 };
 
+/**
+ * Writes a stub `gh` on PATH that answers `gh api .../pulls/<n> --jq .base.ref` (a live pull
+ * request base) with the STUB_BASE env var on stdout, logging each invocation like the
+ * base-change stub (\x1f-joined args, one call per line) so a caller can assert whether it was
+ * invoked at all. Exits 1 -- a failed live-base read -- when FAIL_GH is set.
+ */
+function writeGhBaseStub(dir: string, logFile: string): void {
+  writeFileSync(logFile, '');
+  const ghPath = join(dir, 'gh');
+  writeFileSync(
+    ghPath,
+    '#!/usr/bin/env bash\n' +
+      'printf \'%s\\x1f\' "$@" >> "$LOG_FILE"\n' +
+      'printf \'\\n\' >> "$LOG_FILE"\n' +
+      'if [ -n "$FAIL_GH" ]; then exit 1; fi\n' +
+      'printf \'%s\\n\' "$STUB_BASE"\n'
+  );
+  chmodSync(ghPath, 0o755);
+}
+
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
-  it('local-e2e runs on push, dispatch and a pull request based on main or next, under its required name', () => {
+  it('chrome-local needs local-e2e-base and fails closed on its fresh read, under its required name', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
+    expect(src).toMatch(/\n\s+name: local-e2e \(chrome\)\n/);
+    expect(src).toMatch(/\n\s+needs: local-e2e-base\n/);
     expect(src).toMatch(
-      /name: local-e2e \(chrome\)\n(\s*#.*\n)*\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main' \|\| github\.event\.pull_request\.base\.ref == 'next'/
+      /\n\s+if: \$\{\{ !cancelled\(\) && \(needs\.local-e2e-base\.result != 'success' \|\| needs\.local-e2e-base\.outputs\.full == 'true'\) \}\}\n/
     );
+  });
+
+  it.each<[string, string | undefined, string]>([
+    ['pull_request', 'main', 'full=true'],
+    ['pull_request', 'next', 'full=true'],
+    ['pull_request', 'feature', 'full=false'],
+    ['push', undefined, 'full=true'],
+    ['workflow_dispatch', undefined, 'full=true']
+  ])('local-e2e-base reads the live pull request base (event=%s base=%s) -> %s', (eventName, base, expected) => {
+    const script = runBlockAfter('.github/workflows/pr-e2e-local.yml', 'name: Read pull request base');
+    const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+    const logFile = join(dir, 'calls.log');
+    const outputFile = join(dir, 'output');
+    writeGhBaseStub(dir, logFile);
+    writeFileSync(outputFile, '');
+    try {
+      const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          STUB_BASE: base ?? '',
+          EVENT_NAME: eventName,
+          PR_NUMBER: '5',
+          REPO: '0xMiden/wallet',
+          GH_TOKEN: 'stub-token',
+          GITHUB_OUTPUT: outputFile
+        }
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(outputFile, 'utf8')).toContain(expected);
+      expect(readFileSync(logFile, 'utf8').length > 0).toBe(eventName === 'pull_request');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('local-e2e-base exits non-zero when the live base cannot be read', () => {
+    const script = runBlockAfter('.github/workflows/pr-e2e-local.yml', 'name: Read pull request base');
+    const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+    const logFile = join(dir, 'calls.log');
+    const outputFile = join(dir, 'output');
+    writeGhBaseStub(dir, logFile);
+    writeFileSync(outputFile, '');
+    try {
+      const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          FAIL_GH: '1',
+          EVENT_NAME: 'pull_request',
+          PR_NUMBER: '5',
+          REPO: '0xMiden/wallet',
+          GH_TOKEN: 'stub-token',
+          GITHUB_OUTPUT: outputFile
+        }
+      });
+      expect(result.status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('bridge-guardian-e2e runs on push, dispatch and a pull request based on main or next', () => {
@@ -204,7 +290,7 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     );
   });
 
-  it.each<[string, string, string, number]>([
+  it.each<[string, string | undefined, string, number]>([
     ['pull_request', 'feature', 'skipped', 0],
     ['pull_request', 'main', 'skipped', 1],
     ['pull_request', 'main', 'failure', 1],
@@ -214,47 +300,184 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     ['pull_request', 'next', 'success', 0],
     ['pull_request', 'feature', 'failure', 1],
     ['pull_request', 'feature', 'success', 1],
-    ['push', '', 'skipped', 1],
-    ['push', '', 'success', 0],
-    ['workflow_dispatch', '', 'success', 0]
+    ['push', undefined, 'skipped', 1],
+    ['push', undefined, 'success', 0],
+    ['workflow_dispatch', undefined, 'success', 0]
   ])(
-    'bridge-guardian-e2e-gate passes a skipped suite only on a pull request stacked on another branch (event=%s base=%s result=%s)',
-    (eventName, baseRef, result, expected) => {
+    'bridge-guardian-e2e-gate passes a skipped suite only on a pull request whose live base is stacked on another branch (event=%s base=%s result=%s)',
+    (eventName, base, result, expected) => {
       const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'name: bridge-guardian-e2e-gate');
-      expect(
-        gateExit(script, {
+      const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+      const logFile = join(dir, 'calls.log');
+      writeGhBaseStub(dir, logFile);
+      try {
+        const status = gateExit(script, {
+          PATH: `${dir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          STUB_BASE: base ?? '',
           EVENT_NAME: eventName,
-          BASE_REF: baseRef,
+          PR_NUMBER: '5',
+          REPO: '0xMiden/wallet',
+          GH_TOKEN: 'stub-token',
           RESULT: result
-        })
-      ).toBe(expected);
+        });
+        expect(status).toBe(expected);
+        expect(readFileSync(logFile, 'utf8').length > 0).toBe(eventName === 'pull_request');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   );
+
+  it('ignores an event-supplied BASE_REF: a live main base with a skipped suite still fails', () => {
+    const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'name: bridge-guardian-e2e-gate');
+    const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+    const logFile = join(dir, 'calls.log');
+    writeGhBaseStub(dir, logFile);
+    try {
+      const status = gateExit(script, {
+        PATH: `${dir}:${process.env.PATH}`,
+        LOG_FILE: logFile,
+        STUB_BASE: 'main',
+        BASE_REF: 'feature',
+        EVENT_NAME: 'pull_request',
+        PR_NUMBER: '5',
+        REPO: '0xMiden/wallet',
+        GH_TOKEN: 'stub-token',
+        RESULT: 'skipped'
+      });
+      expect(status).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('bridge-guardian-e2e-gate exits non-zero when the live base cannot be read', () => {
+    const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'name: bridge-guardian-e2e-gate');
+    const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+    const logFile = join(dir, 'calls.log');
+    writeGhBaseStub(dir, logFile);
+    try {
+      const status = gateExit(script, {
+        PATH: `${dir}:${process.env.PATH}`,
+        LOG_FILE: logFile,
+        FAIL_GH: '1',
+        EVENT_NAME: 'pull_request',
+        PR_NUMBER: '5',
+        REPO: '0xMiden/wallet',
+        GH_TOKEN: 'stub-token',
+        RESULT: 'success'
+      });
+      expect(status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it.each<[string, string, string, number]>([
     ['success', 'false', 'skipped', 0],
     ['success', 'true', 'skipped', 1],
     ['success', 'true', 'success', 0]
   ])(
-    'guardian-lifecycle-e2e-gate passes a deselected suite and fails a selected one that did not succeed (select=%s run=%s e2e=%s)',
+    'guardian-lifecycle-e2e-gate passes a deselected suite and fails a selected one that did not succeed, on a push event where the stub is never called (select=%s run=%s e2e=%s)',
     (selectResult, selected, e2eResult, expected) => {
       const script = runBlockAfter(
         '.github/workflows/pr-e2e-guardian-lifecycle.yml',
         'name: guardian-lifecycle-e2e-gate'
       );
-      expect(
-        gateExit(script, {
+      const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+      const logFile = join(dir, 'calls.log');
+      writeGhBaseStub(dir, logFile);
+      try {
+        const status = gateExit(script, {
           'needs.select-guardian-e2e.result': selectResult,
           'needs.select-guardian-e2e.outputs.run': selected,
-          'needs.guardian-lifecycle-e2e.result': e2eResult
-        })
-      ).toBe(expected);
+          'needs.guardian-lifecycle-e2e.result': e2eResult,
+          PATH: `${dir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          STUB_BASE: '',
+          JUDGED_BASE: '',
+          EVENT_NAME: 'push',
+          PR_NUMBER: '',
+          REPO: '',
+          GH_TOKEN: ''
+        });
+        expect(status).toBe(expected);
+        expect(readFileSync(logFile, 'utf8')).toBe('');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   );
 
-  it("the Guardian selector maps BASE_REF from the pull request's own base ref", () => {
+  it.each<[string, string, string, string, string, number]>([
+    ['feature', 'main', 'success', 'false', 'skipped', 1],
+    ['main', 'main', 'success', 'false', 'skipped', 0],
+    ['main', 'main', 'success', 'true', 'success', 0]
+  ])(
+    'guardian-lifecycle-e2e-gate reads the live base and fails a stale judgement (judged=%s live=%s select=%s run=%s e2e=%s)',
+    (judgedBase, liveBase, selectResult, selected, e2eResult, expected) => {
+      const script = runBlockAfter(
+        '.github/workflows/pr-e2e-guardian-lifecycle.yml',
+        'name: guardian-lifecycle-e2e-gate'
+      );
+      const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+      const logFile = join(dir, 'calls.log');
+      writeGhBaseStub(dir, logFile);
+      try {
+        const status = gateExit(script, {
+          'needs.select-guardian-e2e.result': selectResult,
+          'needs.select-guardian-e2e.outputs.run': selected,
+          'needs.guardian-lifecycle-e2e.result': e2eResult,
+          PATH: `${dir}:${process.env.PATH}`,
+          LOG_FILE: logFile,
+          STUB_BASE: liveBase,
+          JUDGED_BASE: judgedBase,
+          EVENT_NAME: 'pull_request',
+          PR_NUMBER: '5',
+          REPO: '0xMiden/wallet',
+          GH_TOKEN: 'stub-token'
+        });
+        expect(status).toBe(expected);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('guardian-lifecycle-e2e-gate exits non-zero when the live base cannot be read', () => {
+    const script = runBlockAfter(
+      '.github/workflows/pr-e2e-guardian-lifecycle.yml',
+      'name: guardian-lifecycle-e2e-gate'
+    );
+    const dir = mkdtempSync(join(tmpdir(), 'gh-base-stub-'));
+    const logFile = join(dir, 'calls.log');
+    writeGhBaseStub(dir, logFile);
+    try {
+      const status = gateExit(script, {
+        'needs.select-guardian-e2e.result': 'success',
+        'needs.select-guardian-e2e.outputs.run': 'true',
+        'needs.guardian-lifecycle-e2e.result': 'success',
+        PATH: `${dir}:${process.env.PATH}`,
+        LOG_FILE: logFile,
+        FAIL_GH: '1',
+        JUDGED_BASE: 'main',
+        EVENT_NAME: 'pull_request',
+        PR_NUMBER: '5',
+        REPO: '0xMiden/wallet',
+        GH_TOKEN: 'stub-token'
+      });
+      expect(status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the Guardian selector's base and body come from the pull-request step, not the event, and it outputs judged_base", () => {
     const src = configSource('.github/workflows/pr-e2e-guardian-lifecycle.yml');
-    expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+    expect(src).toMatch(/BASE_REF: \$\{\{ steps\.pull-request\.outputs\.base_ref \}\}/);
+    expect(src).toMatch(/BASE_SHA: \$\{\{ steps\.pull-request\.outputs\.base_sha \}\}/);
+    expect(src).toMatch(/judged_base: \$\{\{ steps\.select\.outputs\.judged_base \}\}/);
   });
 
   it('the Guardian selector keeps a pull request based on main or next, and deselects any other branch, marker or not', () => {

@@ -9,6 +9,7 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   # Hermetic, per-PR guardian bridge-OUT coverage. The standard-account bridge
   # suite (pr-e2e / playwright.bridge.config.ts) runs on real testnet and only
@@ -222,11 +223,24 @@ jobs:
     steps:
       # Data comes in through env:, not inline ${{ }} in the shell below, so the
       # gate's own logic is plain, unambiguous bash with nothing to interpolate.
+      # The base is read live from the API, not the event payload: a rerun
+      # replays its original payload and a retarget can land mid-run, so a stale
+      # base must never clear this required check (#1071).
       - env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
           RESULT: ${{ needs.bridge-guardian-e2e.result }}
         run: |
+          set -euo pipefail
+          BASE_REF=""
+          if [ "$EVENT_NAME" = pull_request ]; then
+            BASE_REF=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || {
+              echo "could not read the pull request's current base"
+              exit 1
+            }
+          fi
           if [ "$EVENT_NAME" = pull_request ] && [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
             [ "$RESULT" = skipped ] || { echo "bridge-guardian-e2e $RESULT on a pull request based on $BASE_REF, expected skipped"; exit 1; }
             echo "bridge-guardian-e2e skipped on a pull request based on $BASE_REF"

@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       run: ${{ steps.select.outputs.run }}
+      judged_base: ${{ steps.select.outputs.judged_base }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,12 +33,14 @@ jobs:
               pull_number: context.issue.number
             });
             core.setOutput('body', data.body ?? '');
+            core.setOutput('base_ref', data.base.ref);
+            core.setOutput('base_sha', data.base.sha);
       - name: Check changed paths
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ steps.pull-request.outputs.base_ref }}
           PR_BODY: ${{ steps.pull-request.outputs.body }}
         run: |
           set -euo pipefail
@@ -60,6 +63,7 @@ jobs:
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "judged_base=$BASE_REF" >> "$GITHUB_OUTPUT"
 
   # Dedicated two-guardian job for the guardian switch/recovery suite
   # (guardian-switch*.spec.ts / guardian-recovery*.spec.ts — design doc
@@ -323,7 +327,29 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
-      - run: |
+      # The base is read live from the API, not the selector's judged base: a
+      # rerun replays the event the selector ran against, and a retarget can
+      # land after selection, so a stale judgement must never clear this
+      # required check (#1071).
+      - env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          JUDGED_BASE: ${{ needs.select-guardian-e2e.outputs.judged_base }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            LIVE_BASE=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || {
+              echo "could not read the pull request's current base"
+              exit 1
+            }
+            if { [ "$LIVE_BASE" = main ] || [ "$LIVE_BASE" = next ]; } && [ "$JUDGED_BASE" != main ] && [ "$JUDGED_BASE" != next ]; then
+              echo "the base changed to $LIVE_BASE after the suite was selected; push or close and reopen to run full E2E"
+              exit 1
+            fi
+          fi
+
           SELECT_RESULT="${{ needs.select-guardian-e2e.result }}"
           SELECTED="${{ needs.select-guardian-e2e.outputs.run }}"
           E2E_RESULT="${{ needs.guardian-lifecycle-e2e.result }}"
