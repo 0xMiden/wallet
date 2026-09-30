@@ -4695,6 +4695,10 @@
     "message": "Kaydet ve devam et",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Bu uç noktalar kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Varsayılan ayarlara sıfırla",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Sıfırlama işlemi tamamlanmadı. Lütfen tekrar deneyin.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Ağ uç noktaları",

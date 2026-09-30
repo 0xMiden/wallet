@@ -36,8 +36,9 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
   /** Trailing action beside the label (for example a text button). */
   action?: React.ReactNode;
   /**
-   * Leading glyph, drawn `aria-hidden` in a 32px round `bg-fill` circle before the label. The
-   * glyph keeps its own colour (an SVG with its own fills) — the circle is decoration only.
+   * Leading glyph, drawn `aria-hidden` in a 32px round `bg-fill` circle before the label.
+   * `IconCircle` sets `text-ink`, which a glyph drawn in `currentColor` takes. An SVG whose root declares
+   * `fill="none"` must be passed `fill="currentColor"` or it draws nothing; an SVG with its own fills keeps them.
    */
   icon?: React.ReactNode;
   /** Layout only (margins, padding). */
