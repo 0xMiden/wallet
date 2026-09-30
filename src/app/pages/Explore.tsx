@@ -433,6 +433,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       <div
         className="flex flex-col divide-y divide-rule-default"
         data-testid="asset-list"
+        role="group"
         aria-busy={balancesLoading}
         aria-labelledby={assetsHeadingId}
         // Focusable so an unhide that empties the Hidden assets section has somewhere to land.

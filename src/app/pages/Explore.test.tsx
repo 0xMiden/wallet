@@ -893,7 +893,7 @@ describe('Explore', () => {
       await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
       expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
       // Named by the Assets heading above it, so a screen reader announces where focus landed.
-      expect(screen.getByTestId('asset-list')).toHaveAccessibleName('assets');
+      expect(document.activeElement).toBe(screen.getByRole('group', { name: 'assets' }));
     });
 
     describe('with two hidden rows', () => {
