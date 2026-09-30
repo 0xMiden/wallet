@@ -20,6 +20,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
+import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -187,6 +188,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 jest.mock('./native-http');
+// A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
+jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
 const { mockProbeVerdicts, registerGuardianOrigin, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
@@ -417,7 +420,7 @@ describe('createGuardianAccount', () => {
     jest.clearAllMocks();
     resetMockProbes();
     mockIsExtension.mockReturnValue(false);
-    multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
+    multisigClientConfig.getPubkey.mockResolvedValue({ commitment: `0x${'ab'.repeat(32)}`, pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
@@ -441,7 +444,7 @@ describe('createGuardianAccount', () => {
         threshold: 1,
         // Hot first, cold second — order is load-bearing for downstream role routing.
         signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
-        guardianCommitment: 'g-commit',
+        guardianCommitment: `0x${'ab'.repeat(32)}`,
         guardianPublicKey: 'g-pubkey',
         storageMode: 'private',
         signatureScheme: 'ecdsa',
@@ -560,14 +563,40 @@ describe('createGuardianAccount', () => {
       expect(multisigClientConfig.create).not.toHaveBeenCalled();
     });
 
-    it('is released when it serves a key that is not a Guardian key', async () => {
+    it('is released when it serves a key that is not a Guardian key, and no account is built', async () => {
       multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: '0xdeadbeef', pubkey: 'g-pubkey' });
-      multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-      await create();
+      await expect(create()).rejects.toThrow('Failed to create Guardian account');
 
       expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
       expect(registerGuardianOrigin).not.toHaveBeenCalled();
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('is released at its own deadline when its pubkey request never answers, and no account is built', async () => {
+      multisigClientConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        let outcome: unknown = 'pending';
+        void create().then(
+          () => {
+            outcome = 'resolved';
+          },
+          (error: unknown) => {
+            outcome = error;
+          }
+        );
+        await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS - 1);
+        expect(outcome).toBe('pending');
+        await jest.advanceTimersByTimeAsync(1);
+
+        expect(outcome).toMatchObject({ message: 'Failed to create Guardian account' });
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
     });
   });
 

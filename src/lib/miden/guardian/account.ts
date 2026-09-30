@@ -11,9 +11,10 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
+import { withTimeout } from './discover';
 import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
-import { withGuardianRateLimitRetry } from './serialize';
+import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS, withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -371,15 +372,21 @@ export async function createGuardianAccount(
     const afterWait = () => assertLive('after a guardian 429 wait');
     // Not yet bound to an account: on mobile its origin routes through native HTTP
     // while its key is read, and for the session only once that key is a Guardian's.
+    // Every attempt carries its own deadline: the 429 deadline bounds only the waits.
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await withGuardianProbe(
       guardianEndpoint,
-      () =>
-        withGuardianRateLimitRetry(() => client.guardianClient.getPubkey('ecdsa'), {
-          deadlineMs: rateLimitDeadline,
-          sleepFn: sleepKeepingWorkerAlive,
-          afterWait
-        }),
-      ({ commitment }) => isGuardianKeyCommitment(commitment)
+      async () => {
+        const answer = await withGuardianRateLimitRetry(
+          () =>
+            withTimeout(
+              client.guardianClient.getPubkey('ecdsa'),
+              NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+              `Guardian ${guardianEndpoint} pubkey fetch`
+            ),
+          { deadlineMs: rateLimitDeadline, sleepFn: sleepKeepingWorkerAlive, afterWait }
+        );
+        return { ...answer, commitment: assertGuardianKeyCommitment(answer.commitment, guardianEndpoint) };
+      }
     );
     assertLive('before the account build');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
