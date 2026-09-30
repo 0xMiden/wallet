@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { FC, RefObject, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -86,7 +86,7 @@ const Explore: FC = () => {
 
   const address = account.publicKey;
 
-  const { isHidden, unhide, failed: hiddenTokensFailed } = useHiddenTokens(address);
+  const { isHidden, unhide } = useHiddenTokens(address);
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
@@ -327,7 +327,6 @@ const Explore: FC = () => {
             balances={allTokenBalances}
             sortedTokens={sortedTokens}
             hiddenTokens={hiddenTokens}
-            hiddenTokensFailed={hiddenTokensFailed}
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
@@ -351,8 +350,7 @@ interface HomeOverviewProps {
   balances: TokenBalanceData[];
   sortedTokens: TokenBalanceData[];
   hiddenTokens: TokenBalanceData[];
-  hiddenTokensFailed: boolean;
-  onUnhide: (tokenId: string) => void;
+  onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
   claimableNotes: readonly PendingNoteValue[] | undefined;
@@ -371,7 +369,6 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   balances,
   sortedTokens,
   hiddenTokens,
-  hiddenTokensFailed,
   onUnhide,
   account,
   balancesLoading,
@@ -380,6 +377,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
+  // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
+  const assetListRef = useRef<HTMLDivElement>(null);
   return (
     <>
       <Balance>
@@ -428,7 +427,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <div className="flex flex-col divide-y divide-rule-default" data-testid="asset-list" aria-busy={balancesLoading}>
+      <div
+        className="flex flex-col divide-y divide-rule-default"
+        data-testid="asset-list"
+        aria-busy={balancesLoading}
+        // Focusable so an unhide that empties the Hidden assets section has somewhere to land.
+        ref={assetListRef}
+        tabIndex={-1}
+      >
         {/* The hook's zero placeholder is not a balance: under the loading card it read as an empty wallet (#1123). */}
         {balancesLoading ? (
           <AssetListItemSkeleton data-testid="asset-row-skeleton" />
@@ -447,11 +453,12 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 
       {!balancesLoading && (
         <HiddenAssets
+          key={address}
           address={address}
           tokens={hiddenTokens}
           tokenPrices={tokenPrices}
-          failed={hiddenTokensFailed}
           onUnhide={onUnhide}
+          assetListRef={assetListRef}
         />
       )}
     </>
@@ -462,17 +469,38 @@ interface HiddenAssetsProps {
   address: string;
   tokens: TokenBalanceData[];
   tokenPrices: TokenPrices;
-  failed: boolean;
-  onUnhide: (tokenId: string) => void;
+  onUnhide: (tokenId: string) => Promise<boolean>;
+  assetListRef: RefObject<HTMLDivElement>;
 }
 
+/** Which element takes focus once `tokens` reflects an unhide: chosen before the write, read after. */
+type UnhideFocusTarget = { kind: 'row'; tokenId: string } | { kind: 'asset-list' };
+
 /** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
-const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, failed, onUnhide }) => {
+const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // The last Unhide's own result (#813): the hook's `failed` also covers a hide that failed
+  // elsewhere, which this section has no business re-announcing on every reopen.
+  const [unhideFailed, setUnhideFailed] = useState(false);
   const listId = useId();
   const reveal = usePreset('reveal');
   const turn = useMotion(springs.standard);
+  const focusTarget = useRef<UnhideFocusTarget | null>(null);
+  const unhideButtons = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  // The clicked row unmounts with its Unhide button as soon as `tokens` drops it (optimistic
+  // update): land focus on the row that takes its place, or the asset list once none remain.
+  useEffect(() => {
+    const target = focusTarget.current;
+    if (!target) return;
+    focusTarget.current = null;
+    if (target.kind === 'asset-list') {
+      assetListRef.current?.focus();
+    } else {
+      unhideButtons.current.get(target.tokenId)?.focus();
+    }
+  }, [tokens, assetListRef]);
 
   if (tokens.length === 0) return null;
 
@@ -512,7 +540,7 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, fai
             className="overflow-hidden"
           >
             <div className="flex flex-col divide-y divide-rule-default" data-testid="hidden-asset-list">
-              {tokens.map(asset => (
+              {tokens.map((asset, index) => (
                 <div key={`${address}:${asset.tokenId}`} className="flex items-center gap-2">
                   {/* No sparkline: beside Unhide at the popup's width it would leave the name about 25px. */}
                   <div className="min-w-0 flex-1">
@@ -524,16 +552,29 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, fai
                     />
                   </div>
                   <TextAction
+                    ref={el => {
+                      if (el) unhideButtons.current.set(asset.tokenId, el);
+                      else unhideButtons.current.delete(asset.tokenId);
+                    }}
                     className="shrink-0"
                     aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
-                    onClick={() => onUnhide(asset.tokenId)}
+                    onClick={() => {
+                      const next = tokens[index + 1];
+                      const prev = tokens[index - 1];
+                      focusTarget.current = next
+                        ? { kind: 'row', tokenId: next.tokenId }
+                        : prev
+                          ? { kind: 'row', tokenId: prev.tokenId }
+                          : { kind: 'asset-list' };
+                      void onUnhide(asset.tokenId).then(succeeded => setUnhideFailed(!succeeded));
+                    }}
                   >
                     {t('unhide')}
                   </TextAction>
                 </div>
               ))}
             </div>
-            <ErrorLine data-testid="hidden-assets-error">{failed ? t('hiddenTokensError') : null}</ErrorLine>
+            <ErrorLine data-testid="hidden-assets-error">{unhideFailed ? t('hiddenTokensError') : null}</ErrorLine>
           </motion.div>
         )}
       </AnimatePresence>

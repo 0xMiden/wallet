@@ -1,12 +1,13 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -166,19 +167,15 @@ jest.mock('components/ui', () => ({
       </div>
     ) : null,
   AssetListItemSkeleton: (props: { 'data-testid'?: string }) => <div data-testid={props['data-testid']} />,
-  TextAction: ({
-    children,
-    onClick,
-    'aria-label': ariaLabel
-  }: {
-    children: React.ReactNode;
-    onClick: () => void;
-    'aria-label'?: string;
-  }) => (
-    <button type="button" aria-label={ariaLabel} onClick={onClick}>
+  // Forwards its ref like the real TextAction, so a test can assert focus lands on this button.
+  TextAction: React.forwardRef<
+    HTMLButtonElement,
+    { children: React.ReactNode; onClick: () => void; 'aria-label'?: string }
+  >(({ children, onClick, 'aria-label': ariaLabel }, ref) => (
+    <button ref={ref} type="button" aria-label={ariaLabel} onClick={onClick}>
       {children}
     </button>
-  ),
+  )),
   ErrorLine: ({ children, 'data-testid': dataTestId }: { children?: React.ReactNode; 'data-testid'?: string }) =>
     children ? (
       <p role="alert" data-testid={dataTestId}>
@@ -242,6 +239,7 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
 
 // `lib/settings/helpers` is mocked without the haptic setting, so the real haptics would throw.
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+const mockHapticLight = jest.mocked(hapticLight);
 
 // The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
 let mockStoredHiddenTokens: string[] | null = null;
@@ -677,21 +675,56 @@ describe('Explore', () => {
       await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
       expect(mockWriteStorage).toHaveBeenLastCalledWith(KEY, []);
       expect(screen.queryByTestId('hidden-assets')).toBeNull();
+      expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
     });
 
-    it('keeps a token hidden and says so when unhiding it cannot be saved', async () => {
+    it('keeps a token hidden and says so when unhiding it cannot be saved, until a later Unhide succeeds', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      mockStoredHiddenTokens = ['t-spam'];
-      mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
-      await renderExplore();
-      await openSection();
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await renderExplore();
+        await openSection();
 
-      await unhideSpam();
+        await unhideSpam();
 
-      expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
-      expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
-      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
-      warn.mockRestore();
+        expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+        expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+
+        await unhideSpam();
+
+        await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('shows no error line for a hide that failed outside Home, only for its own last Unhide', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        await renderExplore();
+        await openSection();
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+
+        // The hook's `failed` covers the whole storage key, so a hide that fails through a
+        // different mount (the token page, sharing the same module-level store) must not make
+        // Home's own error line appear.
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        const outside = renderHook(() => useHiddenTokens('mtst1account'));
+        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+        await act(async () => {
+          await outside.result.current.hide('t-btc');
+        });
+        expect(outside.result.current.failed).toBe(true);
+        outside.unmount();
+
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('never filters the native token, even when the stored set holds its id', async () => {
@@ -750,6 +783,65 @@ describe('Explore', () => {
 
       expect(screen.getByTestId('asset-row-skeleton')).toBeInTheDocument();
       expect(screen.queryByTestId('hidden-assets')).toBeNull();
+    });
+
+    it('closes again on a second toggle, taking the list away, and calls hapticLight on each tap', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      const toggle = screen.getByTestId('hidden-assets-toggle');
+
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(mockHapticLight).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      // The reveal preset plays an exit animation, so the list leaves the DOM a tick later.
+      await waitFor(() => expect(screen.queryByTestId('hidden-asset-list')).toBeNull());
+      expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    });
+
+    it('closes the disclosure on an account switch, even if it was left open', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      const { rerender } = await renderExplore();
+      await openSection();
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+      mockAccount = { publicKey: 'mtst1other' };
+      await act(async () => {
+        rerender(<Explore />);
+      });
+
+      await waitFor(() => expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false'));
+      expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it('moves focus to the remaining Unhide action, then to the asset list once the section empties', async () => {
+      mockStoredHiddenTokens = ['t-spam', 't-junk'];
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden'),
+        makeToken('t-btc', 'BTC', 'Bitcoin'),
+        makeToken('t-spam', 'SPAM', 'Free Airdrop'),
+        makeToken('t-junk', 'JUNK', 'Junk Token')
+      ];
+      await renderExplore();
+      await openSection();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' }));
+      });
+      await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' }));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' }));
+      });
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+      expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
     });
   });
 
