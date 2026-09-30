@@ -317,7 +317,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           const { page } = outcome;
           if (page.entries.length > 50)
             throw new GuardianHistoryDataError('Guardian history page exceeds the requested limit');
-          if (page.nextCursor && page.nextCursor.length > MAX_HISTORY_CURSOR_LENGTH)
+          // The checkpoint schema keeps only string cursors, so any other one would drop every saved checkpoint.
+          if (
+            page.nextCursor !== undefined &&
+            (typeof page.nextCursor !== 'string' || page.nextCursor.length > MAX_HISTORY_CURSOR_LENGTH)
+          )
             throw new GuardianHistoryDataError('Guardian history cursor exceeds the length limit');
           if (
             page.nextCursor &&
@@ -327,6 +331,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           }
           if (page.entries.length === 0 && page.nextCursor)
             throw new GuardianHistoryDataError('Guardian history page is empty but not the last');
+          // An entry without a safe integer nonce would reach getDelta, which cannot request it or sends a fraction.
+          if (page.entries.some(entry => !Number.isSafeInteger(entry.nonce)))
+            throw new GuardianHistoryDataError('Guardian history entry is not canonical');
           // Operators list history newest-first by nonce, so each page must fall below every earlier one.
           const { lowestNonce } = checkpoint;
           if (lowestNonce !== undefined && page.entries.some(entry => !(entry.nonce < lowestNonce)))
@@ -343,7 +350,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             }, check);
             dataSession = answer.session;
             // The delta already parsed and mapped inside getDelta, so a summary missing from it is the operator's data.
-            const encoded = answer.delta.deltaPayload.txSummary?.data;
+            const encoded = answer.delta.deltaPayload?.txSummary?.data;
             if (typeof encoded !== 'string' || encoded.length === 0)
               throw new GuardianHistoryDataError('Guardian history delta carries no summary');
             await check();

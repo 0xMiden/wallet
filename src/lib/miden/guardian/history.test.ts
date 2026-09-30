@@ -332,6 +332,39 @@ it.each([undefined, 42])('files a delta whose account id is %p as an identity mi
   expect(recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, delta(), summary).recovery?.nonce).toBe(12);
 });
 
+const thrownBy = (served: DeltaObject) => {
+  try {
+    recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, served, summary);
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+};
+
+it.each([undefined, null])('files a delta whose status is %p as not canonical', status => {
+  const thrown = thrownBy({ ...delta(), status } as unknown as DeltaObject);
+  expect(thrown).toBeInstanceOf(GuardianHistoryDataError);
+  expect((thrown as Error).message).toBe('Guardian history entry is not canonical');
+  expect(recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, delta(), summary).recovery?.nonce).toBe(12);
+});
+
+it.each<[unknown]>([[2024], [['2026-08-01T00:00:00Z']]])(
+  'files a canonical timestamp of %p as invalid instead of coercing it',
+  served => {
+    const thrown = thrownBy({
+      ...delta(),
+      status: { status: 'canonical', timestamp: served }
+    } as unknown as DeltaObject);
+    expect(thrown).toBeInstanceOf(GuardianHistoryDataError);
+    expect((thrown as Error).message).toBe('Invalid Guardian canonical timestamp');
+  }
+);
+
+it('reads a delta with no payload as one with no payload metadata', () => {
+  const served = { ...delta({ proposalType: 'p2id' }), deltaPayload: undefined } as unknown as DeltaObject;
+  expect(recoveredHistoryRecord('account', '0x123', 'net', 'one', entry, served, summary).type).toBe('send');
+});
+
 it('normalizes operators and accepts only exact nonempty note sets', () => {
   expect(normalizeHistoryOperators(['https://ONE/', 'https://one', 'bad', 'https://two/path/'])).toEqual([
     'https://one',

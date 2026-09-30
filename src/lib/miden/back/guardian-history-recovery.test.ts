@@ -1049,7 +1049,8 @@ it.each<[string, DeltaObject]>([
   [
     'an empty summary',
     { ...delta(3), deltaPayload: { txSummary: { data: '' }, signatures: [] } } as unknown as DeltaObject
-  ]
+  ],
+  ['no payload', { ...delta(3), deltaPayload: undefined } as unknown as DeltaObject]
 ])(
   'counts a delta with %s as invalid data once per session, up to the cap, without decoding it',
   async (_kind, served) => {
@@ -1074,6 +1075,59 @@ it.each<[string, DeltaObject]>([
     expect(decoded).toEqual(['2', '1']);
   }
 );
+
+/** Runs three sessions and expects https://two counted as invalid data once in each, until the cap ends the pass. */
+const expectInvalidDataUpToTheCap = async () => {
+  for (const invalidDataPasses of [1, 2]) {
+    const result = await run();
+    expect(result.sourceFailures).toBe(1);
+    expect(result.failed).toBeUndefined();
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses });
+    forgetUnsupportedHistorySources();
+  }
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, failed: true, deferredSources: 0 });
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
+};
+
+// eslint-disable-next-line jest/expect-expect -- assertions live in expectInvalidDataUpToTheCap
+it.each<[string, DeltaObject]>([
+  ['no status', { ...delta(3), status: undefined } as unknown as DeltaObject],
+  [
+    'a numeric canonical timestamp',
+    { ...delta(3), status: { status: 'canonical', timestamp: 2024 } } as unknown as DeltaObject
+  ]
+])('counts a delta with %s as invalid data once per session, up to the cap', async (_kind, served) => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  jest.spyOn(client, 'getDelta').mockResolvedValue(served);
+  await expectInvalidDataUpToTheCap();
+});
+
+it.each([undefined, 1.5])(
+  'counts a page whose entry has the nonce %p as invalid data once per session, before any delta request',
+  async nonce => {
+    const client = source('https://two', []);
+    const served = { ...entry(3), nonce } as unknown as HistoryEntry;
+    jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [served] });
+    await expectInvalidDataUpToTheCap();
+    expect(client.getDelta).not.toHaveBeenCalled();
+  }
+);
+
+it('counts a page whose next cursor is not a string as invalid data, without saving the cursor', async () => {
+  const client = source('https://two', []);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockResolvedValueOnce({ entries: [entry(3)], nextCursor: 7 } as unknown as HistoryPage)
+    .mockResolvedValue({ entries: [] });
+  const result = await run();
+  expect(result.sourceFailures).toBe(1);
+  expect(result.failed).toBeUndefined();
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+  expect((await twoCheckpoint())?.cursor).toBeUndefined();
+  expect(client.getDelta).not.toHaveBeenCalled();
+  expect(await operatorCheckpoint('https://one')).toMatchObject({ completed: true });
+});
 
 it.each<[string, (client: GuardianHttpClient) => void]>([
   [

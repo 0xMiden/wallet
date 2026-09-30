@@ -234,7 +234,7 @@ export function recoveredHistoryRecord(
   ) {
     throw new GuardianHistoryDataError('Guardian delta identity does not match the history entry');
   }
-  if (entry.status !== 'canonical' || delta.status.status !== 'canonical' || !Number.isSafeInteger(entry.nonce)) {
+  if (entry.status !== 'canonical' || delta.status?.status !== 'canonical' || !Number.isSafeInteger(entry.nonce)) {
     throw new GuardianHistoryDataError('Guardian history entry is not canonical');
   }
   if (entry.newCommitment && delta.newCommitment && entry.newCommitment !== delta.newCommitment) {
@@ -243,11 +243,15 @@ export function recoveredHistoryRecord(
   if (summary && summary.accountId.toLowerCase() !== canonicalAccountId.toLowerCase()) {
     throw new GuardianHistoryDataError('Guardian summary belongs to another account');
   }
-  const timestamp = Math.floor(Date.parse(delta.status.timestamp) / 1000);
+  // The client maps the timestamp unchecked, and Date.parse would coerce a number or a one-element array.
+  const canonicalTimestamp: unknown = delta.status.timestamp;
+  if (typeof canonicalTimestamp !== 'string')
+    throw new GuardianHistoryDataError('Invalid Guardian canonical timestamp');
+  const timestamp = Math.floor(Date.parse(canonicalTimestamp) / 1000);
   if (!Number.isFinite(timestamp) || timestamp <= 0)
     throw new GuardianHistoryDataError('Invalid Guardian canonical timestamp');
   const retainedProposal = delta.metadata?.proposal;
-  const payloadProposal = delta.deltaPayload.metadata;
+  const payloadProposal = delta.deltaPayload?.metadata;
   const proposal = retainedProposal ?? payloadProposal;
   const resolvedProposal =
     proposal?.proposalType === 'switch_guardian' && payloadProposal?.proposalType === 'switch_guardian'
