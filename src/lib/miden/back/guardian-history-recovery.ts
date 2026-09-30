@@ -35,14 +35,15 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
-// An eviction or an offscreen abort of a summary decode the pass was not interrupted for. It says the decode did not
-// finish, not that the bytes failed a check, so the source is filed 'network' and never spends the invalid-data cap.
+// An eviction or an offscreen abort of a summary or local result-commitment decode the pass was not interrupted for.
+// It says the decode did not finish, not that the bytes failed a check, so the source is filed 'network' and never
+// spends the invalid-data cap.
 class HistoryDecodeAborted extends Error {
   constructor(
     readonly session: number,
     cause: Error
   ) {
-    super('Guardian summary decode was aborted', { cause });
+    super('Guardian history decode was aborted', { cause });
   }
 }
 
@@ -77,9 +78,9 @@ function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
   return checkpoint.failure === 'invalid-data' && (checkpoint.invalidDataPasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
 }
 
-// Checkpoints answered unsupported, whose data failed a check, or whose summary decode was aborted, since the backend
-// started or the wallet last locked. Each is counted once per session, so a deferral restart cannot spend the cap or
-// decode again. An answer to an attempt issued before a lock is left out of the session the lock started.
+// Checkpoints answered unsupported, whose data failed a check, or whose summary or commitment decode was aborted, since
+// the backend started or the wallet last locked. Each is counted once per session, so a deferral restart cannot spend
+// the cap or decode again. An answer to an attempt issued before a lock is left out of the session the lock started.
 const unsupportedHistorySources = new Set<string>();
 const invalidDataHistorySources = new Set<string>();
 const abortedDecodeHistorySources = new Set<string>();
@@ -371,14 +372,19 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             );
             records.push(record);
           }
-          // Decode local results outside the database transaction and between yield checks.
-          for (const row of local) {
+          // Decode local results outside the database transaction and between yield checks, only for a page that has
+          // records to match: a page without any would be charged for an abort it has no use for.
+          for (const row of records.length > 0 ? local : []) {
             if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
             await check();
+            const commitmentSession = unsupportedHistorySession;
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
             } catch (error) {
-              if (error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError) throw error;
+              if (error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError) {
+                if (await interrupted()) throw error;
+                throw new HistoryDecodeAborted(commitmentSession, error);
+              }
               commitments.set(row.id, '');
             }
           }

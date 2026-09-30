@@ -1027,6 +1027,86 @@ it.each(aborts)('defers %s of a summary decode that lands after the pass was int
   expect(decodesOf('3')).toBe(2);
 });
 
+const addLocalResult = () =>
+  transactions.add({
+    id: 'local-result',
+    type: 'send',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    resultBytes: new Uint8Array([1])
+  });
+const commitmentCalls = () => jest.mocked(midenClientProxy.getGuardianResultCommitment).mock.calls.length;
+// Every pass of every source reads the same page with records, so each pass reaches the commitment decode.
+const serveEveryPass = (endpoint: string, page: HistoryPage) => {
+  const client = clients.get(endpoint);
+  if (!client) throw new Error(`Missing test source ${endpoint}`);
+  jest.spyOn(client, 'getDeltaHistory').mockReset().mockResolvedValue(page);
+};
+
+it.each(aborts)(
+  'charges %s of a local result-commitment decode to its source, asked once per session',
+  async (_kind, make) => {
+    await addLocalResult();
+    serveEveryPass('https://one', { entries: [entry(2)] });
+    serveEveryPass('https://two', { entries: [entry(2), entry(3)] });
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+      throw make();
+    });
+    const first = await run();
+    expect(first.deferred).toBe(false);
+    expect(first.sourceFailures).toBe(2);
+    expect(commitmentCalls()).toBe(2);
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false });
+
+    await run();
+    expect(commitmentCalls()).toBe(2);
+
+    forgetUnsupportedHistorySources();
+    await run();
+    expect(commitmentCalls()).toBe(4);
+  }
+);
+
+it.each(aborts)(
+  'defers %s of a local result-commitment decode that lands after the pass was interrupted',
+  async (_kind, make) => {
+    await addLocalResult();
+    let calls = 0;
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+      if (calls++ === 0) shouldYield.mockResolvedValue('wallet locked');
+      throw make();
+    });
+    const first = await run();
+    expect(first.deferred).toBe(true);
+    expect(first.sourceFailures).toBe(0);
+
+    shouldYield.mockResolvedValue(null);
+    await run();
+    expect(commitmentCalls()).toBeGreaterThan(1);
+  }
+);
+
+it('charges a commitment abort only to a source whose page has records', async () => {
+  await addLocalResult();
+  const client = clients.get('https://one');
+  if (!client) throw new Error('Missing test source');
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
+  jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+    throw new WasmClientPoisonedError('realm-error');
+  });
+
+  const result = await run();
+  expect(result.sourceFailures).toBe(1);
+  expect(commitmentCalls()).toBe(1);
+  const one = await operatorCheckpoint('https://one');
+  expect(one).toMatchObject({ completed: true });
+  expect(one?.failure).toBeUndefined();
+});
+
 it('asks a source whose decode aborted again in the session a lock started while it ran', async () => {
   const client = source('https://two', []);
   jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
