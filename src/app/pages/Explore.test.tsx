@@ -896,6 +896,63 @@ describe('Explore', () => {
       expect(screen.getByTestId('asset-list')).toHaveAccessibleName('assets');
     });
 
+    describe('with two hidden rows', () => {
+      const spamUnhide = () => screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' });
+      const junkUnhide = () => screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' });
+      const writesToKey = () => mockWriteStorage.mock.calls.filter(([key]) => key === KEY).length;
+
+      beforeEach(() => {
+        mockStoredHiddenTokens = ['t-spam', 't-junk'];
+        mockAllBalances = [...mockAllBalances, makeToken('t-junk', 'JUNK', 'Junk Token')];
+      });
+
+      it('hands focus to the asset list when the last two rows are unhidden before the first save lands', async () => {
+        await renderExplore();
+        await openSection();
+
+        // Back to back: the first save's optimistic entry has not landed, so both rows are still listed.
+        fireEvent.click(spamUnhide());
+        fireEvent.click(junkUnhide());
+
+        expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+        expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+      });
+
+      it("saves once when one row's Unhide is tapped twice", async () => {
+        await renderExplore();
+        await openSection();
+
+        fireEvent.click(spamUnhide());
+        fireEvent.click(spamUnhide());
+
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+        expect(writesToKey()).toBe(1);
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      });
+
+      it('lets a token unhidden and hidden again be unhidden again', async () => {
+        await renderExplore();
+        await openSection();
+        await unhideSpam();
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+
+        const outside = renderHook(() => useHiddenTokens('mtst1account'));
+        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+        await act(async () => {
+          await outside.result.current.hide('t-spam');
+        });
+        outside.unmount();
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toContain('t-spam'));
+
+        await unhideSpam();
+
+        await waitFor(() => expect(rowsIn('asset-list')).toContain('t-spam'));
+        expect(writesToKey()).toBe(3);
+      });
+    });
+
     it('starts collapsed after the section empties, once a later hide fills it again', async () => {
       mockStoredHiddenTokens = ['t-spam'];
       await renderExplore();

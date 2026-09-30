@@ -487,6 +487,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
   const reveal = usePreset('reveal');
   const turn = useMotion(springs.standard);
   const unhideButtons = useRef<Map<string, HTMLButtonElement>>(new Map());
+  // A tapped row counts as gone, for the focus hand-off and for further taps, until its Unhide settles:
+  // it stays listed until the store's optimistic entry lands.
+  const inFlightUnhides = useRef<Set<string>>(new Set());
 
   // The section stays mounted (returning null) while `tokens` is empty, so a hidden token
   // reappearing later would otherwise come back open with a stale error: collapse and drop it now.
@@ -555,15 +558,25 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                     className="shrink-0"
                     aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
                     onClick={() => {
+                      const inFlight = inFlightUnhides.current;
+                      if (inFlight.has(asset.tokenId)) return;
                       // Focus moves now: this button unmounts with its row, and both targets exist at the click.
-                      const neighbour = tokens[index + 1] ?? tokens[index - 1];
+                      const neighbour =
+                        tokens.slice(index + 1).find(token => !inFlight.has(token.tokenId)) ??
+                        tokens
+                          .slice(0, index)
+                          .reverse()
+                          .find(token => !inFlight.has(token.tokenId));
                       if (neighbour) unhideButtons.current.get(neighbour.tokenId)?.focus();
                       else assetListRef.current?.focus();
+                      inFlight.add(asset.tokenId);
                       setPendingUnhides(count => count + 1);
-                      void onUnhide(asset.tokenId).then(succeeded => {
-                        setUnhideFailed(!succeeded);
-                        setPendingUnhides(count => count - 1);
-                      });
+                      void onUnhide(asset.tokenId)
+                        .then(succeeded => {
+                          setUnhideFailed(!succeeded);
+                          setPendingUnhides(count => count - 1);
+                        })
+                        .finally(() => inFlight.delete(asset.tokenId));
                     }}
                   >
                     {t('unhide')}
