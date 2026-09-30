@@ -581,7 +581,7 @@ describe('EarnPositionDetail after a failed load', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Aave' })).toBeInTheDocument();
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
