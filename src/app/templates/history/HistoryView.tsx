@@ -10,11 +10,11 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { useSettleLayoutTransition, useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { springs, useMotion } from 'lib/animation';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -425,9 +425,10 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
-    // Same spring as the rows, so a date group and the rows inside it move
+    // Same transition as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
-    const layoutTransition = useMotion(springs.settle);
+    const layoutTransition = useSettleLayoutTransition();
+    const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
@@ -620,7 +621,11 @@ const HistoryView = memo<HistoryViewProps>(
         {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
-            loadMore={loadMore}
+            // The scroller checks for a page in this commit's layout phase, and History's loadMore sets
+            // state before it awaits, so in the commit that shows the tab again it would re-render the
+            // list before framer reads the swap above. Deferred to a microtask, it runs after that read
+            // and loads the same page (#1198).
+            loadMore={shownAgain ? (page: number) => queueMicrotask(() => void loadMore(page)) : loadMore}
             hasMore={hasMore}
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
