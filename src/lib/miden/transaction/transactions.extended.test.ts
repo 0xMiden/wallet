@@ -13,6 +13,9 @@
  *   - waitForTransactionCompletion
  */
 
+import * as Repo from 'lib/miden/repo';
+import { reportOperation } from 'lib/telemetry/report-operation';
+
 import { ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
@@ -29,6 +32,19 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+
+// The mocked `lib/miden/repo` reconstructs a fresh `modify` jest.fn() per
+// `.where()` call, so call-count on `where` itself is what proves a promotion
+// landed in one Dexie write rather than two (#1250).
+const mockedRepoWhere = jest.mocked(Repo.transactions.where);
+
+// Real module, spied on `reportOperation` only - `reportProve` (used elsewhere
+// in the pipeline this file drives) keeps its own real implementation.
+jest.mock('lib/telemetry/report-operation', () => ({
+  ...jest.requireActual('lib/telemetry/report-operation'),
+  reportOperation: jest.fn()
+}));
+const mockedReportOperation = jest.mocked(reportOperation);
 
 // In-memory db so liveQuery has something to subscribe to.
 const _g = globalThis as any;
@@ -1096,6 +1112,46 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(row.extraInputs.epochStatus).toBe('failed');
       expect(row.extraInputs.reclaimHeight).toBe(12345);
     });
+
+    it('leaves a row the note pipeline already failed untouched, and reports nothing (#1250)', async () => {
+      // `cancelTransaction` already wrote this row's own Failed status, reason
+      // and classification before the allocator rejection this call carries even
+      // reached it - a late demotion here must not overwrite that story.
+      txStore.push({
+        id: 'bs-fail-pipeline',
+        type: 'bridged-send',
+        status: ITransactionStatus.Failed,
+        error: 'P2IDE note pipeline rejected: reclaim window too small',
+        displayMessage: 'Bridge failed - funds unspent',
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' }
+      });
+
+      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent', 99999);
+
+      const row = txStore.find(t => t.id === 'bs-fail-pipeline')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.error).toBe('P2IDE note pipeline rejected: reclaim window too small');
+      expect(row.displayMessage).toBe('Bridge failed - funds unspent');
+      expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' });
+      expect(mockedReportOperation).not.toHaveBeenCalled();
+    });
+
+    it('still demotes a row that was in flight (not yet terminal)', async () => {
+      txStore.push({
+        id: 'bs-fail-in-flight',
+        type: 'bridged-send',
+        status: ITransactionStatus.GeneratingTransaction,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+      });
+
+      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent', 54321);
+
+      const row = txStore.find(t => t.id === 'bs-fail-in-flight')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.extraInputs.claimStatus).toBe('failed');
+      expect(row.extraInputs.epochStatus).toBe('failed');
+      expect(row.extraInputs.reclaimHeight).toBe(54321);
+    });
   });
 });
 
@@ -1149,6 +1205,22 @@ describe('updateBridgeClaimStatus', () => {
     pushFailedBridgedSend({ extraInputs: { provider: 'epoch', claimStatus: 'not-applicable' } });
     await updateBridgeClaimStatus('bs-1', 'not-applicable', { epochStatus: 'confirmed', fillTxHash: '0xfill' });
     expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('promotes a Failed Epoch row to Completed and stores the merged extraInputs from a SINGLE modify (#1250)', async () => {
+    // The evidence write and the status promotion must land in one Dexie
+    // write, never a write recording the evidence followed by a second one
+    // settling the row - `where` is called once per `.modify()` chain, so its
+    // call count is what distinguishes one write from two.
+    pushFailedBridgedSend({
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+    });
+
+    await updateBridgeClaimStatus('bs-1', 'not-applicable', { epochStatus: 'confirmed' });
+
+    expect(mockedRepoWhere).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().extraInputs).toEqual({ provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' });
   });
 
   it('leaves the row Failed when the merged write itself reports the Epoch fill failed, even with a fillTxHash', async () => {

@@ -65,6 +65,7 @@ const bridgeRows: ITransaction[] = [];
 const findClaimableDeposit = jest.fn();
 const updateClaimStatus = jest.fn();
 const pollEpochIntentFill = jest.fn();
+const completeVerifiedLanded = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -77,7 +78,14 @@ jest.mock('lib/agglayer', () => ({
   findClaimableMidenToEvmDeposit: (...args: unknown[]) => findClaimableDeposit(...args)
 }));
 jest.mock('lib/miden/transaction/complete', () => ({
-  updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args)
+  updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args),
+  // The one shared source of the bridged-send landed display values (#1250) -
+  // stubbed rather than the real function so this suite stays about
+  // `reconcileBridgedSends`'s own decisions, not `complete.ts`'s literals.
+  bridgedSendLandedValues: () => ({ displayMessage: 'Bridged to EVM', displayIcon: 'SEND', completedAt: 1_700_000_000 })
+}));
+jest.mock('lib/miden/transaction/helper', () => ({
+  completeVerifiedLandedTransaction: (...args: unknown[]) => completeVerifiedLanded(...args)
 }));
 jest.mock('lib/epoch', () => ({
   pollEpochIntentFill: (...args: unknown[]) => pollEpochIntentFill(...args)
@@ -1762,6 +1770,7 @@ describe('bridge prompts', () => {
     findClaimableDeposit.mockResolvedValue(undefined);
     updateClaimStatus.mockResolvedValue(undefined);
     pollEpochIntentFill.mockResolvedValue(undefined);
+    completeVerifiedLanded.mockResolvedValue(undefined);
   });
 
   it('returns unsettled bridged-sends for the account, newest first', async () => {
@@ -1982,6 +1991,56 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  // Stored Epoch evidence settles a Failed row on its own, before this pass's
+  // polls even run - it needs no fresh fill answer (#1250).
+  it('promotes a Failed, non-restored Epoch bridge to Completed from its own stored evidence', async () => {
+    completeVerifiedLanded.mockImplementation(async (id: string, otherValues: Partial<ITransaction> = {}) => {
+      const target = bridgeRows.find(r => r.id === id);
+      if (target) Object.assign(target, otherValues, { status: ITransactionStatus.Completed });
+    });
+    const landed = baseBridge({
+      id: 'epoch-landed',
+      status: ITransactionStatus.Failed,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+    });
+    bridgeRows.push(landed);
+
+    await reconcileBridgedSends();
+
+    expect(completeVerifiedLanded).toHaveBeenCalledWith('epoch-landed', expect.any(Object));
+    expect(landed.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('leaves alone a restored row, an Epoch row whose evidence itself says failed, a Failed Agglayer claimed row, and a Completed row', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch-confirmed',
+        status: ITransactionStatus.Failed,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      }),
+      baseBridge({
+        id: 'epoch-evidence-failed',
+        status: ITransactionStatus.Failed,
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+      }),
+      baseBridge({
+        id: 'agg-claimed-but-failed-row',
+        status: ITransactionStatus.Failed,
+        extraInputs: { provider: 'agglayer', claimStatus: 'claimed' }
+      }),
+      baseBridge({
+        id: 'epoch-already-completed',
+        status: ITransactionStatus.Completed,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      })
+    );
+
+    await reconcileBridgedSends();
+
+    expect(completeVerifiedLanded).not.toHaveBeenCalled();
   });
 });
 

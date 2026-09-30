@@ -397,35 +397,56 @@ export const completeVerifiedLandedTransaction = async (
   let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Failed) return;
-    Object.assign(tx, otherValues);
-    tx.status = ITransactionStatus.Completed;
-    tx.stage = 'complete';
-    // The failure is no longer the row's story; leaving it behind renders a
-    // completed transaction with an error on it.
-    tx.error = undefined;
-    tx.rawError = undefined;
+    applyVerifiedLanding(tx, otherValues);
     reconciled = tx;
   });
 
-  // The row already reported `errored` when it was failed, and that report was
-  // true at the time — the wallet genuinely could not tell whether the money had
-  // moved. Reporting the success as well leaves both, which is the honest
-  // record: one operation that failed and was later reconciled from node
-  // evidence. Suppressing the failure is not an option, since it was reported
-  // from a realm that may no longer exist, and suppressing this one would leave
-  // the ambiguous post-submit abort — the case this whole function exists for —
-  // permanently counted as a failure and never as a success.
-  //
-  // Deliberately without a duration. Both callers can run arbitrarily long after
-  // `initiatedAt` - `requeueFailedTransaction` when the user taps Retry, and
-  // `updateBridgeClaimStatus` when a bridge claim or fill write reconciles a row
-  // days later (#1250) - so that interval means "how long until somebody came
-  // back", and putting it in the field a reader uses to watch for latency
-  // regressions would let a handful of them own the tail of every send's
-  // distribution. There is no honest interval to report here, so none is.
   if (reconciled !== undefined) {
-    reportOperation({ operation: operationOfType(reconciled.type), result: 'completed' });
+    reportVerifiedLanding(reconciled);
   }
+};
+
+/**
+ * The write `completeVerifiedLandedTransaction` applies to a Failed row inside
+ * its `.modify`, pulled out so a caller that must promote a row INSIDE an
+ * existing `.modify` of its own can do so without a second write after it -
+ * `updateBridgeClaimStatus` (#1250), whose bridge evidence and the status it
+ * proves must land in the same Dexie write, never a write recording the
+ * evidence followed by a second one settling the row.
+ */
+export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITransaction> = {}): void => {
+  Object.assign(tx, otherValues);
+  tx.status = ITransactionStatus.Completed;
+  tx.stage = 'complete';
+  // The failure is no longer the row's story; leaving it behind renders a
+  // completed transaction with an error on it.
+  tx.error = undefined;
+  tx.rawError = undefined;
+};
+
+/**
+ * Report the reconciliation `applyVerifiedLanding` just wrote onto `tx`.
+ *
+ * The row already reported `errored` when it was failed, and that report was
+ * true at the time - the wallet genuinely could not tell whether the money had
+ * moved. Reporting the success as well leaves both, which is the honest
+ * record: one operation that failed and was later reconciled from node
+ * evidence. Suppressing the failure is not an option, since it was reported
+ * from a realm that may no longer exist, and suppressing this one would leave
+ * the ambiguous post-submit abort - the case this reconciliation exists for -
+ * permanently counted as a failure and never as a success.
+ *
+ * Deliberately without a duration. A landed row can be reported through here
+ * arbitrarily long after `initiatedAt` - `completeVerifiedLandedTransaction`
+ * when the user taps Retry, and `updateBridgeClaimStatus` when a bridge claim
+ * or fill write reconciles a row days later (#1250) - so that interval means
+ * "how long until somebody came back", and putting it in the field a reader
+ * uses to watch for latency regressions would let a handful of them own the
+ * tail of every send's distribution. There is no honest interval to report
+ * here, so none is.
+ */
+export const reportVerifiedLanding = (tx: ITransaction): void => {
+  reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
 };
 
 /**

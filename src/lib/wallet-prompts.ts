@@ -17,7 +17,8 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -171,13 +172,28 @@ export async function reconcileBridgedSends(): Promise<void> {
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
+  const active = rows.filter(tx => !tx.restoredFromBackup);
+
+  // A Failed row whose stored Epoch evidence already proves it landed settles
+  // without waiting for another poll. Only stored Epoch evidence qualifies: it
+  // is keyed by the row's own intent nonce, where a stored Agglayer claim
+  // status carries no bound deposit hash and is never enough on its own
+  // (#1250).
   await Promise.all(
-    rows
-      .filter(tx => !tx.restoredFromBackup)
-      .map(tx =>
-        // One row's failing indexer or allocator call must not reject the pass for the others.
-        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
-      )
+    active
+      .filter(tx => {
+        if (tx.status !== ITransactionStatus.Failed) return false;
+        const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+        return inputs.epochStatus === 'confirmed' && inputs.claimStatus !== 'failed';
+      })
+      .map(tx => completeVerifiedLandedTransaction(tx.id, bridgedSendLandedValues()))
+  );
+
+  await Promise.all(
+    active.map(tx =>
+      // One row's failing indexer or allocator call must not reject the pass for the others.
+      pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+    )
   );
 }
 
