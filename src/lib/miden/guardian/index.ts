@@ -877,8 +877,12 @@ export class MultisigService {
    * with `GuardianReRegisterRefusedError` and writes nothing (#1233).
    *
    * `lockOptions` bound and label the read's hold; timer-driven callers pass the sync ceiling.
+   *
+   * `onPushStart` runs once, after the read hold has settled and immediately before the first
+   * `/configure`. A rejection raised before it wrote nothing to the guardian; one raised after it
+   * may follow a `/configure` that landed.
    */
-  async reRegisterCurrentStateOnGuardian(lockOptions?: WasmClientLockOptions): Promise<void> {
+  async reRegisterCurrentStateOnGuardian(lockOptions?: WasmClientLockOptions, onPushStart?: () => void): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -929,6 +933,7 @@ export class MultisigService {
     if (freshSignerCommitments.length > 0) {
       this.multisig.signerCommitments = freshSignerCommitments;
     }
+    onPushStart?.();
     await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }

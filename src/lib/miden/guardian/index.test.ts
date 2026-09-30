@@ -21,7 +21,7 @@ import {
   POST_COMMIT_GUARDIAN_TIMEOUT_MS
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Fire retry BACKOFFS immediately without disabling request DEADLINES.
@@ -815,8 +815,71 @@ describe('MultisigService', () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue(null);
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toThrow(
+        'missing from local client'
+      );
+      expect(onPushStart).not.toHaveBeenCalled();
+    });
+
+    it('fails a state sync before the push starts, and registers nothing', async () => {
+      const syncError = new Error('node unreachable');
+      mockSyncState.mockRejectedValueOnce(syncError);
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
+
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toBe(syncError);
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(multisig.verifyStateCommitment).not.toHaveBeenCalled();
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('fails a watchdog rejection of the hold itself before the push starts', async () => {
+      const evicted = new WasmClientPoisonedError('watchdog');
+      beforeWasmHold = () => {
+        throw evicted;
+      };
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
+
+      try {
+        await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toBe(evicted);
+      } finally {
+        beforeWasmHold = undefined;
+      }
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('starts the push once, before the first registration attempt, when the push fails', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const registerOnGuardian = jest.fn(async () => {
+        throw new Error('guardian down');
+      });
+      const multisig = makeMultisig({ registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      const onPushStart = jest.fn();
+
+      let error: unknown;
+      try {
+        error = await service
+          .reRegisterCurrentStateOnGuardian(undefined, onPushStart)
+          .catch((caught: unknown) => caught);
+      } finally {
+        restoreTimers();
+      }
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(registerOnGuardian).toHaveBeenCalledTimes(8);
+      expect(onPushStart).toHaveBeenCalledTimes(1);
+      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(registerOnGuardian.mock.invocationCallOrder[0]!);
     });
 
     it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
@@ -872,10 +935,12 @@ describe('MultisigService', () => {
       mockSyncState.mockImplementationOnce(async () => {
         currentWasmHold = null;
       });
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+      expect(onPushStart).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
       expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
@@ -888,10 +953,12 @@ describe('MultisigService', () => {
         currentWasmHold = null;
         return { serialize };
       });
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+      expect(onPushStart).not.toHaveBeenCalled();
       // Both post-read touches are borrows: the inspector walks account storage
       // and serialize() reads through the same RefCell.
       expect(mockAccountInspectorFromAccount).not.toHaveBeenCalled();
@@ -958,10 +1025,12 @@ describe('MultisigService', () => {
         })
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+      expect(onPushStart).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
       expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });

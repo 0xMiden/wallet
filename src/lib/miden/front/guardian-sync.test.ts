@@ -769,7 +769,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       adoptGuardianStateOnce: mockAdoptGuardianState
     });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
-    mockReRegister.mockResolvedValue(undefined);
+    // A re-register that resolves has passed its push start: the push is its only way to succeed.
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+    });
     // Default: this device IS still the account's on-chain hot signer.
     mockGetSignerDetails.mockClear();
     mockCommitmentFromPublicKeyHex.mockClear();
@@ -816,10 +819,13 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect.anything(),
       { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
     );
-    expect(mockReRegister).toHaveBeenCalledWith({
-      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-      label: 'guardian-self-heal-reregister'
-    });
+    expect(mockReRegister).toHaveBeenCalledWith(
+      {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'guardian-self-heal-reregister'
+      },
+      expect.any(Function)
+    );
   });
 
   // Every other test in this describe tags its rejection with `__authRejection`.
@@ -1061,7 +1067,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   // the repair budget is spent nothing else in this module says the account is
   // stuck. That silence is what the guardian screen used to render as "Checking".
   it('reports the account as unrepairable once the re-register budget is spent', async () => {
-    mockReRegister.mockRejectedValue(new Error('configure rejected'));
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+      throw new Error('configure rejected');
+    });
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
@@ -1227,6 +1236,32 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     await syncGuardianAccounts();
 
     expect(mockReRegister).toHaveBeenCalledTimes(refusedPushes + 1);
+    nowSpy.mockRestore();
+  });
+
+  // A rejection before the push start (a watchdog eviction of the read hold, a failed sync, a missing account)
+  // wrote nothing to the guardian, so it spends no attempt either.
+  it('does not spend the bounded budget on a re-register whose read failed before the push (#1233)', async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-reregister-unread', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    let now = 5_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      await syncGuardianAccounts();
+      now += SELF_HEAL_COOLDOWN_MS;
+    }
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(isGuardianUnrepairable('acct-reregister-unread')).toBe(false);
     nowSpy.mockRestore();
   });
 

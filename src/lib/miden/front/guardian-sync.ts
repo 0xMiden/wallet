@@ -1033,14 +1033,16 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
       return 'refused-permanently';
     }
 
-    // Counted as an attempt from HERE, before the await: `/configure` may land
-    // even if the call then throws or is torn down mid-flight.
-    attempted = true;
-    await coldService.reRegisterCurrentStateOnGuardian(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
+    // Counted as an attempt from the push, not from the call: `/configure` may land even if the
+    // call then throws or is torn down mid-flight, while a rejection before the push (the read
+    // hold's eviction, a failed sync or account read, the chain guard's refusal) wrote nothing.
+    await coldService.reRegisterCurrentStateOnGuardian(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS, () => {
+      attempted = true;
+    });
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
-    // The chain guard refused before any `/configure` (#1233): nothing was written, so no attempt is
-    // spent, and a later tick retries once this device's copy has caught up with the chain.
+    // The chain guard refused before any `/configure` (#1233): the push never started, so no attempt
+    // is spent, and a later tick retries once this device's copy has caught up with the chain.
     if (isGuardianReRegisterRefusal(e)) {
       console.warn(
         `[Guardian Sync] not re-registering ${account.publicKey}: its local state is not the chain's yet`,
@@ -1048,8 +1050,8 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
       );
       return 'refused-transiently';
     }
-    // Guardian still unreachable / rejecting cold — a later tick may retry per
-    // the bounded schedule (see decideColdReRegisterSelfHeal).
+    // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
+    // retry per the bounded schedule (see decideColdReRegisterSelfHeal), and only a push spends an attempt.
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
   }
   return attempted ? 'attempted' : 'refused-transiently';
