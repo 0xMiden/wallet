@@ -453,8 +453,10 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let reRegisterAttempts = 0;
     let storedAccountId = tx.accountId;
     for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+      reRegisterAttempts = attempt;
       try {
         const accounts = await guardianProvider.getAccounts();
         const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
@@ -494,10 +496,11 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
+    const reRegisterEvicted = isWasmClientPoisonedError(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
-        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+        `Failed to re-register post-rotation signer set on guardian after ${reRegisterAttempts} attempt(s) - ` +
           'the new hot key stays unauthorized (401) until a re-register lands:',
         reRegisterError
       );
@@ -529,8 +532,12 @@ export const completeReplaceHotKeyTransaction = async (
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    // idempotent; never affects the rotation's success. After an eviction the
+    // hardening waits for the guardian sync, which repairs it, rather than
+    // rebuilding the service against the node that just parked.
+    if (!reRegisterEvicted) {
+      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {

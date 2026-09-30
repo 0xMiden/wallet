@@ -6573,6 +6573,7 @@ describe('completeReplaceHotKeyTransaction', () => {
       syncState: async () => {},
       getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
     });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
 
     const swapHotKey = jest.fn(async () => {});
     const provider = {
@@ -6590,6 +6591,8 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+    // Only an eviction skips the hardening, not a failed re-register (F-060).
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
   });
 
   it('stops the post-rotation account read when the state sync loses the hold (F-053)', async () => {
@@ -6621,6 +6624,8 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+    // The best-effort hardening would build a service against the node that just parked (F-059).
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
   });
 
   it('retries a post-rotation re-register a realm teardown aborted (F-057)', async () => {
@@ -6638,6 +6643,7 @@ describe('completeReplaceHotKeyTransaction', () => {
     mockBuildColdMultisigService.mockResolvedValue({
       reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
     });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
 
     const swapHotKey = jest.fn(async () => {});
     const provider = {
@@ -6652,6 +6658,7 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(false);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
   });
 
   it('recovers a transient re-register failure instead of leaving the new hot key unauthorized', async () => {
