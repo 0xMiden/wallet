@@ -53,10 +53,11 @@ import {
   noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
-  PARKED_SYNC_FAILURE_MS
+  PARKED_SYNC_FAILURE_MS,
+  type SyncFuseKey
 } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
@@ -628,7 +629,7 @@ async function adoptFromPreviousGuardian(
  * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
  * sync loop and the drift reconciler; this was the last one.
  */
-async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
+async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<void> {
   // A pointer we could not READ gets the same refusal as no pointer at all, and
   // for the stronger of the two reasons: this function POSTs the device's
   // serialized private account state, so the one thing it must never do is
@@ -657,8 +658,12 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   // raced any queued client operation for the single-threaded client — the
   // `recursive use of an object` failure. `resolveGuardianDrift` already reads
   // its commitment this way; this path was the outlier.
-  const snapshot = await withWasmClientLock(async () => {
+  // Timer-driven, so it takes the sync ceiling and a label, and re-checks its hold after the parking read
+  // (#1233). Its rejection is booked on the heal fuse and ends this attempt before any budget stamp, which
+  // needs the snapshot; escaping, it would reject the whole pass and skip the lap's account-key feed.
+  const snapshot = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+    assertWasmHoldCurrent(hold, 'missing-registration snapshot: after the account read');
     if (!sdkAccount) return undefined;
     return {
       guardian: getGuardianCommitmentFromAccount(sdkAccount),
@@ -670,6 +675,14 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
         return undefined;
       })
     };
+  }, GUARDIAN_READ_LOCK_OPTIONS).catch((snapshotError: unknown) => {
+    if (isSyncWatchdogEviction(snapshotError)) {
+      noteSyncWatchdogEviction(fuseKey);
+    } else {
+      noteNonEvictionSyncFailure(fuseKey);
+    }
+    console.warn(`[Guardian Sync] could not read ${account.publicKey} to decide its registration:`, snapshotError);
+    return undefined;
   });
   if (!snapshot) return;
 
@@ -811,6 +824,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       zustandProvider,
       GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS
     );
+    noteSyncSuccess(fuseKey);
     bookSettled(attempts + 1);
     clearGuardianServiceFor(account.publicKey);
     // The operator now holds the post-switch state, so a switch row that said this device could not
@@ -823,6 +837,13 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     );
   } catch (e) {
     if (isGuardianRegistrationPreflightError(e)) {
+      // The register hold's eviction arrives here, kept as the preflight error's cause: fed to the heal
+      // fuse, never spent as an attempt (#1233).
+      if (isSyncWatchdogEviction(e instanceof Error ? e.cause : undefined)) {
+        noteSyncWatchdogEviction(fuseKey);
+      } else {
+        noteNonEvictionSyncFailure(fuseKey);
+      }
       // Give the attempt back. This failure happened before any `/configure`,
       // so the reason to count it — that the write may have landed — does not
       // apply, and the budget is only refunded by a SUCCESSFUL registration,
@@ -837,6 +858,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       );
       return;
     }
+    noteNonEvictionSyncFailure(fuseKey);
     bookSettled(attempts + 1);
     console.warn(
       `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} ` +
@@ -935,13 +957,17 @@ async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation):
   return 'attempted';
 }
 
-async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
+async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
 
   let attempted = false;
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
+  // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). An eviction
+  // spends no attempt, so without the fuse a parked node would take a two-minute hold every cooldown.
+  let evicted = false;
+  let failed = false;
   try {
     // getAccount needs no syncState here: buildColdMultisigService only reads the
     // COLD commitment (stable across the rotation), and
@@ -1004,6 +1030,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
       .adoptGuardianStateOnce()
       .then(() => true)
       .catch(e => {
+        // The canonicalization refusal is an answer, not a failed hold.
         if (isGuardianCanonicalizationError(e)) {
           console.warn(
             `[Guardian Sync] the guardian's state for ${account.publicKey} is not ahead of local — proceeding to ` +
@@ -1011,6 +1038,11 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
             e
           );
           return true;
+        }
+        if (isSyncWatchdogEviction(e)) {
+          evicted = true;
+        } else {
+          failed = true;
         }
         console.warn(
           `[Guardian Sync] not self-healing ${account.publicKey}: could not read the guardian's state, so this ` +
@@ -1050,11 +1082,13 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // above — and it used to skip the comparison entirely whenever either read
     // came back empty, so a transient failure on either side bought the write.
     // There is always another tick.
-    const onChainHot = await withWasmClientLock(async () =>
-      getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
-        console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
-        return undefined;
-      })
+    const onChainHot = await withWasmClientLock(
+      async () =>
+        getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
+          console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
+          return undefined;
+        }),
+      GUARDIAN_READ_LOCK_OPTIONS
     );
     // TRANSIENT on either unreadable commitment: this device failing to look is not a finding about
     // the account. Spending an attempt on it would let three read failures exhaust a budget that can
@@ -1126,6 +1160,11 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     });
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
+    if (isSyncWatchdogEviction(e)) {
+      evicted = true;
+    } else {
+      failed = true;
+    }
     // The chain guard refused before any `/configure` (#1233): the push never started, so no attempt
     // is spent, and a later tick retries once this device's copy has caught up with the chain.
     if (isGuardianReRegisterRefusal(e)) {
@@ -1138,6 +1177,14 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
     // retry per the bounded schedule (see decideColdReRegisterSelfHeal), and only a push spends an attempt.
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+  } finally {
+    if (evicted) {
+      noteSyncWatchdogEviction(fuseKey);
+    } else if (failed) {
+      noteNonEvictionSyncFailure(fuseKey);
+    } else {
+      noteSyncSuccess(fuseKey);
+    }
   }
   // Also after a push that failed once it started: the push starts only after the chain check, so the
   // set still stands, as completion swaps when its re-register fails.
@@ -1173,8 +1220,9 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
       // No guardian traffic without a row to finish.
       if ((await findFailedHotKeyRotations(account.publicKey)).length === 0) continue;
       const endpoint = await resolveGuardianEndpoint(account);
-      if (isSyncFused(guardianSelfHealFuseKey(account.publicKey, endpoint))) continue;
-      await attemptColdReRegisterSelfHeal(account);
+      const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
+      if (isSyncFused(healFuseKey)) continue;
+      await attemptColdReRegisterSelfHeal(account, healFuseKey);
       pendingActivationState.set(account.publicKey, {
         attempts: (prev?.attempts ?? 0) + 1,
         lastAttemptAt: Date.now()
@@ -1386,6 +1434,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // evidence is booked against the operator this lap actually talks to.
     const fuseKey = guardianSyncFuseKey(account.publicKey, endpoint);
     if (isSyncFused(fuseKey)) continue;
+    // The heals' own key, consulted before either heal runs so a fused lap stamps nothing (#1233).
+    const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
 
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider, true);
@@ -1453,7 +1503,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
         const now = Date.now();
-        if (decideColdReRegisterSelfHeal(now, fails, selfHealState.get(account.publicKey))) {
+        if (
+          !isSyncFused(healFuseKey) &&
+          decideColdReRegisterSelfHeal(now, fails, selfHealState.get(account.publicKey))
+        ) {
           const prev = selfHealState.get(account.publicKey);
           // Book the budget against what the attempt DID, not against the fact
           // that it ran. `attempts` is only ever reset by a successful sync, and
@@ -1469,7 +1522,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // instant this one returns — spending the whole budget back-to-back on
           // an operator that is only slow. Same rule as the missing-registration
           // path, deliberately.
-          const outcome = await attemptColdReRegisterSelfHeal(account);
+          const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey);
           const attempts =
             outcome === 'attempted'
               ? (prev?.attempts ?? 0) + 1
@@ -1533,8 +1586,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         clearGuardianServerFailures(account.publicKey);
         const unknownVerdicts = (consecutiveUnknownAccount.get(account.publicKey) ?? 0) + 1;
         consecutiveUnknownAccount.set(account.publicKey, unknownVerdicts);
-        if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD) {
-          await attemptMissingRegistrationSelfHeal(account);
+        if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD && !isSyncFused(healFuseKey)) {
+          await attemptMissingRegistrationSelfHeal(account, healFuseKey);
         }
       } else {
         // Non-auth error — don't accumulate auth-failure count.

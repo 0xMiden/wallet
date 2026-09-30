@@ -771,6 +771,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   const authError = { __authRejection: true, message: '401 session expired' };
 
   beforeEach(() => {
+    // Cases share account keys, and a lit heal fuse would gate a later case's heal (#1233).
+    __resetSyncFuseStateForTests();
     mockBuildColdMultisigService.mockClear();
     mockReRegister.mockClear();
     mockGetAccount.mockClear();
@@ -1311,6 +1313,89 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     nowSpy.mockRestore();
   });
 
+  // #1233: the heal's holds report to a per-account heal fuse, which gates the heal. Not the account's
+  // sync key: the 401 arm books that lap's 401 on it and withdraws unlit evidence within the lap.
+  const runHealLaps = async (publicKey: string) => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    let now = 6_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    // Seven laps are due for a heal: every lap from the threshold on, a cooldown apart.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+      await syncGuardianAccounts();
+      now += SELF_HEAL_COOLDOWN_MS;
+    }
+    nowSpy.mockRestore();
+  };
+
+  it("stops re-registering once watchdog evictions of the heal's holds light its own fuse (#1233)", async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runHealLaps('acct-heal-fused');
+
+    expect(mockReRegister).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-fused', 'https://guardian.test'))).toBe(true);
+    expect(isSyncFused(guardianSyncFuseKey('acct-heal-fused', 'https://guardian.test'))).toBe(false);
+    expect(isGuardianUnrepairable('acct-heal-fused')).toBe(false);
+  });
+
+  it("books a watchdog eviction of the heal's adopt on the same fuse (#1233)", async () => {
+    mockAdoptGuardianState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runHealLaps('acct-heal-adopt-fused');
+
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-fused', 'https://guardian.test'))).toBe(true);
+  });
+
+  it("withdraws the heal's eviction evidence when a heal lap gets through (#1233)", async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+      mockReRegister.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    }
+    mockReRegister.mockImplementationOnce(
+      async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+        onPushStart?.([]);
+      }
+    );
+
+    await runHealLaps('acct-heal-recovered');
+
+    // Every due lap still heals.
+    expect(mockReRegister).toHaveBeenCalledTimes(7);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-recovered', 'https://guardian.test'))).toBe(false);
+  });
+
+  it('holds every read of the cold heal at the sync ceiling, labelled (#1233)', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-heal-labelled', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    mockWithWasmClientLock.mockClear();
+
+    await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    const labelOf = (options: unknown): unknown =>
+      typeof options === 'object' && options !== null && 'label' in options ? options.label : undefined;
+    const labels = mockWithWasmClientLock.mock.calls.map(([, options]) => labelOf(options));
+    expect(labels).not.toContain(undefined);
+    // The stale read, the account read and the chain-signer read.
+    expect(labels.filter(label => label === 'guardian-self-heal-read')).toHaveLength(3);
+  });
+
   // #1233: this device's own rotation landed after its row failed, so slot 0 names the rotation's new
   // key rather than the device's current one. Only the chain-verified signer set the re-register
   // pushes is evidence enough to swap.
@@ -1435,6 +1520,16 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
     });
 
+    // First, so the cases after it run on the account whose heal fuse it lit.
+    it('skips a pending activation whose heal fuse is lit (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    });
+
     it("finishes a rotation-pending account's own rotation without a hot key or a 401 (#1233)", async () => {
       storeState.accounts = [pendingAccount] as never;
 
@@ -1495,15 +1590,6 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
       expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
-    });
-
-    it('skips a pending activation whose heal fuse is lit (#1233)', async () => {
-      storeState.accounts = [pendingAccount] as never;
-      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
-
-      await syncGuardianAccounts();
-
-      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
     });
   });
 });
@@ -2188,6 +2274,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetGuardianSyncOutageForTest();
+    // Every case shares this account and endpoint, so one that lights the heal fuse would gate the rest.
+    __resetSyncFuseStateForTests();
     storeState.accounts = [account] as never;
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
@@ -2203,6 +2291,45 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
     mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
     mockMultisigInit.mockReset();
+  });
+
+  // #1233: the heal's holds report to the account's heal fuse, which gates the heal.
+  it('stops pushing once watchdog evictions of its register hold light the heal fuse (#1233)', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(
+      new GuardianRegistrationPreflightError('Could not prepare the guardian registration: evicted', {
+        cause: new WasmClientPoisonedError('watchdog')
+      })
+    );
+    let now = 8_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    await runUntilPersistent();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+      now += MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+    }
+    nowSpy.mockRestore();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(true);
+  });
+
+  it('books evictions of its snapshot read on the heal fuse and keeps the pass alive (#1233)', async () => {
+    mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runUntilPersistent();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1; i++) {
+      await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+    }
+
+    // The snapshot is this arm's only account read, and a lit fuse skips the heal.
+    expect(mockGetAccount).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(true);
+    expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-self-heal-read'
+    });
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
 
   // All four codes reach this branch: the operator uses them interchangeably for
