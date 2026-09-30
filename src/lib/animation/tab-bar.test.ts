@@ -3,7 +3,14 @@ import { act, renderHook } from '@testing-library/react';
 import { easings } from './easings';
 import { springToLinearEasing } from './spring-easing';
 import { springs } from './springs';
-import { resolveTabBarMotion, tabBarMotion, tabBarSwap, useTabBarMotion, useTabIconPop } from './tab-bar';
+import {
+  resolveTabBarMotion,
+  tabBarMotion,
+  tabBarSwap,
+  useTabBarMotion,
+  useTabIconPop,
+  withLayoutSwap
+} from './tab-bar';
 
 let mockReduce: boolean | null = false;
 jest.mock('framer-motion', () => ({
@@ -175,6 +182,23 @@ describe('lib/animation/tab-bar', () => {
       rerender({ on: false, swap: false });
       rerender({ on: true, swap: false });
       expect(result.current.phase).toBe('pop');
+    });
+  });
+
+  describe('withLayoutSwap', () => {
+    it('swaps only the layout channel, keeping every other channel on the given transition', () => {
+      expect(withLayoutSwap(springs.settle)).toEqual({ ...springs.settle, layout: tabBarSwap });
+    });
+
+    it('keeps an instant transition instant (reduced motion adds no motion back)', () => {
+      const instant = { duration: 0.001 };
+      expect(withLayoutSwap(instant)).toEqual({ duration: 0.001, layout: tabBarSwap });
+    });
+
+    it('does not mutate the transition it is given', () => {
+      const settle = { ...springs.settle };
+      withLayoutSwap(settle);
+      expect(settle).toEqual(springs.settle);
     });
   });
 });

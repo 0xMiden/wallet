@@ -36,12 +36,23 @@ export const tabBarMotion = {
 };
 
 /**
- * A tab bar shown again because its own tab was reselected (not because a slide page merely closed
- * back onto it) takes its new state at once, as the pane's content does (HomeSwipeContainer snaps its
- * track on the same return). The reduced-motion instant (not `duration: 0`, so completion callbacks
- * still fire), named for the swap so a pane swap never reads as the user's motion preference.
+ * The instant move for whatever a retained tab pane draws in the commit `useTabShownAgain` reports
+ * (the one rule: the tab bars, the filter row, the Home carousel's track, the Activity list): that
+ * pane changed out of sight, so it shows its new state at once rather than sliding or popping from
+ * the one it left. The reduced-motion instant (not `duration: 0`, so completion callbacks still fire),
+ * named for the swap so a pane swap never reads as the user's motion preference.
  */
 export const tabBarSwap: Transition = { ...reducedMotionTransition };
+
+/**
+ * `transition` with only its `layout` channel taking `tabBarSwap`, for a layout-animated element in a
+ * retained pane in the commit that shows it again. Only the layout channel: the element's other
+ * animations (a `whileTap` press) read the same prop, and nothing re-renders it after that commit, so a
+ * whole swap would leave them instant until its next render.
+ */
+export function withLayoutSwap(transition: Transition): Transition {
+  return { ...transition, layout: tabBarSwap };
+}
 
 export interface TabBarMotion {
   /** Transition for the sliding highlight and the segments' `layout` resize. */
@@ -92,8 +103,8 @@ export interface TabIconPop {
  * keyframed animation. Nothing pops on mount (the tab was already active), under reduced motion, or
  * for a tab that is inactive.
  *
- * A tab made active by a swap (its bar shown again, see `tabBarSwap`) rests too: the bar only shows
- * the state it would have had all along.
+ * A tab made active by a swap (its pane shown again, by a tab tap or by a link, as the filter row is;
+ * see `tabBarSwap`) rests too: it only shows the state it would have had all along.
  */
 export function useTabIconPop(active: boolean, swap = false): TabIconPop {
   const reduceMotion = useReducedMotion();
