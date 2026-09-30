@@ -160,6 +160,17 @@ const onBlock = (file: string): string => {
   return body.join('\n');
 };
 
+/** The job-level `if:` line's value for the job that starts at `anchor` (a `key:` line). */
+const jobIfAfter = (file: string, anchor: string): string => {
+  const lines = configSource(file).split('\n');
+  const start = lines.findIndex(line => line.trim() === anchor);
+  if (start === -1) throw new Error(`no anchor ${JSON.stringify(anchor)} found in ${file}`);
+  const ifAt = lines.findIndex((line, i) => i > start && /^\s*if:\s/.test(line));
+  const ifLine = lines[ifAt];
+  if (ifLine === undefined) throw new Error(`no if: found after ${anchor} in ${file}`);
+  return ifLine.trim().replace(/^if:\s*/, '');
+};
+
 /**
  * Runs a gate's shell with `values` supplied as env vars, the way a step's own `env:`
  * block would. Any `${{ ... }}` GitHub Actions expression still left in the script text
@@ -254,34 +265,42 @@ describe('a stacked pull request reports its E2E checks under names no branch re
   });
 });
 
-describe('bridge-guardian-e2e-gate reads BASE_REF from the event payload, with no live read', () => {
-  it('the step env reads EVENT_NAME, BASE_REF and RESULT, all from the event or needs', () => {
-    const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
-    expect(src).toMatch(/EVENT_NAME: \$\{\{ github\.event_name \}\}/);
-    expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
-    expect(src).toMatch(/RESULT: \$\{\{ needs\.bridge-guardian-e2e\.result \}\}/);
+describe('a stacked-named gate skips instead of computing a pass on a stacked pull request', () => {
+  it.each([
+    ['.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate:'],
+    ['.github/workflows/pr-e2e-guardian-lifecycle.yml', 'guardian-lifecycle-e2e-gate:']
+  ])('%s %s runs only under !cancelled() && (FULL)', (file, anchor) => {
+    expect(jobIfAfter(file, anchor)).toBe(`\${{ !cancelled() && (${FULL}) }}`);
   });
 
-  it.each<[string, string | undefined, string, number]>([
-    ['pull_request', 'feature', 'skipped', 0],
-    ['pull_request', 'feature', 'success', 1],
+  it('the Bridge gate step env holds RESULT from needs.bridge-guardian-e2e.result, with no EVENT_NAME or BASE_REF', () => {
+    const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
+    const gateSrc = src.slice(src.indexOf('bridge-guardian-e2e-gate:'));
+    expect(gateSrc).toMatch(/RESULT: \$\{\{ needs\.bridge-guardian-e2e\.result \}\}/);
+    expect(gateSrc).not.toMatch(/EVENT_NAME/);
+    expect(gateSrc).not.toMatch(/BASE_REF/);
+  });
+
+  it.each<[string, string, string, number]>([
+    ['pull_request', 'feature', 'success', 0],
+    ['pull_request', 'feature', 'skipped', 1],
     ['pull_request', 'feature', 'failure', 1],
+    ['pull_request', 'feature', 'cancelled', 1],
     ['pull_request', 'main', 'success', 0],
     ['pull_request', 'main', 'skipped', 1],
     ['pull_request', 'main', 'failure', 1],
+    ['pull_request', 'main', 'cancelled', 1],
     ['pull_request', 'next', 'success', 0],
     ['pull_request', 'next', 'skipped', 1],
     ['pull_request', 'next', 'failure', 1],
-    ['push', undefined, 'success', 0],
-    ['push', undefined, 'skipped', 1],
-    ['workflow_dispatch', undefined, 'success', 0]
-  ])('event=%s base=%s result=%s -> exit %i', (eventName, base, result, expected) => {
+    ['pull_request', 'next', 'cancelled', 1],
+    ['push', '', 'success', 0],
+    ['push', '', 'skipped', 1],
+    ['push', '', 'failure', 1],
+    ['push', '', 'cancelled', 1]
+  ])('the Bridge gate script: event=%s base=%s result=%s -> exit %i', (eventName, base, result, expected) => {
     const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate:');
-    const status = gateExit(script, {
-      EVENT_NAME: eventName,
-      BASE_REF: base ?? '',
-      RESULT: result
-    });
+    const status = gateExit(script, { EVENT_NAME: eventName, BASE_REF: base, RESULT: result });
     expect(status).toBe(expected);
   });
 });

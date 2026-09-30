@@ -315,14 +315,13 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml down -v || true
 
-  # Name and work read the same base value (#1071): the required name is
-  # reported only when the base is main or next, the same value the
-  # selector's base check reads, so a stacked run's skip-pass can never
-  # satisfy a check on that commit.
+  # The gate runs only under the same FULL condition that names it and that
+  # decides the work (#1071), so on a stacked pull request it is skipped and
+  # reports no required name.
   guardian-lifecycle-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'guardian-lifecycle-e2e-gate' || 'guardian-lifecycle-e2e-gate (stacked)' }}
     needs: [select-guardian-e2e, guardian-lifecycle-e2e]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') }}
     runs-on: ubuntu-slim
     steps:
       - run: |

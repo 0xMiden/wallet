@@ -211,28 +211,20 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Name and work read the same base value (#1071): the required name is
-  # reported only when the base is main or next, the same value
-  # bridge-guardian-e2e's if: and the pass rule below both read, so a stacked
-  # run's skip-pass can never satisfy a check on that commit.
+  # The gate runs only under the same FULL condition that names it and that
+  # decides the work (#1071), so on a stacked pull request it is skipped and
+  # reports no required name.
   bridge-guardian-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') }}
     runs-on: ubuntu-slim
     steps:
       # Data comes in through env:, not inline ${{ }} in the shell below, so the
       # gate's own logic is plain, unambiguous bash with nothing to interpolate.
       - env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
           RESULT: ${{ needs.bridge-guardian-e2e.result }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = pull_request ] && [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
-            [ "$RESULT" = skipped ] || { echo "bridge-guardian-e2e $RESULT on a pull request based on $BASE_REF, expected skipped"; exit 1; }
-            echo "bridge-guardian-e2e skipped on a pull request based on $BASE_REF"
-          else
-            [ "$RESULT" = success ] || { echo "bridge-guardian-e2e $RESULT"; exit 1; }
-            echo "bridge-guardian-e2e $RESULT"
-          fi
+          [ "$RESULT" = success ] || { echo "bridge-guardian-e2e $RESULT"; exit 1; }
+          echo "bridge-guardian-e2e $RESULT"
