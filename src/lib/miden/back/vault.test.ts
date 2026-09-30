@@ -2674,7 +2674,9 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(true);
     // Store hardware slot but NO password slot
     await savePlain(keys.vaultKeyHardware, 'some-hardware-blob');
-    await expect(Vault.setup('any-pw')).rejects.toThrow(PublicError);
+    await expect(Vault.setup('any-pw')).rejects.toThrow(
+      'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with your recovery phrase.'
+    );
   });
 
   it('isHardwareSecurityAvailableForVault returns false on extension', async () => {
