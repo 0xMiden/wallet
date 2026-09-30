@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -390,19 +391,31 @@ const looksBinary = (file: string): boolean => {
 };
 
 /**
- * Every tracked file CI can run: all but docs, Markdown, the lockfile, this file and binaries.
- * A tracked symlink to a directory is skipped, since the files under it are tracked themselves.
+ * The listed paths CI can run: all but docs, Markdown, the lockfile, this file and binaries. A
+ * tracked symlink to a directory is skipped, since the files under it are tracked themselves,
+ * and so is a path deleted from the worktree but not yet from the index.
  */
-const ciSourceFiles = (): string[] => {
-  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' });
-  if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr}`);
-  return listed.stdout
-    .split('\0')
+const ciSourceFilter = (paths: string[]): string[] =>
+  paths
     .filter(
       file =>
         file !== '' && !file.startsWith('docs/') && !file.endsWith('.md') && file !== 'yarn.lock' && file !== THIS_FILE
     )
-    .filter(file => statSync(resolve(repoRoot, file)).isFile() && !looksBinary(file));
+    .filter(
+      file => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.isFile() === true && !looksBinary(file)
+    );
+
+/** Every tracked file CI can run. */
+const ciSourceFiles = (): string[] => {
+  const listed = spawnSync('git', ['ls-files', '-z'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (listed.status !== 0) {
+    throw new Error(`git ls-files failed (signal ${listed.signal}, error ${listed.error?.message}): ${listed.stderr}`);
+  }
+  return ciSourceFilter(listed.stdout.split('\0'));
 };
 
 /** The entries of a one-line `needs:` value, a single id or a flow list, or none for any other line. */
@@ -426,17 +439,18 @@ type LiteralViolation = { file: string; line: number; name: string };
 
 /**
  * Every content line naming a required name anywhere but where its designated job reports it:
- * that job's own `name:` line and, for a gate, its own id line, both in its designated file, or
- * a `needs:` entry naming the gate. A name computed at run time is left to the API rule.
+ * that job's own `name:` line and, for a gate, its own id line or a `needs:` entry naming it,
+ * all in its designated file. It reads every line of every file CI can run, allowlisted API
+ * writers included, whatever carries the name: a job name, a check-run or status payload, an
+ * action input or a script. A name computed at run time is left to the API rule.
  */
 const requiredNameLiteralViolations = (file: string, text: string): LiteralViolation[] => {
   const lines = text.split(/\r?\n/);
   const allowed = (name: string, at: number): boolean =>
     FULL_NAME_JOBS.some(job => {
-      if (job.name !== name) return false;
+      if (job.name !== name || job.file !== file) return false;
       const isGate = job.jobId === name;
       if (isGate && needsEntries(lines[at]!).includes(name)) return true;
-      if (job.file !== file) return false;
       const { idAt, nameAt } = jobLines(lines, job.jobId);
       return at === nameAt || (isGate && at === idAt);
     });
@@ -452,24 +466,63 @@ const requiredNameLiteralViolations = (file: string, text: string): LiteralViola
 };
 
 /**
- * The only files that may write the Checks or Statuses API. A file joins this list only after
- * a human confirms it never reports a required E2E name.
+ * The only files that may write the Checks or Statuses API, each pinned to the SHA-256 of its
+ * whole text. A file joins this list, or its pin changes, only after a human confirms it never
+ * reports a required E2E name.
  */
-const API_WRITER_ALLOWLIST = ['.github/workflows/check-linked-web-sdk-pr.yml'];
+const API_WRITER_ALLOWLIST = [
+  {
+    file: '.github/workflows/check-linked-web-sdk-pr.yml',
+    sha256: '6d473729f44a96453884085bdb26d0bfdf28ae5d7bb49200fa0bc42f53023c7d'
+  }
+];
 
-const API_WRITE = /check-runs|\/statuses\b|checks\.(create|update)|createCommitStatus|\b(checks|statuses):\s*write\b/;
+const API_WRITE =
+  /check-runs|\/statuses\b|checks\.(create|update)|createCommitStatus|\b(create|update)CheckRun\b|\bwrite-all\b|\b(checks|statuses)["']?\s*:\s*["']?write\b/;
 
+const WORKFLOW_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+
+/** One offending line, or line 0 for a violation of the whole file. */
 type ApiViolation = { file: string; line: number; text: string };
 
-/** Every content line that could write the Checks or Statuses API, or grants that write, in a file off the allowlist. */
-const apiWriterViolations = (file: string, text: string): ApiViolation[] =>
-  API_WRITER_ALLOWLIST.includes(file)
-    ? []
-    : text
-        .split(/\r?\n/)
-        .flatMap((line, at) =>
-          isContent(line) && API_WRITE.test(line) ? [{ file, line: at + 1, text: line.trim() }] : []
-        );
+/**
+ * Every way a file could write the Checks or Statuses API with the workflow token: a content
+ * line calling either REST API or the GraphQL check-run mutations, or granting that write
+ * (`checks` or `statuses` set to `write` in any quoting, spacing or flow form, or `write-all`),
+ * and a workflow with no top-level `permissions:` block, whose token takes the repository's
+ * default permissions. An allowlisted file is exempt only while its text hashes to its pin, so
+ * any edit to it, on whichever line, is one violation for the whole file.
+ *
+ * The one path a text rule cannot see is an action given a PAT or App token from a secret,
+ * whose checks scope is granted outside the repository. The workflow token has no other
+ * unchecked path; the guard for that one is the ruleset pinning each required check's source
+ * to GitHub Actions.
+ */
+const apiWriterViolations = (file: string, text: string): ApiViolation[] => {
+  const pinned = API_WRITER_ALLOWLIST.find(entry => entry.file === file);
+  if (pinned) {
+    return createHash('sha256').update(text).digest('hex') === pinned.sha256
+      ? []
+      : [
+          {
+            file,
+            line: 0,
+            text: `changed since it was allowlisted: confirm it reports no required E2E name, then update its pinned sha256 in ${THIS_FILE}`
+          }
+        ];
+  }
+  const lines = text.split(/\r?\n/);
+  const defaultToken: ApiViolation[] =
+    WORKFLOW_PATH.test(file) && !lines.some(line => line.startsWith('permissions:'))
+      ? [{ file, line: 0, text: 'no top-level permissions: block, so the token takes the repository default' }]
+      : [];
+  return [
+    ...defaultToken,
+    ...lines.flatMap((line, at) =>
+      isContent(line) && API_WRITE.test(line) ? [{ file, line: at + 1, text: line.trim() }] : []
+    )
+  ];
+};
 
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
   it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
@@ -809,8 +862,28 @@ const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
     LOCAL,
     `${configSource(LOCAL)}  other-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n`,
     'local-e2e (chrome)'
+  ],
+  [
+    "N1: a job outside the gate's own file naming the gate in needs:",
+    '.github/workflows/synthetic-needs-gate.yml',
+    'permissions:\n  contents: read\njobs:\n  some-job:\n    needs: [bridge-guardian-e2e-gate]\n    runs-on: ubuntu-latest\n',
+    'bridge-guardian-e2e-gate'
   ]
 ];
+
+const READ_ONLY = 'permissions:\n  contents: read\n';
+const ONE_JOB = 'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n';
+const GRANTS = [`checks: 'write'`, `statuses: "write"`, `"checks": write`, `checks : write`];
+
+const LINKED = '.github/workflows/check-linked-web-sdk-pr.yml';
+const LINKED_POST = '              | gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input - >/dev/null\n';
+
+/** The real LINKED text with `from`, which must occur in it exactly once, replaced by `to`. */
+const linkedWith = (from: string, to: string): string => {
+  const text = configSource(LINKED);
+  if (text.split(from).length !== 2) throw new Error(`expected exactly one ${JSON.stringify(from)} in ${LINKED}`);
+  return text.replace(from, () => to);
+};
 
 /** Each case is a source file the API rule must flag. */
 const apiWriterCases: SourceCase[] = [
@@ -819,6 +892,88 @@ const apiWriterCases: SourceCase[] = [
     'A2: a workflow granting checks: write',
     '.github/workflows/synthetic-checks-write.yml',
     'permissions:\n  checks: write\njobs:\n  some-job:\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'A3: a top-level permissions: write-all',
+    '.github/workflows/synthetic-write-all.yml',
+    `permissions: write-all\n${ONE_JOB}`
+  ],
+  [
+    'A3: a job-level permissions: write-all',
+    '.github/workflows/synthetic-write-all.yml',
+    `${READ_ONLY}${ONE_JOB}    permissions: write-all\n`
+  ],
+  [
+    'A4: a step creating a check run through the GraphQL API',
+    '.github/workflows/synthetic-graphql.yml',
+    READ_ONLY +
+      workflowWithStep(
+        `      - run: gh api graphql -f query='mutation { createCheckRun(input: {name: "local-e2e ($B)"}) }'\n`
+      )
+  ],
+  [
+    'A5: a workflow with no top-level permissions block',
+    '.github/workflows/synthetic-default-token.yml',
+    `on: push\n${ONE_JOB}`
+  ],
+  ...GRANTS.flatMap((grant): SourceCase[] => [
+    [`A6: a top-level ${grant}`, '.github/workflows/synthetic-grant.yml', `permissions:\n  ${grant}\n${ONE_JOB}`],
+    [
+      `A6: a job-level ${grant}`,
+      '.github/workflows/synthetic-grant.yml',
+      `${READ_ONLY}${ONE_JOB}    permissions:\n      ${grant}\n`
+    ]
+  ]),
+  [
+    "A6: a top-level flow permissions: { checks: 'write' }",
+    '.github/workflows/synthetic-grant.yml',
+    `permissions: { checks: 'write' }\n${ONE_JOB}`
+  ],
+  [
+    "A6: a job-level flow permissions: { checks: 'write' }",
+    '.github/workflows/synthetic-grant.yml',
+    `${READ_ONLY}${ONE_JOB}    permissions: { checks: 'write' }\n`
+  ],
+  [
+    'P1: the pinned workflow also granting statuses: write',
+    LINKED,
+    linkedWith('\n  checks: write\n', '\n  checks: write\n  statuses: write\n')
+  ],
+  [
+    'P2: the pinned workflow naming its check from a variable',
+    LINKED,
+    linkedWith('local name="linked-web-sdk-pr-ready"', 'local name="$CHECK_NAME"')
+  ],
+  [
+    'P3: the pinned workflow posting a second check run',
+    LINKED,
+    linkedWith(
+      LINKED_POST,
+      `${LINKED_POST}              gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" -f name="$CHECK_NAME" -f head_sha="$head_sha" >/dev/null\n`
+    )
+  ],
+  [
+    'P4: the pinned workflow passing a computed name to its check run',
+    LINKED,
+    linkedWith('--arg name "$name"', '--arg name "local-e2e ($B)"')
+  ],
+  [
+    'P5: the pinned workflow computing its check name in jq',
+    LINKED,
+    linkedWith('{name: $name', '{name: ("local-e2e (" + $status + ")")')
+  ],
+  [
+    'P6: the pinned workflow with its check-run POST repeated',
+    LINKED,
+    linkedWith(LINKED_POST, LINKED_POST + LINKED_POST)
+  ],
+  [
+    'P7: the pinned workflow adding a test reporter that names its check',
+    LINKED,
+    linkedWith(
+      '      - uses: actions/checkout@v6\n',
+      `      - uses: actions/checkout@v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
+    )
   ],
   L1,
   L5
@@ -866,11 +1021,10 @@ describe('no workflow can report a required E2E check name except through the co
     expect(requiredNameLiteralViolations(file, text)).toEqual([]);
   });
 
-  it('the real check-linked-web-sdk-pr.yml writes the Checks API and passes the API rule', () => {
-    const file = '.github/workflows/check-linked-web-sdk-pr.yml';
-    const text = configSource(file);
+  it('the real check-linked-web-sdk-pr.yml writes the Checks API and passes the API rule at its pinned hash', () => {
+    const text = configSource(LINKED);
     expect(text).toContain('checks: write');
-    expect(apiWriterViolations(file, text)).toEqual([]);
+    expect(apiWriterViolations(LINKED, text)).toEqual([]);
   });
 
   it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
@@ -886,6 +1040,12 @@ describe('no workflow can report a required E2E check name except through the co
     for (const skipped of ['CHANGELOG.md', 'yarn.lock', 'playwright/e2e/harness/spec-selection.test.ts']) {
       expect(files).not.toContain(skipped);
     }
+  });
+
+  it('M1: ciSourceFilter skips a listed path missing from the worktree instead of throwing', () => {
+    expect(ciSourceFilter(['scripts/synthetic-missing.sh', 'scripts/select-e2e-changes.sh'])).toEqual([
+      'scripts/select-e2e-changes.sh'
+    ]);
   });
 
   it('neither rule finds anything in any file CI can run today', () => {
