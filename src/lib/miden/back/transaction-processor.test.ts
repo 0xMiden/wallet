@@ -5,7 +5,7 @@
  * `isProcessing = true` and THEN called `await getBrowser()` OUTSIDE
  * the try/finally. If `getBrowser()` rejected (which is exactly the
  * case the lazy `webextension-polyfill` load is defending against on
- * mobile / desktop builds), the function rejected with `isProcessing`
+ * desktop builds), the function rejected with `isProcessing`
  * stuck at true, wedging the processor permanently for the rest of
  * the app lifetime.
  *
@@ -203,7 +203,7 @@ describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing'
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 
-  it('still completes successfully when alarms.create throws (mobile / desktop — no alarms API)', async () => {
+  it('still completes successfully when alarms.create throws (desktop - no alarms API)', async () => {
     mockAlarmsCreate.mockImplementationOnce(() => {
       throw new Error('no alarms API');
     });
@@ -719,6 +719,27 @@ describe('a one-shot wake for rows still queued when a run ends (#1223)', () => 
     mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
     const mod = await import('./transaction-processor');
     await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+  });
+
+  it('arms no wake off the extension (isExtension() false, mobile-shaped: polyfill mock still loads) (#1266)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const backedOff = {
+      id: 'claim',
+      status: ITransactionStatus.Queued,
+      initiatedAt: nowSec,
+      nextEligibleAt: nowSec + 600
+    };
+    mockGetAllUncompletedTransactions.mockResolvedValue([backedOff]);
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 60);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    expect(mockNextQueuedWakeDelayMs).not.toHaveBeenCalled();
     expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
   });
 });

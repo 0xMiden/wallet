@@ -193,10 +193,11 @@ export async function startTransactionProcessing(): Promise<void> {
       browser.alarms.clear(QUEUED_ROW_WAKE_ALARM);
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
     } catch {
-      // Non-extension context (mobile / desktop) — no alarms API.
-      // The processing loop below still runs, it just won't have an
-      // SW-keepalive alarm, which is fine because mobile / desktop
-      // aren't service workers.
+      // Desktop only - the import above throws there (no chrome runtime);
+      // mobile's polyfill alias resolves without throwing, so it never
+      // reaches this catch. The processing loop below still runs, it just
+      // won't have an SW-keepalive alarm, which is fine because desktop
+      // isn't a service worker.
       browser = null;
     }
 
@@ -247,7 +248,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
     // Armed before `isProcessing` drops, so a kick landing during the read is honoured by the restart below, which
     // clears the wake, rather than starting a run this create would land behind.
-    if (browser && !processingRequested) await armQueuedRowWake(browser);
+    //
+    // Extension-only: `isExtension()`, never `browser !== null`, because the mobile build's polyfill alias makes
+    // `browser` non-null there too. Arming it there would waste a vault probe and a queue read for an alarm that's
+    // a no-op off the extension's service worker.
+    if (isExtension() && browser && !processingRequested) await armQueuedRowWake(browser);
     isProcessing = false;
     if (processingRequested) {
       processingRequested = false;
