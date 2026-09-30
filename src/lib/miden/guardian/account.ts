@@ -286,6 +286,12 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
  * other WASM operation in the realm; 90 s covers one full per-minute cooldown
  * and keeps the onboarding spinner bounded. Moving the waits off the lock is
  * wallet#1207.
+ *
+ * The two per-attempt ceilings (NEW_GUARDIAN_PUBKEY_TIMEOUT_MS and
+ * NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS in ./serialize) add to this budget, one
+ * attempt each in the worst case, and the sum stays within half of
+ * `WASM_LOCK_WATCHDOG_MS`, leaving the other half for `client.create` and the
+ * sync. account.test.ts pins the sum.
  */
 export const GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS = 90_000;
 

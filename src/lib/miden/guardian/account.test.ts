@@ -772,6 +772,19 @@ describe('createGuardianAccount', () => {
       expect(GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS).toBeLessThan(WASM_LOCK_WATCHDOG_MS / 2);
     });
 
+    // This suite mocks both ceilings, so the real ones are read here. In the worst case
+    // each adds one attempt to the budget, and the sum must leave the other half of the
+    // watchdog for client.create and the sync.
+    it('keeps the budget and both real per-attempt ceilings within half the lock watchdog', () => {
+      const real = jest.requireActual<typeof import('./serialize')>('./serialize');
+
+      expect(
+        GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS +
+          real.NEW_GUARDIAN_PUBKEY_TIMEOUT_MS +
+          real.NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS
+      ).toBeLessThanOrEqual(WASM_LOCK_WATCHDOG_MS / 2);
+    });
+
     it('still fails at once on a registration error that is not a 429', async () => {
       const multisig = makeMultisig();
       multisig.registerOnGuardian.mockRejectedValueOnce(
