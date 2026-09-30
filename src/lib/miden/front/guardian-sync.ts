@@ -90,8 +90,9 @@ export const zustandProvider: GuardianAccountProvider = {
  * at activation (`completeReplaceHotKeyTransaction`), once the hot signer makes
  * the account 2-of-N. Don't "fix" this filter to harden pre-activation accounts.
  */
-// Accounts whose update_guardian hardening we've already verified this session,
-// so the self-heal check below runs at most once per account per session.
+// Signer sets (`${publicKey}|${hotPublicKey}`) whose update_guardian hardening
+// we've already verified this session, so the self-heal check below runs at most
+// once per signer set per session and a hot-key rotation runs it again.
 const hardeningChecked = new Set<string>();
 
 // Per-account self-heal state. `consecutiveAuthFailures` counts 401s in a row
@@ -384,7 +385,9 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
  *  - `missingRegistrationState` is already keyed by (account, endpoint, guardian
  *    key), so it never inherits in the first place.
  *  - `hardeningChecked` describes the ACCOUNT's on-chain procedure thresholds,
- *    which a rotation does not change.
+ *    which an endpoint switch does not change. It is keyed per signer set
+ *    (account and hot key), so a hot-key rotation re-arms it while an endpoint
+ *    switch does not.
  */
 const syncedGuardianEndpoint = new Map<string, string>();
 
@@ -1136,9 +1139,12 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
 
       // Self-heal the update_guardian threshold-2 hardening: if a migrated
       // account's original hardening tx was dropped, it would otherwise sit at
-      // threshold-1 indefinitely. Idempotent + best-effort; once per session.
-      if (!hardeningChecked.has(account.publicKey)) {
-        hardeningChecked.add(account.publicKey);
+      // threshold-1 indefinitely. Idempotent + best-effort; once per signer set
+      // per session, so a rotation whose own hardening an eviction skipped is
+      // repaired on the next lap after the hot key swap.
+      const hardeningKey = `${account.publicKey}|${account.hotPublicKey}`;
+      if (!hardeningChecked.has(hardeningKey)) {
+        hardeningChecked.add(hardeningKey);
         const { ensureGuardianProcedureThresholds, startBackgroundTransactionProcessing } =
           await import('lib/miden/transaction');
         const hardeningTxId = await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);

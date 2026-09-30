@@ -34,6 +34,13 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
 
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+const mockHiddenIds = new Set<string>();
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
+}));
+
 // vaul drawer — render children plus a probe button so we can fire the
 // `onOpenChange` the component wires to the sheet, and surface `open`.
 // The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
@@ -146,6 +153,7 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
   mockStoreState = { tokenPrices: {} };
+  mockHiddenIds.clear();
 });
 
 describe('SelectTokenDrawer', () => {
@@ -240,6 +248,20 @@ describe('SelectTokenDrawer', () => {
 
     expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
+  });
+
+  it('leaves a hidden token out of the picker, and a search does not bring it back', () => {
+    setBalances([BTC, ETH]);
+    mockHiddenIds.add(ETH.tokenId);
+    renderDrawer();
+
+    expect(mockUseHiddenTokens).toHaveBeenCalledWith('pk-abc');
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
+
+    fireEvent.change(search(), { target: { value: 'eth' } });
+
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
   });
 
   it('builds the UIToken, resets the search and closes the drawer on select', () => {

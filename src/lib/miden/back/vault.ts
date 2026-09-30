@@ -414,9 +414,10 @@ export class Vault {
     }
     clearRecoveryAuthorizations();
     const keys = [mnemonicStrgKey];
-    await withWasmClientLock(async () => {
+    await withWasmClientLock(async hold => {
       this.assertRealmSinkIsMine();
       const client = await getMidenClient();
+      assertWasmHoldCurrent(hold, 'in removeSeedPhrase after the client build');
       for (const publicKeyHex of record.recoveryPublicKeys) {
         const bytes = Buffer.from(publicKeyHex, 'hex');
         const framed = new Uint8Array(bytes.length + 1);
@@ -427,8 +428,10 @@ export class Vault {
         try {
           keys.push(accAuthSecretKeyStrgKey(Buffer.from(commitment.serialize()).toString('hex')));
           await client.client.keystore.remove(commitment);
+          assertWasmHoldCurrent(hold, 'in removeSeedPhrase after a keystore removal');
           // A missing secret causes an SDK storage error. Check the public mapping instead.
           const retainedAccountId = await client.client.keystore.getAccountId(commitment);
+          assertWasmHoldCurrent(hold, 'in removeSeedPhrase after the mapping lookup');
           if (retainedAccountId) {
             retainedAccountId.free();
             throw new PublicError(getMessage('seedRemovalFailed'));
@@ -504,8 +507,9 @@ export class Vault {
             Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => ({ hdIndex, keyDerivation }))
           );
     const deriveColdSeed = makeColdSeedDeriver(phrase, account.type);
-    await withWasmClientLock(async () => {
+    await withWasmClientLock(async hold => {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+      assertWasmHoldCurrent(hold, 'in provideRecoverySeed after the account read');
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
       const onChainCommitment = normalizeHex(commitment);

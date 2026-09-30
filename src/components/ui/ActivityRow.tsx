@@ -5,7 +5,7 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { springs, useMotion } from 'lib/animation';
+import { useSettleLayoutTransition } from 'app/layouts/page-active';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -128,7 +128,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // comes to rest with no overshoot. Under reduced motion `useMotion`
   // collapses it to an instant tween, so a filter change still swaps the
   // list, only without the movement.
-  const transition = useMotion(springs.settle);
+  const transition = useSettleLayoutTransition();
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();

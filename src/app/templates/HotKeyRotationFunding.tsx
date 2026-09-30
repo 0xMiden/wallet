@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
+import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
@@ -187,8 +188,12 @@ interface PanelProps {
   status: RotationFundingStatus;
   /** The suggested amount in MIDEN, or `null` to leave the line out. */
   minimum: string | null;
-  /** The failed claim's message, shown with `claim-failed`. */
-  claimError?: string;
+  /** The failed claim's own message, shown with `claim-failed`. */
+  claimMessage?: string;
+  /** The failed claim's raw error, behind "Show full error". */
+  claimDetails?: string;
+  /** The failed claim may have reached the network, so its outcome is unknown rather than failed. */
+  claimUnconfirmed?: boolean;
   onRetryClaim: () => void;
   onCheckAgain: () => void;
 }
@@ -203,7 +208,9 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   reason,
   status,
   minimum,
-  claimError,
+  claimMessage,
+  claimDetails,
+  claimUnconfirmed,
   onRetryClaim,
   onCheckAgain
 }) => {
@@ -230,11 +237,14 @@ export const RotationFundingPanel: FC<PanelProps> = ({
         data-state={status}
         className="text-sm text-ink select-text"
       >
-        {t(STATUS_KEYS[status])}
+        {t(
+          status === 'claim-failed' && claimUnconfirmed ? 'hotKeyRotationFundingClaimUnconfirmed' : STATUS_KEYS[status]
+        )}
       </p>
       {status === 'claim-failed' && (
         <>
-          {claimError && <p className="text-sm text-ink break-words select-text">{claimError}</p>}
+          {claimMessage && <p className="w-full text-sm text-ink wrap-anywhere select-text">{claimMessage}</p>}
+          <ErrorDetails details={claimDetails} className="w-full items-center" />
           <Button
             data-testid="hot-key-rotation-funding-claim-retry"
             onClick={() => {

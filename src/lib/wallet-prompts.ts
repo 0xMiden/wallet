@@ -17,7 +17,9 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
+import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -124,17 +126,58 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
 
+// A background poll of a row whose landing is unknown has a terminal condition - it
+// cannot rely on an answer ever arriving, the way a Completed row can. Windowed from
+// the row's own failure stamp, not from initiatedAt alone: a stamp ahead of the clock
+// pauses the poll until the clock reaches it, rather than reading as already elapsed.
+// Longer than an Agglayer L2-to-L1 exit and any Epoch fill, so a bridge that landed is
+// settled in the background, and one that never landed stops costing a fetch every
+// tick; past it, the detail page's own on-demand tracker and fill poll still settle
+// the row (#1250).
+const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Poll one bridge row against its provider - a Completed row with something left to
+ * settle, with no window, or a Failed row whose outcome `isUnconfirmedFailure` still
+ * calls unknown AND is still within `FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS` of its
+ * own failure stamp: `completedAt` (written by `cancelTransaction` at the moment of
+ * every failure) when present, `initiatedAt` otherwise - both stored in seconds. A
+ * stamp ahead of the clock (a clock stepped back, or a stamp written while the clock
+ * ran fast) pauses the poll until the clock reaches it, the same way the faucet
+ * marker's `stampedAhead` already distrusts a future `requestedAt` in this file; the
+ * total background polling still stays capped at 24 hours. Either way the row is
+ * settled by evidence bound to it alone, never a general resweep of every Failed row
+ * (#1250). `isBridgePromptActive` and the prompts built from it are unaffected: a
+ * Failed row shows no Claim affordance until this promotes it.
+ */
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
-  if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
-  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  if (tx.type !== 'bridged-send') return;
+  const failedAtSeconds = tx.completedAt ?? tx.initiatedAt;
+  const ageMs = Date.now() - failedAtSeconds * 1000;
+  const failedUnconfirmed =
+    tx.status === ITransactionStatus.Failed &&
+    isUnconfirmedFailure(tx) &&
+    ageMs >= 0 &&
+    ageMs < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
+  if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
+  // Read defensively, the same way the promotion filter in `reconcileBridgedSends`
+  // already does: a Failed row with no `extraInputs` at all must not crash the pass.
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+  if (!inputs) return;
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
+    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
+    // that never even landed, so a Failed row is looked up only once its own Miden
+    // transaction id is known - that is what binds the lookup to it.
+    if (failedUnconfirmed && !tx.transactionId) return;
     // Bound to this row's own Miden transaction id: several rows can share one
     // destination address, and marking them all ready off ANY claimable deposit
     // points every one of them at the same deposit.
     const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
+    // Passed through unconditionally so a Failed row's write always carries the
+    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
+    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
     return;
   }
 
@@ -171,13 +214,34 @@ export async function reconcileBridgedSends(): Promise<void> {
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
+  const active = rows.filter(tx => !tx.restoredFromBackup);
+
+  // A Failed row whose stored Epoch evidence already proves it landed settles
+  // without waiting for another poll. Only stored Epoch evidence qualifies: it
+  // is keyed by the row's own intent nonce, where a stored Agglayer claim
+  // status carries no bound deposit hash and is never enough on its own
+  // (#1250).
   await Promise.all(
-    rows
-      .filter(tx => !tx.restoredFromBackup)
+    active
+      .filter(tx => {
+        if (tx.status !== ITransactionStatus.Failed) return false;
+        const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+        if (!inputs) return false;
+        return inputs.epochStatus === 'confirmed' && inputs.claimStatus !== 'failed';
+      })
       .map(tx =>
-        // One row's failing indexer or allocator call must not reject the pass for the others.
-        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+        // One row's failing write must not reject the pass for the others.
+        completeVerifiedLandedTransaction(tx.id, bridgedSendLandedValues()).catch(error =>
+          console.warn('[wallet-prompts] bridged-send landing failed', tx.id, error)
+        )
       )
+  );
+
+  await Promise.all(
+    active.map(tx =>
+      // One row's failing indexer or allocator call must not reject the pass for the others.
+      pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+    )
   );
 }
 

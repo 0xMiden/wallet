@@ -91,6 +91,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
   const transactionFailed = entry.status === ITransactionStatus.Failed;
+  // An unconfirmed failed row may still have landed, but only with a transaction id does the
+  // lookup bind to THIS row rather than the address's sole claimable deposit (lib/agglayer/status.ts).
+  const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!entry.externalTxId);
 
   // Failed Epoch (Fast) bridge-out: the funds sit in a recallable P2IDE note that
   // the sender can reclaim once the reclaim height passes. Gate a "Reclaim funds"
@@ -114,7 +117,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     // A restored row polls nothing and claims nothing: `destination` and the
     // deposit it matches come from the dump, and `handleClaim` signs an EVM
     // transaction. Display still shows whatever the backup recorded.
-    active: isAgglayer && !transactionFailed && !restoredFromBackup && status !== 'claimed' && !!destination,
+    active: isAgglayer && mayStillClaim && !restoredFromBackup && status !== 'claimed' && !!destination,
     intervalMs: 8000,
     poll: async () => {
       const deposit = await findClaimableMidenToEvmDeposit(destination, entry.externalTxId);
@@ -122,7 +125,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       setClaimable(deposit);
       if (status === 'pending' && entry.txId) {
         setStatus('ready');
-        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
+        // Bound to this row's own transaction hash, so the write can only promote THIS row (#1250).
+        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true }, deposit.tx_hash);
       }
       return true;
     }
@@ -168,12 +172,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     hapticMedium();
     setError(null);
     setStatus('claiming');
-    await updateBridgeClaimStatus(entry.txId, 'claiming');
+    await updateBridgeClaimStatus(entry.txId, 'claiming', undefined, claimable.tx_hash);
     try {
       const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
       await tx.wait();
       setStatus('claimed');
-      await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash });
+      await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash }, claimable.tx_hash);
       setClaimable(null);
     } catch (err) {
       console.error('[bridge-claim] claim failed', err);
@@ -239,11 +243,17 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         {/* eslint-disable-next-line i18next/no-literal-string -- network's proper name, not translatable copy */}
         <DetailRow label={t('destinationNetwork')}>Sepolia</DetailRow>
         <DetailRow label={isEpoch ? t('status') : t('claimStatus')}>
-          {transactionFailed
+          {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a
+              deposit, a claim runs, or the Epoch fill poll reports, that state wins instead (#1250). */}
+          {transactionFailed && !entry.isUnconfirmed
             ? t('bridgeFailed')
             : isEpoch
-              ? t(EPOCH_STATUS_LABEL[epochStatus])
-              : t(CLAIM_STATUS_LABEL[status])}
+              ? entry.isUnconfirmed && epochStatus === 'pending'
+                ? t('notConfirmed')
+                : t(EPOCH_STATUS_LABEL[epochStatus])
+              : entry.isUnconfirmed && (status === 'pending' || status === 'not-applicable')
+                ? t('notConfirmed')
+                : t(CLAIM_STATUS_LABEL[status])}
         </DetailRow>
         {isEpoch && fillTxHash && (
           <DetailRow label={t('receivingTx')}>
@@ -257,7 +267,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&
-        !transactionFailed &&
+        mayStillClaim &&
         (status !== 'claimed' ? (
           <div className="mt-3 flex flex-col gap-2">
             {error && (
