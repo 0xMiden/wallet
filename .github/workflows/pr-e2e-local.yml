@@ -9,41 +9,14 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
-  # The base is read live via the API rather than the event payload: a rerun of an
-  # earlier run replays its original payload, and a retarget can land mid-run, so a
-  # stale base must never clear the required check below (#1071).
-  local-e2e-base:
-    name: Read pull request base
-    runs-on: ubuntu-slim
-    outputs:
-      full: ${{ steps.read.outputs.full }}
-    steps:
-      - id: read
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" != pull_request ]; then
-            full=true
-          else
-            base=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref)
-            if [ "$base" = main ] || [ "$base" = next ]; then
-              full=true
-            else
-              full=false
-            fi
-          fi
-          echo "full=$full" >> "$GITHUB_OUTPUT"
+  # Name and work read the same base value (#1071): only a pull request based on
+  # main or next gets the full suite and this required name; a stacked pull
+  # request reports a name no branch requires, which can never satisfy a check
+  # on that commit, so a retarget with no push simply leaves the required name
+  # missing until the next push or a close/reopen runs it for real.
   chrome-local:
-    # Required-check name: keep this exact string.
-    name: local-e2e (chrome)
-    needs: local-e2e-base
-    # Fail closed: if the pre-job's live read failed, run the suite rather than
-    # silently skip it (#1071).
-    if: ${{ !cancelled() && (needs.local-e2e-base.result != 'success' || needs.local-e2e-base.outputs.full == 'true') }}
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
     # The full suite imports the published Linux napi module, which has no ARM64
     # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
     # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x

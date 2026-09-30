@@ -20,7 +20,8 @@ jobs:
   # the spec's beforeAll) and the local guardian co-signer (--profile guardian).
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
-    # Runs only on push, dispatch, and a pull request based on main or next; not on every update to a stacked branch (#1071).
+    # Full suite only when the base is main or next; bridge-guardian-e2e-gate
+    # below reports the required name under the same rule (#1071).
     if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'
     # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
     # suite wall clock, so they do not establish a core count. Kept at 2x because this
@@ -211,36 +212,24 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff bridge-guardian-e2e succeeded, or it
-  # was skipped on a pull request based off a branch other than main or next
-  # (#1071). Mark THIS "required" in branch protection so the name stays
-  # stable across renames.
+  # Name and work read the same base value (#1071): the required name is
+  # reported only when the base is main or next, the same value
+  # bridge-guardian-e2e's if: and the pass rule below both read, so a stacked
+  # run's skip-pass can never satisfy a check on that commit.
   bridge-guardian-e2e-gate:
-    name: bridge-guardian-e2e-gate
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
       # Data comes in through env:, not inline ${{ }} in the shell below, so the
       # gate's own logic is plain, unambiguous bash with nothing to interpolate.
-      # The base is read live from the API, not the event payload: a rerun
-      # replays its original payload and a retarget can land mid-run, so a stale
-      # base must never clear this required check (#1071).
       - env:
           EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           RESULT: ${{ needs.bridge-guardian-e2e.result }}
         run: |
           set -euo pipefail
-          BASE_REF=""
-          if [ "$EVENT_NAME" = pull_request ]; then
-            BASE_REF=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || {
-              echo "could not read the pull request's current base"
-              exit 1
-            }
-          fi
           if [ "$EVENT_NAME" = pull_request ] && [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
             [ "$RESULT" = skipped ] || { echo "bridge-guardian-e2e $RESULT on a pull request based on $BASE_REF, expected skipped"; exit 1; }
             echo "bridge-guardian-e2e skipped on a pull request based on $BASE_REF"

@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       run: ${{ steps.select.outputs.run }}
-      judged_base: ${{ steps.select.outputs.judged_base }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,14 +32,12 @@ jobs:
               pull_number: context.issue.number
             });
             core.setOutput('body', data.body ?? '');
-            core.setOutput('base_ref', data.base.ref);
-            core.setOutput('base_sha', data.base.sha);
       - name: Check changed paths
         id: select
         env:
-          BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ steps.pull-request.outputs.base_ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BODY: ${{ steps.pull-request.outputs.body }}
         run: |
           set -euo pipefail
@@ -48,7 +45,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             run=true
           elif [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
-            # Runs only on pull requests based on main or next; not on every update to a stacked branch (#1071).
+            # Name and work read the same base value (#1071): a stacked pull
+            # request is deselected here, before the marker or path checks run.
             run=false
           elif printf '%s\n' "$PR_BODY" \
             | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
@@ -63,7 +61,6 @@ jobs:
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "judged_base=$BASE_REF" >> "$GITHUB_OUTPUT"
 
   # Dedicated two-guardian job for the guardian switch/recovery suite
   # (guardian-switch*.spec.ts / guardian-recovery*.spec.ts — design doc
@@ -318,38 +315,18 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff guardian-lifecycle-e2e succeeded.
-  # Mark THIS "required" in branch protection so the name stays stable across
-  # job renames.
+  # Name and work read the same base value (#1071): the required name is
+  # reported only when the base is main or next, the same value the
+  # selector's base check reads, so a stacked run's skip-pass can never
+  # satisfy a check on that commit.
   guardian-lifecycle-e2e-gate:
-    name: guardian-lifecycle-e2e-gate
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'guardian-lifecycle-e2e-gate' || 'guardian-lifecycle-e2e-gate (stacked)' }}
     needs: [select-guardian-e2e, guardian-lifecycle-e2e]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
-      # The base is read live from the API, not the selector's judged base: a
-      # rerun replays the event the selector ran against, and a retarget can
-      # land after selection, so a stale judgement must never clear this
-      # required check (#1071).
-      - env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-          JUDGED_BASE: ${{ needs.select-guardian-e2e.outputs.judged_base }}
-        run: |
+      - run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = pull_request ]; then
-            LIVE_BASE=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || {
-              echo "could not read the pull request's current base"
-              exit 1
-            }
-            if { [ "$LIVE_BASE" = main ] || [ "$LIVE_BASE" = next ]; } && [ "$JUDGED_BASE" != main ] && [ "$JUDGED_BASE" != next ]; then
-              echo "the base changed to $LIVE_BASE after the suite was selected; push or close and reopen to run full E2E"
-              exit 1
-            fi
-          fi
-
           SELECT_RESULT="${{ needs.select-guardian-e2e.result }}"
           SELECTED="${{ needs.select-guardian-e2e.outputs.run }}"
           E2E_RESULT="${{ needs.guardian-lifecycle-e2e.result }}"
