@@ -176,6 +176,16 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
 }
 
 /**
+ * What a landed write's failure knows about its transaction (#1233): the executed transaction's id and
+ * how many private user output notes it produced, each only when it could be read. One object from the
+ * throw to the row, on both realms, so no layer can carry one fact and drop the other.
+ */
+export interface LandedTransaction {
+  transactionId?: string;
+  privateOutputNotes?: number;
+}
+
+/**
  * A local store update that failed after the wallet's own `submitProven` resolved,
  * which is the moment the node accepted the transaction (#945).
  *
@@ -187,43 +197,43 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
  */
 export class ApplyAfterSubmitError extends Error {
   readonly code = 'ApplyTransactionAfterSubmitFailed';
-  /** The executed transaction's id, when it could be read: a landed row's only record of it (#1233). */
-  readonly transactionId: string | undefined;
-  /** How many private user output notes it produced, when that could be read: notes no relay handed over (#1233). */
-  readonly privateOutputNotes: number | undefined;
+  /** What could still be read about the executed transaction: a landed row's only record of it (#1233). */
+  readonly landed: LandedTransaction;
 
-  constructor(cause: unknown, transactionId?: string, privateOutputNotes?: number) {
+  constructor(cause: unknown, landed: LandedTransaction = {}) {
     super("This transaction was accepted into the node's mempool but the local store update failed", { cause });
     this.name = 'ApplyAfterSubmitError';
-    this.transactionId = transactionId;
-    this.privateOutputNotes = privateOutputNotes;
+    this.landed = landed;
   }
 }
 
 /**
- * Read one landed field off this realm's `ApplyAfterSubmitError` or off the rejection the service
- * worker rebuilds from an offscreen reply (#1233). Guarded like `errorMessageParts`: the property can
- * be an accessor, and a throw here would cost the verdict.
+ * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
+ * verdict.
  */
-const readLandedField = (err: unknown, field: 'transactionId' | 'privateOutputNotes'): unknown => {
-  if (!err || typeof err !== 'object') return undefined;
+const readGuarded = (value: unknown, key: string): unknown => {
+  if (!value || typeof value !== 'object') return undefined;
   try {
-    return Reflect.get(err, field);
+    return Reflect.get(value, key);
   } catch {
     return undefined;
   }
 };
 
-/** The landed transaction's id an `ApplyAfterSubmitError` carries, or `undefined`. */
-export function extractLandedTransactionId(err: unknown): string | undefined {
-  const id = readLandedField(err, 'transactionId');
-  return typeof id === 'string' ? id : undefined;
-}
-
-/** The private output note count an `ApplyAfterSubmitError` carries, or `undefined` for anything but a count. */
-export function extractLandedPrivateOutputNotes(err: unknown): number | undefined {
-  const count = readLandedField(err, 'privateOutputNotes');
-  return typeof count === 'number' && Number.isInteger(count) && count >= 0 ? count : undefined;
+/**
+ * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
+ * rebuilds from an offscreen reply, keeping only a string id and a non-negative integer count.
+ */
+export function extractLanded(err: unknown): LandedTransaction {
+  const landed = readGuarded(err, 'landed');
+  const transactionId = readGuarded(landed, 'transactionId');
+  const privateOutputNotes = readGuarded(landed, 'privateOutputNotes');
+  return {
+    ...(typeof transactionId === 'string' ? { transactionId } : {}),
+    ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
+      ? { privateOutputNotes }
+      : {})
+  };
 }
 
 /**

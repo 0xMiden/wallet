@@ -16,6 +16,7 @@
 
 import type { ConnectivityCategory } from '../activity/connectivity-state';
 import type { ITransactionStage } from '../db/types';
+import type { LandedTransaction } from '../sdk/sdk-error-code';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
  * ignores anything whose `target` is not this. */
@@ -163,9 +164,9 @@ export interface OffscreenCallRequest {
  * {@link finishOpError}'s: the SW must not see a kill as a plain error.
  * `errorReason` carries that error's own discriminant alongside it, so the
  * rebuilt error names the mechanism that actually fired rather than guessing.
- * `errorTransactionId` and `errorPrivateOutputNotes` carry the executed transaction's
- * id and private output note count off an `ApplyAfterSubmitError`, so a landed row
- * the service worker completes still records both (#1233).
+ * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
+ * transaction, its id and private output note count, so a landed row the service
+ * worker completes still records both (#1233).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
@@ -174,8 +175,7 @@ export type OffscreenCallResponse =
       op_id: string;
       error: string;
       errorCode?: string;
-      errorTransactionId?: string;
-      errorPrivateOutputNotes?: number;
+      errorLanded?: LandedTransaction;
       errorName?: string;
       errorReason?: string;
     };

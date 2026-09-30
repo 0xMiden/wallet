@@ -3911,30 +3911,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     callGuardianPipeline(sendResponse);
     await waitForReply(sendResponse);
 
-    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply).toMatchObject({
       ok: false,
       errorCode: 'ApplyTransactionAfterSubmitFailed',
-      errorTransactionId: '0xlanded'
+      errorLanded: { transactionId: '0xlanded' }
     });
+    expect(reply).not.toHaveProperty('errorTransactionId');
+    expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
   });
 
   it('guardianPipeline: a landed failure replies with its private output note count (#1233)', async () => {
     await loadModule();
     const { ApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
     G.__off.guardianExecuteRequest = jest.fn(async () => {
-      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), '0xlanded', 2);
+      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), {
+        transactionId: '0xlanded',
+        privateOutputNotes: 2
+      });
     });
     const sendResponse = jest.fn();
 
     callGuardianPipeline(sendResponse);
     await waitForReply(sendResponse);
 
-    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply).toMatchObject({
       ok: false,
       errorCode: 'ApplyTransactionAfterSubmitFailed',
-      errorTransactionId: '0xlanded',
-      errorPrivateOutputNotes: 2
+      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
     });
+    expect(reply).not.toHaveProperty('errorTransactionId');
+    expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
   });
 
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {

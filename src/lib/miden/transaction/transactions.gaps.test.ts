@@ -471,10 +471,9 @@ describe('apply-after-submit on a public send', () => {
 
     await runLoopWithFailingSend(
       () =>
-        new ApplyAfterSubmitError(
-          new Error('IndexedDB transaction aborted while applying the transaction update'),
-          'landed-send-hash'
-        )
+        new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted while applying the transaction update'), {
+          transactionId: 'landed-send-hash'
+        })
     );
 
     // Completed, never Failed: a Failed send offers a Retry that would pay a second time.
@@ -519,11 +518,10 @@ describe('apply-after-submit on an execute', () => {
 
       await runLoopWithFailingSend(
         () =>
-          new ApplyAfterSubmitError(
-            new Error('IndexedDB transaction aborted'),
-            'landed-execute-hash',
+          new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+            transactionId: 'landed-execute-hash',
             privateOutputNotes
-          )
+          })
       );
 
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);

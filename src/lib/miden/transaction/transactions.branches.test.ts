@@ -1001,7 +1001,7 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
       callCount++;
       if (callCount >= 2) {
-        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { transactionId: '0xbridge' });
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { landed: { transactionId: '0xbridge' } });
       }
       return fn();
     });
@@ -1032,7 +1032,7 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
       callCount++;
       if (callCount >= 2) {
-        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { transactionId: '0xbridge' });
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { landed: { transactionId: '0xbridge' } });
       }
       return fn();
     });

@@ -1,7 +1,6 @@
 import {
   ApplyAfterSubmitError,
-  extractLandedPrivateOutputNotes,
-  extractLandedTransactionId,
+  extractLanded,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -168,62 +167,67 @@ describe('ApplyAfterSubmitError', () => {
     expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
   });
 
-  it('carries the landed transaction id, which extractLandedTransactionId reads (#1233)', () => {
-    const error = new ApplyAfterSubmitError(new Error('store quota'), '0xlanded');
-    expect(error.transactionId).toBe('0xlanded');
-    expect(extractLandedTransactionId(error)).toBe('0xlanded');
-    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded field.
-    expect(extractLandedTransactionId(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded' }))).toBe(
-      '0xlanded'
-    );
+  it('carries the landed facts as one object, which extractLanded reads', () => {
+    const landed = { transactionId: '0xlanded', privateOutputNotes: 2 };
+    const error = new ApplyAfterSubmitError(new Error('store quota'), landed);
+    expect(error.landed).toEqual(landed);
+    expect(extractLanded(error)).toEqual(landed);
+    expect(new ApplyAfterSubmitError(new Error('store quota')).landed).toEqual({});
+    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded object.
+    const rebuilt = Object.assign(new Error('rebuilt'), {
+      landed: { transactionId: '0xlanded', privateOutputNotes: 0 }
+    });
+    expect(extractLanded(rebuilt)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 0 });
   });
 
-  it('reads no id off an error that carries none, or a non-string one (#1233)', () => {
-    expect(new ApplyAfterSubmitError(new Error('store quota')).transactionId).toBeUndefined();
-    expect(extractLandedTransactionId(new Error('plain'))).toBeUndefined();
-    expect(extractLandedTransactionId({ transactionId: 42 })).toBeUndefined();
-    expect(extractLandedTransactionId('0xlanded')).toBeUndefined();
-    expect(extractLandedTransactionId(null)).toBeUndefined();
+  it('extractLanded keeps only a string id and a non-negative integer count', () => {
+    expect(extractLanded({ landed: { transactionId: 5, privateOutputNotes: 1.5 } })).toEqual({});
+    const counts = [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null];
+    expect(
+      counts.map(count => extractLanded({ landed: { transactionId: '0xlanded', privateOutputNotes: count } }))
+    ).toEqual(counts.map(() => ({ transactionId: '0xlanded' })));
+    // The facts cross as one object: fields beside it are not read.
+    expect(
+      extractLanded(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded', privateOutputNotes: 2 }))
+    ).toEqual({});
   });
 
-  it('carries the private output note count, which extractLandedPrivateOutputNotes reads (#1233)', () => {
-    const error = new ApplyAfterSubmitError(new Error('store quota'), '0xlanded', 2);
-    expect(error.privateOutputNotes).toBe(2);
-    expect(extractLandedPrivateOutputNotes(error)).toBe(2);
-    expect(extractLandedPrivateOutputNotes(Object.assign(new Error('rebuilt'), { privateOutputNotes: 0 }))).toBe(0);
-  });
-
-  it.each([undefined, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null])(
-    'reads no count off a privateOutputNotes of %p (#1233)',
-    value => {
-      expect(extractLandedPrivateOutputNotes(Object.assign(new Error('rebuilt'), { privateOutputNotes: value }))).toBe(
-        undefined
-      );
+  it('extractLanded reads nothing off a non-object or a throwing landed accessor', () => {
+    for (const value of [
+      null,
+      undefined,
+      2,
+      '0xlanded',
+      new Error('plain'),
+      { landed: '0xlanded' },
+      { landed: null }
+    ]) {
+      expect(extractLanded(value)).toEqual({});
     }
-  );
-
-  it('reads no count off an error that carries none, or off a non-object (#1233)', () => {
-    expect(new ApplyAfterSubmitError(new Error('store quota'), '0xlanded').privateOutputNotes).toBeUndefined();
-    expect(extractLandedPrivateOutputNotes(new Error('plain'))).toBeUndefined();
-    expect(extractLandedPrivateOutputNotes(2)).toBeUndefined();
-    expect(extractLandedPrivateOutputNotes(null)).toBeUndefined();
-  });
-
-  it('a throwing accessor reads as no id and no count (#1233)', () => {
-    const hostile = Object.defineProperties(new Error('hostile'), {
-      transactionId: {
-        get() {
-          throw new Error('accessor');
-        }
-      },
-      privateOutputNotes: {
-        get() {
-          throw new Error('accessor');
-        }
+    const hostile = Object.defineProperty(new Error('hostile'), 'landed', {
+      get() {
+        throw new Error('accessor');
       }
     });
-    expect(extractLandedTransactionId(hostile)).toBeUndefined();
-    expect(extractLandedPrivateOutputNotes(hostile)).toBeUndefined();
+    const hostileFields = {
+      landed: Object.defineProperties(
+        {},
+        {
+          transactionId: {
+            get() {
+              throw new Error('accessor');
+            }
+          },
+          privateOutputNotes: {
+            get() {
+              throw new Error('accessor');
+            }
+          }
+        }
+      )
+    };
+    expect(extractLanded(hostile)).toEqual({});
+    expect(extractLanded(hostileFields)).toEqual({});
   });
 });
 

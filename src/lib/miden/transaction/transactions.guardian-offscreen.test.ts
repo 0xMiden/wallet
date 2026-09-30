@@ -2417,11 +2417,11 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
     async ({ label, row, complete, expected }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const id = `be-apply-${label}`;
-      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
         'local apply failed after submit'
       );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-      applyErr.transactionId = '0xlanded';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service } = arrange(id, row);
 
@@ -2636,11 +2636,11 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed marks the row Completed, not Failed',
     async ({ row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
         'local apply failed after submit'
       );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-      applyErr.transactionId = '0xlanded';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service } = arrange(`apply-${row.type}`, row);
 
@@ -2686,11 +2686,10 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    // As the proxy rebuilds the reply: the code, the id and the count on a plain Error.
+    // As the proxy rebuilds the reply: the code and the landed facts on a plain Error.
     const applyErr = Object.assign(new Error('local apply failed after submit'), {
       errorCode: 'ApplyTransactionAfterSubmitFailed',
-      transactionId: '0xlanded',
-      privateOutputNotes: 2
+      landed: { transactionId: '0xlanded', privateOutputNotes: 2 }
     });
     mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
     const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]) };
@@ -3038,11 +3037,11 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     '$type: a round-tripped ApplyTransactionAfterSubmitFailed reaches the RECONCILE handler (row not Failed)',
     async ({ type, row, complete, landedArg }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+      const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
         'local apply failed after submit'
       );
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-      applyErr.transactionId = '0xlanded';
+      applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
       const { service, provider: sp } = arrangeStructural(`s-apply-${type}`, row);
 
@@ -3064,11 +3063,11 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
 
   it('update-procedure-threshold landed: a round-tripped ApplyTransactionAfterSubmitFailed completes the row with its finalization', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const applyErr: Error & { errorCode?: string; transactionId?: string } = new Error(
+    const applyErr: Error & { errorCode?: string; landed?: { transactionId: string } } = new Error(
       'local apply failed after submit'
     );
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
-    applyErr.transactionId = '0xlanded';
+    applyErr.landed = { transactionId: '0xlanded' };
     mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
     const { service, provider: sp } = arrangeStructural('s-apply-upt', row);

@@ -79,7 +79,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
       report(options, error);
     }
   }
-  throw new ApplyAfterSubmitError(lastError, transactionId, privateOutputNotes);
+  throw new ApplyAfterSubmitError(lastError, { transactionId, privateOutputNotes });
 }
 
 function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {

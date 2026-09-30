@@ -130,8 +130,7 @@ import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '.
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
-  extractLandedPrivateOutputNotes,
-  extractLandedTransactionId,
+  extractLanded,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
   isStaleInitialCommitmentError,
@@ -879,15 +878,9 @@ async function requeueWithWake(
   );
 }
 
-/** What a landed arm knows about the write from its error (#1233): at most the executed transaction's id and count. */
-const landedOf = (error: unknown): LandedWithoutResult => ({
-  transactionId: extractLandedTransactionId(error),
-  privateOutputNotes: extractLandedPrivateOutputNotes(error)
-});
-
 /** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
-  const landed = landedOf(error);
+  const landed = extractLanded(error);
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
 };
 
@@ -898,7 +891,7 @@ const landedRowFields = (tx: ITransaction, error: unknown) => {
  * apply can fail this one too, and the cancel is what releases the awaiting caller.
  */
 const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId } = landedOf(error);
+  const { transactionId } = extractLanded(error);
   if (transactionId === undefined) return;
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
@@ -1244,7 +1237,7 @@ const generateTransactionWithProvider = async (
       // refusal here was raised before submit and must take the non-landed arms below.
       if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) && isApplyAfterSubmitError(error)) {
         try {
-          await reconcileStructuralApplyFailure(transaction, guardianProvider, landedOf(error));
+          await reconcileStructuralApplyFailure(transaction, guardianProvider, extractLanded(error));
         } catch (reconcileError) {
           console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
           // A switch the node discarded fails on that verdict, as the direct path's discard does (#1233).

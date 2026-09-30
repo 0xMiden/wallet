@@ -18,7 +18,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
-import { errorMessageParts } from '../sdk/sdk-error-code';
+import { errorMessageParts, type LandedTransaction } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
@@ -450,12 +450,9 @@ export const applyLandedDisplayMessage = (
 
 /**
  * What a landed reconcile knows about a write whose submit resolved and whose local apply failed
- * (#1233): no `TransactionResult`, at most the executed transaction's id and its private output note count.
+ * (#1233): no `TransactionResult`, only the facts the apply-after-submit error carried.
  */
-export interface LandedWithoutResult {
-  transactionId?: string;
-  privateOutputNotes?: number;
-}
+export type LandedWithoutResult = LandedTransaction;
 
 /** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
 export const landedTransactionIdFields = (landed: LandedWithoutResult | undefined): { transactionId?: string } =>
