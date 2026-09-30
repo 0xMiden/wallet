@@ -1301,6 +1301,68 @@ describe('release on lock', () => {
     await drainDetachedRun();
   });
 
+  it('keeps no reservation for a wallet replaced while a notes pass that failed a source ran', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
+      mockReadGeneration.mockResolvedValue('gen-2');
+      throw new Error('transport unavailable');
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(recoverGuardianHistory).not.toHaveBeenCalled();
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      mockProxy.drainPrivateNoteTransport.mockReset();
+    }
+  });
+
+  it('keeps no reservation for a wallet replaced while a run that threw ran', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockImplementationOnce(async () => {
+      mockReadGeneration.mockResolvedValue('gen-2');
+      throw new Error('storage unavailable');
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
+  it('releases a failed run whose lock lands while it re-reads the generation', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockRejectedValueOnce(new Error('storage unavailable'));
+    mockReadGeneration.mockResolvedValueOnce('gen-1').mockImplementationOnce(async () => {
+      releaseGuardianRecoveriesOnLock();
+      return 'gen-1';
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      mockReadGeneration.mockReset();
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
   it('retries a notes pass that fails a source and finishes after the lock', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     const sync = pending();

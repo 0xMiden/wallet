@@ -809,10 +809,11 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   const epoch = lockEpoch;
   // Set on each exit that keeps the reservation with the flag set for a failed or deferred source.
   let failed = false;
+  let generation: string | undefined;
   try {
     // Read once, first: the notes pass's resume point, every history write and the flag clear
     // all belong to the wallet this generation names.
-    const generation = await readGuardianHistoryGeneration();
+    generation = await readGuardianHistoryGeneration();
     const result = await recoverPendingNotes(account, generation);
     if (result.deferred) {
       // Giving way is not a failing source: release the reservation so the
@@ -885,8 +886,19 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
   } finally {
     if (failed) {
-      // A lock that landed during the run has already released the set, so this run releases itself.
-      if (lockEpoch !== epoch) startedRecoveries.delete(account.publicKey);
+      // A wallet replaced while the run failed owns the record from here, whichever exit failed, so no reservation
+      // is kept for it.
+      let replaced = false;
+      if (generation !== undefined) {
+        try {
+          replaced = (await readGuardianHistoryGeneration()) !== generation;
+        } catch {
+          // A re-read that fails counts as unchanged: the finally must not throw.
+        }
+      }
+      // A lock that landed during the run, or during that read, has already released the set, so this run releases
+      // itself. Nothing is awaited between these tests and the add.
+      if (lockEpoch !== epoch || replaced) startedRecoveries.delete(account.publicKey);
       else failedRecoveries.add(account.publicKey);
     }
   }
