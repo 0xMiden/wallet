@@ -31,15 +31,10 @@ export interface BottomNavProps {
    *  reaches the body's safe-area floor into the device's bottom inset, with an 8px
    *  floor of its own, so the bar's background runs under the home indicator. */
   docked?: boolean;
-  /** Docked only: end the tabs 8px above the device's bottom inset and the corner at it, instead of
-   *  letting both reach into it. Android's inset is the system navigation bar (three buttons, or the
-   *  gesture handle), which a tab must not sit on; iOS's is the home indicator, which the tabs may
-   *  overlap. */
+  /** Docked only: end the tabs 8px above the device's bottom inset instead of letting them reach
+   *  into it. Android's inset is the system navigation bar (three buttons, or the gesture handle),
+   *  which a tab must not sit on; iOS's is the home indicator, which the tabs may overlap. */
   clearInset?: boolean;
-  /** Drawn over the bar's lower-right corner, taking no layout space (the test-network ribbon). It
-   *  sits in a box clipped to the bar's own shape that lets taps through; whatever it renders
-   *  decides which of its parts take taps (`pointer-events-auto`). */
-  corner?: ReactNode;
   className?: string;
 }
 
@@ -48,8 +43,7 @@ export interface BottomNavProps {
 // (--app-safe-bottom, declared in mobile.html) minus 16px, with an 8px floor of its own. On an
 // iPhone 17 Pro that is 1 + 8 + 56 + 18 = 83px. With `clearInset` the padding is the whole inset
 // plus 8px instead, so on Android the tabs end 8px above the system navigation bar (1 + 8 + 56 + 8,
-// plus the inset). Anything drawn over it (the corner ribbon) adapts to this, never the other way
-// around.
+// plus the inset).
 const bar = cva('relative flex items-center bg-page', {
   variants: {
     docked: {
@@ -149,7 +143,6 @@ export const BottomNav: FC<BottomNavProps> = ({
   onChange,
   docked = false,
   clearInset = false,
-  corner,
   className
 }) => {
   const motionTokens = useTabBarMotion();
@@ -174,20 +167,6 @@ export const BottomNav: FC<BottomNavProps> = ({
           ))}
         </Highlight>
       </div>
-      {/* Over the tabs, in the bar's own shape (`rounded-[inherit]` clips it to the floating pill's
-          radius), and transparent to taps outside whatever the corner content opts in. With
-          `clearInset` it ends where the inset starts, so its content stays tappable. */}
-      {corner && (
-        <div
-          data-slot="bottom-nav-corner"
-          className={cn(
-            'pointer-events-none absolute overflow-hidden rounded-[inherit]',
-            docked && clearInset ? 'inset-x-0 top-0 bottom-[env(safe-area-inset-bottom)]' : 'inset-0'
-          )}
-        >
-          {corner}
-        </div>
-      )}
     </nav>
   );
 };

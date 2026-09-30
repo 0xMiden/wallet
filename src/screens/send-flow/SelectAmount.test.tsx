@@ -166,7 +166,7 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
-      expect(logo).toHaveAttribute('data-size', 'md');
+      expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
       expect(screen.getByText('USDC')).toBeInTheDocument();

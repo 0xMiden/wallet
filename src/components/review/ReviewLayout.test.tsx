@@ -66,10 +66,10 @@ describe('ReviewLayout', () => {
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledTimes(1);
   });
 
-  // This layout hides the tab bar, and the network ribbon lives in the tab bar's footer, so these
-  // screens showed no network at all. The banner is the replacement, and it is rendered here
-  // rather than by each caller because this layout IS what the two of them share.
-  it('names the network, since hiding the navbar also hides the ribbon', () => {
+  // The network pill lives on Home, so these screens would show no network at all. The banner names
+  // it, and it is rendered here rather than by each caller because this layout IS what the two of
+  // them share.
+  it('names the network, since the pill never reaches a review screen', () => {
     render(<ReviewLayout {...makeProps()} />);
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });

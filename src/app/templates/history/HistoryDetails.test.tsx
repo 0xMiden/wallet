@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   preparedExecution,
@@ -49,7 +50,7 @@ interface MetadataStore {
   assetsMetadata: Record<string, AssetMetadata>;
 }
 
-const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} }));
+const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} }));
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
 let mockMaxNetworkFee: string | undefined;
@@ -424,7 +425,7 @@ beforeEach(() => {
   trackingStore().clearSwapOrderSchedulesForTests();
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
-  mockWalletStore.setState({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} });
+  mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} });
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
   mockMaxNetworkFee = undefined;
@@ -487,12 +488,12 @@ describe('HistoryDetails', () => {
 
     it('updates a send amount and symbol when unresolved metadata arrives without a row change', async () => {
       mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
-      mockWalletStore.setState({ tokenPrices: { RES: { price: 2 } } });
-      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } } });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 250_000_000n });
       await renderAndLoad();
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
 
-      await publishMetadata({ 'faucet-1': resolved });
+      await publishMetadata({ [MIDEN_USDC_FAUCET]: resolved });
 
       expect(screen.getByText('2.5 RES')).toBeInTheDocument();
       expect(screen.getByText('historyDetailsFiatApprox_$5.00')).toBeInTheDocument();
@@ -984,7 +985,7 @@ describe('HistoryDetails', () => {
 
   describe('sent transaction rendering', () => {
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
-      setMockRow({ ...baseSendTx });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();
 
       // Amount + token now share the summary badge's left side.
@@ -1062,7 +1063,7 @@ describe('HistoryDetails', () => {
     // that invented quantity into an invented dollar value.
     it('withholds the fiat estimate when the faucet has no known scale', async () => {
       mockGetTokenMetadata.mockResolvedValue({ symbol: 'MID', decimals: 6, scaleIsUnknown: true });
-      setMockRow({ ...baseSendTx });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();
 
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
@@ -1463,9 +1464,10 @@ describe('HistoryDetails', () => {
     it('suppresses the fiat estimate when the claim spans several faucets', async () => {
       setMockRow(
         consumeTx({
+          faucetId: MIDEN_USDC_FAUCET,
           amount: 20n,
           assetTotals: [
-            { faucetId: 'faucet-1', amount: 20n },
+            { faucetId: MIDEN_USDC_FAUCET, amount: 20n },
             { faucetId: 'faucet-2', amount: 10n }
           ]
         })
@@ -1476,7 +1478,13 @@ describe('HistoryDetails', () => {
     });
 
     it('keeps the fiat estimate when the claim is a single faucet', async () => {
-      setMockRow(consumeTx({ amount: 20n, assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
+      setMockRow(
+        consumeTx({
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: 20n,
+          assetTotals: [{ faucetId: MIDEN_USDC_FAUCET, amount: 20n }]
+        })
+      );
       await renderAndLoad();
 
       expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();

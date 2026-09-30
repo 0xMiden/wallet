@@ -150,12 +150,15 @@ describe('EarnWithdrawReview', () => {
     render(<EarnWithdrawReview positionId="position-1" />);
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
-    expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
+    // The protocol is the title; the asset and its network are the muted line under it.
+    expect(screen.getByRole('heading')).toHaveTextContent(/^Aave$/);
     // The asset and its network ride the header as the shared mark, the same one the vault and
-    // deposit pages carry, rather than a page-local pill.
+    // deposit pages carry, rather than a page-local pill. The subtitle names the pair, so the mark
+    // is hidden and the banner says it once.
     const banner = screen.getByRole('banner');
-    expect(within(banner).getByText('earnAssetOnNetwork')).toHaveClass('sr-only');
+    expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
     expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
+    expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
     // The hero's figure carries the withdrawn token as its unit.
     const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
     expect(within(hero).getByText('42.25')).toBeInTheDocument();
@@ -384,7 +387,7 @@ describe('EarnWithdrawReview with no position to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^withdraw$/);
-    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

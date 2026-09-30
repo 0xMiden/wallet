@@ -513,8 +513,8 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout), not in a banner
-  // above every page; the page takes the full height.
+  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
+  // a banner above every page; the page takes the full height.
   return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };
 

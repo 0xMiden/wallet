@@ -56,8 +56,10 @@ export const ListGroup: React.FC<ListGroupProps> = ({
     className={cn(
       'flex flex-col overflow-hidden',
       surface === 'fill' && 'rounded-2xl bg-fill',
-      // A hairline edge on `page` instead of the fill.
-      surface === 'outline' && ['rounded-2xl', outlineSurfaceClassName],
+      // A hairline edge on `page` instead of the fill. The rows' hairlines run border to border, as
+      // an outlined `DetailCard`'s do: inset past the leading visual they met the right edge only,
+      // and read as a line that had slipped off the card.
+      surface === 'outline' && ['rounded-2xl [&>*]:before:left-0', outlineSurfaceClassName],
       // No surface to inset from: the rows' content sits on the page margin and their hairlines
       // run the full width, so a plain group lines up with the page's other content.
       surface === 'plain' &&

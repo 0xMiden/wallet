@@ -43,6 +43,7 @@ import {
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  markStartedInThisRealm,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -1156,6 +1157,7 @@ const generateTransactionWithProvider = async (
   await syncUnderBoundedLock();
 
   // Mark transaction as in progress
+  markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending'
