@@ -2663,6 +2663,22 @@
     "message": "Değişiklik gönderildi, ancak bu cihaz zincirde gerçekleştiğini doğrulayamadı. Cüzdan bunu sizin için doğrulayamaz — Guardian ayarlarınız da bu işlemin Etkinlik kaydı da her durumda yeni Guardian'ı gösterecek. Daha sonraki bir işlem ortak imzalanamadığı için reddedilirse değişikliği yeniden çalıştırın.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Henüz bu cihaza kaydedilmemiştir.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Anahtar ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleşmeyebilir. Anahtarı tekrar çalıştırmanıza gerek yoktur.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Bu cihaza kaydedilmemiştir.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Anahtar ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına geri yükleyemiyor. Anahtarı tekrar çalıştırmayın. Destek ekibiyle iletişime geçin.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Bu cihaz yeni Guardian'ın adresini de kaydedemedi, bu yüzden hâlâ öncekini gösteriyor. Cüzdan adresi yeniden girmenizi isteyecek — bu istem yeni bir değişiklik başlatmaz.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."

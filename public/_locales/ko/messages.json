@@ -2663,6 +2663,22 @@
     "message": "변경이 제출되었지만 이 기기에서는 온체인에서 처리되었는지 확인할 수 없었습니다. 지갑에서는 확인해 드릴 수 없습니다. Guardian 설정과 이 거래의 활동 항목은 어느 쪽이든 새 Guardian을 표시합니다. 이후 거래가 공동 서명되지 않아 거부되면 변경을 다시 실행하세요.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "아직 이 기기에 저장되지 않았습니다.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "스위치가 네트워크에 연결되었지만, 이 기기는 아직 귀하의 계정 새 상태를 저장하지 못했습니다. 지갑은 백그라운드에서 계속 시도하고 있으며, 성공할 때까지 이 기기에서 보내는 거래가 처리되지 않을 수 있습니다. 스위치를 다시 실행할 필요는 없습니다.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "이 기기에 저장되어 있지 않습니다.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "스위치가 네트워크에 연결되었지만, 이 장치는 귀하의 계정 새 상태를 저장하지 못했으며 자체적으로 복구할 수 없습니다. 스위치를 다시 실행하지 마십시오. 지원팀에 문의하십시오.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "이 기기는 새 Guardian의 주소도 저장하지 못해 이전 주소가 계속 표시됩니다. 지갑이 다시 입력하도록 요청하지만, 그 요청으로 또 다른 변경이 시작되지는 않습니다.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."

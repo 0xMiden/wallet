@@ -2663,6 +2663,22 @@
     "message": "切换已提交，但本设备无法确认它已在链上生效。钱包无法为你确认——无论结果如何，Guardian 设置和该交易的活动记录都会显示新的 Guardian。如果后续交易因无法联合签名而被拒绝，请重新执行切换。",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "尚未保存在此设备上。",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "该切换操作已发送至网络，但该设备尚无法保存您账户的新状态。钱包会在后台持续尝试，在成功之前，来自该设备的交易可能无法完成。您无需再次执行该切换操作。",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "未保存在此设备上。",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "该交换机已连接到网络，但该设备无法保存您账户的新状态，也无法自行恢复该状态。请勿再次运行该交换机。请联系技术支持。",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "本设备也未能保存新 Guardian 的地址，因此仍显示上一个地址。钱包会请你重新输入——该提示不会启动另一次切换。",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."

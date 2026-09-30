@@ -2663,6 +2663,22 @@
     "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла в сети. Кошелёк не может подтвердить это за вас — и настройки Guardian, и запись этой транзакции в Активности в любом случае покажут нового Guardian. Если следующая транзакция будет отклонена из-за отсутствия соподписи, выполните смену ещё раз.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Ещё не сохранено на этом устройстве.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Коммутатор подключился к сети, но это устройство пока не смогло сохранить новое состояние вашей учётной записи. Кошелек продолжает попытки в фоновом режиме, и до тех пор, пока ему это не удастся, транзакции с этого устройства могут не проходить. Вам не нужно запускать коммутатор заново.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Не сохранено на этом устройстве.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Коммутатор подключился к сети, но это устройство не смогло сохранить новое состояние вашей учетной записи и не может восстановить его самостоятельно. Не запускайте коммутатор повторно. Обратитесь в службу поддержки.",
+    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Это устройство также не смогло сохранить адрес нового Guardian, поэтому по-прежнему показывает предыдущий. Кошелёк попросит ввести его заново — этот запрос не начинает новую смену.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
