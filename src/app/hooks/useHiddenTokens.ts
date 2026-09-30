@@ -16,15 +16,15 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
  */
 
 export interface HiddenTokens {
-  /** Canonical ids of the hidden tokens, never the native token's. */
-  ids: ReadonlySet<string>;
   /** The stored set has been read, so it can be written. */
   loaded: boolean;
-  /** The stored set could not be read (it is then read-only), or the last save failed. */
-  failed: boolean;
+  /** The stored set could not be read, so it stays read-only until a later mount reads it. */
+  unreadable: boolean;
   /** The same function until the set changes, so a consumer can memoize on it. */
   isHidden: (tokenId: string) => boolean;
-  /** Resolves `true` once stored; `false` for the native token, before it is known, or when the save failed. */
+  /** The native token pays every fee, so neither it nor any token before it is known can be hidden. */
+  canHide: (tokenId: string) => boolean;
+  /** Resolves `true` once stored; `false` with no save when `canHide` refuses the token, or when the save failed. */
   hide: (tokenId: string) => Promise<boolean>;
   /** Resolves `true` once stored, `false` when the save was refused or failed. */
   unhide: (tokenId: string) => Promise<boolean>;
@@ -53,16 +53,16 @@ export function useHiddenTokens(address: string): HiddenTokens {
   }, [entry.ids, nativeId]);
 
   const isHidden = useCallback((tokenId: string) => ids.has(normalizedFaucetId(tokenId)), [ids]);
+  const canHide = (tokenId: string) => nativeId !== null && normalizedFaucetId(tokenId) !== nativeId;
 
   return {
-    ids,
     loaded: entry.status === 'ready',
-    failed: entry.status === 'unreadable' || entry.saveFailed,
+    unreadable: entry.status === 'unreadable',
     isHidden,
+    canHide,
     hide: (tokenId: string) => {
+      if (!canHide(tokenId)) return Promise.resolve(false);
       const id = normalizedFaucetId(tokenId);
-      // Until the native id is known any token might be it, so nothing new is hidden yet.
-      if (nativeId === null || id === nativeId) return Promise.resolve(false);
       return store.save(key, stored =>
         [...stored].some(storedId => normalizedFaucetId(storedId) === id) ? stored : new Set([...stored, id])
       );

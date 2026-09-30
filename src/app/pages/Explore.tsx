@@ -479,8 +479,7 @@ interface HiddenAssetsProps {
 const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  // The last Unhide's own result (#813): the hook's `failed` also covers a hide that failed
-  // elsewhere, which this section has no business re-announcing on every reopen.
+  // The last Unhide's own result (#813): the hook reports none, only what each call resolves with.
   const [unhideFailed, setUnhideFailed] = useState(false);
   // Unhides started here and not yet resolved: their optimistic empty state is not the section emptying.
   const [pendingUnhides, setPendingUnhides] = useState(0);

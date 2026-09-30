@@ -739,32 +739,6 @@ describe('Explore', () => {
       }
     });
 
-    it('shows no error line for a hide that failed outside Home, only for its own last Unhide', async () => {
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        mockStoredHiddenTokens = ['t-spam'];
-        await renderExplore();
-        await openSection();
-        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
-
-        // The hook's `failed` covers the whole storage key, so a hide that fails through a
-        // different mount (the token page, sharing the same module-level store) must not make
-        // Home's own error line appear.
-        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
-        const outside = renderHook(() => useHiddenTokens('mtst1account'));
-        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
-        await act(async () => {
-          await outside.result.current.hide('t-btc');
-        });
-        expect(outside.result.current.failed).toBe(true);
-        outside.unmount();
-
-        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
-      } finally {
-        warn.mockRestore();
-      }
-    });
-
     it('never filters the native token, even when the stored set holds its id', async () => {
       mockStoredHiddenTokens = ['faucet-native', 't-spam'];
       await renderExplore();

@@ -7,7 +7,6 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
@@ -29,7 +28,7 @@ import { Skeleton } from 'components/ui/Skeleton';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -324,14 +323,11 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
   const explorerUrl = getExplorerAccountUrl(tokenId);
-  const nativeFaucetId = useMidenFaucetId();
   const hiddenTokens = useHiddenTokens(address);
-  // The native token pays every fee, so it is never offered, nor before the wallet knows which one it is.
-  const canHide = nativeFaucetId !== null && normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId);
+  const canHide = hiddenTokens.canHide(tokenId);
   const hidden = hiddenTokens.isHidden(tokenId);
-  // This page's own last hide/unhide result (as Home's HiddenAssets tracks its own unhideFailed):
-  // the hook's `failed` also covers a save that failed from another mount (another token page,
-  // Home's Unhide), which this row has no business re-announcing.
+  // This page's own last hide/unhide result, as Home's HiddenAssets keeps its unhideFailed: the hook
+  // reports none, only what each call resolves with.
   const [saveFailed, setSaveFailed] = useState(false);
 
   const handleViewExplorer = () => {
@@ -417,7 +413,7 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
           {t('hiddenTokensError')}
         </ErrorLine>
       )}
-      {canHide && !hiddenTokens.loaded && hiddenTokens.failed && (
+      {canHide && hiddenTokens.unreadable && (
         <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
           {t('hiddenTokensUnreadable')}
         </ErrorLine>

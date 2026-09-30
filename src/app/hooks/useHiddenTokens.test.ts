@@ -73,7 +73,8 @@ it('reads the set under the network and account key, then hides and unhides a to
   });
   expect(stored).toBe(true);
   expect(write).toHaveBeenLastCalledWith(KEY, [SPAM]);
-  expect([...result.current.ids]).toEqual([SPAM]);
+  expect(result.current.isHidden(SPAM)).toBe(true);
+  expect(result.current.isHidden('mtst1old')).toBe(false);
 });
 
 it('stores a newly hidden token under its canonical id', async () => {
@@ -92,7 +93,6 @@ it('treats the hex and bech32 ids of one faucet as one token', async () => {
   const { result } = await renderLoaded();
   expect(result.current.isHidden(SPAM)).toBe(true);
   expect(result.current.isHidden(SPAM_HEX)).toBe(true);
-  expect([...result.current.ids]).toEqual([SPAM]);
 
   // Hiding it again under its other encoding adds no second entry.
   await act(async () => {
@@ -129,7 +129,19 @@ it('never reports the native token hidden, even when the stored set holds its id
   const { result } = await renderLoaded();
 
   expect(result.current.isHidden(NATIVE)).toBe(false);
-  expect([...result.current.ids]).toEqual([SPAM]);
+  expect(result.current.isHidden(SPAM)).toBe(true);
+});
+
+it('answers canHide for any token but the native one, in either encoding, and for none before it is known', async () => {
+  mockNativeId = NATIVE_HEX;
+  const { result, rerender } = await renderLoaded();
+  expect(result.current.canHide(NATIVE)).toBe(false);
+  expect(result.current.canHide(NATIVE_HEX)).toBe(false);
+  expect(result.current.canHide(SPAM)).toBe(true);
+
+  mockNativeId = null;
+  rerender();
+  expect(result.current.canHide(SPAM)).toBe(false);
 });
 
 it('keeps stored tokens hidden but refuses new hides while the native token is not known', async () => {
@@ -156,16 +168,17 @@ it('rolls a failed save back and reports it, and the set stays writable for a re
     stored = await result.current.hide(SPAM);
   });
   expect(stored).toBe(false);
-  expect([...result.current.ids]).toEqual(['mtst1old']);
-  expect(result.current.failed).toBe(true);
+  expect(result.current.isHidden(SPAM)).toBe(false);
+  expect(result.current.isHidden('mtst1old')).toBe(true);
   // A rolled-back save leaves the set writable: the page's toggle has to stay usable for a retry.
   expect(result.current.loaded).toBe(true);
+  expect(result.current.unreadable).toBe(false);
 
   await act(async () => {
     stored = await result.current.hide(SPAM);
   });
   expect(stored).toBe(true);
-  expect(result.current.failed).toBe(false);
+  expect(result.current.isHidden(SPAM)).toBe(true);
   log.mockRestore();
 });
 
@@ -176,7 +189,7 @@ it('reports an unreadable set, never writes it, and reads it again on the next m
     ++reads === 1 ? Promise.reject(new Error('Read unavailable')) : Promise.resolve([SPAM])
   );
   const first = renderHook(() => useHiddenTokens('account'));
-  await waitFor(() => expect(first.result.current.failed).toBe(true));
+  await waitFor(() => expect(first.result.current.unreadable).toBe(true));
   expect(first.result.current.loaded).toBe(false);
   expect(first.result.current.isHidden(SPAM)).toBe(false);
   await act(async () => {
@@ -189,7 +202,7 @@ it('reports an unreadable set, never writes it, and reads it again on the next m
   const { result } = renderHook(() => useHiddenTokens('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
   expect(result.current.isHidden(SPAM)).toBe(true);
-  expect(result.current.failed).toBe(false);
+  expect(result.current.unreadable).toBe(false);
   log.mockRestore();
 });
 
@@ -211,7 +224,7 @@ it('reads and writes each network and each account under its own key', async () 
 
   const other = await renderLoaded('other');
   expect(read).toHaveBeenCalledWith('hidden-tokens:v1:devnet:other');
-  expect(other.result.current.ids.size).toBe(0);
+  expect(other.result.current.isHidden(SPAM)).toBe(false);
 });
 
 it("reads the new network's set on a rerender, the real path for a network switch with no reload", async () => {
@@ -225,6 +238,12 @@ it("reads the new network's set on a rerender, the real path for a network switc
   await waitFor(() => expect(read).toHaveBeenCalledWith('hidden-tokens:v1:devnet:account'));
   await waitFor(() => expect(result.current.isHidden(SPAM)).toBe(true));
   expect(result.current.isHidden('mtst1old')).toBe(false);
+});
+
+it('returns only what its callers use', async () => {
+  const { result } = await renderLoaded();
+
+  expect(Object.keys(result.current).sort()).toEqual(['canHide', 'hide', 'isHidden', 'loaded', 'unhide', 'unreadable']);
 });
 
 it('keeps isHidden the same function until the set changes', async () => {
