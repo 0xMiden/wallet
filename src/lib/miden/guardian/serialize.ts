@@ -140,36 +140,15 @@ export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
 export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
 
 /**
- * Ceiling on the NEW guardian's unauthenticated `GET /pubkey`, the check its three
- * callers make BEFORE anything is signed or committed: the coordinated switch
- * proposal (./index), the direct switch (./direct-switch) and account creation
- * (./account).
+ * Ceiling on the NEW guardian's unauthenticated `GET /pubkey`, the check both switch
+ * paths (the coordinated proposal in ./index and the direct switch in ./direct-switch)
+ * make BEFORE anything is signed or committed.
  *
- * The switch paths make one attempt, so a failure there fails the rotation before
- * any state changed, which is the safe direction. Account creation bounds each
- * attempt inside its 429 retry (`withGuardianRateLimitRetry`), so that stage's worst
- * case is GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS (./account) plus one ceiling.
- *
- * Generous: it exists to stop a silent endpoint from parking a non-requeueable switch
- * row or a creation holding the WASM client lock, not to hit a latency target.
+ * Generous: it exists to stop a silent endpoint from parking a non-requeueable row,
+ * not to hit a latency target. There is no retry loop behind it, so a failure here
+ * fails the rotation before any state changed, which is the safe direction.
  */
 export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
-
-/**
- * Ceiling on each `registerOnGuardian` attempt account creation (./account) makes,
- * the create path's counterpart to NEW_GUARDIAN_PUBKEY_TIMEOUT_MS. The guardian
- * client's `/configure` is a bare `fetch` with no `AbortSignal`, so an endpoint that
- * serves a Guardian key and then goes silent would otherwise park the creation
- * inside the WASM client lock until the lock watchdog evicts it.
- *
- * It bounds each attempt inside the 429 retry (`withGuardianRateLimitRetry`), so
- * that stage's worst case is GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS (./account) plus
- * one ceiling. A timed-out attempt is not a 429, so it is not retried: creation
- * fails before the sync and the cold key insert. The abandoned `/configure` may
- * still land and leave the guardian an orphan record; a retried creation uses a
- * fresh hot key, so its account id never collides with it.
- */
-export const NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS = 30_000;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
 // earning another 429, bounded so a rate-limited re-register can't stall a
