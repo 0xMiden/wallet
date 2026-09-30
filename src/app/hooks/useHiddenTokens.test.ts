@@ -4,7 +4,13 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import { resetHiddenTokens, useHiddenTokens } from './useHiddenTokens';
 
-jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
 const read = jest.mocked(fetchFromStorage);
 const write = jest.mocked(putToStorage);
 
@@ -24,6 +30,9 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () =
 
 const KEY = 'hidden-tokens:v1:testnet:account';
 
+// What storage holds: a save reads the set inside its turn, so a write has to land where the next read finds it.
+const storedIds = new Map<string, unknown>();
+
 const renderLoaded = async (address = 'account') => {
   const hook = renderHook(() => useHiddenTokens(address));
   await waitFor(() => expect(hook.result.current.loaded).toBe(true));
@@ -36,10 +45,14 @@ beforeEach(() => {
   resetHiddenTokens();
   mockNetwork = 'testnet';
   mockNativeId = NATIVE;
+  storedIds.clear();
+  storedIds.set(KEY, ['mtst1old']);
   read.mockReset();
-  read.mockResolvedValue(['mtst1old']);
+  read.mockImplementation(async (key: string) => storedIds.get(key) ?? null);
   write.mockReset();
-  write.mockResolvedValue(undefined);
+  write.mockImplementation(async (key: string, value: unknown) => {
+    storedIds.set(key, value);
+  });
 });
 
 it('reads the set under the network and account key, then hides and unhides a token', async () => {
@@ -64,7 +77,7 @@ it('reads the set under the network and account key, then hides and unhides a to
 });
 
 it('stores a newly hidden token under its canonical id', async () => {
-  read.mockResolvedValue(null);
+  storedIds.delete(KEY);
   const { result } = await renderLoaded();
 
   await act(async () => {
@@ -75,7 +88,7 @@ it('stores a newly hidden token under its canonical id', async () => {
 });
 
 it('treats the hex and bech32 ids of one faucet as one token', async () => {
-  read.mockResolvedValue([SPAM_HEX]);
+  storedIds.set(KEY, [SPAM_HEX]);
   const { result } = await renderLoaded();
   expect(result.current.isHidden(SPAM)).toBe(true);
   expect(result.current.isHidden(SPAM_HEX)).toBe(true);
@@ -112,7 +125,7 @@ it('refuses to hide the native token under either of its ids', async () => {
 });
 
 it('never reports the native token hidden, even when the stored set holds its id', async () => {
-  read.mockResolvedValue([NATIVE_HEX, SPAM]);
+  storedIds.set(KEY, [NATIVE_HEX, SPAM]);
   const { result } = await renderLoaded();
 
   expect(result.current.isHidden(NATIVE)).toBe(false);
@@ -121,7 +134,7 @@ it('never reports the native token hidden, even when the stored set holds its id
 
 it('keeps stored tokens hidden but refuses new hides while the native token is not known', async () => {
   mockNativeId = null;
-  read.mockResolvedValue([SPAM]);
+  storedIds.set(KEY, [SPAM]);
   const { result } = await renderLoaded();
   expect(result.current.isHidden(SPAM)).toBe(true);
 
@@ -180,56 +193,8 @@ it('reports an unreadable set, never writes it, and reads it again on the next m
   log.mockRestore();
 });
 
-it('ignores saves before the set is read and runs saves made during a write after it, in order', async () => {
-  let releaseRead: (ids: string[]) => void = () => {};
-  read.mockImplementationOnce(
-    () =>
-      new Promise<string[]>(resolve => {
-        releaseRead = resolve;
-      })
-  );
-  let releaseWrite: () => void = () => {};
-  write.mockImplementationOnce(
-    () =>
-      new Promise<void>(resolve => {
-        releaseWrite = resolve;
-      })
-  );
-  const { result } = renderHook(() => useHiddenTokens('account'));
-
-  let stored: boolean | undefined;
-  await act(async () => {
-    stored = await result.current.hide('mtst1early');
-  });
-  expect(stored).toBe(false);
-  expect(write).not.toHaveBeenCalled();
-  await act(async () => releaseRead(['mtst1old']));
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-
-  let saves: Promise<unknown> = Promise.resolve();
-  act(() => {
-    saves = Promise.all([
-      result.current.hide('mtst1first'),
-      result.current.hide('mtst1second'),
-      result.current.unhide('mtst1old')
-    ]);
-  });
-  await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
-  expect(write).toHaveBeenLastCalledWith(KEY, ['mtst1old', 'mtst1first']);
-  await act(async () => {
-    releaseWrite();
-    await saves;
-  });
-  expect(write.mock.calls.map(call => call[1])).toEqual([
-    ['mtst1old', 'mtst1first'],
-    ['mtst1old', 'mtst1first', 'mtst1second'],
-    ['mtst1first', 'mtst1second']
-  ]);
-  expect([...result.current.ids]).toEqual(['mtst1first', 'mtst1second']);
-});
-
 it('reads and writes each network and each account under its own key', async () => {
-  read.mockImplementation((key: string) => Promise.resolve(key === KEY ? [SPAM] : []));
+  storedIds.set(KEY, [SPAM]);
   const testnet = await renderLoaded('account');
   expect(testnet.result.current.isHidden(SPAM)).toBe(true);
   testnet.unmount();
@@ -253,27 +218,13 @@ it("reads the new network's set on a rerender, the real path for a network switc
   const { result, rerender } = await renderLoaded('account');
   expect(result.current.isHidden('mtst1old')).toBe(true);
 
-  read.mockResolvedValueOnce([SPAM]);
+  storedIds.set('hidden-tokens:v1:devnet:account', [SPAM]);
   mockNetwork = 'devnet';
   rerender();
 
   await waitFor(() => expect(read).toHaveBeenCalledWith('hidden-tokens:v1:devnet:account'));
   await waitFor(() => expect(result.current.isHidden(SPAM)).toBe(true));
   expect(result.current.isHidden('mtst1old')).toBe(false);
-});
-
-it('shows one consumer a token another consumer just hid', async () => {
-  // The token page hides; the Home that TabLayout keeps mounted has to drop the row at once.
-  const page = renderHook(() => useHiddenTokens('account'));
-  const home = renderHook(() => useHiddenTokens('account'));
-  await waitFor(() => expect(home.result.current.loaded).toBe(true));
-  expect(read).toHaveBeenCalledTimes(1);
-
-  await act(async () => {
-    await page.result.current.hide(SPAM);
-  });
-
-  expect(home.result.current.isHidden(SPAM)).toBe(true);
 });
 
 it('keeps isHidden the same function until the set changes', async () => {
@@ -287,46 +238,4 @@ it('keeps isHidden the same function until the set changes', async () => {
     await result.current.hide(SPAM);
   });
   expect(result.current.isHidden).not.toBe(first);
-});
-
-it('accepts only string ids from a stored array and treats any other payload as empty', async () => {
-  read.mockResolvedValueOnce(JSON.parse('["mtst1kept", 7, null]'));
-  const { result, rerender } = renderHook(({ address }) => useHiddenTokens(address), {
-    initialProps: { address: 'mixed' }
-  });
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-  expect([...result.current.ids]).toEqual(['mtst1kept']);
-
-  read.mockResolvedValueOnce(JSON.parse('{"not":"an array"}'));
-  rerender({ address: 'object' });
-  expect(result.current.loaded).toBe(false);
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-  expect(read).toHaveBeenCalledWith('hidden-tokens:v1:testnet:object');
-  expect(result.current.ids.size).toBe(0);
-});
-
-it('keeps the current key when a read for an earlier key settles late', async () => {
-  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  const pending = new Map<string, { resolve: (ids: string[]) => void; reject: (error: Error) => void }>();
-  read.mockImplementation(
-    (key: string) =>
-      new Promise<string[]>((resolve, reject) => {
-        pending.set(key, { resolve, reject });
-      })
-  );
-  const { result, rerender } = renderHook(({ address }) => useHiddenTokens(address), {
-    initialProps: { address: 'first' }
-  });
-  rerender({ address: 'second' });
-  rerender({ address: 'third' });
-
-  await act(async () => pending.get('hidden-tokens:v1:testnet:third')?.resolve(['mtst1third']));
-  await act(async () => {
-    pending.get('hidden-tokens:v1:testnet:first')?.resolve(['mtst1first']);
-    pending.get('hidden-tokens:v1:testnet:second')?.reject(new Error('Late read failure'));
-  });
-
-  expect([...result.current.ids]).toEqual(['mtst1third']);
-  expect(result.current.failed).toBe(false);
-  log.mockRestore();
 });

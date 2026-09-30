@@ -468,4 +468,41 @@ describe('storage utilities', () => {
       }
     });
   });
+
+  describe('re-reads registered for a wipe', () => {
+    it('resolves only once every registered re-read has', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+        const held = deferred<void>();
+        registerStorageReread(() => held.promise);
+
+        let settled = false;
+        const reread = rereadFresh().then(() => {
+          settled = true;
+        });
+        await flushPromises();
+        expect(settled).toBe(false);
+
+        held.resolve();
+        await reread;
+        expect(settled).toBe(true);
+      });
+    });
+
+    it('resolves when a registered re-read rejects, and logs it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+          const failure = new Error('store unreadable');
+          registerStorageReread(() => Promise.reject(failure));
+
+          await expect(rereadFresh()).resolves.toBeUndefined();
+          expect(warn).toHaveBeenCalledWith(expect.any(String), failure);
+        });
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
 });

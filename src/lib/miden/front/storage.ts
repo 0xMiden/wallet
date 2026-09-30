@@ -58,7 +58,14 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   return [value, setValue];
 }
 
-export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void) {
+/**
+ * Ends an `onStorageChanged` subscription. On the extension `attached` settles once the listener is attached, or once
+ * attaching has failed (logged), so a read issued after it hears every change committed after that read; off the
+ * extension there is no listener and no `attached`.
+ */
+export type StorageChangeSubscription = (() => void) & { attached?: Promise<void> };
+
+export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void): StorageChangeSubscription {
   // On mobile/desktop, storage change events are not available
   // Return a no-op cleanup function
   if (!isExtension()) {
@@ -71,24 +78,27 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
   let unsubscribe: (() => void) | undefined;
   let cancelled = false;
 
-  import('webextension-polyfill').then(browserModule => {
-    if (cancelled) return;
-    const browser = browserModule.default;
-    const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
-      if (areaName === 'local' && key in changes) {
-        callback(changes[key]!.newValue as T);
-      }
-    };
+  const attached = import('webextension-polyfill')
+    .then(browserModule => {
+      if (cancelled) return;
+      const browser = browserModule.default;
+      const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
+        if (areaName === 'local' && key in changes) {
+          callback(changes[key]!.newValue as T);
+        }
+      };
 
-    browser.storage.onChanged.addListener(handleChanged);
-    unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
-  });
+      browser.storage.onChanged.addListener(handleChanged);
+      unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
+    })
+    .catch(error => console.warn(`[storage] not listening for changes to ${key}:`, error));
 
-  return () => {
+  const stop = () => {
     cancelled = true;
     unsubscribe?.();
     unsubscribe = undefined;
   };
+  return Object.assign(stop, { attached });
 }
 
 export async function fetchFromStorage<T = unknown>(key: string): Promise<T | null> {
@@ -197,13 +207,25 @@ export async function preloadStorage(
   }
 }
 
+// Module stores that keep storage values outside the hooks' cache, each re-read beside it after a wipe.
+const storageRereads = new Set<() => Promise<void>>();
+
+/** For a module store that keeps storage values outside the hooks' cache: `rereadStorageCache` runs `reread` too. */
+export function registerStorageReread(reread: () => Promise<void>): void {
+  storageRereads.add(reread);
+}
+
 /**
  * After a wipe of the key-value store: re-reads every key a storage hook or a preload has read, through the numbered
- * read path, so each reader mounted afterwards renders what storage holds now. Never rejects; a key whose read fails
- * keeps its cached value, and the failure is logged.
+ * read path, so each reader mounted afterwards renders what storage holds now, and awaits every registered re-read.
+ * Never rejects; a key whose read fails keeps its cached value, and each failure is logged.
  */
 export async function rereadStorageCache(): Promise<void> {
-  await preloadStorage([...cachedKeys]).catch(error => console.warn('[storage] re-read after a wipe failed:', error));
+  const logFailure = (error: unknown) => console.warn('[storage] re-read after a wipe failed:', error);
+  await Promise.all([
+    preloadStorage([...cachedKeys]).catch(logFailure),
+    ...[...storageRereads].map(reread => Promise.resolve().then(reread).catch(logFailure))
+  ]);
 }
 
 /**

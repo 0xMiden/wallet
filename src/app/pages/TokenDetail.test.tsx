@@ -239,7 +239,13 @@ let mockNativeFaucetId: string | null = 'mtst1native';
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 
 // The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
-jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
 const mockReadStorage = jest.mocked(fetchFromStorage);
 const mockWriteStorage = jest.mocked(putToStorage);
 

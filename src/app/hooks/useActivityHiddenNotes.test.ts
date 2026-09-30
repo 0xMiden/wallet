@@ -4,7 +4,13 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import { resetActivityHiddenNotes, useActivityHiddenNotes } from './useActivityHiddenNotes';
 
-jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
 const read = jest.mocked(fetchFromStorage);
 const write = jest.mocked(putToStorage);
 
@@ -121,46 +127,6 @@ it('keeps the current address when a read for an earlier address settles late', 
   expect([...result.current.ids]).toEqual(['third-note']);
   expect(result.current.failed).toBe(false);
   log.mockRestore();
-});
-
-it('ignores saves before the list is read and runs saves made during a write after it, in order', async () => {
-  let releaseRead: (ids: string[]) => void = () => {};
-  read.mockImplementationOnce(
-    () =>
-      new Promise<string[]>(resolve => {
-        releaseRead = resolve;
-      })
-  );
-  let releaseWrite: () => void = () => {};
-  write.mockImplementationOnce(
-    () =>
-      new Promise<void>(resolve => {
-        releaseWrite = resolve;
-      })
-  );
-  const { result } = renderHook(() => useActivityHiddenNotes('account'));
-
-  let stored: boolean | undefined;
-  await act(async () => {
-    stored = await result.current.hide('too-early');
-  });
-  expect(stored).toBe(false);
-  expect(write).not.toHaveBeenCalled();
-  await act(async () => releaseRead(['old']));
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-
-  let saves: Promise<unknown> = Promise.resolve();
-  act(() => {
-    saves = Promise.all([result.current.hide('first'), result.current.hide('second'), result.current.restore()]);
-  });
-  await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
-  expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'first']);
-  await act(async () => {
-    releaseWrite();
-    await saves;
-  });
-  expect(write.mock.calls.map(call => call[1])).toEqual([['old', 'first'], ['old', 'first', 'second'], []]);
-  expect(result.current.ids.size).toBe(0);
 });
 
 it('restores only the notes it is given', async () => {

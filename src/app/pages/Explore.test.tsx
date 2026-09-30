@@ -244,7 +244,13 @@ const mockHapticLight = jest.mocked(hapticLight);
 
 // The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
 let mockStoredHiddenTokens: string[] | null = null;
-jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
 const mockReadStorage = jest.mocked(fetchFromStorage);
 const mockWriteStorage = jest.mocked(putToStorage);
 
@@ -325,7 +331,11 @@ describe('Explore', () => {
       Promise.resolve(key.startsWith('hidden-tokens:') ? mockStoredHiddenTokens : null)
     );
     mockWriteStorage.mockReset();
-    mockWriteStorage.mockResolvedValue(undefined);
+    // A save reads the set inside its turn, so a write lands where the next read finds it.
+    mockWriteStorage.mockImplementation((key: string, value: unknown) => {
+      if (key.startsWith('hidden-tokens:')) mockStoredHiddenTokens = Array.isArray(value) ? value : null;
+      return Promise.resolve();
+    });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
