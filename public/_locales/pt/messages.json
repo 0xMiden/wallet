@@ -4695,6 +4695,10 @@
     "message": "Salvar e continuar",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Esses endpoints não puderam ser salvos. Tente novamente.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Redefinir para os padrões",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Redefinir para as configurações padrão e realizar a integração novamente",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "A redefinição não foi concluída. Tente novamente.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminais de rede",

@@ -7,10 +7,10 @@ import { DESKTOP_STORAGE_PREFIX, getStorageProvider } from 'lib/platform/storage
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { storageCleared } from 'lib/storage-cleared';
 
-// Configuration, not wallet data, so every reset keeps it. The dev-settings endpoint override
+// Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
-// account on one network while the client resolves another. Developer Settings' "Reset to
-// defaults" clears it explicitly.
+// account on one network while the client resolves another. Developer Settings' reset takes it
+// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards.
 export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
 // A wallet-setup reset also keeps the frozen legacy guardian URL until a setup succeeds: a
@@ -56,8 +56,8 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Empties the `transactions` table and every platform key-value entry except
- * `keep` (a setup keeps `SETUP_PRESERVED_STORAGE_KEYS`), but deliberately keeps the TridentMain Dexie
+ * Removes every platform key-value entry except `keep` (a setup keeps `SETUP_PRESERVED_STORAGE_KEYS`) and
+ * then empties the `transactions` and `spendingLimits` tables, but deliberately keeps the TridentMain Dexie
  * connection alive. Using `db.delete()` here would fire a `versionchange` event
  * to every other open handle (notably the page's, which was opened lazily by the
  * onboarding UI), force them closed, and leave no path to reopen them short of a
@@ -65,10 +65,16 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
  * subsequent page-side Dexie read and custom-faucet `fetchTokenMetadata` calls
  * racing against a partially-loaded SDK.
  *
+ * The key-value clear comes first, as in `resetStorageDestructive`, because the vault lives there: a clear
+ * that rejects, even part way, leaves the caps and the history as they were, so a vault it did not reach
+ * keeps them, and a table clear that rejects leaves no vault. `clearStorage(false)` clears only the
+ * key-value store.
+ *
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
 export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = SETUP_PRESERVED_STORAGE_KEYS) {
+  await clearPlatformKeyValueStorage(keep);
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -77,7 +83,6 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
     // promises that resetting app data removes both.
     await Repo.spendingLimits.clear();
   }
-  await clearPlatformKeyValueStorage(keep);
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
@@ -91,16 +96,46 @@ export async function dropLegacyGuardianUrl(): Promise<void> {
 }
 
 /**
- * Hard reset — explicitly what the options-page "Reset Wallet" button wants.
+ * Hard reset - explicitly what the options-page "Reset Wallet" button wants.
  * Deletes the Dexie database (forcing every live handle closed) AND every
  * platform key-value entry except `PRESERVED_STORAGE_KEYS`. Callers should only
  * use this when the user has explicitly opted into a full wipe; for wallet
  * creation flows use `clearStorage` above instead.
+ *
+ * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
+ * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
+ *
+ * The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+ * this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+ * no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+ * reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
+ * extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
+ * the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+ *
+ * It fails closed. The vault lives in the key-value store, so a step after the clear that rejects leaves no
+ * wallet to unlock, and a clear that rejects, even part way, leaves the database untouched, so a vault it did
+ * not reach keeps its caps. A delete or reopen that rejects would leave the old rows to whatever runs next (a
+ * restore from an encrypted file keeps the tables), so it reopens the database and clears the transactions and
+ * spending limits, each step best effort, then rethrows the original error. A caller's re-entry guard stays set
+ * through its report until the reload has been attempted.
  */
-export async function resetStorageDestructive() {
-  await Repo.db.delete();
-  await Repo.db.open();
-  await clearPlatformKeyValueStorage(PRESERVED_STORAGE_KEYS);
+export async function resetStorageDestructive({
+  keepEndpointOverride = true
+}: { keepEndpointOverride?: boolean } = {}) {
+  await clearPlatformKeyValueStorage(
+    keepEndpointOverride
+      ? PRESERVED_STORAGE_KEYS
+      : PRESERVED_STORAGE_KEYS.filter(key => key !== ENDPOINT_OVERRIDE_STORAGE_KEY)
+  );
+  try {
+    await Repo.db.delete();
+    await Repo.db.open();
+  } catch (err) {
+    await Repo.db.open().catch(() => {});
+    await Repo.transactions.clear().catch(() => {});
+    await Repo.spendingLimits.clear().catch(() => {});
+    throw err;
+  }
   await resetNativeAssetCache();
 }
 

@@ -9,7 +9,7 @@ export interface IconCircleProps {
    * tile's); `sm` a 20px disc whose glyph keeps its own size.
    */
   size?: 'lg' | 'md' | 'sm';
-  /** Tone and colour: a tint class replaces the default `fill` disc. */
+  /** Tone and colour: a tint class replaces the disc's default `fill`, a text colour the glyph's. */
   className?: string;
 }
 
@@ -19,12 +19,20 @@ const ICON_CIRCLE_SIZE: Record<NonNullable<IconCircleProps['size']>, string> = {
   sm: 'size-5'
 };
 
-/** The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's. */
+/**
+ * The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's.
+ * It sets `text-ink`, which a glyph drawn in `currentColor` takes. An SVG whose root declares `fill="none"`
+ * must be passed `fill="currentColor"` or it draws nothing; an SVG with its own fills keeps them.
+ */
 export const IconCircle: React.FC<IconCircleProps> = ({ children, size = 'md', className }) => (
   <span
     aria-hidden="true"
     data-slot="icon"
-    className={cn('flex shrink-0 items-center justify-center rounded-full bg-fill', ICON_CIRCLE_SIZE[size], className)}
+    className={cn(
+      'flex shrink-0 items-center justify-center rounded-full bg-fill text-ink',
+      ICON_CIRCLE_SIZE[size],
+      className
+    )}
   >
     {children}
   </span>
