@@ -214,6 +214,130 @@ const fullFromName = (file: string): string => {
 const FULL =
   "github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'";
 
+/** Every `.yml`/`.yaml` file directly under `.github/workflows`, repo-root-relative. */
+const allWorkflowFiles = (): string[] =>
+  readdirSync(resolve(repoRoot, '.github/workflows'))
+    .filter(name => /\.ya?ml$/.test(name))
+    .map(name => `.github/workflows/${name}`)
+    .sort();
+
+/** Strips a `name:` value's surrounding quotes, trailing comment and CR, in that order. */
+const normalizeScalar = (raw: string): string => {
+  const value = raw.replace(/\r$/, '').trim();
+  if (value.startsWith("'") || value.startsWith('"')) {
+    const quote = value[0]!;
+    const end = value.indexOf(quote, 1);
+    return end === -1 ? value.slice(1) : value.slice(1, end);
+  }
+  const commentAt = value.search(/\s#/);
+  return (commentAt === -1 ? value : value.slice(0, commentAt)).trim();
+};
+
+type ParsedJob = { jobId: string; rawName: string | null; matrixCombos: string[] | null };
+
+/**
+ * Every job under a workflow file's `jobs:` key, parsed from its text: job ids at
+ * two-space indent, each job's own `name:` (indent 4, the direct-child level -- never a
+ * step's `- name:`) and its `strategy:`/`matrix:` axis values when it has one. No YAML
+ * parser is a direct dependency, so this reads text the same way this file's other
+ * helpers (`runBlockAfter`, `jobIfAfter`, `onBlock`) already do.
+ */
+const parseJobs = (text: string): ParsedJob[] => {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const jobsAt = lines.findIndex(line => line === 'jobs:');
+  if (jobsAt === -1) return [];
+  // jobs: is always the last top-level key in this repo's workflows; the section ends
+  // at the next 0-indent, non-blank line, or at EOF.
+  let sectionEnd = lines.length;
+  for (let i = jobsAt + 1; i < lines.length; i++) {
+    if (lines[i]!.trim() !== '' && /^\S/.test(lines[i]!)) {
+      sectionEnd = i;
+      break;
+    }
+  }
+  const jobIdAt: number[] = [];
+  for (let i = jobsAt + 1; i < sectionEnd; i++) {
+    if (/^ {2}[A-Za-z0-9_.-]+:\s*$/.test(lines[i]!)) jobIdAt.push(i);
+  }
+  return jobIdAt.map((start, k) => {
+    const jobId = /^ {2}([A-Za-z0-9_.-]+):/.exec(lines[start]!)![1]!;
+    const end = jobIdAt[k + 1] ?? sectionEnd;
+    const body = lines.slice(start + 1, end);
+    const nameLine = body.find(line => /^ {4}name:\s?/.test(line));
+    const rawName = nameLine ? normalizeScalar(nameLine.replace(/^ {4}name:\s?/, '')) : null;
+    const matrixAt = body.findIndex(line => /^\s*matrix:\s*$/.test(line));
+    let matrixCombos: string[] | null = null;
+    if (matrixAt !== -1) {
+      const matrixIndent = body[matrixAt]!.search(/\S/);
+      const axes: string[][] = [];
+      for (const line of body.slice(matrixAt + 1)) {
+        const indent = line.search(/\S/);
+        if (line.trim() !== '' && indent <= matrixIndent) break;
+        const axis = /^\s+[A-Za-z0-9_-]+:\s*\[([^\]]*)\]\s*$/.exec(line);
+        if (axis) {
+          axes.push(
+            axis[1]!
+              .split(',')
+              .map(v => normalizeScalar(v))
+              .filter(v => v !== '')
+          );
+        }
+      }
+      if (axes.length > 0) {
+        matrixCombos = axes.reduce<string[]>(
+          (combos, values) => combos.flatMap(c => values.map(v => (c === '' ? v : `${c}, ${v}`))),
+          ['']
+        );
+      }
+    }
+    return { jobId, rawName, matrixCombos };
+  });
+};
+
+/** A token no legitimate name text contains, standing in for a `matrix.` interpolation while the rest of the name is escaped for regex use. */
+const MATRIX_WILDCARD_TOKEN = '\u0000';
+
+/** The pattern of everything `name` could render to once its `matrix.` interpolations are substituted with real values. */
+const wildcardFromName = (name: string): RegExp => {
+  const withToken = name.replace(/\$\{\{[^}]*\bmatrix\.[^}]*\}\}/g, MATRIX_WILDCARD_TOKEN);
+  const escaped = withToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped.split(MATRIX_WILDCARD_TOKEN).join('.*')}$`);
+};
+
+/** The one safe shape: `${{ (FULL) && '<required>' || '<required> (stacked)' }}`, FULL exactly the constant. */
+const TERNARY_NAME = /^\$\{\{\s*\(([\s\S]+?)\)\s*&&\s*'([^']*)'\s*\|\|\s*'([^']*)'\s*\}\}$/;
+
+type NameViolation = { file: string; jobId: string; name: string };
+
+/**
+ * Every required name one job could report to GitHub other than through the computed
+ * FULL form: its `name:` under a condition other than FULL, a matrix-suffixed job id or
+ * literal name, or a name whose `matrix.` interpolation could render one.
+ */
+const jobViolations = (file: string, job: ParsedJob, required: string[]): NameViolation[] => {
+  if (job.rawName) {
+    const ternary = TERNARY_NAME.exec(job.rawName);
+    if (ternary) {
+      const condition = ternary[1]!.trim();
+      const trueBranch = ternary[2]!;
+      const falseBranch = ternary[3]!;
+      if (condition === FULL && falseBranch === `${trueBranch} (stacked)`) return [];
+      return required.includes(trueBranch) ? [{ file, jobId: job.jobId, name: trueBranch }] : [];
+    }
+    if (/\$\{\{[^}]*\bmatrix\.[^}]*\}\}/.test(job.rawName)) {
+      const pattern = wildcardFromName(job.rawName);
+      return required.filter(name => pattern.test(name)).map(name => ({ file, jobId: job.jobId, name }));
+    }
+  }
+  const base = job.rawName ?? job.jobId;
+  const candidates = job.matrixCombos ? job.matrixCombos.map(combo => `${base} (${combo})`) : [base];
+  return candidates.filter(name => required.includes(name)).map(name => ({ file, jobId: job.jobId, name }));
+};
+
+/** Every C-06 violation in one workflow file's text, taking (file, text) so the real tree and synthetic cases share this one code path. */
+const workflowViolations = (file: string, text: string): NameViolation[] =>
+  parseJobs(text).flatMap(job => jobViolations(file, job, REQUIRED_NAMES));
+
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
   it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
     const src = combinedWorkflowSource();
@@ -223,7 +347,6 @@ describe('a stacked pull request reports its E2E checks under names no branch re
         `name:\\s*\\$\\{\\{\\s*\\([\\s\\S]+?\\)\\s*&&\\s*'${escaped}'\\s*\\|\\|\\s*'${escaped} \\(stacked\\)'\\s*\\}\\}`
       )
     );
-    expect(src).not.toMatch(new RegExp(`\\n\\s+name: ${escaped}\\n`));
   });
 
   it.each(WORKFLOW_FILES)(
@@ -245,6 +368,65 @@ describe('a stacked pull request reports its E2E checks under names no branch re
     const ifMatch = /\n\s+if: (github\.event_name[\s\S]+?)\n/.exec(src);
     expect(ifMatch).not.toBeNull();
     expect(ifMatch![1]!.trim()).toBe(fullFromName('.github/workflows/pr-e2e-bridge-guardian.yml'));
+  });
+});
+
+/**
+ * Each case is a workflow file name and its full text; every one must be flagged by
+ * `workflowViolations`, and none is caught by the narrow, three-file, unquoted-only
+ * regex this checker replaces (F-012, F-017).
+ */
+const nameViolationCases: Array<[string, string, string]> = [
+  [
+    'a quoted literal equal to a required name',
+    'synthetic-quoted.yml',
+    "jobs:\n  some-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n"
+  ],
+  [
+    'a required name with a trailing comment',
+    'synthetic-commented.yml',
+    'jobs:\n  some-job:\n    name: bridge-guardian-e2e-gate # x\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a required name terminated by CRLF',
+    'synthetic-crlf.yml',
+    'jobs:\r\n  some-job:\r\n    name: bridge-guardian-e2e-gate\r\n    runs-on: ubuntu-latest\r\n'
+  ],
+  [
+    'a guardian-lifecycle-e2e-gate job with no name, reporting via its job id',
+    'synthetic-jobid-a.yml',
+    'jobs:\n  guardian-lifecycle-e2e-gate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n'
+  ],
+  [
+    'a bridge-guardian-e2e-gate job with no name, reporting via its job id',
+    'synthetic-jobid-b.yml',
+    'jobs:\n  bridge-guardian-e2e-gate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n'
+  ],
+  [
+    'a local-e2e job with a browser matrix and no name',
+    'synthetic-matrix-id.yml',
+    'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a name that interpolates matrix.browser',
+    'synthetic-matrix-name.yml',
+    'jobs:\n  some-job:\n    name: local-e2e (${{ matrix.browser }})\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a computed name under a condition other than FULL, in a fourth file',
+    'synthetic-wrong-condition.yml',
+    "jobs:\n  some-job:\n    name: ${{ (github.event_name == 'pull_request') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}\n    runs-on: ubuntu-latest\n"
+  ]
+];
+
+describe('no workflow can report a required E2E check name except through the computed full-run form', () => {
+  it('the checker passes on every file in .github/workflows today', () => {
+    const violations = allWorkflowFiles().flatMap(file => workflowViolations(file, configSource(file)));
+    expect(violations).toEqual([]);
+  });
+
+  it.each(nameViolationCases)('%s is caught by the broadened checker', (_title, file, text) => {
+    expect(workflowViolations(file, text).length).toBeGreaterThan(0);
   });
 });
 
