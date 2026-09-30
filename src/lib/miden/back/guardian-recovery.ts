@@ -20,8 +20,8 @@ import { WalletAccount } from 'lib/shared/types';
 import { getAccountsWriteQueue } from './accounts-write-queue';
 import {
   forgetUnsupportedHistorySources,
-  hasFailedGuardianHistory,
-  recoverGuardianHistory
+  recoverGuardianHistory,
+  terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
@@ -748,9 +748,12 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
     // A terminal history checkpoint (a node's "no fee" answer, or an own operator's unsupported answer or a
     // source's invalid data marked at the cap) whose run could not clear the flag clears it here, so the gate
     // never holds the flag itself. A terminal checkpoint of the current generation exists only after a clean
-    // notes pass, since the history phase runs only after one, so nothing is left for a run to recover.
-    if (await hasFailedGuardianHistory(account)) {
-      await clearPendingFlag(account, await readGuardianHistoryGeneration());
+    // notes pass, since the history phase runs only after one, so nothing is left for a run to recover. The clear
+    // is bound to the generation the gate judged, so a wallet imported since then answers 'replaced' and keeps its
+    // own flag.
+    const terminalGeneration = await terminalGuardianHistoryGeneration(account);
+    if (terminalGeneration !== null) {
+      await clearPendingFlag(account, terminalGeneration);
       return false;
     }
     if (!(await isSafeToRunNow())) {

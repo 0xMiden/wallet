@@ -14,9 +14,9 @@ import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
-  hasFailedGuardianHistory,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
-  recoverGuardianHistory
+  recoverGuardianHistory,
+  terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
@@ -102,7 +102,7 @@ jest.mock('lib/miden/guardian/history-storage', () => ({
 }));
 jest.mock('./guardian-history-recovery', () => ({
   ...jest.requireActual('./guardian-history-recovery'),
-  hasFailedGuardianHistory: jest.fn().mockResolvedValue(false),
+  terminalGuardianHistoryGeneration: jest.fn().mockResolvedValue(null),
   recoverGuardianHistory: jest
     .fn()
     .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 })
@@ -216,7 +216,7 @@ async function drainDetachedRun() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.mocked(hasFailedGuardianHistory).mockResolvedValue(false);
+  jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValue(null);
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   setPendingFlag = jest.fn().mockResolvedValue([]);
@@ -1429,7 +1429,7 @@ describe('a node that reports no fee', () => {
     );
     mockProxy.decodeGuardianHistory.mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
     mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
-    jest.mocked(hasFailedGuardianHistory).mockImplementation(actual.hasFailedGuardianHistory);
+    jest.mocked(terminalGuardianHistoryGeneration).mockImplementation(actual.terminalGuardianHistoryGeneration);
     jest.mocked(recoverGuardianHistory).mockImplementationOnce(actual.recoverGuardianHistory);
     const steps = () => mockReportProgress.mock.calls.map(([progress]) => progress.step);
 
@@ -1545,7 +1545,7 @@ describe('a source failure that repeats every session', () => {
     'clears the flag at the next offer without running again when a current operator that %s fails terminally and the flag write fails',
     async (_case, serve, prepare) => {
       const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
-      jest.mocked(hasFailedGuardianHistory).mockImplementation(actual.hasFailedGuardianHistory);
+      jest.mocked(terminalGuardianHistoryGeneration).mockImplementation(actual.terminalGuardianHistoryGeneration);
       setPendingFlag.mockRejectedValueOnce(new Error('encrypt failed'));
       const history = serve();
       const { account, ends } = await runSessions(history, 3, prepare);
@@ -1577,11 +1577,53 @@ describe('a source failure that repeats every session', () => {
 });
 
 it('does not start recovery after a persisted fee-metadata failure', async () => {
-  jest.mocked(hasFailedGuardianHistory).mockResolvedValue(true);
+  jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValue('gen-1');
   const account = pendingAccount();
   await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
   expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
   expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+});
+
+it('leaves the flag to a wallet imported after the start gate judged a terminal checkpoint', async () => {
+  const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
+  const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+    'lib/miden/guardian/history-storage'
+  );
+  const account = pendingAccount();
+  const network = getEffectiveNetworkName();
+  const accountId = canonicalWalletAccountId(account.publicKey);
+  mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
+  await actualStorage.saveGuardianHistoryCheckpoint(await actualStorage.readGuardianHistoryGeneration(), {
+    id: historyCheckpointId(network, accountId, 'https://guardian.test'),
+    network,
+    accountId,
+    operator: 'https://guardian.test',
+    version: GUARDIAN_HISTORY_VERSION,
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    failure: 'unsupported',
+    unsupportedPasses: 3,
+    terminal: true
+  });
+  jest.mocked(terminalGuardianHistoryGeneration).mockImplementation(actual.terminalGuardianHistoryGeneration);
+  // The import lands after the gate judged the checkpoint, so the first generation read is already the new wallet's.
+  mockReadGeneration.mockImplementationOnce(async () => {
+    await actualStorage.clearGuardianHistoryCheckpoints();
+    return actualStorage.readGuardianHistoryGeneration();
+  });
+  try {
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  } finally {
+    mockReadGeneration.mockReset();
+  }
 });
 
 it('reports a terminal history failure, then clears the flag and keeps the failed record', async () => {

@@ -27,7 +27,8 @@ import {
   MAX_HISTORY_CURSOR_LENGTH,
   MAX_HISTORY_ENTRIES_PER_SOURCE,
   MAX_HISTORY_SEEN_CURSORS,
-  recoverGuardianHistory
+  recoverGuardianHistory,
+  terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
@@ -1325,9 +1326,11 @@ it('asks for the fee again once the wallet points at another node', async () => 
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
   expect((await run()).failed).toBe(true);
   expect(await hasFailedGuardianHistory(account)).toBe(true);
+  expect(await terminalGuardianHistoryGeneration(account)).toBe((await readGuardianHistoryState()).generation);
 
   mockFeeScope = 'rpc-b|testnet';
   expect(await hasFailedGuardianHistory(account)).toBe(false);
+  expect(await terminalGuardianHistoryGeneration(account)).toBeNull();
   source('https://one', [{ entries: [entry(2)], nextCursor: 'next' }, { entries: [entry(1)] }]);
   createClient.mockClear();
   const result = await run();
@@ -1367,10 +1370,13 @@ it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
 ])('stops on %s at the cap only once a pass has marked it terminal', async (_kind, capped) => {
   await saveCheckpoint('https://one', { ...capped, terminal: true });
   expect(await hasFailedGuardianHistory(account)).toBe(true);
+  expect(await terminalGuardianHistoryGeneration(account)).toBe((await readGuardianHistoryState()).generation);
   await saveCheckpoint('https://one', capped);
   expect(await hasFailedGuardianHistory(account)).toBe(false);
+  expect(await terminalGuardianHistoryGeneration(account)).toBeNull();
   await saveOlderVersionCheckpoint('https://one', { ...capped, terminal: true });
   expect(await hasFailedGuardianHistory(account)).toBe(false);
+  expect(await terminalGuardianHistoryGeneration(account)).toBeNull();
 });
 
 const saveOlderVersionCheckpoint = (operator: string, fields: Partial<GuardianHistoryCheckpoint>) =>

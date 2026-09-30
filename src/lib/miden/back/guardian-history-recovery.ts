@@ -121,25 +121,32 @@ async function historyRequest<T>(request: () => Promise<T>, check: () => Promise
 }
 
 /**
- * Whether this account has a terminal history checkpoint on the effective network, of this history version and the
- * current generation: a node's "no fee" answer (`fee-metadata`) from the node recovery now reads, or a source a pass
- * marked `terminal` (an own operator's unsupported answer or a source's invalid data at
+ * The history generation in which this account has a terminal history checkpoint on the effective network, of this
+ * history version, or null when it has none: a node's "no fee" answer (`fee-metadata`) from the node recovery now
+ * reads, or a source a pass marked `terminal` (an own operator's unsupported answer or a source's invalid data at
  * MAX_UNSUPPORTED_HISTORY_PASSES). A Developer Settings node switch lifts only the fee stop, while a release that
  * bumps the version lifts every kind. A checkpoint at a cap without the marker is left out: the pass that capped it
  * deferred or met another source's failure, so a later pass reads the other operators before it ends recovery.
+ * The state is read once, so the generation returned is the one whose checkpoints were judged.
  */
-export async function hasFailedGuardianHistory(account: WalletAccount): Promise<boolean> {
+export async function terminalGuardianHistoryGeneration(account: WalletAccount): Promise<string | null> {
   const state = await readGuardianHistoryState();
   const accountId = canonicalWalletAccountId(account.publicKey);
   const network = getEffectiveNetworkName();
   const scope = cacheScope();
-  return Object.values(state.checkpoints).some(
+  const terminal = Object.values(state.checkpoints).some(
     checkpoint =>
       checkpoint.accountId === accountId &&
       checkpoint.network === network &&
       checkpoint.version === GUARDIAN_HISTORY_VERSION &&
       ((checkpoint.failure === 'fee-metadata' && checkpoint.feeScope === scope) || checkpoint.terminal === true)
   );
+  return terminal ? state.generation : null;
+}
+
+/** Whether {@link terminalGuardianHistoryGeneration} finds a terminal history checkpoint for this account. */
+export async function hasFailedGuardianHistory(account: WalletAccount): Promise<boolean> {
+  return (await terminalGuardianHistoryGeneration(account)) !== null;
 }
 
 export async function recoverGuardianHistory(account: WalletAccount, context: GuardianHistoryRecoveryContext) {
