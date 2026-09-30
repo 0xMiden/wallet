@@ -21,7 +21,15 @@ jest.mock('react-i18next', () => ({
 
 // The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
 // is measured, never written to markup, so its mode cannot be asserted from the DOM alone.
-const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
+const mockPendingWrapper: { props: Record<string, unknown> | null; renders: Record<string, unknown>[] } = {
+  props: null,
+  renders: []
+};
+// Every non-pending `motion.div` (the date-group wrapper), across every commit, in commit order.
+// The "tab shown again" tests need the per-commit history, not just the latest snapshot: the
+// passive-effect recheck that follows the showing commit lands within the same test flush, so a read
+// taken only after `rerender` returns would already see the recheck's reverted transition.
+const mockGroupWrapper: { renders: Record<string, unknown>[] } = { renders: [] };
 
 // Icon: expose the requested glyph name + size + className so buildRowProps'
 // icon selection (the white-fill classes, and that every row asks for the
@@ -59,7 +67,13 @@ jest.mock('framer-motion', () => {
           { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => {
-          if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
+          const props = { layout, transition, ...rest };
+          if (rest['data-pending-note-id'] !== undefined) {
+            mockPendingWrapper.props = props;
+            mockPendingWrapper.renders.push(props);
+          } else {
+            mockGroupWrapper.renders.push(props);
+          }
           return (
             <div ref={ref} data-layout={String(layout)} data-transition={JSON.stringify(transition)} {...rest}>
               {children}
@@ -217,11 +231,15 @@ type MockScrollerProps = {
   useWindow?: boolean;
   getScrollParent?: () => HTMLElement | null;
 };
-const mockScroller: { props?: MockScrollerProps } = {};
+// `renders` keeps every commit's props, not just the latest: a passive-effect-triggered re-render
+// (the tab-shown-again recheck) lands within the same act() flush as the commit that caused it, so
+// reading only the latest snapshot after that flush would hide the transient commit in between.
+const mockScroller: { props?: MockScrollerProps; renders: MockScrollerProps[] } = { renders: [] };
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
   default: (props: MockScrollerProps) => {
     mockScroller.props = props;
+    mockScroller.renders.push(props);
     return (
       <div data-testid="infinite-scroll" data-hasmore={String(props.hasMore)}>
         {props.children}
@@ -263,6 +281,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
   mockScroller.props = undefined;
+  mockScroller.renders = [];
+  mockPendingWrapper.renders = [];
+  mockGroupWrapper.renders = [];
   (isFaucetRequest as jest.Mock).mockImplementation(
     (entry: MockFaucetEntry) =>
       Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
@@ -1218,9 +1239,12 @@ describe('HistoryView infinite scroll wiring', () => {
       'children',
       'getScrollParent',
       'hasMore',
+      'initialLoad',
       'loadMore',
       'useWindow'
     ]);
+    // No TabActiveContext provider here, so the default (true) never "shows again" at mount (#1198).
+    expect(scroller?.initialLoad).toBe(true);
     expect(scroller?.useWindow).toBe(false);
     expect(scroller?.getScrollParent?.()).toBe(parent);
     expect(loadMore).not.toHaveBeenCalled();
@@ -1542,6 +1566,9 @@ describe('HistoryView - its tab shown again', () => {
     },
     status: 'pending'
   };
+  // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
+  // never reads `.current`, so a bare DOM node is enough.
+  const scrollParentRef = { current: document.createElement('div') };
   const view = (shown: boolean, onScreen = true) => (
     <PageActiveContext.Provider value={onScreen}>
       <TabActiveContext.Provider value={shown}>
@@ -1553,6 +1580,7 @@ describe('HistoryView - its tab shown again', () => {
           entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
           pendingItems={[pending]}
           renderPendingItem={() => <span>Pending note</span>}
+          scrollParentRef={scrollParentRef}
         />
       </TabActiveContext.Provider>
     </PageActiveContext.Provider>
@@ -1563,14 +1591,18 @@ describe('HistoryView - its tab shown again', () => {
       .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
 
   it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
-    const { container, rerender } = render(view(true));
+    // Reads the FIRST commit's props, not the settled DOM: the scroller's recheck (#1198) re-renders
+    // the list right after this commit, within the same test flush, and that later commit is what
+    // `container` would show by the time `rerender` returns.
+    const { rerender } = render(view(true));
     rerender(view(false));
+    mockGroupWrapper.renders = [];
+    mockPendingWrapper.renders = [];
     rerender(view(true));
 
-    const groups = groupMoves(container);
-    expect(groups.length).toBeGreaterThan(0);
-    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
-    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+    expect(mockGroupWrapper.renders.length).toBeGreaterThan(0);
+    expect(mockGroupWrapper.renders[0]?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+    expect(mockPendingWrapper.renders[0]?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
   });
 
   it('slides them on the next change, and when a slide page uncovers the list', () => {
@@ -1585,5 +1617,46 @@ describe('HistoryView - its tab shown again', () => {
     rerender(view(true, true));
     groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
     expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+  });
+
+  // The scroller's own load check runs on mount/update; unskipped in the commit that shows the tab
+  // again, it would re-render History synchronously before framer reads the swap above (#1198). The
+  // mock's `renders` list, not its last-props snapshot, is what makes the transient commit visible:
+  // the passive-effect recheck that follows lands within the same test flush, so a read taken only
+  // after `rerender` returns would already see the recheck's props, never the commit in between.
+  it('renders the scroller with initialLoad false in the commit that shows the tab again', () => {
+    const { rerender } = render(view(true));
+    rerender(view(false));
+    mockScroller.renders = [];
+    rerender(view(true));
+
+    expect(mockScroller.renders[0]?.initialLoad).toBe(false);
+  });
+
+  it("re-enables initialLoad once that commit's effects flush, changing no other scroller prop", () => {
+    const { rerender } = render(view(true));
+    rerender(view(false));
+    mockScroller.renders = [];
+    rerender(view(true));
+
+    expect(mockScroller.renders).toHaveLength(2);
+    const [shownCommit, recheckCommit] = mockScroller.renders;
+    expect(shownCommit.initialLoad).toBe(false);
+    expect(recheckCommit.initialLoad).toBe(true);
+    expect(recheckCommit.hasMore).toBe(shownCommit.hasMore);
+    expect(recheckCommit.loadMore).toBe(shownCommit.loadMore);
+    expect(recheckCommit.useWindow).toBe(shownCommit.useWindow);
+  });
+
+  it('leaves initialLoad true on every other render: first mount, and a PageActiveContext flip while the tab stays shown', () => {
+    const { rerender } = render(view(true));
+    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([true]);
+
+    mockScroller.renders = [];
+    rerender(view(true, false));
+    rerender(view(true, true));
+
+    expect(mockScroller.renders.length).toBeGreaterThan(0);
+    expect(mockScroller.renders.every(r => r.initialLoad === true)).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo } from 'react';
+import React, { memo, RefObject, useEffect, useMemo, useReducer } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
@@ -432,6 +432,13 @@ const HistoryView = memo<HistoryViewProps>(
     const settle = useMotion(springs.settle);
     const shownAgain = useTabShownAgain();
     const layoutTransition = useMemo(() => (shownAgain ? withLayoutSwap(settle) : settle), [shownAgain, settle]);
+    // The scroller's own load check (below, via `initialLoad`) is skipped in this same commit so it
+    // cannot re-render the list before framer reads the swap above; re-run it once this commit's
+    // effects flush, since a passive effect runs after that read (#1198).
+    const [, recheckAfterShow] = useReducer((n: number) => n + 1, 0);
+    useEffect(() => {
+      if (shownAgain) recheckAfterShow();
+    }, [shownAgain]);
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
@@ -628,6 +635,9 @@ const HistoryView = memo<HistoryViewProps>(
             hasMore={hasMore}
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
+            // Skips the scroller's load check in the commit that shows the tab again, then the
+            // recheck above re-runs it once framer has read the swap (#1198).
+            initialLoad={!shownAgain}
           >
             {list}
           </InfiniteScroll>
