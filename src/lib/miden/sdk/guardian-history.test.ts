@@ -3,7 +3,11 @@ import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { getCurrentWasmLockHold, getMidenClient, onWasmClientPoisoned, withWasmClientLock } from './miden-client';
 import { WasmClientPoisonedError } from './wasm-client-poison';
-import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import {
+  GuardianHistoryDataError,
+  GuardianHistoryFeeLookupError,
+  GuardianHistoryFeeUnavailableError
+} from '../guardian/history-errors';
 
 let mockAssetId = 'asset';
 let mockNativeLoaded = false;
@@ -394,19 +398,30 @@ it('does not decode inflated amounts when fee metadata is unavailable', async ()
   expect(mockFree).not.toHaveBeenCalled();
 });
 
-it('passes a failed native asset lookup through unchanged', async () => {
+it('reports a failed native asset lookup as a fee lookup failure', async () => {
   const failure = new Error('rpc down');
   jest.mocked(getNativeAssetId).mockRejectedValue(failure);
-  await expect(decode('summary')).rejects.toBe(failure);
+  const error = await decode('summary').catch((reason: unknown) => reason);
+  expect(error).toBeInstanceOf(GuardianHistoryFeeLookupError);
+  expect((error as Error).cause).toBe(failure);
   expect(mockFree).not.toHaveBeenCalled();
 });
 
 it('reports a fee the chain has not answered for as a retryable failure', async () => {
   jest.mocked(getVerificationBaseFee).mockResolvedValue(null);
   const error = await decode('summary').catch((reason: unknown) => reason);
-  expect(error).toBeInstanceOf(Error);
+  expect(error).toBeInstanceOf(GuardianHistoryFeeLookupError);
   expect(error).not.toBeInstanceOf(GuardianHistoryFeeUnavailableError);
   expect((error as Error).name).not.toBe('GuardianHistoryDataError');
+  expect(mockFree).not.toHaveBeenCalled();
+});
+
+it.each<[string, Error]>([
+  ['a trap', new WebAssembly.RuntimeError('unreachable')],
+  ['an eviction', new WasmClientPoisonedError('realm-error')]
+])('passes %s from the native asset lookup through unchanged', async (_kind, failure) => {
+  jest.mocked(getNativeAssetId).mockRejectedValue(failure);
+  await expect(decode('summary')).rejects.toBe(failure);
   expect(mockFree).not.toHaveBeenCalled();
 });
 

@@ -47,6 +47,16 @@ class HistoryDecodeAborted extends Error {
   }
 }
 
+// A failure of one request attempt, carrying the session that attempt was issued in.
+class HistoryRequestFailed extends Error {
+  constructor(
+    readonly session: number,
+    cause: unknown
+  ) {
+    super('Guardian history request failed', { cause });
+  }
+}
+
 type HistoryPageOutcome =
   | { kind: 'page'; page: HistoryPage; session: number }
   | { kind: 'unsupported'; session: number };
@@ -66,9 +76,10 @@ export const MAX_HISTORY_SEEN_CURSORS = 64;
 
 /**
  * Sessions a source can answer "no history" before it ends: empty for an operator the account may never have used,
- * and as a terminal failure for one it used. A source whose data fails a check in this many sessions is terminal too.
- * Both counts are spent at most once per session, and a terminal source ends recovery once the pass has read the
- * other operators.
+ * and as a terminal failure for one it used. A source whose data fails a check in this many sessions is terminal too,
+ * and an operator the account may never have used that cannot be read in this many sessions (its
+ * deferredFailurePasses) completes empty. Each count is spent at most once per session, and a terminal source ends
+ * recovery once the pass has read the other operators.
  */
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
 
@@ -78,12 +89,14 @@ function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
   return checkpoint.failure === 'invalid-data' && (checkpoint.invalidDataPasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
 }
 
-// Checkpoints answered unsupported, whose data failed a check, or whose summary or commitment decode was aborted, since
-// the backend started or the wallet last locked. Each is counted once per session, so a deferral restart cannot spend
-// the cap or decode again. An answer to an attempt issued before a lock is left out of the session the lock started.
+// Checkpoints answered unsupported, whose data failed a check, whose summary or commitment decode was aborted, or whose
+// operator the account may never have used could not be read (deferredFailurePasses), since the backend started or the
+// wallet last locked. Each is counted once per session, so a deferral restart cannot spend a cap or decode again. An
+// answer to an attempt issued before a lock is left out of the session the lock started.
 const unsupportedHistorySources = new Set<string>();
 const invalidDataHistorySources = new Set<string>();
 const abortedDecodeHistorySources = new Set<string>();
+const deferredFailureHistorySources = new Set<string>();
 let unsupportedHistorySession = 0;
 
 export function forgetUnsupportedHistorySources(): void {
@@ -91,6 +104,7 @@ export function forgetUnsupportedHistorySources(): void {
   unsupportedHistorySources.clear();
   invalidDataHistorySources.clear();
   abortedDecodeHistorySources.clear();
+  deferredFailureHistorySources.clear();
 }
 
 export interface GuardianHistoryRecoveryContext {
@@ -123,14 +137,24 @@ export function classifyHistoryFailure(error: Error): GuardianHistoryFailure {
   }
 }
 
-async function historyRequest<T>(request: () => Promise<T>, check: () => Promise<void>): Promise<T> {
+// Each attempt reads the session once, as it is issued, and hands it to the request and to its failure alike.
+async function historyRequest<T>(request: (session: number) => Promise<T>, check: () => Promise<void>): Promise<T> {
+  const attempt = async () => {
+    const session = unsupportedHistorySession;
+    try {
+      return await withTimeout(request(session), 15_000, 'Guardian history request');
+    } catch (error) {
+      throw new HistoryRequestFailed(session, error);
+    }
+  };
   await check();
   try {
-    return await withTimeout(request(), 15_000, 'Guardian history request');
+    return await attempt();
   } catch (error) {
-    if (error instanceof GuardianHttpError && error.status < 500 && error.status !== 429) throw error;
+    const cause = error instanceof HistoryRequestFailed ? error.cause : error;
+    if (cause instanceof GuardianHttpError && cause.status < 500 && cause.status !== 429) throw error;
     await check();
-    return withTimeout(request(), 15_000, 'Guardian history request');
+    return attempt();
   }
 }
 
@@ -269,6 +293,14 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         sourceFailures++;
         continue;
       }
+      if (
+        deferredFailureHistorySources.has(id) &&
+        checkpoint.deferredFailurePasses !== undefined &&
+        !ownOperators.includes(operator)
+      ) {
+        deferredSources++;
+        continue;
+      }
       currentOperator = operator;
       // A data failure belongs to the session of the request that returned the data: the page's for the page
       // checks, the entry's getDelta for that entry.
@@ -284,21 +316,21 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           await reportHistory(operator);
           const pageCheckpoint = checkpoint;
           // A timed-out attempt can settle after its retry starts, so each reports only through its own value.
-          // eslint-disable-next-line no-loop-func -- each attempt reads the session current when it is issued
-          const outcome = await historyRequest(() => {
-            const session = unsupportedHistorySession;
-            return guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).then(
-              (page): HistoryPageOutcome => ({ kind: 'page', page, session }),
-              (error): HistoryPageOutcome => {
-                if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
-                  if (error.code === 'account_not_found')
-                    return { kind: 'page', page: { entries: [], nextCursor: undefined }, session };
-                  if (classifyHistoryFailure(error) === 'unsupported') return { kind: 'unsupported', session };
+          const outcome = await historyRequest(
+            session =>
+              guardian.getDeltaHistory(guardianAccountId, { limit: 50, cursor: pageCheckpoint.cursor }).then(
+                (page): HistoryPageOutcome => ({ kind: 'page', page, session }),
+                (error): HistoryPageOutcome => {
+                  if (error instanceof GuardianHttpError && !pageCheckpoint.cursor && pageCheckpoint.restored === 0) {
+                    if (error.code === 'account_not_found')
+                      return { kind: 'page', page: { entries: [], nextCursor: undefined }, session };
+                    if (classifyHistoryFailure(error) === 'unsupported') return { kind: 'unsupported', session };
+                  }
+                  throw error;
                 }
-                throw error;
-              }
-            );
-          }, check);
+              ),
+            check
+          );
           dataSession = outcome.session;
           if (outcome.kind === 'unsupported') {
             // Asked once per session up to MAX_UNSUPPORTED_HISTORY_PASSES: an operator the account may never have
@@ -348,11 +380,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
           const records: ITransaction[] = [];
           for (const entry of page.entries) {
-            // eslint-disable-next-line no-loop-func -- each attempt reads the session current when it is issued
-            const answer = await historyRequest(() => {
-              const session = unsupportedHistorySession;
-              return guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session }));
-            }, check);
+            const answer = await historyRequest(
+              session => guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session })),
+              check
+            );
             dataSession = answer.session;
             // The delta already parsed and mapped inside getDelta, so a summary missing from it is the operator's data.
             const encoded = answer.delta.deltaPayload?.txSummary?.data;
@@ -473,11 +504,13 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             ),
             entryCount,
             failure: undefined,
-            feeScope: undefined
+            feeScope: undefined,
+            deferredFailurePasses: undefined
           };
           if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
         }
-      } catch (error) {
+      } catch (thrown) {
+        const error = thrown instanceof HistoryRequestFailed ? thrown.cause : thrown;
         if (
           error instanceof HistoryInterrupted ||
           error instanceof OperationAbortedError ||
@@ -494,8 +527,27 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           if (!stopped) throw new HistoryInterrupted();
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
-        sourceFailures++;
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
+        if (failure !== 'invalid-data' && !ownOperators.includes(operator)) {
+          // Charged once, to the session of the attempt or decode that failed. A failure no attempt carries, such as
+          // a fee lookup on the wallet's own node, defers the source without spending its count.
+          const session =
+            thrown instanceof HistoryRequestFailed || thrown instanceof HistoryDecodeAborted
+              ? thrown.session
+              : undefined;
+          const deferredFailurePasses =
+            session === undefined ? checkpoint.deferredFailurePasses : (checkpoint.deferredFailurePasses ?? 0) + 1;
+          const completed = (deferredFailurePasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
+          const deferred = { ...checkpoint, failure, deferredFailurePasses, completed };
+          if (!(await saveGuardianHistoryCheckpoint(context.generation, deferred))) throw new HistoryInterrupted();
+          if (!completed) {
+            deferredSources++;
+            if (session === unsupportedHistorySession) deferredFailureHistorySources.add(id);
+          }
+          console.warn(`[GuardianHistory] Source deferred (${failure}): ${operator}`, error);
+          continue;
+        }
+        sourceFailures++;
         // Data that fails a check fails the same way on every retry, so it is terminal once it repeats up to the
         // cap. The count is spent at most once per session, so a deferral restart does not ask the source again.
         const invalidDataPasses = failure === 'invalid-data' ? (checkpoint.invalidDataPasses ?? 0) + 1 : undefined;

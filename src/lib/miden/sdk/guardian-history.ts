@@ -19,7 +19,11 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { getBech32AddressFromAccountId } from './helpers';
 import { retireWasmClientForCaughtTrap, type WasmLockHold } from './miden-client';
 import { isWasmClientPoisonedError } from './wasm-client-poison';
-import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import {
+  GuardianHistoryDataError,
+  GuardianHistoryFeeLookupError,
+  GuardianHistoryFeeUnavailableError
+} from '../guardian/history-errors';
 
 const assetSchema = z.object({ faucetId: z.string(), amount: z.string().regex(/^\d+$/) });
 const noteSchema = z.object({
@@ -147,12 +151,20 @@ export async function decodeGuardianSummary(encoded: string, hold: WasmLockHold)
   if (typeof encoded !== 'string' || encoded.length === 0)
     throw new GuardianHistoryDataError('Guardian summary is missing');
   if (encoded.length > 4_000_000) throw new GuardianHistoryDataError('Guardian summary is too large');
-  // Load fee metadata in the same realm that separates the output notes.
-  await getNativeAssetId();
-  if ((await getVerificationBaseFee()) === null) {
+  // Load fee metadata in the same realm that separates the output notes. A failed lookup is the wallet's node, not the
+  // operator; a trap or an eviction passes through so the lock holding this decode retires the client.
+  let fee: number | null;
+  try {
+    await getNativeAssetId();
+    fee = await getVerificationBaseFee();
+  } catch (cause) {
+    if (cause instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(cause)) throw cause;
+    throw new GuardianHistoryFeeLookupError({ cause });
+  }
+  if (fee === null) {
     // Only the chain's own answer is terminal; a failed lookup is retried with the other sources.
     if (isVerificationBaseFeeKnownAbsent()) throw new GuardianHistoryFeeUnavailableError();
-    throw new Error('Guardian history fee metadata is not available yet');
+    throw new GuardianHistoryFeeLookupError();
   }
   let summary: TransactionSummary;
   try {

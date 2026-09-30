@@ -701,8 +701,9 @@ let lockEpoch = 0;
  * The backend's lock hook. Frees every account a failed source held, so the
  * provider offers it again after the next unlock, as the partial-history card
  * promises, and starts a new session for the history sources that answered
- * unsupported or whose data failed a check, so that pass asks them again
- * unless they are at MAX_UNSUPPORTED_HISTORY_PASSES.
+ * unsupported, whose data failed a check, or whose operator the account may
+ * never have used could not be read (deferredFailurePasses), so that pass asks
+ * them again unless they are at MAX_UNSUPPORTED_HISTORY_PASSES.
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;
@@ -861,7 +862,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       await clearPendingFlag(account, generation);
       return;
     }
-    // A deferred source (an operator that does not serve history yet) keeps the flag and retries here too.
+    // A deferred source (an operator the account may never have used that serves no history yet or cannot be read,
+    // until its count reaches MAX_UNSUPPORTED_HISTORY_PASSES) keeps the flag and retries here too.
     if (history.sourceFailures > 0 || history.deferredSources > 0) {
       failed = true;
       await reportGuardianNoteRecoveryProgress({

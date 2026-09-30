@@ -50,6 +50,13 @@ it('retains the terminal marker across reads', async () => {
   expect((await readGuardianHistoryState()).checkpoints.test).toEqual(terminal);
 });
 
+it('retains the deferred failure count across reads', async () => {
+  const state = await readGuardianHistoryState();
+  const deferred = { ...checkpoint, failure: 'network' as const, deferredFailurePasses: 2 };
+  expect(await saveGuardianHistoryCheckpoint(state.generation, deferred)).toBe(true);
+  expect((await readGuardianHistoryState()).checkpoints.test).toEqual(deferred);
+});
+
 it('rejects a checkpoint from a pass that predates an import', async () => {
   const state = await readGuardianHistoryState();
   await clearGuardianHistoryCheckpoints();

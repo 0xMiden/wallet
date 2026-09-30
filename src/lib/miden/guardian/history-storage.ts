@@ -22,6 +22,7 @@ const checkpointSchema = z.object({
   entryCount: z.number().int().nonnegative().optional(),
   unsupportedPasses: z.number().int().nonnegative().optional(),
   invalidDataPasses: z.number().int().nonnegative().optional(),
+  deferredFailurePasses: z.number().int().nonnegative().optional(),
   failure: z
     .enum(['fee-metadata', 'account-not-found', 'authentication', 'unsupported', 'network', 'invalid-data'])
     .optional(),

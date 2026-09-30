@@ -62,7 +62,11 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
-import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import {
+  GuardianHistoryDataError,
+  GuardianHistoryFeeLookupError,
+  GuardianHistoryFeeUnavailableError
+} from '../guardian/history-errors';
 import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
@@ -436,6 +440,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
       op.reject(new GuardianHistoryFeeUnavailableError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeLookupError') {
+      op.reject(new GuardianHistoryFeeLookupError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryDataError') {

@@ -2945,6 +2945,21 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     await expect(result).rejects.toMatchObject({ name: 'GuardianHistoryFeeUnavailableError' });
   });
 
+  it('preserves a history fee lookup error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryFeeLookupError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is not available yet',
+      errorName: 'GuardianHistoryFeeLookupError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toBeInstanceOf(GuardianHistoryFeeLookupError);
+  });
+
   it('preserves a history data error across the offscreen boundary', async () => {
     const { midenClientProxy } = await loadProxy(true);
     const { GuardianHistoryDataError } = await import('../guardian/history-errors');

@@ -57,6 +57,11 @@ export interface GuardianHistoryCheckpoint {
   unsupportedPasses?: number;
   /** Sessions in which the operator's history failed a data check (an 'invalid-data' failure). */
   invalidDataPasses?: number;
+  /**
+   * Sessions in which an operator the account is not known to have used could not be read, for any failure but
+   * invalid data or a fee answer; reset by a page it serves.
+   */
+  deferredFailurePasses?: number;
   failure?: GuardianHistoryFailure;
   /** The node (`cacheScope`) whose answer made a `fee-metadata` failure terminal; it holds only for that node. */
   feeScope?: string;

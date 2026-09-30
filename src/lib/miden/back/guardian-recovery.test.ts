@@ -1481,7 +1481,8 @@ describe('a source failure that repeats every session', () => {
   async function runSessions(
     history: jest.Mock,
     sessions: number,
-    prepare: (account: WalletAccount) => Promise<void> = async () => {}
+    prepare: (account: WalletAccount) => Promise<void> = async () => {},
+    builtin: jest.Mock = jest.fn().mockResolvedValue({ entries: [] })
   ) {
     const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
     const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
@@ -1494,23 +1495,25 @@ describe('a source failure that repeats every session', () => {
           setSigner: jest.fn(),
           getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
           getDeltaProposals: jest.fn().mockResolvedValue([]),
-          getDeltaHistory: endpoint === 'https://guardian.test' ? history : jest.fn().mockResolvedValue({ entries: [] })
+          getDeltaHistory: endpoint === 'https://guardian.test' ? history : builtin
         }) as never
     );
     mockReadGeneration.mockImplementation(actualStorage.readGuardianHistoryGeneration);
     jest.mocked(recoverGuardianHistory).mockImplementation(actual.recoverGuardianHistory);
     await prepare(account);
     const ends: string[][] = [];
+    const flagWrites = () => setPendingFlag.mock.calls.length;
     try {
       for (let session = 0; session < sessions; session++) {
         const before = mockReportProgress.mock.calls.length;
+        const flagsBefore = flagWrites();
         const ended = () =>
           mockReportProgress.mock.calls
             .slice(before)
             .map(([progress]) => progress.step)
             .filter(step => step === 'history-partial' || step === 'history-failed');
         await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
-        await settleRealHistory(() => ended().length > 0);
+        await settleRealHistory(() => ended().length > 0 || flagWrites() > flagsBefore);
         ends.push(ended());
         releaseGuardianRecoveriesOnLock();
       }
@@ -1602,6 +1605,16 @@ describe('a source failure that repeats every session', () => {
 
     expect(ends).toEqual([['history-partial'], ['history-partial'], ['history-partial'], ['history-partial']]);
     expect(setPendingFlag).not.toHaveBeenCalled();
+  });
+
+  it('clears the flag once an operator the account never used has failed three sessions', async () => {
+    const history = jest.fn().mockResolvedValue({ entries: [] });
+    const builtin = jest.fn().mockRejectedValue(new Error('offline'));
+    const { account, ends } = await runSessions(history, 3, undefined, builtin);
+
+    expect(ends).toEqual([['history-partial'], ['history-partial'], []]);
+    expect(setPendingFlag).toHaveBeenCalledTimes(1);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
   });
 });
 
