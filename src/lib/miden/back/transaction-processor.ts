@@ -8,9 +8,11 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  isQueuedRowReady,
   nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
+import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
@@ -19,20 +21,26 @@ import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
-// `globalThis.chrome?.runtime?.id` is undefined (non-extension
-// context like a mobile WebView or the desktop Tauri host). This
-// module is statically reachable from `mobile-adapter → actions →
-// dapp → transaction-processor`, so a plain `import browser from
-// 'webextension-polyfill'` breaks the mobile bundle at load time
-// and leaves the wallet stuck on the splash screen.
+// `globalThis.chrome?.runtime?.id` is undefined (the desktop Tauri host has
+// no chrome runtime at all). This module is statically reachable from
+// `mobile-adapter → actions → dapp → transaction-processor`, so a plain
+// `import browser from 'webextension-polyfill'` breaks the desktop bundle
+// at load time and leaves the wallet stuck on the splash screen.
 //
-// Fix: load the polyfill lazily and ONLY from within the functions
-// that actually need it. `startTransactionProcessing` runs in the
-// service worker and, off the extension, in the app realm: after an
-// unlock (#1202) and after a dApp confirmation (dapp.ts
-// startDappBackgroundProcessing). There its getBrowser() await stays
-// inside the try/catch that then runs the loop without alarms. The
-// other polyfill paths are service-worker-only.
+// Fix: load the polyfill lazily and ONLY from within the functions that
+// actually need it, so the rejection is caught there instead of crashing
+// module init. `startTransactionProcessing` runs in the service worker and,
+// off the extension, in the app realm: after an unlock (#1202) and after a
+// dApp confirmation (dapp.ts startDappBackgroundProcessing). On desktop its
+// getBrowser() await rejects inside the try/catch, which then runs the loop
+// without alarms. The other polyfill paths are service-worker-only.
+//
+// Mobile does NOT hit that throw: vite.mobile.config.ts aliases
+// `webextension-polyfill` to `src/lib/webextension-polyfill-mock.js`, whose
+// `alarms` calls are no-ops, so the await below resolves a non-null
+// `browser` there too. `browser !== null` is therefore true on both
+// extension and mobile; code that must run only in the extension's service
+// worker gates on `isExtension()` from `lib/platform` instead.
 type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
@@ -195,10 +203,11 @@ export async function startTransactionProcessing(): Promise<void> {
       browser.alarms.clear(QUEUED_ROW_WAKE_ALARM);
       browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
     } catch {
-      // Non-extension context (mobile / desktop) — no alarms API.
-      // The processing loop below still runs, it just won't have an
-      // SW-keepalive alarm, which is fine because mobile / desktop
-      // aren't service workers.
+      // Desktop only - the import above throws there (no chrome runtime);
+      // mobile's polyfill alias resolves without throwing, so it never
+      // reaches this catch. The processing loop below still runs, it just
+      // won't have an SW-keepalive alarm, which is fine because desktop
+      // isn't a service worker.
       browser = null;
     }
 
@@ -225,6 +234,18 @@ export async function startTransactionProcessing(): Promise<void> {
       const remaining = await getAllUncompletedTransactions();
       if (remaining.length === 0) break;
 
+      // Straight on only after a pass whose row left the queue or was parked, and only toward a row the loop's own
+      // pick would take. A pass whose row was turned away waits, so one refusal is not followed at once by the next
+      // ready row against the same Guardian, and any other pass waits so a lock held elsewhere or a queue of cooling
+      // rows cannot spin through the pass ceiling.
+      //
+      // And only in the extension's service worker: `isExtension()`, never `browser !== null`, because the mobile
+      // build's polyfill alias makes `browser` non-null there too. Every in-realm run - mobile (the mock loads) and
+      // desktop (the import or the alarms calls throw) - keeps the 5 s wait after every pass, because there the
+      // processor shares the WASM lock with the UI's sync and balance reads.
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (isExtension() && result === 'processed' && remaining.some(row => isQueuedRowReady(row, nowSec))) continue;
+
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   } catch (e) {
@@ -237,7 +258,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
     // Armed before `isProcessing` drops, so a kick landing during the read is honoured by the restart below, which
     // clears the wake, rather than starting a run this create would land behind.
-    if (browser && !processingRequested) await armQueuedRowWake(browser);
+    //
+    // Extension-only: `isExtension()`, never `browser !== null`, because the mobile build's polyfill alias makes
+    // `browser` non-null there too. Arming it there would waste a vault probe and a queue read for an alarm that's
+    // a no-op off the extension's service worker.
+    if (isExtension() && browser && !processingRequested) await armQueuedRowWake(browser);
     isProcessing = false;
     if (processingRequested) {
       processingRequested = false;

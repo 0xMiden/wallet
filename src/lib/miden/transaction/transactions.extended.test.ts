@@ -471,16 +471,16 @@ const mockGuardianProvider = {
 };
 
 describe('safeGenerateTransactionsLoop', () => {
-  it('returns true when there are no queued transactions', async () => {
+  it('returns idle when there are no queued transactions', async () => {
     const sign = jest.fn();
     const result = await safeGenerateTransactionsLoop(sign, false, mockGuardianProvider);
-    expect(result).toBe(true);
+    expect(result).toBe('idle');
   });
 
-  it('returns undefined when navigator.locks.request reports the lock is unavailable', async () => {
+  it('returns idle when navigator.locks.request reports the lock is unavailable', async () => {
     installNavigatorLocksMock(null); // null lock means "not available"
     const result = await safeGenerateTransactionsLoop(jest.fn(), false, mockGuardianProvider);
-    expect(result).toBeUndefined();
+    expect(result).toBe('idle');
   });
 });
 

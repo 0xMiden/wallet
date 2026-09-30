@@ -6,8 +6,9 @@ import { springs, tabBarSwap, useMotion } from 'lib/animation';
 
 /**
  * Whether the page a component renders in is the one on screen. TabLayout keeps a visited tab
- * mounted under the active one and MobilePageLayers keeps a page mounted under a slide page, so work
- * a page does only for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
+ * mounted under the active one, MobilePageLayers keeps a page mounted under a slide page, and
+ * HomeSwipeContainer keeps every Home page mounted beside the centred one, so work a page does only
+ * for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
  * while false, never `isPaused`: SWR sends a shared key's mutate and error retry to its first subscriber, and a paused
  * one swallows them (see History).
  */
