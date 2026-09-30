@@ -343,7 +343,32 @@ const FULL_NAME_JOBS = [
 /** The one safe shape: `${{ (FULL) && '<required>' || '<required> (stacked)' }}`, FULL exactly the constant. */
 const TERNARY_NAME = /^\$\{\{\s*\(([\s\S]+?)\)\s*&&\s*'([^']*)'\s*\|\|\s*'([^']*)'\s*\}\}$/;
 
-type NameViolation = { file: string; jobId: string; name: string };
+/**
+ * The reason and remedy each violation's text starts with, before where it is. defaultToken and
+ * plainShape are remedies alone, each following the reason its violation or error states first.
+ */
+const REMEDY = {
+  jobName:
+    'a job would report a required E2E check name outside the designated FULL-ternary form, so rename the job or use the FULL ternary on its designated job',
+  plainShape:
+    'so write the job in the plain shape: one bare jobs: line, 2-space job ids, 4-space keys, a one-line name: scalar',
+  requiredName:
+    "a required E2E check name outside its designated job's `name:` line, gate id line or `needs:` entry, so remove it, or in a YAML or shell file move it to a `#` comment line",
+  lineBreakCr:
+    'a bare CR, which YAML reads as a line break and these rules do not, so save the file with LF line endings',
+  lineBreakInvisible:
+    'an invisible line break character, which YAML reads as a line break and these rules do not, so delete the invisible character on that line',
+  defaultToken: 'so add a top-level `permissions:` block, for example `contents: read`',
+  apiWrite: 'the line writes or grants the Checks or Statuses API, which only an API_WRITER_ALLOWLIST file may do',
+  quotedKey:
+    'a quoted mapping key, which these rules do not read, so write the key unquoted, and put script content in a `run: |` or `script: |` block',
+  permissionsWord:
+    '`permissions` may appear in a workflow only as a plain `permissions:` key or inside a block scalar body such as `run: |`, and a one-line `run:` is a plain scalar, not a body, so reword the mention, move it to a comment line, or write the `run:` as a `run: |` block',
+  permissionsShape:
+    'a permissions value or block line outside the allowlist, so write `permissions:` as block lines `scope: read|write|none`, with checks and statuses only read or none, and no quotes, flow form, anchors, tags or merge keys'
+};
+
+type NameViolation = { file: string; jobId: string; name: string; text: string };
 
 /** Whether `job` is its workflow's designated job, named exactly the FULL ternary of its own required name, with no matrix. */
 const isDesignatedFullName = (file: string, job: ParsedJob): boolean => {
@@ -369,12 +394,23 @@ const jobViolations = (file: string, job: ParsedJob, required: string[]): NameVi
   const combos = job.matrix?.combos?.map(escapeRegExp).join('|') ?? '.*';
   const suffix = job.matrix ? `(?: \\((?:${combos})\\))?` : '';
   const pattern = new RegExp(`^${wildcardFromName(job.rawName ?? job.jobId)}${suffix}$`);
-  return required.filter(name => pattern.test(name)).map(name => ({ file, jobId: job.jobId, name }));
+  return required
+    .filter(name => pattern.test(name))
+    .map(name => ({ file, jobId: job.jobId, name, text: `${REMEDY.jobName}: jobs.${job.jobId}` }));
+};
+
+/** The jobs of one workflow file, or an error naming the file, what parseJobs could not read and the shape it reads. */
+const jobsOf = (file: string, text: string): ParsedJob[] => {
+  try {
+    return parseJobs(text);
+  } catch (error) {
+    throw new Error(`${file}: ${error instanceof Error ? error.message : String(error)}, ${REMEDY.plainShape}`);
+  }
 };
 
 /** Every C-06 violation in one workflow file's text, taking (file, text) so the real tree and synthetic cases share this one code path. */
 const workflowViolations = (file: string, text: string): NameViolation[] =>
-  parseJobs(text).flatMap(job => jobViolations(file, job, REQUIRED_NAMES));
+  jobsOf(file, text).flatMap(job => jobViolations(file, job, REQUIRED_NAMES));
 
 /** This file, which names every required name and API pattern in order to test the rules below. */
 const THIS_FILE = relative(repoRoot, __filename);
@@ -435,18 +471,6 @@ const jobLines = (lines: string[], jobId: string): { idAt: number; nameAt: numbe
   return { idAt, nameAt };
 };
 
-/** The reason and remedy each violation's text starts with, before the line it names. */
-const REMEDY = {
-  lineBreak:
-    'a line break other than LF or CRLF, which YAML reads as a new line and these rules do not, so save the file with LF line endings',
-  apiWrite: 'the line writes or grants the Checks or Statuses API, which only an API_WRITER_ALLOWLIST file may do',
-  quotedKey: 'a quoted mapping key, which these rules do not read, so write the key unquoted',
-  permissionsWord:
-    '`permissions` may appear in a workflow only as a plain `permissions:` key, so reword the mention or move it to a comment line',
-  permissionsShape:
-    'a permissions value or block line outside the allowlist, so write `permissions:` as block lines `scope: read|write|none`, with checks and statuses only read or none, and no quotes, flow form, anchors, tags or merge keys'
-};
-
 const WORKFLOW_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const ACTION_PATH = /^\.github\/actions\/[^/]+\/action\.ya?ml$/;
 /** A line break YAML reads and the rules' split on LF or CRLF does not. */
@@ -455,16 +479,25 @@ const NON_LF_BREAK = /\r(?!\n)|[\u2028\u2029\u0085]/;
 /** One offending line, or line 0 for a violation of the whole file, and what to do about it. */
 type Violation = { file: string; line: number; text: string };
 
-/** A workflow or composite action holding NON_LF_BREAK, as one violation: the rules would not read the lines YAML does. */
-const lineBreakViolations = (file: string, text: string): Violation[] =>
-  (WORKFLOW_PATH.test(file) || ACTION_PATH.test(file)) && NON_LF_BREAK.test(text)
-    ? [{ file, line: 0, text: REMEDY.lineBreak }]
-    : [];
+/**
+ * A workflow or composite action holding NON_LF_BREAK, as one violation of the whole file, since
+ * the rules would not read the lines YAML does. Its text names the first break's code point and
+ * its line, counted in LFs.
+ */
+const lineBreakViolations = (file: string, text: string): Violation[] => {
+  const found = WORKFLOW_PATH.test(file) || ACTION_PATH.test(file) ? NON_LF_BREAK.exec(text) : null;
+  if (found === null) return [];
+  const codePoint = `U+${found[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+  const line = text.slice(0, found.index).split('\n').length;
+  const remedy = found[0] === '\r' ? REMEDY.lineBreakCr : REMEDY.lineBreakInvisible;
+  return [{ file, line: 0, text: `${remedy}: ${codePoint} on line ${line}` }];
+};
 
-type LiteralViolation = { file: string; line: number; name: string };
+type LiteralViolation = { file: string; line: number; name: string; text: string };
 
 /**
- * Every content line naming a required name anywhere but where its designated job reports it:
+ * Every content line naming a required name anywhere but where its designated job reports it,
+ * each violation's text naming its reason and remedy and then the trimmed line. Allowed are
  * that job's own `name:` line and, for a gate, its own id line or a `needs:` entry naming it,
  * all in its designated file. It reads every line of every file CI can run, allowlisted API
  * writers included, whatever carries the name: a job name, a check-run or status payload, an
@@ -488,7 +521,8 @@ const requiredNameLiteralViolations = (file: string, text: string): Array<Litera
       ? REQUIRED_NAMES.filter(name => line.includes(name) && !allowed(name, at)).map(name => ({
           file,
           line: at + 1,
-          name
+          name,
+          text: `${REMEDY.requiredName}: ${line.trim()}`
         }))
       : []
   );
@@ -515,6 +549,26 @@ const PERMISSIONS_VALUE = /^\s*(\{\}|read-all)?\s*(#.*)?$/;
 const PERMISSION_SCOPE = /^\s+([a-z][a-z-]*):\s*(read|write|none)\s*(#.*)?$/;
 /** A line whose first token is a quoted mapping key, which may spell `permissions` with an escape. */
 const QUOTED_KEY = /^\s*(-\s+)?["'][^"']*["']\s*:/;
+/** A `key:` or `- key:` line whose value is a block scalar header; group 1's width is the key token's column. */
+const BLOCK_SCALAR_KEY = /^(\s*(?:-\s+)?)[A-Za-z0-9_.-]+:\s+[|>][+-]?[0-9]?(?:\s+#.*)?\s*$/;
+
+/**
+ * The index of every line in a block scalar body, which YAML reads as text rather than keys. A
+ * body ends at the first non-blank line at or left of its key token's column, so a sibling key
+ * of a `- run: |` step, level with `run`, ends it.
+ */
+const blockScalarLines = (lines: string[]): Set<number> => {
+  const body = new Set<number>();
+  let keyColumn = -1;
+  lines.forEach((line, at) => {
+    if (keyColumn !== -1 && (line.trim() === '' || indentOf(line) > keyColumn)) {
+      body.add(at);
+      return;
+    }
+    keyColumn = BLOCK_SCALAR_KEY.exec(line)?.[1]!.length ?? -1;
+  });
+  return body;
+};
 
 /** The index of every line on or under a plain `permissions` key that its allowlist does not name. */
 const unlistedPermissionLines = (lines: string[]): Set<number> => {
@@ -544,11 +598,14 @@ const unlistedPermissionLines = (lines: string[]): Set<number> => {
  * repository's default permissions; a content line whose first token is a quoted mapping key;
  * a content line holding the word `permissions` other than as a plain `permissions:` key at any
  * indent, such as behind a tag, anchor, alias, explicit `?` key, quote or merge key, inside a
- * flow mapping, or in a `run:` body; and a `permissions:` value other than empty, `{}` or
- * `read-all`, or a content line in the block under it other than a plain
- * `scope: read|write|none` with `checks` and `statuses` only `read` or `none`. An allowlisted
- * file is exempt only while its text hashes to its pin, so any edit to it, on whichever line,
- * is one violation for the whole file.
+ * flow mapping, or in a one-line `run:` value, which is a plain scalar; and a `permissions:`
+ * value other than empty, `{}` or `read-all`, or a content line in the block under it other than
+ * a plain `scope: read|write|none` with `checks` and `statuses` only `read` or `none`. Those
+ * three key-shape rules exempt a block scalar body (the lines after a `key: |` or `key: >` line,
+ * up to the first non-blank line at or left of the key's column), which YAML reads as text,
+ * while still reading its `key:` line, so a `permissions: |` is flagged. An allowlisted file is
+ * exempt only while its text hashes to its pin, so any edit to it, on whichever line, is one
+ * violation for the whole file.
  *
  * These rules guard against a workflow reporting a required name by accident, in the plain YAML
  * style every workflow here uses, and they refuse every shape a person writes by accident.
@@ -578,14 +635,23 @@ const apiWriterViolations = (file: string, text: string): Violation[] => {
   const workflow = WORKFLOW_PATH.test(file);
   const defaultToken: Violation[] =
     workflow && !lines.some(line => line.startsWith('permissions:'))
-      ? [{ file, line: 0, text: 'no top-level permissions: block, so the token takes the repository default' }]
+      ? [
+          {
+            file,
+            line: 0,
+            text: `no top-level permissions: block, which leaves the token the repository default permissions, ${REMEDY.defaultToken}`
+          }
+        ]
       : [];
   const unlisted = workflow ? unlistedPermissionLines(lines) : new Set<number>();
+  const scalarBody = workflow ? blockScalarLines(lines) : new Set<number>();
   const remedyFor = (line: string, at: number): string | null => {
     if (!isContent(line)) return null;
     if (API_WRITE.test(line)) return REMEDY.apiWrite;
-    if (workflow && QUOTED_KEY.test(line)) return REMEDY.quotedKey;
-    if (workflow && /\bpermissions\b/.test(line) && !PERMISSIONS_KEY.test(line)) return REMEDY.permissionsWord;
+    // The key-shape rules below skip block scalar bodies; API_WRITE does not, as `gh api` calls live in them.
+    if (!workflow || scalarBody.has(at)) return null;
+    if (QUOTED_KEY.test(line)) return REMEDY.quotedKey;
+    if (/\bpermissions\b/.test(line) && !PERMISSIONS_KEY.test(line)) return REMEDY.permissionsWord;
     return unlisted.has(at) ? REMEDY.permissionsShape : null;
   };
   return [
@@ -1183,7 +1249,83 @@ const remedyCases: Array<[title: string, text: SourceText, line: number, remedy:
     REMEDY.permissionsWord
   ],
   ['R3: a quoted "on": key', `"on": push\n${READ_ONLY}${ONE_JOB}`, 1, REMEDY.quotedKey],
-  ["R4: A1's check-run step", A1[2], 7, REMEDY.apiWrite]
+  ["R4: A1's check-run step", A1[2], 7, REMEDY.apiWrite],
+  [
+    'R5: a check-runs call inside a run: | body',
+    workflowWithStep(`      - run: |\n          ${CHECK_RUN_COMMAND}\n`),
+    8,
+    REMEDY.apiWrite
+  ],
+  [
+    "R6: a quoted 'shell': key after a - run: | body, at the step's key column",
+    workflowWithStep("      - run: |\n          echo hi\n        'shell': bash\n"),
+    9,
+    REMEDY.quotedKey
+  ],
+  [
+    "R7: a name: mentioning permissions after a - run: | body, at the step's key column",
+    workflowWithStep('      - run: |\n          echo hi\n        name: set permissions\n'),
+    9,
+    REMEDY.permissionsWord
+  ],
+  [
+    'R8: a quoted "permissions": key in a job after another job\'s run: | body',
+    workflowWithStep(
+      '      - run: |\n          echo hi\n  other-job:\n    runs-on: ubuntu-latest\n    "permissions":\n      contents: read\n'
+    ),
+    11,
+    REMEDY.quotedKey
+  ],
+  [
+    'R9: a permissions: | block scalar, whose key line is still read',
+    `permissions: |\n  contents: read\n${ONE_JOB}`,
+    1,
+    REMEDY.permissionsShape
+  ]
+];
+
+/** Workflows whose block scalar bodies hold text a key-shape rule would flag on a key line, each passing the API rule. */
+const blockScalarPassCases: Array<[title: string, text: string]> = [
+  [
+    "a github-script body holding 'X-GitHub-Api-Version': '2022-11-28',",
+    workflowWithStep(
+      "      - uses: actions/github-script@v7\n        with:\n          script: |\n            await github.request('GET /rate_limit', {\n              headers: {\n                'X-GitHub-Api-Version': '2022-11-28',\n              },\n            });\n"
+    )
+  ],
+  [
+    'a run: | JSON heredoc holding "event_type": "x"',
+    workflowWithStep(
+      `      - run: |\n          gh api repos/$GITHUB_REPOSITORY/dispatches --input - <<'EOF'\n          {\n            "event_type": "x"\n          }\n          EOF\n`
+    )
+  ],
+  [
+    'a run: | body holding echo "set permissions" and permissions: {contents: read}',
+    workflowWithStep(
+      `      - run: |\n          echo "set permissions"\n          cat > generated.yml <<'EOF'\n          permissions: {contents: read}\n          EOF\n`
+    )
+  ]
+];
+
+/** Workflows refused whole for a line break, each with where its refusal must say the break is and the remedy for its kind. */
+const lineBreakRemedyCases: Array<[title: string, text: string, where: string, fix: string]> = [
+  [
+    'a U+2028 in a step name on line 7',
+    workflowWithStep('      - name: set\u2028up\n        run: echo hi\n'),
+    'U+2028 on line 7',
+    'delete the invisible character on that line'
+  ],
+  [
+    'a bare CR ending line 7',
+    workflowWithStep('      - name: setup\r        run: echo hi\n'),
+    'U+000D on line 7',
+    'save the file with LF line endings'
+  ]
+];
+
+/** Script lines naming a required name, in a file where `#` starts a comment and in one where it does not. */
+const literalRemedyCases: Array<[file: string, line: string]> = [
+  ['scripts/x.sh', "echo 'local-e2e (chrome)'"],
+  ['scripts/x.ts', '// local-e2e (chrome)']
 ];
 
 describe('no workflow can report a required E2E check name except through the computed full-run form', () => {
@@ -1193,9 +1335,9 @@ describe('no workflow can report a required E2E check name except through the co
   });
 
   it('parseJobs reads at least one job from every workflow, and each designated job from its own', () => {
-    expect(allWorkflowFiles().filter(file => parseJobs(configSource(file)).length === 0)).toEqual([]);
+    expect(allWorkflowFiles().filter(file => jobsOf(file, configSource(file)).length === 0)).toEqual([]);
     const missing = FULL_NAME_JOBS.filter(
-      ({ file, jobId }) => !parseJobs(configSource(file)).some(job => job.jobId === jobId)
+      ({ file, jobId }) => !jobsOf(file, configSource(file)).some(job => job.jobId === jobId)
     );
     expect(missing).toEqual([]);
   });
@@ -1224,6 +1366,58 @@ describe('no workflow can report a required E2E check name except through the co
       ]);
     }
   );
+
+  it.each(blockScalarPassCases)('%s -> passes the API rule', (_title, text) => {
+    expect(apiWriterViolations('.github/workflows/synthetic-block-scalar.yml', text)).toEqual([]);
+  });
+
+  it.each(lineBreakRemedyCases)(
+    '%s -> both rules refuse the file at line 0, saying where the break is and what to do',
+    (_title, text, where, fix) => {
+      const file = '.github/workflows/synthetic-line-break.yml';
+      for (const rule of [apiWriterViolations, requiredNameLiteralViolations]) {
+        expect(rule(file, text)).toEqual([{ file, line: 0, text: expect.stringContaining(`${fix}: ${where}`) }]);
+      }
+    }
+  );
+
+  it('a workflow with no top-level permissions block is one line-0 violation naming its remedy', () => {
+    const file = '.github/workflows/synthetic-default-token.yml';
+    expect(apiWriterViolations(file, `on: push\n${ONE_JOB}`)).toEqual([
+      {
+        file,
+        line: 0,
+        text: `no top-level permissions: block, which leaves the token the repository default permissions, ${REMEDY.defaultToken}`
+      }
+    ]);
+  });
+
+  it.each(literalRemedyCases)(
+    '%s line %s -> one literal violation naming its remedy, which offers a # comment only in YAML or shell',
+    (file, line) => {
+      const violations = requiredNameLiteralViolations(file, `${line}\n`);
+      expect(violations).toEqual([
+        { file, line: 1, name: 'local-e2e (chrome)', text: `${REMEDY.requiredName}: ${line}` }
+      ]);
+      expect(violations[0]?.text).toContain('in a YAML or shell file move it to a `#` comment line');
+    }
+  );
+
+  it('a non-designated job named a required name is one job-name violation naming its remedy', () => {
+    const file = '.github/workflows/synthetic-job-name.yml';
+    expect(
+      workflowViolations(file, "jobs:\n  some-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n")
+    ).toEqual([{ file, jobId: 'some-job', name: 'local-e2e (chrome)', text: `${REMEDY.jobName}: jobs.some-job` }]);
+  });
+
+  it('a four-space-indented workflow is refused with an error naming its file and the plain shape', () => {
+    const file = 'synthetic-four-space-id.yml';
+    const text = 'jobs:\n    bridge-guardian-e2e-gate:\n      runs-on: ubuntu-latest\n';
+    expect(checkerOutcome(file, text)).toBe('throws');
+    expect(() => workflowViolations(file, text)).toThrow(
+      new Error(`${file}: unreadable line at indent 2: "    bridge-guardian-e2e-gate:", ${REMEDY.plainShape}`)
+    );
+  });
 
   it.each(LEVELS.flatMap(level => READABLE_GRANTS.map((entry): [Level, string] => [level, entry])))(
     'a %s %j passes the API rule',
