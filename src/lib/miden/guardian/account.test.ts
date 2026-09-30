@@ -415,7 +415,7 @@ describe('guardianProviderFromEndpoint', () => {
 describe('createGuardianAccount', () => {
   const ACCOUNT_STATE = new Uint8Array([7, 8, 9]);
   const makeMultisig = () => ({
-    account: { id: () => ({ toString: () => 'guardian-acc-id' }), serialize: () => ACCOUNT_STATE },
+    account: { id: () => ({ toString: () => 'guardian-acc-id' }), serialize: jest.fn(() => ACCOUNT_STATE) },
     registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
 
@@ -683,6 +683,10 @@ describe('createGuardianAccount', () => {
 
       await expect(pending).resolves.toMatchObject({ account: multisig.account });
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      // Serialized once, before the retry loop, and the same state goes out on each attempt.
+      expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE));
     });
 
     it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
@@ -870,6 +874,8 @@ describe('createGuardianAccount', () => {
       ).rejects.toBe(poison);
       expect(multisigClientConfig.create).toHaveBeenCalledTimes(step === 'build' ? 0 : 1);
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(step === 'build' || step === 'registration' ? 0 : 1);
+      // The serialize reads a client-returned object, so it must wait for the registration liveness check.
+      expect(multisig.account.serialize).toHaveBeenCalledTimes(step === 'build' || step === 'registration' ? 0 : 1);
       expect(webClient.sync).toHaveBeenCalledTimes(step === 'insert' ? 1 : 0);
       expect(webClient.keystore.insert).not.toHaveBeenCalled();
     });
