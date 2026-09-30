@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "正在接受…",
   "transfersSection": "转账",
   "activityUnread": "未读",
-  "revealRecoveryPhrase": "显示恢复短语"
+  "revealRecoveryPhrase": "显示恢复短语",
+  "hideToken": "隐藏令牌",
+  "unhideToken": "取消隐藏代币",
+  "tokenHiddenNotice": "隐藏于“主钱包”之外。它仍保存在您的钱包中，其转账仍可被领取。",
+  "hiddenAssets": "隐藏资产",
+  "hiddenAssetsCount": "隐藏资产（$count$）",
+  "unhide": "取消隐藏",
+  "unhideTokenLabel": "取消隐藏 $name$",
+  "hiddenTokensError": "无法更新隐藏代币。请重试。",
+  "hiddenTokensUnreadable": "无法加载隐藏代币。"
 }

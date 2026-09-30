@@ -16,6 +16,8 @@ export interface AssetRowProps {
   asset: TokenBalanceData;
   tokenPrices: TokenPrices;
   onClick?: () => void;
+  /** Draws the 1D sparkline (the default). Off, the row fetches none and gives its width to the name. */
+  sparkline?: boolean;
   'data-testid'?: string;
 }
 
@@ -30,7 +32,13 @@ const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixe
  * Binance (flat-grey fallback for unindexed symbols), fiat price, and
  * coloured 24h delta.
  */
-export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data-testid': dataTestId }) => {
+export const AssetRow: FC<AssetRowProps> = ({
+  asset,
+  tokenPrices,
+  onClick,
+  sparkline = true,
+  'data-testid': dataTestId
+}) => {
   const { t } = useTranslation();
   const verification = useTokenVerification(asset.tokenId);
   const { metadata, balance } = asset;
@@ -56,7 +64,8 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
   const formatQuantity = adaptiveFormatterFor(balance);
   const formatFiat = adaptiveFormatterFor(fiatValue);
 
-  const points = useTokenSparkline(priceSymbol, '1D');
+  // An empty symbol is the hook's "fetch nothing".
+  const points = useTokenSparkline(sparkline ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
   const sparkColor =
@@ -77,7 +86,7 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data
           metadata.symbol
         )
       }
-      chart={<Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />}
+      chart={sparkline ? <Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} /> : undefined}
       price={
         scaleIsKnown && quote ? (
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />

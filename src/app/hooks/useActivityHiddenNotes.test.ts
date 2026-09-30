@@ -10,7 +10,9 @@ import { resetActivityHiddenNotes, useActivityHiddenNotes } from './useActivityH
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: jest.fn(),
   onStorageChanged: jest.fn(),
-  putToStorage: jest.fn()
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  registerStorageReread: jest.fn()
 }));
 const read = jest.mocked(fetchFromStorage);
 const write = jest.mocked(putToStorage);

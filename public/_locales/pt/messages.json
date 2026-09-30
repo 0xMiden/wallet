@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Revelar a frase de recuperação",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Ocultar token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Exibir token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Ativos ocultos",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Ativos ocultos ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Mostrar",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Exibir $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Não foi possível atualizar os tokens ocultos. Tente novamente.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Não foi possível carregar os tokens ocultos.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

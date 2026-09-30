@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Wird akzeptiert…",
   "transfersSection": "Überweisungen",
   "activityUnread": "Ungelesen",
-  "revealRecoveryPhrase": "Wiederherstellungsphrase anzeigen"
+  "revealRecoveryPhrase": "Wiederherstellungsphrase anzeigen",
+  "hideToken": "Token ausblenden",
+  "unhideToken": "Token einblenden",
+  "tokenHiddenNotice": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
+  "hiddenAssets": "Versteckte Vermögenswerte",
+  "hiddenAssetsCount": "Versteckte Vermögenswerte ($count$)",
+  "unhide": "Einblenden",
+  "unhideTokenLabel": "$name$ wieder einblenden",
+  "hiddenTokensError": "Versteckte Token konnten nicht aktualisiert werden. Bitte versuche es erneut.",
+  "hiddenTokensUnreadable": "Versteckte Token konnten nicht geladen werden."
 }

@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Reveal recovery phrase",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Hide token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Unhide token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Hidden from Home. It stays in your wallet and its transfers can still be claimed.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Hidden assets",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Hidden assets ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Unhide",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Unhide $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Could not update hidden tokens. Please try again.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Hidden tokens could not be loaded.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

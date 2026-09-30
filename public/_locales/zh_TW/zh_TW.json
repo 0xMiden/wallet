@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "正在接受…",
   "transfersSection": "轉帳",
   "activityUnread": "未讀",
-  "revealRecoveryPhrase": "顯示恢復短語"
+  "revealRecoveryPhrase": "顯示恢復短語",
+  "hideToken": "隱藏代幣",
+  "unhideToken": "取消隱藏代幣",
+  "tokenHiddenNotice": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
+  "hiddenAssets": "隱藏資產",
+  "hiddenAssetsCount": "隱藏資產（$count$）",
+  "unhide": "取消隱藏",
+  "unhideTokenLabel": "取消隱藏 $name$",
+  "hiddenTokensError": "無法更新隱藏代幣。請重試。",
+  "hiddenTokensUnreadable": "無法載入隱藏代幣。"
 }

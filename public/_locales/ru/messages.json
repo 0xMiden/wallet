@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Раскрыть фразу восстановления",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Скрыть токен",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Показать токен",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Скрыто из «Дома». Оно остается в вашем кошельке, и его переводы по-прежнему можно получить.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Скрытые активы",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Скрытые активы ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Показать",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Показать $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Не удалось обновить скрытые токены. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Скрытые токены не удалось загрузить.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

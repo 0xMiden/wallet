@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Acceptation…",
   "transfersSection": "Transferts",
   "activityUnread": "Non lu",
-  "revealRecoveryPhrase": "Afficher la phrase de récupération"
+  "revealRecoveryPhrase": "Afficher la phrase de récupération",
+  "hideToken": "Masquer le jeton",
+  "unhideToken": "Afficher le jeton",
+  "tokenHiddenNotice": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
+  "hiddenAssets": "Actifs cachés",
+  "hiddenAssetsCount": "Actifs cachés ($count$)",
+  "unhide": "Afficher",
+  "unhideTokenLabel": "Afficher l'$name$",
+  "hiddenTokensError": "Impossible de mettre à jour les jetons cachés. Veuillez réessayer.",
+  "hiddenTokensUnreadable": "Les jetons cachés n’ont pas pu être chargés."
 }

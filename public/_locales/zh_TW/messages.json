@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "顯示恢復短語",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "隱藏代幣",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "取消隱藏代幣",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隱藏資產",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隱藏資產（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "取消隱藏",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "取消隱藏 $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "無法更新隱藏代幣。請重試。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "無法載入隱藏代幣。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

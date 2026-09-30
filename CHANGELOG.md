@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
+- [FEATURE][all] A token can be hidden from its token page: it leaves Home's asset list, the Home total and the send token picker, and is listed under Hidden assets on Home, where it can be unhidden; its transfers can still be claimed, and the native token cannot be hidden (#813).
 
 ### Changes
 
