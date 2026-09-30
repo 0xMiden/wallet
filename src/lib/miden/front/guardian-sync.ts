@@ -19,7 +19,11 @@ import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
-import { clearLocalStateNotSaved, findUnsavedSwitchRow } from 'lib/miden/transaction/switch-guardian-residual';
+import {
+  clearLocalStateNotSaved,
+  findUnsavedSwitchRow,
+  markSwitchDeltaPushed
+} from 'lib/miden/transaction/switch-guardian-residual';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -531,14 +535,29 @@ async function adoptFromPreviousGuardian(
         zustandProvider.signWord,
         unsaved.previousGuardianEndpoint
       );
-      const adoptStartedAt = monotonicNowMs();
-      try {
-        await previous.adoptGuardianStateOnce();
-      } finally {
-        parked = monotonicNowMs() - adoptStartedAt > PARKED_SYNC_FAILURE_MS;
+      // Without the delta the landed push did not deliver, that guardian never holds the post-switch
+      // state. Push it again, outside any lock; a guardian that stays silent would park the adopt.
+      const repush =
+        !unsaved.switchDeltaPushed && typeof unsaved.switchProposalId === 'string'
+          ? await previous.pushSwitchDeltaBounded(unsaved.switchProposalId)
+          : undefined;
+      if (repush === 'pushed') {
+        await markSwitchDeltaPushed(unsaved.id).catch((markError: unknown) => {
+          console.warn('[Guardian Sync] could not record the re-pushed switch delta:', markError);
+        });
       }
-      // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
-      postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
+      if (repush === 'silent') {
+        parked = true;
+      } else {
+        const adoptStartedAt = monotonicNowMs();
+        try {
+          await previous.adoptGuardianStateOnce();
+        } finally {
+          parked = monotonicNowMs() - adoptStartedAt > PARKED_SYNC_FAILURE_MS;
+        }
+        // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
+        postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
+      }
     }
   } catch (error) {
     if (isSyncWatchdogEviction(error)) parked = true;

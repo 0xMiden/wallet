@@ -134,7 +134,13 @@ export interface ISwitchGuardianExtraInputs {
   // not register it on the new operator, which refuses a copy naming the old one (#1233). The
   // background self-heal adopts that state from `previousGuardianEndpoint`, registers it and clears
   // this. `registerFailed` is not set on its own for this case: its self-heal cannot repair it.
+  // Coordinated rows only: the flag means that repair path exists.
   localStateNotSaved?: boolean;
+  // `localStateUnrecoverable`: the same failure on a DIRECT switch, which has no repair path. The heal
+  // skips it, the previous guardian never received a delta, the new one was never handed a state, the
+  // account is private so the chain holds only its commitment, and running the switch again builds on
+  // the stale copy. Nothing clears it; the receipt sends the user to support.
+  localStateUnrecoverable?: boolean;
   // `switchProposalId` / `switchDeltaPushed`: a landed coordinated switch's proposal, and whether the
   // outgoing guardian took its executed delta inside the deadline (#1233). The reconcile adopts only
   // from a guardian that did, and the self-heal re-pushes the delta by this id to one that did not.

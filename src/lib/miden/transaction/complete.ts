@@ -701,6 +701,7 @@ export const completeSwitchGuardianTransaction = async (
   let endpointPersistFailed = false;
   let registerFailed = false;
   let localStateNotSaved = false;
+  let localStateUnrecoverable = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -812,9 +813,13 @@ export const completeSwitchGuardianTransaction = async (
       );
       throw new GuardianSwitchDiscardedError(askNodeAbout, restored ? undefined : newGuardianEndpoint);
     }
+    // Only a coordinated row has a repair path: the self-heal adopts from the previous guardian, which
+    // a direct switch fled before it ever received the delta.
+    const switchedDirectly = tx.extraInputs.switchedDirectly === true;
     try {
       if (localState === 'pre-switch') {
-        localStateNotSaved = true;
+        if (switchedDirectly) localStateUnrecoverable = true;
+        else localStateNotSaved = true;
       } else if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
@@ -824,7 +829,7 @@ export const completeSwitchGuardianTransaction = async (
       registerFailed = true;
       // Refused, maybe, for a copy nobody could show was post-switch: the self-heal that adopts
       // one has to know.
-      if (localState === 'unknown') localStateNotSaved = true;
+      if (localState === 'unknown' && !switchedDirectly) localStateNotSaved = true;
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
           'unknown to the new operator until the guardian-sync self-heal lands a registration:',
@@ -848,7 +853,14 @@ export const completeSwitchGuardianTransaction = async (
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed, localStateNotSaved },
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
       // On the landed reconcile path there is no local TransactionResult, so the row takes the id
       // the failure carried, if any (#1233); the switch is on chain either way.
       ...(resultFields ?? landedTransactionIdFields(landed))
@@ -887,7 +899,14 @@ export const completeSwitchGuardianTransaction = async (
     const completedPayload = {
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed, localStateNotSaved },
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
       ...(resultFields ?? landedTransactionIdFields(landed))
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {

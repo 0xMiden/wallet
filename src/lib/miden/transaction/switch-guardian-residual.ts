@@ -13,6 +13,10 @@ export interface UnsavedSwitchRow {
   previousGuardianEndpoint: string;
   /** The switch fled an unresponsive previous guardian, which never received its delta. */
   switchedDirectly: boolean;
+  /** The coordinated switch's proposal, whose executed delta the self-heal can push again. */
+  switchProposalId: string | undefined;
+  /** The previous guardian took that delta, from the landed push or a re-push. */
+  switchDeltaPushed: boolean;
 }
 
 const isUnsavedSwitchTo = (tx: ITransaction, accountPublicKey: string, endpoint: string): boolean =>
@@ -31,11 +35,21 @@ export async function findUnsavedSwitchRow(
   const newest = rows.sort((a, b) => b.initiatedAt - a.initiatedAt)[0];
   const previous: unknown = newest?.extraInputs?.previousGuardianEndpoint;
   if (!newest || typeof previous !== 'string') return undefined;
+  const proposalId: unknown = newest.extraInputs.switchProposalId;
   return {
     id: newest.id,
     previousGuardianEndpoint: previous,
-    switchedDirectly: newest.extraInputs.switchedDirectly === true
+    switchedDirectly: newest.extraInputs.switchedDirectly === true,
+    switchProposalId: typeof proposalId === 'string' ? proposalId : undefined,
+    switchDeltaPushed: newest.extraInputs.switchDeltaPushed === true
   };
+}
+
+/** Record that the previous guardian took this row's delta, so the self-heal does not push it again. */
+export async function markSwitchDeltaPushed(rowId: string): Promise<void> {
+  await Repo.transactions.where({ id: rowId }).modify(tx => {
+    tx.extraInputs = { ...tx.extraInputs, switchDeltaPushed: true };
+  });
 }
 
 /** Clear the flag on every such row, once this device registered the post-switch state. */

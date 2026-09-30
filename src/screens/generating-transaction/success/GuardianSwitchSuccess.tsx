@@ -61,6 +61,9 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // confirmation or advise running the switch again, which cannot help a device holding the
   // pre-switch account. The background self-heal clears it.
   const localStateNotSaved = extra?.localStateNotSaved === true;
+  // Sharpest (#1233): the same failure on a direct switch, which nothing repairs. It outranks the
+  // background-repair promise above, and running the switch again would build on the stale copy.
+  const localStateUnrecoverable = extra?.localStateUnrecoverable === true;
 
   // Two of the four bullets assert the rotation took effect, and both are
   // INVERTED when it may not have landed: info1 says the old guardian can no
@@ -68,13 +71,14 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // reachable — when in fact, if the switch did not land, they still need the
   // old one, which is the operator this path already found unreachable. Both
   // are swapped for "once the switch is confirmed" phrasings. info2 (nothing
-  // moved) and info4 (you can rotate again) hold either way.
+  // moved) and info4 (you can rotate again) hold either way, except that info4 contradicts the
+  // unrecoverable state's "do not run the switch again".
   const infoKeys = [
     commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1',
     'guardianSwitchSuccessInfo2',
     commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3',
-    'guardianSwitchSuccessInfo4'
-  ] as const;
+    ...(localStateUnrecoverable ? [] : ['guardianSwitchSuccessInfo4'])
+  ];
 
   return (
     <TransactionSuccessLayout
@@ -116,7 +120,11 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
         </div>
       )}
 
-      {(localStateNotSaved || commitUnconfirmed || endpointNotSaved || registrationPending) && (
+      {(localStateUnrecoverable ||
+        localStateNotSaved ||
+        commitUnconfirmed ||
+        endpointNotSaved ||
+        registrationPending) && (
         <Alert
           className="mt-3 w-full text-left"
           variant={AlertVariant.Warning}
@@ -124,20 +132,26 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
             <>
               <span className="font-semibold">
                 {t(
-                  localStateNotSaved
-                    ? 'guardianSwitchLocalStateNotSavedTitle'
-                    : commitUnconfirmed
-                      ? 'guardianSwitchUnconfirmedTitle'
-                      : 'guardianSwitchSetupIncompleteTitle'
+                  localStateUnrecoverable
+                    ? 'guardianSwitchLocalStateUnrecoverableTitle'
+                    : localStateNotSaved
+                      ? 'guardianSwitchLocalStateNotSavedTitle'
+                      : commitUnconfirmed
+                        ? 'guardianSwitchUnconfirmedTitle'
+                        : 'guardianSwitchSetupIncompleteTitle'
                 )}
               </span>{' '}
-              {localStateNotSaved
-                ? t('guardianSwitchLocalStateNotSavedBody')
-                : commitUnconfirmed
-                  ? t('guardianSwitchUnconfirmedBody')
-                  : t(
-                      endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody'
-                    )}
+              {localStateUnrecoverable
+                ? t('guardianSwitchLocalStateUnrecoverableBody')
+                : localStateNotSaved
+                  ? t('guardianSwitchLocalStateNotSavedBody')
+                  : commitUnconfirmed
+                    ? t('guardianSwitchUnconfirmedBody')
+                    : t(
+                        endpointNotSaved
+                          ? 'guardianSwitchEndpointNotSavedBody'
+                          : 'guardianSwitchRegistrationPendingBody'
+                      )}
               {/* `commitUnconfirmed` outranks the other two because their bodies
                   open by asserting the commit. But outranking them dropped the
                   one INSTRUCTION on this screen: the unsaved-address case needs
@@ -148,7 +162,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
                   than substituted, so the unconfirmed framing still leads.
                   `registerFailed` has no equivalent line: it self-heals from the
                   sync loop and asks nothing of the user. */}
-              {(localStateNotSaved || commitUnconfirmed) && endpointNotSaved && (
+              {(localStateUnrecoverable || localStateNotSaved || commitUnconfirmed) && endpointNotSaved && (
                 <> {t('guardianSwitchUnconfirmedEndpointNotSaved')}</>
               )}
             </>

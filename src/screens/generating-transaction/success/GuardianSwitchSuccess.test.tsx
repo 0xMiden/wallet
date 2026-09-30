@@ -338,6 +338,46 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
     });
 
+    it("says a direct switch's new state cannot be recovered on this device, and never promises a background repair", () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      // "You can rotate again at any time" contradicts "do not run the switch again".
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+
+      cleanup();
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
     it('outranks every other warning and still names an unsaved address', () => {
       render(
         <GuardianSwitchSuccess

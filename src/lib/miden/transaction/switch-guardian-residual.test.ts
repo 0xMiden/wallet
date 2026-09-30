@@ -1,4 +1,4 @@
-import { clearLocalStateNotSaved, findUnsavedSwitchRow } from './switch-guardian-residual';
+import { clearLocalStateNotSaved, findUnsavedSwitchRow, markSwitchDeltaPushed } from './switch-guardian-residual';
 
 interface MockRow {
   id: string;
@@ -15,6 +15,11 @@ jest.mock('lib/miden/repo', () => ({
       toArray: async () => mockRows.filter(predicate),
       modify: async (fn: (row: MockRow) => void) => {
         mockRows.filter(predicate).forEach(fn);
+      }
+    }),
+    where: (query: { id: string }) => ({
+      modify: async (fn: (row: MockRow) => void) => {
+        mockRows.filter(row => row.id === query.id).forEach(fn);
       }
     })
   }
@@ -48,7 +53,30 @@ describe('findUnsavedSwitchRow (#1233)', () => {
     await expect(findUnsavedSwitchRow('acc-1_suffix', NEW)).resolves.toEqual({
       id: 'newer',
       previousGuardianEndpoint: OLD,
-      switchedDirectly: false
+      switchedDirectly: false,
+      switchProposalId: undefined,
+      switchDeltaPushed: false
+    });
+  });
+
+  it('returns the proposal whose delta the landed push did or did not deliver', async () => {
+    mockRows.push(
+      switchRow('pushed', 100, { localStateNotSaved: true, switchProposalId: 'prop', switchDeltaPushed: true })
+    );
+
+    await expect(findUnsavedSwitchRow('acc-1', NEW)).resolves.toMatchObject({
+      switchProposalId: 'prop',
+      switchDeltaPushed: true
+    });
+
+    mockRows.length = 0;
+    mockRows.push(
+      switchRow('lost', 100, { localStateNotSaved: true, switchProposalId: 'prop', switchDeltaPushed: false })
+    );
+
+    await expect(findUnsavedSwitchRow('acc-1', NEW)).resolves.toMatchObject({
+      switchProposalId: 'prop',
+      switchDeltaPushed: false
     });
   });
 
@@ -58,7 +86,9 @@ describe('findUnsavedSwitchRow (#1233)', () => {
     await expect(findUnsavedSwitchRow('acc-1', NEW)).resolves.toEqual({
       id: 'direct',
       previousGuardianEndpoint: OLD,
-      switchedDirectly: true
+      switchedDirectly: true,
+      switchProposalId: undefined,
+      switchDeltaPushed: false
     });
   });
 
@@ -77,6 +107,20 @@ describe('findUnsavedSwitchRow (#1233)', () => {
     mockRows.push(row);
 
     await expect(findUnsavedSwitchRow('acc-1', NEW)).resolves.toBeUndefined();
+  });
+});
+
+describe('markSwitchDeltaPushed (#1233)', () => {
+  it('records the re-pushed delta on that row only', async () => {
+    mockRows.push(
+      switchRow('switch-row', 100, { localStateNotSaved: true, switchProposalId: 'prop', switchDeltaPushed: false }),
+      switchRow('other-row', 100, { localStateNotSaved: true, switchProposalId: 'prop', switchDeltaPushed: false })
+    );
+
+    await markSwitchDeltaPushed('switch-row');
+
+    expect(mockRows[0]!.extraInputs).toMatchObject({ switchDeltaPushed: true, localStateNotSaved: true });
+    expect(mockRows[1]!.extraInputs.switchDeltaPushed).toBe(false);
   });
 });
 

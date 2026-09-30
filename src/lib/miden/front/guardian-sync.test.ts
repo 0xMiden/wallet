@@ -190,11 +190,13 @@ const mockFindUnsavedSwitchRow = jest.fn(
   async (_accountPublicKey: string, _endpoint: string): Promise<unknown> => undefined
 );
 const mockClearLocalStateNotSaved = jest.fn(async (_accountPublicKey: string, _endpoint: string) => {});
+const mockMarkSwitchDeltaPushed = jest.fn(async (_rowId: string) => {});
 jest.mock('lib/miden/transaction/switch-guardian-residual', () => ({
   findUnsavedSwitchRow: (accountPublicKey: string, endpoint: string) =>
     mockFindUnsavedSwitchRow(accountPublicKey, endpoint),
   clearLocalStateNotSaved: (accountPublicKey: string, endpoint: string) =>
-    mockClearLocalStateNotSaved(accountPublicKey, endpoint)
+    mockClearLocalStateNotSaved(accountPublicKey, endpoint),
+  markSwitchDeltaPushed: (rowId: string) => mockMarkSwitchDeltaPushed(rowId)
 }));
 
 const mockGetAccount = jest.fn();
@@ -2575,6 +2577,96 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
       dateSpy.mockRestore();
       perfSpy.mockRestore();
+    });
+
+    describe('whose delta the landed push did not deliver', () => {
+      // The service's real bounded push over the mocked `pushSwitchDelta`, so its budget and its verdicts
+      // are the ones production uses.
+      const realPushSwitchDeltaBounded: (proposalId: string) => Promise<'pushed' | 'silent' | 'refused'> =
+        jest.requireActual('lib/miden/guardian').MultisigService.prototype.pushSwitchDeltaBounded;
+      const mockPushSwitchDelta = jest.fn(async (_proposalId: string) => {});
+
+      beforeEach(() => {
+        mockPushSwitchDelta.mockReset();
+        mockPushSwitchDelta.mockImplementation(async () => {});
+        mockFindUnsavedSwitchRow.mockResolvedValue({
+          id: 'switch-row',
+          previousGuardianEndpoint: previousEndpoint,
+          switchedDirectly: false,
+          switchProposalId: 'prop',
+          switchDeltaPushed: false
+        });
+        const previous = {
+          pushSwitchDelta: mockPushSwitchDelta,
+          pushSwitchDeltaBounded: (proposalId: string) => realPushSwitchDeltaBounded.call(previous, proposalId),
+          adoptGuardianStateOnce: mockAdoptGuardianState
+        };
+        mockMultisigInit.mockResolvedValue(previous);
+      });
+
+      it('re-pushes the switch delta before adopting when the first push failed', async () => {
+        await runUntilPersistent();
+
+        expect(mockPushSwitchDelta).toHaveBeenCalledWith('prop');
+        expect(mockPushSwitchDelta.mock.invocationCallOrder[0]!).toBeLessThan(
+          mockAdoptGuardianState.mock.invocationCallOrder[0]!
+        );
+        expect(mockMarkSwitchDeltaPushed).toHaveBeenCalledWith('switch-row');
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      });
+
+      it('skips the adopt when the re-push times out', async () => {
+        mockPushSwitchDelta.mockImplementation(() => new Promise<void>(() => {}));
+        for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+        jest.useFakeTimers({ doNotFake: ['Date', 'performance'] });
+        try {
+          const lap = syncGuardianAccounts();
+          await jest.advanceTimersByTimeAsync(30_000);
+          await lap;
+        } finally {
+          jest.useRealTimers();
+        }
+
+        expect(mockPushSwitchDelta).toHaveBeenCalledWith('prop');
+        expect(mockAdoptGuardianState).not.toHaveBeenCalled();
+        expect(mockMarkSwitchDeltaPushed).not.toHaveBeenCalled();
+        expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+        // A silent guardian would park the next lap's adopt, so the lap is booked as a park.
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+      });
+
+      it('never re-pushes a delta the landed push delivered', async () => {
+        mockFindUnsavedSwitchRow.mockResolvedValue({
+          id: 'switch-row',
+          previousGuardianEndpoint: previousEndpoint,
+          switchedDirectly: false,
+          switchProposalId: 'prop',
+          switchDeltaPushed: true
+        });
+
+        await runUntilPersistent();
+
+        expect(mockPushSwitchDelta).not.toHaveBeenCalled();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      });
+
+      // The re-push runs outside any lock, so its wait is no park: only the adopt's hold is timed.
+      it('books a slow re-push followed by a quick adopt as a lap that did not park', async () => {
+        let now = 1_000_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        mockPushSwitchDelta.mockImplementation(async () => {
+          now += 12_000;
+        });
+
+        await runUntilPersistent();
+
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      });
     });
 
     it('an endpoint change lifts the pause on a previous guardian', async () => {

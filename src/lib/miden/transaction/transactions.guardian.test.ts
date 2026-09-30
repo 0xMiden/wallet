@@ -1044,6 +1044,39 @@ describe('completeSwitchGuardianTransaction', () => {
       expect(multisigService.adoptGuardianStateOnce).not.toHaveBeenCalled();
     });
 
+    // A direct switch has no repair path: the heal skips it, the old guardian never received a delta, and
+    // the chain holds only the private account's commitment.
+    it('a direct switch whose copy stays pre-switch is flagged unrecoverable, not unsaved', async () => {
+      const { tx, provider, row } = landedSwitch();
+      tx.extraInputs = { ...tx.extraInputs, switchedDirectly: true };
+      mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+
+      await completeSwitchGuardianTransaction(tx, undefined, undefined, provider as never, true, landed);
+
+      expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().extraInputs).toMatchObject({
+        localStateUnrecoverable: true,
+        localStateNotSaved: false,
+        registerFailed: false
+      });
+    });
+
+    it('a direct switch whose unknown copy fails registration keeps registerFailed without localStateNotSaved', async () => {
+      const { tx, provider, row } = landedSwitch();
+      tx.extraInputs = { ...tx.extraInputs, switchedDirectly: true };
+      mockAdoptPostSwitchState.mockResolvedValueOnce('unknown');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+      mockFinalizeDirectSwitch.mockRejectedValueOnce(new Error('configure refused'));
+
+      await completeSwitchGuardianTransaction(tx, undefined, undefined, provider as never, true, landed);
+
+      expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
+      expect(row().extraInputs).toMatchObject({ registerFailed: true, localStateNotSaved: false });
+      expect(row().extraInputs).not.toMatchObject({ localStateUnrecoverable: true });
+    });
+
     it('skips a registration the new guardian can only refuse and flags the row, keeping both endpoints', async () => {
       const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
       mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
