@@ -223,6 +223,13 @@ function transferNotes(
   }
 }
 
+/**
+ * Builds the Activity row for one recovered delta, taken as the operator serves it. Its checks reject an inconsistent
+ * answer, not a forged one: a delta push carries only its transaction summary, so an ordinary delta has no signer
+ * signature to verify, and the node serves account state only 50 blocks back, so the commitment at an older nonce
+ * cannot be read. The trust rests on who is asked: recoverGuardianHistory asks only the account's own operators and
+ * the network's built-in ones.
+ */
 export function recoveredHistoryRecord(
   accountId: string,
   canonicalAccountId: string,
