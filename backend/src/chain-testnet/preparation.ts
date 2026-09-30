@@ -8,6 +8,7 @@ import {
   type BuyBatchInput
 } from './calibur.js';
 import type { AccountState } from './sepolia.js';
+import { ONRAMP_TOKEN } from './token.js';
 import type { Order } from '../orders/store.js';
 
 /** The values that the wallet signs. `GET /orders/:id` returns this object in `awaiting_signature`. */
@@ -57,14 +58,14 @@ export function buildPreparation(
 
 /** The batch input of an order with its signed values. */
 export function batchInputOf(
-  order: Pick<Order, 'evmAddress' | 'midenAccountHex' | 'tokenAddress'>,
+  order: Pick<Order, 'evmAddress' | 'midenAccountHex'>,
   signed: { tokenAmount: string; batchNonce: string; salt: Hex; deadline: number },
   executor: Address
 ): BuyBatchInput {
   return {
     evmAddress: order.evmAddress,
     midenAccountHex: order.midenAccountHex,
-    token: order.tokenAddress,
+    token: ONRAMP_TOKEN.address,
     amount: BigInt(signed.tokenAmount),
     batchNonce: BigInt(signed.batchNonce),
     salt: signed.salt,

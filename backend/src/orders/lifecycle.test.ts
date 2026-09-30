@@ -23,8 +23,7 @@ import {
   FakeChain,
   FakeTransakOrders,
   memoryStore,
-  MIDEN_ACCOUNT,
-  TOKEN
+  MIDEN_ACCOUNT
 } from '../test/support.js';
 import { TransakError } from '../transak/client.js';
 
@@ -109,9 +108,7 @@ function checkout(evmAddress: `0x${string}` = BUYER): string {
     id,
     evmAddress,
     midenAccountHex: MIDEN_ACCOUNT,
-    fiatAmount: '10',
-    tokenAddress: TOKEN,
-    tokenDecimals: 18
+    fiatAmount: '10'
   });
   return id;
 }

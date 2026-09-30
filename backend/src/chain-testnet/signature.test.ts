@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-
 import type { Address } from 'viem';
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
@@ -8,7 +7,7 @@ import { buyBatchTypedData, CALIBUR_SEPOLIA_ADDRESS, ONRAMP_NONCE_KEY, SEPOLIA_C
 import { batchInputOf, buildPreparation, type Preparation } from './preparation.js';
 import type { AccountState } from './sepolia.js';
 import { SignatureCheckError, verifySignedBatch, type AuthorizationBody, type SignatureBody } from './signature.js';
-import { CALIBUR_SALT, EXECUTOR, MIDEN_ACCOUNT, TOKEN } from '../test/support.js';
+import { CALIBUR_SALT, EXECUTOR, MIDEN_ACCOUNT } from '../test/support.js';
 
 const NOW_MS = 1_800_000_000_000;
 const AMOUNT = '1500000000000000000';
@@ -17,7 +16,6 @@ function orderOf(account: PrivateKeyAccount) {
   return {
     evmAddress: account.address,
     midenAccountHex: MIDEN_ACCOUNT,
-    tokenAddress: TOKEN,
     tokenAmount: AMOUNT
   };
 }

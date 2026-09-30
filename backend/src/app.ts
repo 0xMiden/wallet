@@ -11,15 +11,7 @@ import type { TransakClient } from './transak/client.js';
 import type { UserIpResolver } from './transak/user-ip.js';
 
 export interface AppDeps {
-  config: Pick<
-    Config,
-    | 'trustedProxies'
-    | 'referrerDomain'
-    | 'allowedOrigins'
-    | 'maxFiatAmountUsd'
-    | 'onrampTokenAddress'
-    | 'onrampTokenDecimals'
-  >;
+  config: Pick<Config, 'trustedProxies' | 'referrerDomain' | 'allowedOrigins' | 'maxFiatAmountUsd'>;
   transak: TransakClient;
   /** Maps the caller IP to the IP that Transak pins the session to. */
   resolveUserIp: UserIpResolver;

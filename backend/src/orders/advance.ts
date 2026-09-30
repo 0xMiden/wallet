@@ -4,6 +4,7 @@ import { encodeBuyExecution } from '../chain-testnet/calibur.js';
 import { batchInputOf, batchNonceOf } from '../chain-testnet/preparation.js';
 import type { Chain } from '../chain-testnet/sepolia.js';
 import { authorizationSchema, toSignedAuthorization } from '../chain-testnet/signature.js';
+import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
 import { logEvent } from '../log.js';
 import type { TransakClient } from '../transak/client.js';
 
@@ -56,7 +57,7 @@ async function handleUnderdelivery(order: Order, deps: OrderDeps, balance: bigin
   ) {
     return false;
   }
-  const current = balance ?? (await deps.chain.readBalance(order.evmAddress, order.tokenAddress));
+  const current = balance ?? (await deps.chain.readBalance(order.evmAddress, ONRAMP_TOKEN.address));
   if (current >= BigInt(order.tokenAmount)) {
     return false;
   }
@@ -101,7 +102,7 @@ async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
       if (transak.cryptoAmount === null || transak.cryptoAmount <= 0) {
         return;
       }
-      const tokenAmount = toBaseUnits(transak.cryptoAmount, synced.tokenDecimals);
+      const tokenAmount = toBaseUnits(transak.cryptoAmount, ONRAMP_TOKEN.decimals);
       if (tokenAmount <= 0n) {
         return;
       }
@@ -110,7 +111,7 @@ async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
         transakStatus: transak.status,
         cryptoAmount: transak.cryptoAmount,
         tokenAmount,
-        tokenDecimals: synced.tokenDecimals
+        tokenDecimals: ONRAMP_TOKEN.decimals
       });
       deps.store.transition(
         synced.id,
@@ -186,13 +187,13 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   if (status !== 'COMPLETED' || synced.settledTokenAmount === null) {
     return;
   }
-  const balance = await deps.chain.readBalance(synced.evmAddress, synced.tokenAddress);
+  const balance = await deps.chain.readBalance(synced.evmAddress, ONRAMP_TOKEN.address);
   if (balance < BigInt(synced.tokenAmount)) {
     await handleUnderdelivery(synced, deps, balance);
     return;
   }
 
-  const fresh = await deps.chain.readAccount(synced.evmAddress, synced.tokenAddress);
+  const fresh = await deps.chain.readAccount(synced.evmAddress, ONRAMP_TOKEN.address);
   const storedAuthorization =
     synced.authorization === null ? null : authorizationSchema.parse(JSON.parse(synced.authorization));
   const reason = staleReason(

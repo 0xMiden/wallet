@@ -2,6 +2,7 @@ import { parseUnits } from 'viem';
 
 import type { OrderDeps } from './advance.js';
 import type { Order, OrderPatch } from './store.js';
+import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
 import { logEvent } from '../log.js';
 import type { TransakOrder } from '../transak/client.js';
 
@@ -94,7 +95,7 @@ export async function syncTransak(order: Order, deps: OrderDeps): Promise<Transa
       baseUnits:
         transak.cryptoAmount === null || transak.cryptoAmount <= 0
           ? null
-          : toBaseUnits(transak.cryptoAmount, order.tokenDecimals),
+          : toBaseUnits(transak.cryptoAmount, ONRAMP_TOKEN.decimals),
       signedTokenAmount: order.tokenAmount
     });
     deps.loggedCryptoAmounts.set(order.id, transak.cryptoAmount);
@@ -117,7 +118,7 @@ export async function syncTransak(order: Order, deps: OrderDeps): Promise<Transa
     patch.transakCompletedAt = deps.now();
   }
   if (transak.status === 'COMPLETED' && transak.cryptoAmount !== null && transak.cryptoAmount > 0) {
-    const amount = toBaseUnits(transak.cryptoAmount, order.tokenDecimals).toString();
+    const amount = toBaseUnits(transak.cryptoAmount, ONRAMP_TOKEN.decimals).toString();
     if (amount !== '0' && amount !== order.settledTokenAmount) {
       patch.settledTokenAmount = amount;
       patch.tokenAmount = amount;

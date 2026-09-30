@@ -13,8 +13,6 @@ export interface Order {
   evmAddress: Address;
   midenAccountHex: string;
   fiatAmount: string;
-  tokenAddress: Address;
-  tokenDecimals: number;
   transakOrderId: string | null;
   transakStatus: string | null;
   /** Unix ms of the first COMPLETED status from Transak. */
@@ -93,8 +91,6 @@ CREATE TABLE IF NOT EXISTS orders (
   evm_address TEXT NOT NULL,
   miden_account_hex TEXT NOT NULL,
   fiat_amount TEXT NOT NULL,
-  token_address TEXT NOT NULL,
-  token_decimals INTEGER NOT NULL,
   transak_order_id TEXT,
   transak_status TEXT,
   transak_completed_at INTEGER,
@@ -105,6 +101,10 @@ CREATE TABLE IF NOT EXISTS orders (
   signature TEXT,
   authorization TEXT,
   relay_tx_hash TEXT,
+  relay_raw_transaction TEXT,
+  relay_nonce INTEGER,
+  relay_sender TEXT,
+  settled_token_amount TEXT,
   relay_attempts INTEGER NOT NULL DEFAULT 0,
   state TEXT NOT NULL,
   error TEXT,
@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE UNIQUE INDEX IF NOT EXISTS orders_one_nonce_order_per_address
   ON orders (evm_address) WHERE state IN (${NONCE_STATES.map(state => `'${state}'`).join(', ')});
 CREATE INDEX IF NOT EXISTS orders_by_state ON orders (state);
+CREATE UNIQUE INDEX IF NOT EXISTS orders_relay_nonce
+  ON orders (relay_sender, relay_nonce) WHERE state = 'relay_sent';
 `;
 
 const hexSchema = z.custom<Hex>(value => typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value));
@@ -127,8 +129,6 @@ const rowSchema = z
     evm_address: addressSchema,
     miden_account_hex: z.string(),
     fiat_amount: z.string(),
-    token_address: addressSchema,
-    token_decimals: integer,
     transak_order_id: z.string().nullable(),
     transak_status: z.string().nullable(),
     transak_completed_at: integer.nullable(),
@@ -156,8 +156,6 @@ const rowSchema = z
       evmAddress: row.evm_address,
       midenAccountHex: row.miden_account_hex,
       fiatAmount: row.fiat_amount,
-      tokenAddress: row.token_address,
-      tokenDecimals: row.token_decimals,
       transakOrderId: row.transak_order_id,
       transakStatus: row.transak_status,
       transakCompletedAt: row.transak_completed_at,
@@ -189,22 +187,6 @@ export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
-  // Existing databases keep their orders. Each new column starts with NULL.
-  const columns = z.array(z.object({ name: z.string() })).parse(db.prepare('PRAGMA table_info(orders)').all());
-  const additions = [
-    'relay_raw_transaction TEXT',
-    'relay_nonce INTEGER',
-    'relay_sender TEXT',
-    'settled_token_amount TEXT'
-  ];
-  for (const column of additions) {
-    const name = column.split(' ')[0];
-    if (!columns.some(entry => entry.name === name)) {
-      db.exec(`ALTER TABLE orders ADD COLUMN ${column}`);
-    }
-  }
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS orders_relay_nonce
-    ON orders (relay_sender, relay_nonce) WHERE state = 'relay_sent';`);
   return db;
 }
 
@@ -213,8 +195,6 @@ export interface NewOrder {
   evmAddress: Address;
   midenAccountHex: string;
   fiatAmount: string;
-  tokenAddress: Address;
-  tokenDecimals: number;
 }
 
 /** A different order of the same address holds the Calibur nonce, and it can not be cancelled now. */
@@ -272,21 +252,11 @@ export class OrderStore {
       }
       this.db
         .prepare(
-          `INSERT INTO orders (id, evm_address, miden_account_hex, fiat_amount, token_address, token_decimals,
+          `INSERT INTO orders (id, evm_address, miden_account_hex, fiat_amount,
              state, created_at, updated_at, state_changed_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'checkout', ?, ?, ?)`
+           VALUES (?, ?, ?, ?, 'checkout', ?, ?, ?)`
         )
-        .run(
-          input.id,
-          input.evmAddress,
-          input.midenAccountHex,
-          input.fiatAmount,
-          input.tokenAddress,
-          input.tokenDecimals,
-          at,
-          at,
-          at
-        );
+        .run(input.id, input.evmAddress, input.midenAccountHex, input.fiatAmount, at, at, at);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');

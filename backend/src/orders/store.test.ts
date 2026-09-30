@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { it } from 'node:test';
 
 import { openDatabase, OrderStore } from './store.js';
-import { EXECUTOR, MIDEN_ACCOUNT, TOKEN } from '../test/support.js';
+import { EXECUTOR, MIDEN_ACCOUNT } from '../test/support.js';
 
-it('migrates existing orders and retains relay bytes and reserved nonces after reopen', () => {
+it('retains orders, relay bytes and reserved nonces after reopen', () => {
   const directory = mkdtempSync(join(tmpdir(), 'wallet-orders-'));
   const path = join(directory, 'orders.sqlite');
   let db = openDatabase(path);
@@ -17,21 +17,18 @@ it('migrates existing orders and retains relay bytes and reserved nonces after r
       id: 'a'.repeat(32),
       evmAddress: EXECUTOR,
       midenAccountHex: MIDEN_ACCOUNT,
-      fiatAmount: '10',
-      tokenAddress: TOKEN,
-      tokenDecimals: 18
+      fiatAmount: '10'
     });
-    // Remove the new columns to reproduce the database from the previous server version.
-    db.exec('DROP INDEX orders_relay_nonce');
-    for (const column of ['relay_raw_transaction', 'relay_nonce', 'relay_sender', 'settled_token_amount']) {
-      db.exec(`ALTER TABLE orders DROP COLUMN ${column}`);
-    }
+    const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
+    assert.ok(row);
+    assert.equal(Object.hasOwn(row, 'token_address'), false);
+    assert.equal(Object.hasOwn(row, 'token_decimals'), false);
     db.close();
     db = openDatabase(path);
-    const migrated = new OrderStore(db, Date.now);
-    assert.deepEqual(migrated.get(order.id), order);
+    const reopenedStore = new OrderStore(db, Date.now);
+    assert.deepEqual(reopenedStore.get(order.id), order);
     assert.ok(
-      migrated.transition(
+      reopenedStore.transition(
         order.id,
         'checkout',
         'relay_sent',

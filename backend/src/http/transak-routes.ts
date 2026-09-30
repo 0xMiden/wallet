@@ -90,9 +90,7 @@ export function createTransakRouter({
       id: nonce,
       evmAddress: entry.address,
       midenAccountHex: entry.midenAccountHex,
-      fiatAmount: entry.fiatAmount,
-      tokenAddress: config.onrampTokenAddress,
-      tokenDecimals: config.onrampTokenDecimals
+      fiatAmount: entry.fiatAmount
     });
     try {
       onOrderCreated(nonce);

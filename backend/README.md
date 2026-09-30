@@ -25,13 +25,16 @@ Copy `.env.example` to `.env` and set the values. The server checks the values a
 | `MAX_FIAT_AMOUNT_USD` | no | `10000` |
 | `RELAYER_PRIVATE_KEY` | yes | The Sepolia key that pays gas (`0x` + 64 hex) |
 | `SEPOLIA_RPC_URL` | no | `https://ethereum-sepolia-rpc.publicnode.com` |
-| `ONRAMP_TOKEN_ADDRESS` | no | `0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b` (TRNSK, Transak staging) |
-| `ONRAMP_TOKEN_DECIMALS` | no | `18` |
 | `DB_PATH` | no | `./data/onramp.sqlite` |
 | `WORKER_INTERVAL_MS` | no | `10000` |
 | `TRANSAK_PUSHER_KEY` | no | `1d9ffac87de599c61283` (the Transak Pusher app) |
 | `TRANSAK_PUSHER_CLUSTER` | no | `ap2` |
 | `TRANSAK_POLL_INTERVAL_MS` | no | `60000` (minimum `10000`) |
+
+Token addresses and decimals are fixed in `src/tokens.ts`, by chain ID. Ethereum mainnet uses USDC
+with 6 decimals. The current Sepolia backend uses the Transak staging token (TRNSK) with 18 decimals.
+The order API reads these values from the map; orders do not store them.
+This schema requires a new database file. Startup does not migrate an old database.
 
 The orders are in SQLite (`node:sqlite`, Node 22). Node prints an `ExperimentalWarning` for it at start. This is
 expected.

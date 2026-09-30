@@ -66,7 +66,7 @@ export function toSignedAuthorization(body: AuthorizationBody): SignedAuthorizat
  * `nowMs` is the time in milliseconds. Throw `SignatureCheckError` when a check fails.
  */
 export async function verifySignedBatch(
-  order: Pick<Order, 'evmAddress' | 'midenAccountHex' | 'tokenAddress' | 'tokenAmount'>,
+  order: Pick<Order, 'evmAddress' | 'midenAccountHex' | 'tokenAmount'>,
   body: SignatureBody,
   current: Preparation,
   nowMs: number

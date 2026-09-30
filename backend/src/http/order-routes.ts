@@ -6,6 +6,7 @@ import { NONCE_PATTERN } from './transak-routes.js';
 import type { AppDeps } from '../app.js';
 import { buildPreparation, type Preparation } from '../chain-testnet/preparation.js';
 import { signatureBodySchema, verifySignedBatch } from '../chain-testnet/signature.js';
+import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
 import { errorText, logEvent } from '../log.js';
 import type { Order } from '../orders/store.js';
 
@@ -30,8 +31,8 @@ function orderView(order: Order, prepare: Preparation | null): OrderView {
     id: order.id,
     state: order.state,
     transakStatus: order.transakStatus,
-    tokenAddress: order.tokenAddress,
-    tokenDecimals: order.tokenDecimals,
+    tokenAddress: ONRAMP_TOKEN.address,
+    tokenDecimals: ONRAMP_TOKEN.decimals,
     tokenAmount: order.tokenAmount,
     relayTxHash: order.relayTxHash,
     error: order.error,
@@ -61,7 +62,7 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     let prepare: Preparation | null = null;
     if (order.state === 'awaiting_signature' && order.tokenAmount !== null) {
       try {
-        const account = await chain.readAccount(order.evmAddress, order.tokenAddress);
+        const account = await chain.readAccount(order.evmAddress, ONRAMP_TOKEN.address);
         prepare = buildPreparation(order, order.tokenAmount, account, chain.executor, now());
       } catch (error) {
         // The wallet asks again on its next poll. The status is still correct without the prepare values.
@@ -77,7 +78,7 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     if (order.state !== 'awaiting_signature' || order.tokenAmount === null) {
       throw new HttpError(409, 'Order does not wait for a signature');
     }
-    const account = await chain.readAccount(order.evmAddress, order.tokenAddress);
+    const account = await chain.readAccount(order.evmAddress, ONRAMP_TOKEN.address);
     const current = buildPreparation(order, order.tokenAmount, account, chain.executor, now());
     await verifySignedBatch(order, body, current, now());
     const changed = orders.transition(

@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { getAddress, isAddress, type Address, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { z } from 'zod';
 
 /** The Transak Pusher app. Transak publishes these values in its WebSocket docs. */
@@ -23,9 +23,6 @@ export interface Config {
   /** The key of the account that pays gas for the relayed bridge batch. */
   relayerPrivateKey: Hex;
   sepoliaRpcUrl: string;
-  /** The ERC-20 that Transak delivers on Sepolia. */
-  onrampTokenAddress: Address;
-  onrampTokenDecimals: number;
   dbPath: string;
   workerIntervalMs: number;
   /** The Pusher app of the Transak order feed. */
@@ -35,15 +32,10 @@ export interface Config {
   transakPollIntervalMs: number;
 }
 
-/** Transak staging delivers TRNSK on Sepolia for a "USDC on ethereum" buy. */
-export const DEFAULT_ONRAMP_TOKEN_ADDRESS: Address = '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b';
-
 const privateKeySchema = z.custom<Hex>(
   value => typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value),
   'RELAYER_PRIVATE_KEY must be a 32-byte hex key with 0x'
 );
-
-const addressSchema = z.custom<Address>(value => typeof value === 'string' && isAddress(value), 'not an EVM address');
 
 const envSchema = z.object({
   TRANSAK_API_KEY: z.string().trim().min(1),
@@ -57,8 +49,6 @@ const envSchema = z.object({
   MAX_FIAT_AMOUNT_USD: z.coerce.number().positive().default(10000),
   RELAYER_PRIVATE_KEY: privateKeySchema,
   SEPOLIA_RPC_URL: z.url().default('https://ethereum-sepolia-rpc.publicnode.com'),
-  ONRAMP_TOKEN_ADDRESS: addressSchema.default(DEFAULT_ONRAMP_TOKEN_ADDRESS),
-  ONRAMP_TOKEN_DECIMALS: z.coerce.number().int().min(0).max(36).default(18),
   DB_PATH: z.string().trim().min(1).default('./data/onramp.sqlite'),
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(10000),
   TRANSAK_PUSHER_KEY: z.string().trim().min(1).default(DEFAULT_TRANSAK_PUSHER_KEY),
@@ -115,8 +105,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     maxFiatAmountUsd: parsed.MAX_FIAT_AMOUNT_USD,
     relayerPrivateKey: parsed.RELAYER_PRIVATE_KEY,
     sepoliaRpcUrl: parsed.SEPOLIA_RPC_URL,
-    onrampTokenAddress: getAddress(parsed.ONRAMP_TOKEN_ADDRESS),
-    onrampTokenDecimals: parsed.ONRAMP_TOKEN_DECIMALS,
     dbPath: parsed.DB_PATH,
     workerIntervalMs: parsed.WORKER_INTERVAL_MS,
     transakPusherKey: parsed.TRANSAK_PUSHER_KEY,

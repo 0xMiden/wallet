@@ -114,9 +114,7 @@ before(async () => {
       referrerDomain: 'wallet.miden.xyz',
       allowedOrigins: '*',
       trustedProxies: [],
-      maxFiatAmountUsd: 1000,
-      onrampTokenAddress: TOKEN,
-      onrampTokenDecimals: 18
+      maxFiatAmountUsd: 1000
     },
     transak: proxy,
     // The tests call over loopback. Map it to a fixed public IP, as the real resolver does.
@@ -295,7 +293,8 @@ describe('POST /transak/session', () => {
     assert.equal(order.evmAddress, account.address);
     assert.equal(order.midenAccountHex, MIDEN_ACCOUNT);
     assert.equal(order.fiatAmount, '10');
-    assert.equal(order.tokenAddress, TOKEN);
+    assert.equal(Object.hasOwn(order, 'tokenAddress'), false);
+    assert.equal(Object.hasOwn(order, 'tokenDecimals'), false);
 
     const second = await openCheckout(account, '20');
     assert.equal(orders.get(first)?.state, 'cancelled');
@@ -383,7 +382,7 @@ async function signedBody(
     salt: prepare.salt,
     deadline: prepare.deadline
   };
-  const order = { evmAddress: owner.address, midenAccountHex: MIDEN_ACCOUNT, tokenAddress: TOKEN };
+  const order = { evmAddress: owner.address, midenAccountHex: MIDEN_ACCOUNT };
   const signature = await signer.signTypedData(buyBatchTypedData(batchInputOf(order, signed, EXECUTOR)));
   const authorization = await authorizationSigner.signAuthorization({
     address: CALIBUR_SEPOLIA_ADDRESS,

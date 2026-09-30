@@ -9,6 +9,8 @@
 
 ### Changes
 
+- [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
+
 - [CHANGE][backend] Add Docker Compose with persistent storage, prevent two servers from using the same database, and wait for active work during shutdown.
 - [FIX][backend] Store relays before broadcast for cancellation and restart safety, reconcile Transak settlement amounts, add trusted proxy configuration and request timeouts, and block production purchases while the bridge uses testnet.
 

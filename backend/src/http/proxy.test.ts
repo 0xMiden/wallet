@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { z } from 'zod';
 
 import { createApp } from '../app.js';
-import { FakeChain, memoryStore, MIDEN_ACCOUNT, TOKEN } from '../test/support.js';
+import { FakeChain, memoryStore, MIDEN_ACCOUNT } from '../test/support.js';
 import { passCallerIp } from '../transak/user-ip.js';
 
 async function fixture(trustedProxies: string[]) {
@@ -14,9 +14,7 @@ async function fixture(trustedProxies: string[]) {
       trustedProxies,
       allowedOrigins: '*',
       referrerDomain: 'wallet.miden.xyz',
-      maxFiatAmountUsd: 1000,
-      onrampTokenAddress: TOKEN,
-      onrampTokenDecimals: 18
+      maxFiatAmountUsd: 1000
     },
     transak: {
       createWidgetSession: async (_params, ip) => {
