@@ -8,7 +8,7 @@
 
 ### Changes
 
-- [CHANGE][ci] Local, Guardian Lifecycle and Guardian Bridge-Out E2E run their full systems only on pull requests based on main, not on every update to a stacked branch; every pull request still reports the same required checks (#1071).
+- [CHANGE][ci] Local, Guardian Lifecycle and Guardian Bridge-Out E2E run their full systems only on pull requests based on main or next, not on every update to a stacked branch; every pull request still reports the same required checks (#1071).
 - [FIX][all] A recovered wallet opens in the side panel on its first Open wallet tap, as a new one does: a seed-phrase recovery registers while the confirmation screen shows, and the device-key rotation runs in the panel instead of holding a second "Your wallet is ready!" screen; the recovery confirmation no longer shows the create flow's write-it-down reminders (#1097)
 - [FIX][all] Unlocking on mobile or desktop restarts transactions queued while the wallet was locked, and the startup sweep of interrupted transactions spares any transaction started after the app or browser opened (#1202).
 - [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.

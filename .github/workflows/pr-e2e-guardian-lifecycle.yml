@@ -44,8 +44,8 @@ jobs:
           run=false
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             run=true
-          elif [ "$BASE_REF" != main ]; then
-            # Runs only on pull requests based on main; not on every update to a stacked branch (#1071).
+          elif [ "$BASE_REF" != main ] && [ "$BASE_REF" != next ]; then
+            # Runs only on pull requests based on main or next; not on every update to a stacked branch (#1071).
             run=false
           elif printf '%s\n' "$PR_BODY" \
             | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then

@@ -189,18 +189,18 @@ const gateExit = (script: string, values: Record<string, string>): number | null
   }).status;
 };
 
-describe('PR workflows run the heavy E2E jobs only on a main-based pull request', () => {
-  it('local-e2e runs on push, dispatch and a main-based pull request, under its required name', () => {
+describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
+  it('local-e2e runs on push, dispatch and a pull request based on main or next, under its required name', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
     expect(src).toMatch(
-      /name: local-e2e \(chrome\)\n(\s*#.*\n)*\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main'/
+      /name: local-e2e \(chrome\)\n(\s*#.*\n)*\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main' \|\| github\.event\.pull_request\.base\.ref == 'next'/
     );
   });
 
-  it('bridge-guardian-e2e runs on push, dispatch and a main-based pull request', () => {
+  it('bridge-guardian-e2e runs on push, dispatch and a pull request based on main or next', () => {
     const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
     expect(src).toMatch(
-      /name: bridge-guardian-e2e \(chrome\)\n(\s*#.*\n)*\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main'/
+      /name: bridge-guardian-e2e \(chrome\)\n(\s*#.*\n)*\s+if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.base\.ref == 'main' \|\| github\.event\.pull_request\.base\.ref == 'next'/
     );
   });
 
@@ -209,6 +209,9 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     ['pull_request', 'main', 'skipped', 1],
     ['pull_request', 'main', 'failure', 1],
     ['pull_request', 'main', 'success', 0],
+    ['pull_request', 'next', 'skipped', 1],
+    ['pull_request', 'next', 'failure', 1],
+    ['pull_request', 'next', 'success', 0],
     ['pull_request', 'feature', 'failure', 1],
     ['pull_request', 'feature', 'success', 1],
     ['push', '', 'skipped', 1],
@@ -254,11 +257,12 @@ describe('PR workflows run the heavy E2E jobs only on a main-based pull request'
     expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
   });
 
-  it('the Guardian selector deselects a pull request stacked on another branch, marker or not', () => {
+  it('the Guardian selector keeps a pull request based on main or next, and deselects any other branch, marker or not', () => {
     const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
     const arms = [
       { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'feature', PR_BODY: 'Guardian PR: #5', expected: 'run=false' },
       { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
+      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'next', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'push', BASE_REF: '', PR_BODY: '', expected: 'run=true' }
     ];
     for (const { GITHUB_EVENT_NAME, BASE_REF, PR_BODY, expected } of arms) {
