@@ -5,7 +5,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
 import { OnboardingFlow } from './navigator';
-import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from './types';
+import { ImportType, NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from './types';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state. The factories below close over these `mock*`-prefixed
@@ -133,6 +133,13 @@ jest.mock('./import-wallet-flow/ImportRecoveryMethod', () => ({
 jest.mock('./import-wallet-flow/ImportSeedPhrase', () => ({
   ImportSeedPhraseScreen: (p: any) => mockScreen('import-seed')(p)
 }));
+jest.mock('./import-wallet-flow/SelectImportType', () => ({
+  SelectImportTypeScreen: (p: any) => mockScreen('select-import-type')(p)
+}));
+jest.mock('./import-wallet-flow/ImportWalletFile', () => ({
+  ImportWalletFileScreen: (p: any) => mockScreen('import-wallet-file')(p)
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -177,9 +184,9 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.ChooseGuardian, 'screen-choose-guardian'],
     [OnboardingStep.BackupSeedPhrase, 'screen-backup-seed'],
     [OnboardingStep.VerifySeedPhrase, 'screen-verify-seed'],
-    [OnboardingStep.SelectImportType, 'screen-import-seed'],
+    [OnboardingStep.SelectImportType, 'screen-select-import-type'],
     [OnboardingStep.ImportFromSeed, 'screen-import-seed'],
-    [OnboardingStep.ImportFromFile, 'screen-import-seed'],
+    [OnboardingStep.ImportFromFile, 'screen-import-wallet-file'],
     [OnboardingStep.CreatePassword, 'screen-create-password'],
     [OnboardingStep.SelectRecoveryMethod, 'screen-select-recovery'],
     [OnboardingStep.ImportSelectRecoveryMethod, 'screen-import-recovery'],
@@ -555,17 +562,37 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'import-seed-phrase-submit', payload: 'my phrase' });
   });
 
-  it.each([OnboardingStep.SelectImportType, OnboardingStep.ImportFromFile])(
-    '%s renders seed entry with hot-key import',
-    step => {
-      const onAction = jest.fn();
-      renderFlow({ step, onAction });
-      expect(screen.queryByTestId('screen-import-wallet-file')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('screen-select-import-type')).not.toBeInTheDocument();
-      act(() => mockCaptured['import-seed'].onImportWithKey());
-      expect(onAction).toHaveBeenLastCalledWith({ id: 'import-with-key' });
-    }
-  );
+  it('SelectImportType: routes seed phrase and encrypted wallet file choices', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.SelectImportType, onAction });
+
+    act(() => mockCaptured['select-import-type'].onSubmit(ImportType.SeedPhrase));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'import-from-seed' });
+
+    act(() => mockCaptured['select-import-type'].onSubmit(ImportType.WalletFile));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'import-from-file' });
+
+    onAction.mockClear();
+    act(() => mockCaptured['select-import-type'].onSubmit('unknown'));
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('ImportFromFile: forwards one parsed restore payload', () => {
+    const onAction = jest.fn();
+    const payload = {
+      formatVersion: 2 as const,
+      seedPhrase: 'seed words',
+      midenClientDbContent: 'miden-db',
+      walletDbContent: 'wallet-db',
+      accounts: [],
+      importedAccounts: []
+    };
+    renderFlow({ step: OnboardingStep.ImportFromFile, onAction });
+
+    act(() => mockCaptured['import-wallet-file'].onSubmit(payload));
+
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'import-wallet-file-submit', payload });
+  });
 
   it('CreatePassword: submits password with biometric disabled', () => {
     const onAction = jest.fn();
@@ -670,10 +697,10 @@ describe('OnboardingFlow — progress computation', () => {
   it('import flow keeps 4 steps and the mapped position', () => {
     renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import });
     expect(progress()).toHaveAttribute('data-steps', '4');
-    expect(progress()).toHaveAttribute('data-current', '1');
+    expect(progress()).toHaveAttribute('data-current', '2');
   });
 
-  it('legacy import steps use the seed-entry progress position', () => {
+  it('file import choice and file upload occupy the first two import progress steps', () => {
     const { rerender } = render(
       <OnboardingFlow {...baseProps} step={OnboardingStep.SelectImportType} onboardingType={OnboardingType.Import} />
     );
@@ -682,7 +709,7 @@ describe('OnboardingFlow — progress computation', () => {
     rerender(
       <OnboardingFlow {...baseProps} step={OnboardingStep.ImportFromFile} onboardingType={OnboardingType.Import} />
     );
-    expect(progress()).toHaveAttribute('data-current', '1');
+    expect(progress()).toHaveAttribute('data-current', '2');
   });
 
   it('shifted position of 0 keeps currentStep 0 and hides the indicator (opacity-0)', () => {

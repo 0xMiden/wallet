@@ -609,7 +609,7 @@ const Welcome: FC = () => {
     };
     const startImportFlow = () => {
       setOnboardingType(OnboardingType.Import);
-      navigate('/#import-from-seed');
+      navigate('/#select-import-type');
     };
 
     switch (action.id) {
@@ -929,8 +929,9 @@ const Welcome: FC = () => {
           // Key paste is reached FROM seed entry, so back returns there.
           navigate('/#import-from-seed');
         } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
-          cancelOnLeavingOnboarding('/');
-          navigate('/');
+          // The import-type choice now precedes both, so back goes there rather
+          // than out of onboarding entirely.
+          navigate('/#select-import-type');
         } else if (step === OnboardingStep.Confirmation && walletFilePayload) {
           // Confirmation is where a rejected file restore lands. Retrying in
           // place is already possible; this is the way out when the file itself
@@ -1022,8 +1023,10 @@ const Welcome: FC = () => {
         else setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
-      case '#import-from-file':
-        navigate('/#import-from-seed');
+        // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says
+        // what starts a new import instead.
+        setOnboardingType(OnboardingType.Import);
+        setStep(OnboardingStep.SelectImportType);
         break;
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
@@ -1035,6 +1038,10 @@ const Welcome: FC = () => {
       case '#import-from-key':
         setOnboardingType(OnboardingType.Import);
         setStep(OnboardingStep.ImportFromKey);
+        break;
+      case '#import-from-file':
+        setOnboardingType(OnboardingType.Import);
+        setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
         // Onboarding state is in-memory only; reloading on this screen loses

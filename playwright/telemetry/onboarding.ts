@@ -29,9 +29,13 @@ export async function importWalletToConsentPrompt(page: Page): Promise<void> {
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
   await page.locator('#import-link').click();
 
-  // Test networks show the notice before the seed form. Acknowledging means
-  // ticking the notice's three checkboxes first, which the shared helper does.
+  // Test networks show the notice before the import choice. The seed form is
+  // one option on that choice, not the screen Import opens. Acknowledging means ticking the
+  // notice's three checkboxes first, which is what the shared helper does.
   await acknowledgeNetworkNotice(page);
+  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+  await page.getByTestId('import-type-seed-phrase').click();
+
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   for (let i = 0; i < SEED_WORDS.length; i++) {
     await page.locator(`#seed-phrase-input-${i}`).fill(SEED_WORDS[i]!);
