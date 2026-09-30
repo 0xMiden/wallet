@@ -137,7 +137,7 @@ import {
   isStaleInitialCommitmentError,
   isTransactionDiscardedError
 } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -2272,7 +2272,8 @@ const abandonDiscardedCandidate = async (service: MultisigService, nonce: number
  * caller completes as after a resolved wait. Discarded: abandon the candidate, then fail. No verdict:
  * fail with the wait's error and abandon nothing, since the write may still land. Unlike the direct
  * path, no verdict never completes: a rotation's completion deletes the old hot key, so completing one
- * that never lands leaves the device without an on-chain signer.
+ * that never lands leaves the device without an on-chain signer. A wait the watchdog evicted asks
+ * nothing and is the no-verdict arm: it parked the realm's sync, and a verdict sync would join it.
  */
 const waitForStructuralCommit = async (
   id: string,
@@ -2283,6 +2284,7 @@ const waitForStructuralCommit = async (
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
+    if (isSyncWatchdogEviction(waitError)) throw waitError;
     const discardedAtWait = isTransactionDiscardedError(waitError);
     const landed = discardedAtWait ? false : await didDirectSwitchLand(id);
     if (landed === true) {

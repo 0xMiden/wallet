@@ -59,6 +59,7 @@ import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
@@ -3438,4 +3439,26 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
     }
   );
+
+  // An evicted wait parked the realm's sync and a verdict sync would join it; the write may still
+  // land, so this is the no-verdict arm.
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])('fails the row on a commit wait the watchdog evicted, without asking the node (flag $flag)', async ({ on }) => {
+    if (on) {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    }
+    const id = `wait-evicted-${on}`;
+    const { service, provider: sp } = arrangeStructural(id, switchRow);
+    mockProxyWaitForCommit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+    expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+  });
 });

@@ -38,7 +38,8 @@ import {
   withWasmClientLock,
   type WasmClientLockOptions
 } from '../sdk/miden-client';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { syncUnderBoundedLock } from '../sync-lock';
 
 /**
  * Direct on-chain guardian rotation — the fallback for when the OUTGOING
@@ -537,13 +538,32 @@ export const createDirectSwitchGuardianRequest = async (
  * The coordinated structural commit wait (`waitForStructuralCommit`) reads it too, and
  * the same reasons hold there: the leaf's apply already wrote the local account, and a
  * pending or unknown record is no verdict.
+ *
+ * TWO HOLDS, as `verifySendLanded` takes: a best-effort sync at the sync ceiling, labelled,
+ * then the record read in a default hold of its own, since it is a local store read. A failed
+ * sync still reads the last-synced record: 'committed' and 'discarded' are final rulings, so a
+ * stale record can only turn a verdict into no verdict, never into a wrong one. A watchdog
+ * eviction of the sync is the exception and reads nothing: that read would be the first hold
+ * after the eviction and would rebuild the client against the node that just parked.
  */
 export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
   try {
-    const state = await withWasmClientLock(async () => {
-      await midenClientProxy.syncState();
-      return midenClientProxy.getTransactionCommitState(transactionId);
-    });
+    await syncUnderBoundedLock('guardian-verdict-sync');
+  } catch (syncError) {
+    if (isSyncWatchdogEviction(syncError)) {
+      console.warn(
+        `Sync evicted before reading the node-side state of transaction ${transactionId}; no verdict:`,
+        syncError
+      );
+      return undefined;
+    }
+    console.warn(
+      `Could not sync before reading the node-side state of transaction ${transactionId}; reading its last-synced record:`,
+      syncError
+    );
+  }
+  try {
+    const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(transactionId));
     if (state === 'committed') return true;
     if (state === 'discarded') return false;
     // 'pending' — submitted and still awaiting a block, so it may yet land — and

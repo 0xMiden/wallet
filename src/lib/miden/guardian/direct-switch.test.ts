@@ -41,6 +41,9 @@ const ownedWasmHold = async <T>(fn: (hold: object) => Promise<T>, options?: unkn
 };
 const mockWithWasmClientLock = jest.fn(ownedWasmHold);
 const mockGetMidenClient = jest.fn();
+// `sync-lock` takes the lock through the `lib/...` alias, which the root manual mock would serve
+// with a pass-through that drops the options; delegate it to the mock below.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the preflight's classifier sees the shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
@@ -720,16 +723,23 @@ describe('createDirectSwitchGuardianRequest', () => {
 // asserted to be `undefined` rather than merely falsy — `false` here means "the
 // chain rejected it", which callers act on.
 describe('didDirectSwitchLand', () => {
-  it('reads the node-side state of the TRANSACTION, under the WASM lock, after a sync', async () => {
+  it('syncs in a labelled hold at the sync ceiling, then reads the transaction in a hold of its own', async () => {
     mockProxyGetTransactionCommitState.mockResolvedValue('committed');
 
     await didDirectSwitchLand('0xtx');
 
-    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
-    // The sync has to precede the read or the client answers from a stale height,
-    // and both have to sit inside one lock hold.
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(2);
+    expect(mockWithWasmClientLock.mock.calls[0]![1]).toEqual({
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-verdict-sync'
+    });
+    expect(mockWithWasmClientLock.mock.calls[1]![1]).toBeUndefined();
     expect(mockProxySyncState).toHaveBeenCalledTimes(1);
-    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+    // The sync has to precede the read or the client answers from a stale height.
+    expect(mockProxySyncState.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockProxyGetTransactionCommitState.mock.invocationCallOrder[0]!
+    );
   });
 
   it.each([
@@ -760,15 +770,33 @@ describe('didDirectSwitchLand', () => {
     warn.mockRestore();
   });
 
-  // A sync that throws must not be silently read past either — the account state
-  // behind the read would be at an unknown height.
-  it('returns no verdict when the pre-read sync fails', async () => {
-    mockProxySyncState.mockRejectedValueOnce(new Error('rpc unreachable'));
+  // 'committed' and 'discarded' are final rulings, so a stale record can only turn a verdict into
+  // no verdict, never into a wrong one.
+  it.each([
+    ['rpc unreachable', new Error('rpc unreachable')],
+    ['realm-error', new WasmClientPoisonedError('realm-error')]
+  ])('reads the last-synced record when the sync fails without a watchdog eviction (%s)', async (_label, syncError) => {
+    mockProxySyncState.mockRejectedValueOnce(syncError);
+    mockProxyGetTransactionCommitState.mockResolvedValue('discarded');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBe(false);
+
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledTimes(1);
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+    warn.mockRestore();
+  });
+
+  // The read would be the first hold after the eviction and rebuild the client against the node
+  // that just parked.
+  it('returns no verdict, and reads nothing, after a watchdog eviction of its sync', async () => {
+    mockProxySyncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
 
     expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 });

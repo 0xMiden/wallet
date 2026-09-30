@@ -7,7 +7,8 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  *
  * For the pure-sync holds outside the `useSyncTrigger` loop: the transaction
  * pipeline's pre-flight sync (`transaction/index.ts`), the two
- * landed-verification probes (`transaction/cancel.ts`), the note-import
+ * landed-verification probes (`transaction/cancel.ts`), the structural
+ * verdict's sync (`guardian/direct-switch.ts`), the note-import
  * queue's trailing sync (`activity/notes.ts`), and the rotation's pre-build
  * chain sync (`guardian/index.ts`). Their SDK call carries no
  * transport deadline on wasm32, so a parked gRPC-web fetch would otherwise hold
