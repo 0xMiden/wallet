@@ -918,7 +918,11 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   the post-switch state before `finalizeGuardianSwitch` registers the LOCAL
  *   account (after a failed apply that is the pre-switch state, #1233) + persist
  *   the per-account endpoint. The replace-hot-key and switch-guardian completion
- *   handlers tolerate a missing TransactionResult.
+ *   handlers tolerate a missing TransactionResult. When the node discarded the
+ *   switch, completion throws `GuardianSwitchDiscardedError`; a coordinated row
+ *   first abandons its proposal's candidate on the outgoing guardian, bounded and
+ *   best-effort, then rethrows that error so the caller fails the row on the node's
+ *   verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
@@ -990,14 +994,31 @@ async function reconcileStructuralApplyFailure(
   // never called, so this path has strictly LESS evidence of a commit than the direct
   // path's `landed === undefined` case that the flag was introduced for. Defaulting it
   // to false let this exit render the full-confidence receipt.
-  await completeSwitchGuardianTransaction(
-    tx as SwitchGuardianTransaction,
-    undefined,
-    service,
-    guardianProvider,
-    true,
-    landed
-  );
+  try {
+    await completeSwitchGuardianTransaction(
+      tx as SwitchGuardianTransaction,
+      undefined,
+      service,
+      guardianProvider,
+      true,
+      landed
+    );
+  } catch (error) {
+    // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
+    // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
+    // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
+    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    if (isGuardianSwitchDiscardedError(error) && service && typeof nonce === 'number') {
+      const outgoing = service;
+      await withOutgoingGuardianDeadline(
+        () => outgoing.abandonCandidate(nonce),
+        'abandoning the discarded switch candidate on the outgoing guardian'
+      ).catch(abandonError =>
+        console.warn(`[Guardian] could not abandon the discarded switch candidate at nonce ${nonce}:`, abandonError)
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -3179,10 +3200,15 @@ const generateGuardianTransaction = async (
     // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
       const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
-      // In memory, as the direct path marks `switchedDirectly`: completion persists both with the row's
+      // In memory, as the direct path marks `switchedDirectly`: completion persists them with the row's
       // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
       // re-pushes one that did not.
-      transaction.extraInputs = { ...transaction.extraInputs, switchDeltaPushed, switchProposalId: proposalResult.id };
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        switchDeltaPushed,
+        switchProposalId: proposalResult.id,
+        switchProposalNonce: proposalResult.nonce
+      };
     }
     if (!submitResolved) {
       try {

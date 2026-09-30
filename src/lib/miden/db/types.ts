@@ -146,6 +146,9 @@ export interface ISwitchGuardianExtraInputs {
   // from a guardian that did, and the self-heal re-pushes the delta by this id to one that did not.
   switchProposalId?: string;
   switchDeltaPushed?: boolean;
+  // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
+  // abandons this nonce's candidate on the outgoing guardian before the row fails (#1233).
+  switchProposalNonce?: number;
 }
 
 /**

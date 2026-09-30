@@ -14,6 +14,8 @@
 import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
+import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
@@ -6988,7 +6990,7 @@ describe('generateTransaction — Guardian routing', () => {
       const finalizeGuardianSwitch = jest.fn(async () => {});
       const service = {
         createSwitchGuardianProposal: jest.fn(async () => ({
-          proposal: { id: 'prop-switch' },
+          proposal: { id: 'prop-switch', nonce: 41 },
           newEndpoint: 'https://new.guardian'
         })),
         signAndCreateTransactionRequest: jest.fn(async () => ({
@@ -7070,6 +7072,83 @@ describe('generateTransaction — Guardian routing', () => {
   // the switch. Then it did not happen, and the row ends as the direct path's discard does.
   // The restore needs an unlocked wallet, and the wallet can lock during the adopt wait: a restore
   // that never lands is named on the Failed row, which otherwise says nothing changed.
+  const startDiscardedLandedSwitch = (txId: string, abandonCandidate: jest.Mock, restoreFails = false) => {
+    const extraInputs = {
+      previousGuardianEndpoint: 'https://old.guardian',
+      newGuardianEndpoint: 'https://new.guardian'
+    };
+    const finalizeGuardianSwitch = jest.fn(async () => {});
+    const service = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch', nonce: 41 },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch,
+      abandonCandidate,
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+      adoptGuardianStateOnce: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+
+    const setGuardianEndpoint = jest.fn(async (_accountId: string, endpoint: string) => {
+      if (restoreFails && endpoint === 'https://old.guardian') throw new Error('Wallet is locked');
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(
+        makeResult(),
+        jest.fn(async () => {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        })
+      )
+    });
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const run = generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs,
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+    return {
+      run,
+      finalizeGuardianSwitch,
+      setGuardianEndpoint,
+      row: () => txStore.find(r => r.id === txId) as Record<string, unknown>
+    };
+  };
+
   it.each([
     [
       'restores the previous endpoint',
@@ -7087,87 +7166,83 @@ describe('generateTransaction — Guardian routing', () => {
     'fails a landed switch the node discarded like the direct path, and %s',
     async (_label, restoreFails, writes, error) => {
       const txId = 'switch-apply-fail-discarded';
-      const extraInputs = {
-        previousGuardianEndpoint: 'https://old.guardian',
-        newGuardianEndpoint: 'https://new.guardian'
-      };
-      const finalizeGuardianSwitch = jest.fn(async () => {});
-      const service = {
-        createSwitchGuardianProposal: jest.fn(async () => ({
-          proposal: { id: 'prop-switch' },
-          newEndpoint: 'https://new.guardian'
-        })),
-        signAndCreateTransactionRequest: jest.fn(async () => ({
-          serialize: () => new Uint8Array([1]),
-          authArg: () => undefined
-        })),
-        finalizeGuardianSwitch,
-        abandonCandidate: jest.fn(async () => {}),
-        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
-        adoptGuardianStateOnce: jest.fn(async () => {}),
-        sync: jest.fn(async () => {})
-      };
-      mockGetOrCreateMultisigService.mockResolvedValue(service);
-      mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
-      mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
-      mockDidDirectSwitchLand.mockResolvedValueOnce(false);
-
-      const setGuardianEndpoint = jest.fn(async (_accountId: string, endpoint: string) => {
-        if (restoreFails && endpoint === 'https://old.guardian') throw new Error('Wallet is locked');
+      // The outgoing guardian was handed the executed delta, so it holds a candidate for a nonce the
+      // chain will never see: abandoned before the row fails, so nothing reads Failed while it stands.
+      let statusAtAbandon: unknown;
+      const abandonCandidate = jest.fn(async (_nonce: number) => {
+        statusAtAbandon = txStore.find(r => r.id === txId)?.status;
       });
-      const provider = {
-        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
-        getPublicKeyForCommitment: async () => 'pk',
-        signWord: async () => 'sig',
-        setGuardianEndpoint
-      };
-      mockIsGuardianAccount.mockResolvedValue(true);
-      mockGetMidenClient.mockResolvedValue({
-        syncState: jest.fn(async () => {}),
-        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
-        waitForTransactionCommit: jest.fn(async () => {}),
-        client: makeClientApi(
-          makeResult(),
-          jest.fn(async () => {
-            throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
-          })
-        )
-      });
-      txStore.push({
-        id: txId,
-        type: 'switch-guardian',
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        extraInputs
-      });
-      jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      await generateTransaction(
-        {
-          id: txId,
-          type: 'switch-guardian',
-          accountId: 'guardian-acc',
-          extraInputs,
-          delegateTransaction: false
-        } as never,
-        jest.fn(async () => new Uint8Array([1])),
-        false,
-        provider as never
+      const { run, finalizeGuardianSwitch, setGuardianEndpoint, row } = startDiscardedLandedSwitch(
+        txId,
+        abandonCandidate,
+        restoreFails
       );
+      await run;
 
       expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
       expect(finalizeGuardianSwitch).not.toHaveBeenCalled();
       expect(setGuardianEndpoint).toHaveBeenLastCalledWith('guardian-acc', 'https://old.guardian');
       // The persist, then one restore, or every bounded attempt at one.
       expect(setGuardianEndpoint).toHaveBeenCalledTimes(writes);
-      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(41);
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
       // The direct path's discard: Failed, naming the node's verdict, never a completed switch.
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayMessage).toBe('Failed');
-      expect(row.error).toMatch(error);
-      expect(row.extraInputs).not.toHaveProperty('localStateNotSaved');
+      expect(row().status).toBe(ITransactionStatus.Failed);
+      expect(row().displayMessage).toBe('Failed');
+      expect(row().error).toMatch(error);
+      expect(row().extraInputs).not.toHaveProperty('localStateNotSaved');
     }
   );
+
+  it("still fails a discarded switch on the node's verdict when the abandon is refused", async () => {
+    const abandonCandidate = jest.fn(async (_nonce: number) => {
+      throw new Error('guardian 503');
+    });
+    const { run, row } = startDiscardedLandedSwitch('switch-discarded-abandon-refused', abandonCandidate);
+    await run;
+
+    expect(row().status).toBe(ITransactionStatus.Failed);
+    expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
+  });
+
+  it('bounds the abandon of a discarded switch by the outgoing deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      let abandonStartedAt = 0;
+      const abandonCandidate = jest.fn((_nonce: number) => {
+        abandonStartedAt = Date.now();
+        return new Promise<void>(() => {});
+      });
+      const { run, row } = startDiscardedLandedSwitch('switch-discarded-abandon-silent', abandonCandidate);
+      let settled = false;
+      run.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+
+      // The apply's retry sleeps come first; the abandon starts once they are spent.
+      await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0));
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(41);
+      expect(settled).toBe(false);
+
+      // Measured from the abandon's own start, which the store-hold compare can bring forward.
+      await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS - 1 - (Date.now() - abandonStartedAt));
+      expect(settled).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect(row().status).toBe(ITransactionStatus.Failed);
+      expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 
   // A row that already took the DIRECT path must not have its reconcile ask the
   // outgoing operator for anything. That operator was found unreachable minutes
