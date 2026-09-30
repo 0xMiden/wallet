@@ -1493,11 +1493,9 @@ describe('a source failure that repeats every session', () => {
     return { account, ends };
   }
 
-  it('stops a current operator that overflows the entry cap on the third session and clears the flag', async () => {
-    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
-      'lib/miden/guardian/history-storage'
-    );
-    const history = jest.fn().mockResolvedValue({
+  /** A page that overflows the entry cap from the checkpoint `resumeAtEntryCap` saves. */
+  const entryCapOverflow = () =>
+    jest.fn().mockResolvedValue({
       entries: [50, 49].map(nonce => ({
         nonce,
         status: 'canonical',
@@ -1508,29 +1506,66 @@ describe('a source failure that repeats every session', () => {
         decodeWarnings: []
       }))
     });
-    const { account, ends } = await runSessions(history, 3, async walletAccount => {
-      const network = getEffectiveNetworkName();
-      const accountId = canonicalWalletAccountId(walletAccount.publicKey);
-      await actualStorage.saveGuardianHistoryCheckpoint(await actualStorage.readGuardianHistoryGeneration(), {
-        id: historyCheckpointId(network, accountId, 'https://guardian.test'),
-        network,
-        accountId,
-        operator: 'https://guardian.test',
-        version: GUARDIAN_HISTORY_VERSION,
-        cursor: 'resume',
-        seenCursors: [],
-        completed: false,
-        restored: 0,
-        lowestNonce: 100,
-        entryCount: MAX_HISTORY_ENTRIES_PER_SOURCE - 1
-      });
+
+  async function resumeAtEntryCap(walletAccount: WalletAccount) {
+    const actualStorage = jest.requireActual<typeof import('lib/miden/guardian/history-storage')>(
+      'lib/miden/guardian/history-storage'
+    );
+    const network = getEffectiveNetworkName();
+    const accountId = canonicalWalletAccountId(walletAccount.publicKey);
+    await actualStorage.saveGuardianHistoryCheckpoint(await actualStorage.readGuardianHistoryGeneration(), {
+      id: historyCheckpointId(network, accountId, 'https://guardian.test'),
+      network,
+      accountId,
+      operator: 'https://guardian.test',
+      version: GUARDIAN_HISTORY_VERSION,
+      cursor: 'resume',
+      seenCursors: [],
+      completed: false,
+      restored: 0,
+      lowestNonce: 100,
+      entryCount: MAX_HISTORY_ENTRIES_PER_SOURCE - 1
     });
+  }
+
+  it('stops a current operator that overflows the entry cap on the third session and clears the flag', async () => {
+    const history = entryCapOverflow();
+    const { account, ends } = await runSessions(history, 3, resumeAtEntryCap);
 
     expect(ends).toEqual([['history-partial'], ['history-partial'], ['history-failed']]);
     expect(history).toHaveBeenCalledTimes(3);
     expect(setPendingFlag).toHaveBeenCalledTimes(1);
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
   });
+
+  it.each<[string, () => jest.Mock, ((account: WalletAccount) => Promise<void>) | undefined]>([
+    ['serves no history', () => jest.fn().mockRejectedValue(new GuardianHttpError(404, 'Not Found', '')), undefined],
+    ['overflows the entry cap', entryCapOverflow, resumeAtEntryCap]
+  ])(
+    'clears the flag at the next offer without running again when a current operator that %s fails terminally and the flag write fails',
+    async (_case, serve, prepare) => {
+      const actual = jest.requireActual<typeof import('./guardian-history-recovery')>('./guardian-history-recovery');
+      jest.mocked(hasFailedGuardianHistory).mockImplementation(actual.hasFailedGuardianHistory);
+      setPendingFlag.mockRejectedValueOnce(new Error('encrypt failed'));
+      const history = serve();
+      const { account, ends } = await runSessions(history, 3, prepare);
+
+      expect(ends).toEqual([['history-partial'], ['history-partial'], ['history-failed']]);
+      expect(setPendingFlag).toHaveBeenCalledTimes(1);
+      await expect(setPendingFlag.mock.results[0]?.value).rejects.toThrow('encrypt failed');
+      const drains = mockProxy.drainPrivateNoteTransport.mock.calls.length;
+      const ranges = mockProxy.resolveRecoveryScanRange.mock.calls.length;
+      const asked = history.mock.calls.length;
+
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      await drainDetachedRun();
+      expect(setPendingFlag).toHaveBeenCalledTimes(2);
+      expect(setPendingFlag).toHaveBeenLastCalledWith(account.publicKey, false);
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(drains);
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledTimes(ranges);
+      expect(history).toHaveBeenCalledTimes(asked);
+    }
+  );
 
   it('keeps the flag for a current operator that fails with a network error every session', async () => {
     const history = jest.fn().mockRejectedValue(new Error('offline'));

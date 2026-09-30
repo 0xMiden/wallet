@@ -1004,6 +1004,12 @@ it('fails the current operator while it serves no history, once per session, and
     completed: false,
     terminal: true
   });
+
+  // The marker stops the next session before it reads any operator or writes progress.
+  forgetUnsupportedHistorySources();
+  const writes = jest.mocked(reportGuardianNoteRecoveryProgress).mock.calls.length;
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 });
+  expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledTimes(writes);
 });
 
 /** A createClient under which building operator two makes the rest of the run give way. */
@@ -1254,6 +1260,18 @@ it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
     failure: 'fee-metadata',
     ...fields
   });
+  expect(await hasFailedGuardianHistory(account)).toBe(false);
+});
+
+it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
+  ['an unsupported answer', { failure: 'unsupported', unsupportedPasses: 3, completed: false }],
+  ['invalid data', { failure: 'invalid-data', invalidDataPasses: 3 }]
+])('stops on %s at the cap only once a pass has marked it terminal', async (_kind, capped) => {
+  await saveCheckpoint('https://one', { ...capped, terminal: true });
+  expect(await hasFailedGuardianHistory(account)).toBe(true);
+  await saveCheckpoint('https://one', capped);
+  expect(await hasFailedGuardianHistory(account)).toBe(false);
+  await saveOlderVersionCheckpoint('https://one', { ...capped, terminal: true });
   expect(await hasFailedGuardianHistory(account)).toBe(false);
 });
 
