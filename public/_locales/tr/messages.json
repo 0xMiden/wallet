@@ -5006,6 +5006,81 @@
       }
     }
   },
+  "networkModeHomeBanner": {
+    "message": "Şu anda Miden $network$ adresindesiniz.",
+    "englishSource": "You are on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchToMainnet": {
+    "message": "Mainnet'e geçin",
+    "englishSource": "Switch to mainnet"
+  },
+  "mainnetAccessDescription": {
+    "message": "Mainnet şimdilik sadece davetle erişilebilir durumdadır. Aldığınız 8 haneli erişim kodunu girin.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  },
+  "mainnetAccessCodeLabel": {
+    "message": "Erişim kodu",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Mainnet'in kilidini aç",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessNoCode": {
+    "message": "Kod yok mu? Miden $network$ adresini kullanmaya devam edebilirsiniz.",
+    "englishSource": "No code? You can keep using Miden $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Bu kod çalışmadı. Kontrol edin ve tekrar deneyin.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Bu kodu kontrol edemedik. Daha sonra tekrar deneyin.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessHeader": {
+    "message": "Mainnet erişimi",
+    "englishSource": "Mainnet access"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Mainnet şimdilik sadece davetle erişilebilir. Davetinizdeki sekiz basamaklı kodu girin; cüzdanınız Miden Mainnet'te çalışmaya başlayacaktır.",
+    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Kod, davet e-postanızda yer almaktadır.",
+    "englishSource": "The code is in your invite email."
+  },
+  "mainnetAccessContinueOnNetwork": {
+    "message": "Miden $network$ adresinde devam edin",
+    "englishSource": "Continue on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetWelcomeTitle": {
+    "message": "Mainnet'e hoş geldiniz",
+    "englishSource": "Welcome to mainnet"
+  },
+  "mainnetWelcomeBody": {
+    "message": "Henüz yeni çıktı. Erişim kodunuz işe yaradı.",
+    "englishSource": "Fresh out of the oven. Your access code worked."
+  },
   "networkModePillNoValue": {
     "message": "Tokenların gerçek bir değeri yok",
     "englishSource": "Tokens have no real value"

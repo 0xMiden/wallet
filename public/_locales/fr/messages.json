@@ -5006,6 +5006,81 @@
       }
     }
   },
+  "networkModeHomeBanner": {
+    "message": "Vous êtes sur Miden $network$",
+    "englishSource": "You are on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchToMainnet": {
+    "message": "Passer au réseau principal",
+    "englishSource": "Switch to mainnet"
+  },
+  "mainnetAccessDescription": {
+    "message": "Le mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code d’accès à 8 chiffres que vous avez reçu.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  },
+  "mainnetAccessCodeLabel": {
+    "message": "Code d’accès",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Déverrouiller le réseau principal",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessNoCode": {
+    "message": "Vous n’avez pas le code ? Vous pouvez continuer à utiliser Miden $network$.",
+    "englishSource": "No code? You can keep using Miden $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Nous n’avons pas pu vérifier ce code. Veuillez réessayer plus tard.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessHeader": {
+    "message": "Accès au réseau principal",
+    "englishSource": "Mainnet access"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à huit chiffres figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Le code se trouve dans votre e-mail d'invitation.",
+    "englishSource": "The code is in your invite email."
+  },
+  "mainnetAccessContinueOnNetwork": {
+    "message": "Continuer sur Miden $network$",
+    "englishSource": "Continue on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetWelcomeTitle": {
+    "message": "Bienvenue sur le réseau principal",
+    "englishSource": "Welcome to mainnet"
+  },
+  "mainnetWelcomeBody": {
+    "message": "Tout juste sorti du four. Votre code d’accès a fonctionné.",
+    "englishSource": "Fresh out of the oven. Your access code worked."
+  },
   "networkModePillNoValue": {
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"

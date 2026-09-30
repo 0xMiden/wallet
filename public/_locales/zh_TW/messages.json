@@ -5006,6 +5006,81 @@
       }
     }
   },
+  "networkModeHomeBanner": {
+    "message": "您目前所在的頁面為 Miden $network$",
+    "englishSource": "You are on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchToMainnet": {
+    "message": "切換至主網",
+    "englishSource": "Switch to mainnet"
+  },
+  "mainnetAccessDescription": {
+    "message": "主網目前僅限受邀者加入。請輸入您收到的 8 位數存取碼。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  },
+  "mainnetAccessCodeLabel": {
+    "message": "存取碼",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "解鎖主網",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessNoCode": {
+    "message": "沒有程式碼？您可以繼續使用 Miden $network$。",
+    "englishSource": "No code? You can keep using Miden $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "此代碼無法運作。請檢查並重新嘗試。",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "我們無法驗證此程式碼。請稍後再試。",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnet": {
+    "message": "主網",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessHeader": {
+    "message": "主網存取",
+    "englishSource": "Mainnet access"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "主網目前僅限受邀者使用。輸入邀請信中的八位數代碼，您的錢包即會在 Miden 主網啟動。",
+    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "代碼就在您的邀請電子郵件中。",
+    "englishSource": "The code is in your invite email."
+  },
+  "mainnetAccessContinueOnNetwork": {
+    "message": "繼續閱讀 Miden $network$",
+    "englishSource": "Continue on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetWelcomeTitle": {
+    "message": "歡迎來到主網",
+    "englishSource": "Welcome to mainnet"
+  },
+  "mainnetWelcomeBody": {
+    "message": "剛出爐。您的存取碼已驗證成功。",
+    "englishSource": "Fresh out of the oven. Your access code worked."
+  },
   "networkModePillNoValue": {
     "message": "代幣沒有實際價值",
     "englishSource": "Tokens have no real value"
