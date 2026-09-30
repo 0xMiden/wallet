@@ -5,6 +5,7 @@ import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { onStorageCleared } from 'lib/storage-cleared';
 import { useRetryableSWR } from 'lib/swr';
 
 /** The setter rejects when the write fails, so a caller that does not await it must catch. */
@@ -58,11 +59,25 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
   return [value, setValue];
 }
 
-export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void) {
-  // On mobile/desktop, storage change events are not available
-  // Return a no-op cleanup function
+/**
+ * Ends an `onStorageChanged` subscription. On the extension `attached` settles once the listener is attached, or once
+ * attaching has failed (logged), so a read issued after it hears every change committed after that read; off the
+ * extension the key is re-read on this document's own wipes and there is no `attached`.
+ */
+export type StorageChangeSubscription = (() => void) & { attached?: Promise<void> };
+
+export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void): StorageChangeSubscription {
+  // Off the extension, no storage-change event fires in this document: reset.ts announces its own
+  // wipes of the platform store through onStorageCleared instead. On each announcement, re-read
+  // this key and take it the same way the extension branch below takes a removal - a missing key
+  // becomes undefined, not null. A failed re-read is logged and calls nothing back.
   if (!isExtension()) {
-    return () => {};
+    return onStorageCleared(() => {
+      void fetchFromStorage<T>(key).then(
+        value => callback((value ?? undefined) as T),
+        error => console.warn(`onStorageChanged: failed to re-read "${key}" after a storage clear`, error)
+      );
+    });
   }
 
   // Lazy load browser for extension. The import resolves after this function
@@ -71,24 +86,27 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
   let unsubscribe: (() => void) | undefined;
   let cancelled = false;
 
-  import('webextension-polyfill').then(browserModule => {
-    if (cancelled) return;
-    const browser = browserModule.default;
-    const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
-      if (areaName === 'local' && key in changes) {
-        callback(changes[key]!.newValue as T);
-      }
-    };
+  const attached = import('webextension-polyfill')
+    .then(browserModule => {
+      if (cancelled) return;
+      const browser = browserModule.default;
+      const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
+        if (areaName === 'local' && key in changes) {
+          callback(changes[key]!.newValue as T);
+        }
+      };
 
-    browser.storage.onChanged.addListener(handleChanged);
-    unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
-  });
+      browser.storage.onChanged.addListener(handleChanged);
+      unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
+    })
+    .catch(error => console.warn(`[storage] not listening for changes to ${key}:`, error));
 
-  return () => {
+  const stop = () => {
     cancelled = true;
     unsubscribe?.();
     unsubscribe = undefined;
   };
+  return Object.assign(stop, { attached });
 }
 
 export async function fetchFromStorage<T = unknown>(key: string): Promise<T | null> {
@@ -197,13 +215,25 @@ export async function preloadStorage(
   }
 }
 
+// Module stores that keep storage values outside the hooks' cache, each re-read beside it after a wipe.
+const storageRereads = new Set<() => Promise<void>>();
+
+/** For a module store that keeps storage values outside the hooks' cache: `rereadStorageCache` runs `reread` too. */
+export function registerStorageReread(reread: () => Promise<void>): void {
+  storageRereads.add(reread);
+}
+
 /**
  * After a wipe of the key-value store: re-reads every key a storage hook or a preload has read, through the numbered
- * read path, so each reader mounted afterwards renders what storage holds now. Never rejects; a key whose read fails
- * keeps its cached value, and the failure is logged.
+ * read path, so each reader mounted afterwards renders what storage holds now, and awaits every registered re-read.
+ * Never rejects; a key whose read fails keeps its cached value, and each failure is logged.
  */
 export async function rereadStorageCache(): Promise<void> {
-  await preloadStorage([...cachedKeys]).catch(error => console.warn('[storage] re-read after a wipe failed:', error));
+  const logFailure = (error: unknown) => console.warn('[storage] re-read after a wipe failed:', error);
+  await Promise.all([
+    preloadStorage([...cachedKeys]).catch(logFailure),
+    ...[...storageRereads].map(reread => Promise.resolve().then(reread).catch(logFailure))
+  ]);
 }
 
 /**

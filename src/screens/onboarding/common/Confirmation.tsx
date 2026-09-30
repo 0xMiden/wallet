@@ -9,6 +9,7 @@ import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { OnboardingType } from 'screens/onboarding/types';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
 
@@ -25,11 +26,16 @@ export interface ConfirmationScreenProps {
    */
   recoveryError?: string | null;
   /**
-   * Side panel handoff (Chrome): the wallet is being created in the background
-   * before the user opens it. While true, show a spinner instead of the
-   * ready-state success message + button.
+   * Side panel handoff (Chrome): the wallet is being registered (created or
+   * restored) in the background before the user opens it. While true, show a
+   * spinner instead of the ready-state success message + button.
    */
   creating?: boolean;
+  /**
+   * A recovery shows its own "restoring" and "finish restoring" copy; the
+   * create-flow daily reminder is armed only for a create (undefined or `Create`).
+   */
+  onboardingType?: OnboardingType;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
@@ -40,6 +46,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   biometricError,
   recoveryError,
   creating = false,
+  onboardingType,
   onSubmit,
   onSwitchToPassword,
   'data-testid': dataTestId
@@ -49,10 +56,12 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = !!biometricError && biometricAttempts > 0;
   const hasRecoveryError = !!recoveryError;
+  const isRecovery = onboardingType === OnboardingType.Import;
 
-  // Side-panel handoff (Chrome): the wallet is still being created in the
-  // background. Show a spinner rather than the ready-state success message,
-  // otherwise the user sees "Your wallet is ready" before it actually is.
+  // Side-panel handoff (Chrome): the wallet is still being registered
+  // (created or restored) in the background. Show a spinner rather than the
+  // ready-state success message, otherwise the user sees "Your wallet is
+  // ready" before it actually is.
   if (creating) {
     return (
       <div
@@ -60,7 +69,9 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         className="flex h-full w-full flex-col items-center justify-center gap-y-4 bg-app-bg px-4 text-center"
       >
         <Spinner />
-        <p className="font-sans text-[15px] leading-[22px] text-muted">{t('creatingYourWallet')}</p>
+        <p className="font-sans text-[15px] leading-[22px] text-muted">
+          {t(isRecovery ? 'restoringYourWallet' : 'creatingYourWallet')}
+        </p>
       </div>
     );
   }
@@ -105,22 +116,27 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         )
       }
     >
-      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center">
+      {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
+          heading face here. */}
+      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center face-heading">
         <Hero
           nameAs="h1"
-          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[220px]" />}
+          nameSize="lg"
+          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
           name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
           subtitle={
             hasFailure ? undefined : (
               // Held to a readable measure and balanced, so the sentence breaks into two even lines.
-              <span className="mx-auto block max-w-[300px] text-balance">{t('recoveryPhraseSevenDayReminder')}</span>
+              <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance">
+                {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
+              </span>
             )
           }
         />
-        {/* The daily reminder is a fact about Home, not a warning: one quiet caption line, not a panel. */}
-        {!hasFailure && (
+        {/* The daily reminder only makes sense for a create: a recovery isn't newly generated, so there's nothing to remind about. */}
+        {!hasFailure && !isRecovery && (
           <p
-            className="flex max-w-[300px] items-start justify-center gap-1.5 text-caption text-muted"
+            className="flex max-w-[320px] items-start justify-center gap-1.5 text-explainer font-semibold text-muted"
             data-testid="onboarding-confirmation-reminder"
           >
             <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />

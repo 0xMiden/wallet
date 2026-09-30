@@ -70,6 +70,8 @@ jest.mock(
 
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
+import { onStorageCleared } from 'lib/storage-cleared';
 
 import {
   clearClientStorage,
@@ -86,10 +88,19 @@ beforeEach(() => {
   (isMobile as jest.Mock).mockReturnValue(false);
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isExtension as jest.Mock).mockReturnValue(false);
+  // clearAllMocks keeps queued once-values, so one a failing test never used would reach the next.
+  for (const step of [
+    mockDbDelete,
+    mockDbOpen,
+    mockTransactionsClear,
+    mockSpendingLimitsClear,
+    mockBrowserStorageRemove,
+    _g.__resetTest.prefStub.remove
+  ]) {
+    step.mockReset().mockResolvedValue(undefined);
+  }
   _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: [] });
-  _g.__resetTest.prefStub.remove.mockResolvedValue(undefined);
   mockBrowserStorageGet.mockResolvedValue({});
-  mockBrowserStorageRemove.mockResolvedValue(undefined);
 });
 
 describe('clearStorage', () => {
@@ -228,6 +239,34 @@ describe('clearStorage', () => {
     expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
   });
 
+  // The key-value store holds the vault, so a wipe that stops partway never leaves a wallet that
+  // unlocks without its caps.
+  it('clears the key-value store before the tables', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+
+    await clearStorage();
+
+    expect(mockBrowserStorageRemove.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockTransactionsClear.mock.invocationCallOrder[0]!
+    );
+    expect(mockBrowserStorageRemove.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSpendingLimitsClear.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('rejects without clearing the tables when the key-value clear rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const clearError = new Error('storage clear failed');
+    mockBrowserStorageRemove.mockRejectedValueOnce(clearError);
+
+    await expect(clearStorage()).rejects.toBe(clearError);
+
+    expect(mockTransactionsClear).not.toHaveBeenCalled();
+    expect(mockSpendingLimitsClear).not.toHaveBeenCalled();
+  });
+
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
     const order: string[] = [];
     (resetNativeAssetCache as jest.Mock).mockImplementation(async () => {
@@ -244,6 +283,16 @@ describe('clearStorage', () => {
   });
 });
 
+/** Runs `clear` over a stored read state and returns, per announcement, whether the key was gone. */
+async function announcementsSeeingTheKeyGone(clear: () => unknown): Promise<boolean[]> {
+  localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, JSON.stringify({ seenBefore: 1, ids: {} }));
+  const seen: boolean[] = [];
+  const unsubscribe = onStorageCleared(() => seen.push(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY) === null));
+  await clear();
+  unsubscribe();
+  return seen;
+}
+
 describe('resetStorageDestructive', () => {
   it('drops and reopens the IndexedDB and keeps only the endpoint override, not the legacy guardian URL', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
@@ -259,6 +308,74 @@ describe('resetStorageDestructive', () => {
     expect(mockDbOpen).toHaveBeenCalled();
     expect(mockBrowserStorageRemove.mock.calls).toEqual([[['guardian_url_setting', 'vault_key']]]);
     expect(mockBrowserStorageClear).not.toHaveBeenCalled();
+  });
+
+  // The options page calls it with no options and relies on the override surviving.
+  it('keeps the endpoint override across the wipe by default', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+    mockBrowserStorageGet.mockResolvedValue({ endpoint_overrides: OVERRIDE, vault_key: 'v' });
+
+    await resetStorageDestructive();
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key']]]);
+    expect(mockBrowserStorageSet).not.toHaveBeenCalled();
+  });
+
+  it('clears the endpoint override when asked not to keep it', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const OVERRIDE = { networkName: 'localnet', rpcUrl: 'https://rpc.custom' };
+    mockBrowserStorageGet.mockResolvedValue({ endpoint_overrides: OVERRIDE, vault_key: 'v' });
+
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['endpoint_overrides', 'vault_key']]]);
+    expect(mockBrowserStorageSet).not.toHaveBeenCalled();
+  });
+
+  // The key-value store holds the vault, so clearing it first leaves no wallet to unlock after a
+  // later step rejects.
+  it('clears the key-value store before it deletes the database', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+
+    await resetStorageDestructive();
+
+    expect(mockBrowserStorageRemove.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('rejects without deleting the database when the key-value clear rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const clearError = new Error('storage clear failed');
+    mockBrowserStorageRemove.mockRejectedValueOnce(clearError);
+
+    await expect(resetStorageDestructive()).rejects.toBe(clearError);
+
+    expect(mockDbDelete).not.toHaveBeenCalled();
+  });
+
+  it('clears the transactions and spending limits when the delete rejects', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
+    expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('still clears the spending limits and rethrows the delete error when the cleanup steps reject', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+    mockDbOpen.mockRejectedValueOnce(new Error('open failed'));
+    mockTransactionsClear.mockRejectedValueOnce(new Error('clear failed'));
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -350,6 +467,11 @@ describe('dropLegacyGuardianUrl', () => {
       removeSpy.mockRestore();
     }
   });
+
+  it('announces the desktop clear only once localStorage is empty', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    expect(await announcementsSeeingTheKeyGone(() => resetStorageDestructive())).toEqual([true]);
+  });
 });
 
 describe('clearClientStorage', () => {
@@ -399,5 +521,82 @@ describe('clearClientStorage', () => {
     } finally {
       removeItem.mockRestore();
     }
+  });
+
+  it('announces the clear only once localStorage is empty', async () => {
+    expect(await announcementsSeeingTheKeyGone(() => clearClientStorage())).toEqual([true]);
+  });
+});
+
+describe('announcing a storage clear', () => {
+  const cleared = jest.fn();
+  let unsubscribe: () => void;
+  beforeEach(() => {
+    unsubscribe = onStorageCleared(cleared);
+  });
+  afterEach(() => unsubscribe());
+
+  it('announces clearClientStorage once, after its cache re-read', async () => {
+    await clearClientStorage();
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('announces the desktop clear on clearStorage once', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    await clearStorage();
+    expect(cleared).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces the desktop clear on resetStorageDestructive once', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    await resetStorageDestructive();
+    expect(cleared).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('announcing the platform wipe, once fully settled', () => {
+  it('on mobile, announces once, after the keys are removed and the cache re-read', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockResolvedValueOnce({ keys: ['doomed', 'endpoint_overrides'] });
+    _g.__resetTest.prefStub.remove.mockResolvedValue(undefined);
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(_g.__resetTest.prefStub.remove.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      cleared.mock.invocationCallOrder[0]!
+    );
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('on desktop, announces once, after the keys are removed and the cache re-read', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    localStorage.setItem('doomed', '1');
+    const removeSpy = jest.spyOn(Storage.prototype, 'removeItem');
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(removeSpy.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    removeSpy.mockRestore();
+  });
+
+  it('on the extension, announces nothing: browser.storage.onChanged reports the removals', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).not.toHaveBeenCalled();
   });
 });

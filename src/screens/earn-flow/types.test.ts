@@ -78,6 +78,7 @@ describe('earn-flow/types', () => {
       yearlyEstimate: '$264.00',
       withdrawTime: 'Instant',
       route: '/earn/positions/pos-1',
+      stale: false,
       chartData
     };
 
@@ -133,6 +134,7 @@ describe('earn-flow/types', () => {
       'protocol',
       'rewards',
       'route',
+      'stale',
       'started',
       'underlyingAddress',
       'vaultId',

@@ -2,10 +2,12 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
-import type { TokenPrices } from 'lib/prices';
 import type { WalletAccount } from 'lib/shared/types';
 import type { FaucetFundingMarker, PendingNoteValue } from 'lib/wallet-prompts';
 import {
@@ -184,8 +186,8 @@ const accountB = {
 
 const zeroBalance = [{ tokenId: 'token', balance: 0 }] as TokenBalanceData[];
 const fundedBalance = [{ tokenId: 'token', balance: 1 }] as TokenBalanceData[];
-// Must match the mocked useMidenFaucetId above — arrival only counts notes
-// minted by the native faucet.
+// Must match the mocked useMidenFaucetId above - arrival only counts notes minted by the native
+// faucet. No allowlist entry names it (#1131), so a native note has no quote even with MIDEN quoted.
 const NATIVE_FAUCET_ID = '0xnative';
 const pendingNotes: PendingNoteValue[] = [
   {
@@ -194,10 +196,36 @@ const pendingNotes: PendingNoteValue[] = [
     faucetId: NATIVE_FAUCET_ID,
     metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
   },
-  { id: 'note-2', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
+  {
+    id: 'note-2',
+    amount: '2000000',
+    faucetId: MIDEN_USDC_FAUCET,
+    metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+  }
 ];
 const nonNativeNotes: PendingNoteValue[] = [
-  { id: 'note-usdc-1', amount: '2000000', faucetId: '0xusdc', metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' } }
+  {
+    id: 'note-usdc-1',
+    amount: '2000000',
+    faucetId: MIDEN_USDC_FAUCET,
+    metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+  }
+];
+// Notes from faucets the allowlist names, so each has a quote: 1.25 Agglayer ETH at $2 and 2 USDC
+// at $1, $4.50 in all.
+const quotedNotes: PendingNoteValue[] = [
+  {
+    id: 'note-1',
+    amount: '1250000',
+    faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+    metadata: { decimals: 6, symbol: 'ETH', name: 'Ether' }
+  },
+  {
+    id: 'note-2',
+    amount: '2000000',
+    faucetId: MIDEN_USDC_FAUCET,
+    metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+  }
 ];
 // A note the feed has no price for: it must leave no dollar figure, never one at $1 a unit.
 const unquotedNote: PendingNoteValue = {
@@ -208,6 +236,7 @@ const unquotedNote: PendingNoteValue = {
 };
 const tokenPrices = {
   MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+  ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
 
@@ -569,16 +598,16 @@ describe('HomePrompts', () => {
     }
   });
 
-  it('says what the mint brought in dollars, leaving out every note it did not mint', async () => {
+  it('shows the generic line for a native mint, even with MIDEN quoted, since no allowlist entry names it', async () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-    const renderWith = (notes: PendingNoteValue[], prices: TokenPrices = tokenPrices) => (
+    const renderWith = (notes: PendingNoteValue[]) => (
       <HomePrompts
         account={account}
         balances={zeroBalance}
         balancesLoading={false}
         claimableNotes={notes}
         fundingNotes={notes}
-        tokenPrices={prices}
+        tokenPrices={tokenPrices}
       />
     );
 
@@ -588,15 +617,47 @@ describe('HomePrompts', () => {
     fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
 
-    // The native note is the mint: 1.25 MIDEN at $2. The claimable USDC note did not come from
-    // the faucet, so it is not what was deposited.
+    // The native note is the mint: 1.25 MIDEN, with MIDEN quoted at $2. A note is priced by its
+    // faucet id, never its symbol (#1131), and no allowlist entry names the native faucet, so the
+    // mint has no figure. The claimable USDC note did not come from the faucet either.
     rerender(renderWith(pendingNotes));
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
-
-    // A mint with no quote has no dollar figure, never one at $1 a unit.
-    rerender(renderWith(pendingNotes, { USDC: tokenPrices.USDC }));
     expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
+  });
+
+  it('says what the mint brought in dollars once an allowlist entry names the native faucet', async () => {
+    // The registry entry a future allowlist listing of the native asset would add.
+    _setSwapTokensForTest([
+      { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
+      ...SWAP_TOKENS
+    ]);
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      const renderWith = (notes: PendingNoteValue[]) => (
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={notes}
+          fundingNotes={notes}
+          tokenPrices={tokenPrices}
+        />
+      );
+
+      const { rerender } = render(renderWith([]));
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      await act(async () => {});
+      fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+
+      // The native note is the mint: 1.25 MIDEN at $2. The claimable USDC note did not come from
+      // the faucet, so it is not what was deposited.
+      rerender(renderWith(pendingNotes));
+      await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
+      expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
   });
 
   it('uses the generic line when funds arrive as a balance, whatever else is claimable', async () => {
@@ -3421,8 +3482,8 @@ describe('HomePrompts', () => {
         account={account}
         balances={fundedBalance}
         balancesLoading={false}
-        claimableNotes={pendingNotes}
-        fundingNotes={pendingNotes}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
         tokenPrices={tokenPrices}
       />
     );
@@ -3449,7 +3510,7 @@ describe('HomePrompts', () => {
         account={account}
         balances={fundedBalance}
         balancesLoading={false}
-        claimableNotes={[...pendingNotes, unquotedNote]}
+        claimableNotes={[...quotedNotes, unquotedNote]}
         fundingNotes={[]}
         tokenPrices={tokenPrices}
       />
@@ -3470,8 +3531,8 @@ describe('HomePrompts', () => {
         account={account}
         balances={fundedBalance}
         balancesLoading={false}
-        claimableNotes={pendingNotes}
-        fundingNotes={pendingNotes}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
         tokenPrices={tokenPrices}
       />
     );
@@ -3486,8 +3547,8 @@ describe('HomePrompts', () => {
         account={account}
         balances={fundedBalance}
         balancesLoading={false}
-        claimableNotes={pendingNotes}
-        fundingNotes={pendingNotes}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
         tokenPrices={tokenPrices}
       />
     );

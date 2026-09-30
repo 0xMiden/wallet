@@ -49,7 +49,7 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -139,11 +139,14 @@ export class GuardianProbeTimeoutError extends Error {
 
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
- * `timeoutMs`. The underlying request keeps running (no abort in the guardian
- * client) and its late result is dropped: harmless for a read, and a caller that
+ * `timeoutMs`. The underlying request keeps running (the guardian client has no
+ * abort) and its late result is dropped: harmless for a read, and a caller that
  * wraps a write makes a late landing safe itself, by retrying it idempotently
  * (the registration loops count `account_already_exists` as success) or by
- * recording it for reconciliation (the transaction's endpoint persist).
+ * recording it for reconciliation (the transaction's endpoint persist). Inside a
+ * WASM lock hold, use it only when the abandoned tail makes no WASM call after its
+ * first suspension except on objects the flow built itself from plain inputs (such
+ * as a signer key from a seed), never the client or any object a client call returned.
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -413,25 +416,42 @@ export async function discoverGuardianForHotKey(
 }
 
 /**
- * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
- * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
- * the "recursive use of an object … unsafe aliasing" hazard. The handle is
- * freed here after the task settles.
+ * Shared entry of both discovery flows. On mobile each endpoint's origin routes
+ * through native HTTP while it is probed, and stays routed only for an operator
+ * that holds the account.
  */
 async function discoverGuardianForKeys(
   makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
   keyDerivations: readonly KeyDerivation[],
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
-  const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
-
   const targets = resolveTargets(options);
-  const probedEndpoints = targets.map(target => target.endpoint);
-  for (const endpoint of probedEndpoints) {
-    // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
-    // so an overridden/custom endpoint also routes through native HTTP.
-    registerGuardianOrigin(endpoint);
+  const probes = targets.map(({ endpoint }) => ({ endpoint, settle: probeGuardianOrigin(endpoint) }));
+  try {
+    const result = await probeTargets(targets, makeKey, keyDerivations, options);
+    for (const probe of probes) {
+      if (result.matches.some(match => match.endpoint === probe.endpoint)) probe.settle(true);
+    }
+    return result;
+  } finally {
+    for (const probe of probes) probe.settle(false);
   }
+}
+
+/**
+ * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
+ * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
+ * the "recursive use of an object … unsafe aliasing" hazard. The handle is
+ * freed here after the task settles.
+ */
+async function probeTargets(
+  targets: readonly ProbeTarget[],
+  makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
+  keyDerivations: readonly KeyDerivation[],
+  options: GuardianDiscoveryOptions
+): Promise<GuardianDiscoveryResult> {
+  const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
+  const probedEndpoints = targets.map(target => target.endpoint);
 
   const tasks: { target: ProbeTarget; hdIndex: number; keyDerivation: KeyDerivation }[] = [];
   for (const target of targets) {

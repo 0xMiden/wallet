@@ -3,6 +3,8 @@ import React from 'react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 export interface DetailRowProps {
   label: string;
   /** The value. A long value (an address) wraps instead of truncating. */
@@ -63,7 +65,22 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   </div>
 );
 
-/** A `fill` card of label/value rows with hairline dividers between them, 16px radius. */
-export const DetailCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
-  <div className={cn('divide-y divide-hairline rounded-2xl bg-fill', className)}>{children}</div>
+/**
+ * A card of label/value rows with hairline dividers between them, 16px radius: on `fill` by default,
+ * or with `surface="outline"` on the page with a hairline border, like `Card`'s outline surface.
+ */
+export const DetailCard: React.FC<{ children: React.ReactNode; surface?: 'fill' | 'outline'; className?: string }> = ({
+  children,
+  surface = 'fill',
+  className
+}) => (
+  <div
+    className={cn(
+      'divide-y divide-hairline rounded-2xl',
+      surface === 'outline' ? outlineSurfaceClassName : 'bg-fill',
+      className
+    )}
+  >
+    {children}
+  </div>
 );

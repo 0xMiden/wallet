@@ -36,8 +36,9 @@ export function useMobileBackHandler(
   options?: BackHandlerOptions
 ): void {
   const overlay = options?.overlay === true;
-  // A retained page that is off screen (a hidden tab, a page under a slide page) registers nothing, so the page
-  // on screen always gets the press; a page coming back on screen registers again, on top.
+  // A retained page that is off screen (a hidden tab, a page a slide page covers, or a Home page the carousel has not
+  // centred) registers nothing, so the page on screen always gets the press; a page coming back on screen registers
+  // again, on top, as a swipe does for the Home page it centres.
   const onScreen = usePageActive();
   useEffect(() => {
     if (!isMobile() || !onScreen) {

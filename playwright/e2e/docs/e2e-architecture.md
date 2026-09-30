@@ -334,7 +334,7 @@ flowchart TB
 > #### Stand-in contracts that enforce real invariants
 > Ethereum contracts live at fixed addresses. The stand-ins for the bridge and USDC are deployed at the exact addresses the app expects, so the app runs its real bridging code unchanged. These stand-ins are not permissive: the bridge stand-in rejects a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it requested precisely the right operation. A defect cannot pass by doing something plausible — it has to do the correct thing.
 
-> **Status:** the mobile bridge-in suite is still being stabilised — the shared WalletConnect relay is unreliable on the current free tier — and the feature ships behind a flag, so this suite is not yet a required gate. The harness components described above are implemented and in place.
+> **Status:** the mobile bridge-in suite runs after merge to main and does not yet fail its run. The deposit ships to users (`isBridgeDepositEnabled` is on), so this suite is its only E2E, but its WalletConnect handshake was rejected with WS close 3000 ("Project not found"). Until #1259 an unset counterparty secret made the counterparty send a blank project id, which alone produces that rejection; whether the app's own id was also rejected is not recorded. It becomes blocking once a run on the current default project id passes; relay rate limits are handled by retrying the connect step. The harness components described above are implemented and in place.
 
 <details>
 <summary>The tests in this group</summary>

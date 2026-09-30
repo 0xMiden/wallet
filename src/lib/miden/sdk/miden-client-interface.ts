@@ -85,7 +85,7 @@ import {
   type GuardianCreateKey,
   type PendingGuardianRegistration
 } from '../guardian/account';
-import { registerGuardianOrigin } from '../guardian/native-http';
+import { withGuardianProbe } from '../guardian/native-http';
 import { isPrivateNoteType } from '../helpers';
 
 export interface GuardianAccountCreationResult {
@@ -752,34 +752,42 @@ export class MidenClientInterface {
         throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
       }
     };
-    registerGuardianOrigin(guardianEndpoint);
-    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
-      refuseIfReplaced();
-      const coldSeed = deriveColdSeed(hdIndex);
-      const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-      const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
-      const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
+    // Not yet bound to an account: on mobile its origin routes through native HTTP
+    // while it is scanned, and for the session only once an account is adopted from it.
+    await withGuardianProbe(
+      guardianEndpoint,
+      async () => {
+        for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+          refuseIfReplaced();
+          const coldSeed = deriveColdSeed(hdIndex);
+          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+          const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
+          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const adopted = await this.recoverAndAdoptByKey(coldSk, guardianEndpoint);
+          const adopted = await this.recoverAndAdoptByKey(coldSk, guardianEndpoint);
 
-      if (adopted.length === 0) {
-        // Tolerate a small gap before giving up, so a non-contiguous index or a
-        // transient empty guardian response doesn't silently drop later accounts.
-        consecutiveMisses++;
-        if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
-        continue;
-      }
-      consecutiveMisses = 0;
+          if (adopted.length === 0) {
+            // Tolerate a small gap before giving up, so a non-contiguous index or a
+            // transient empty guardian response doesn't silently drop later accounts.
+            consecutiveMisses++;
+            if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+            continue;
+          }
+          consecutiveMisses = 0;
 
-      for (const bech32 of adopted) {
-        recovered.push({
-          accountId: bech32,
-          hdIndex,
-          coldPublicKey,
-          coldSecretKeyHex
-        });
-      }
-    }
+          for (const bech32 of adopted) {
+            recovered.push({
+              accountId: bech32,
+              hdIndex,
+              coldPublicKey,
+              coldSecretKeyHex
+            });
+          }
+        }
+        return recovered;
+      },
+      found => found.length > 0
+    );
 
     if (recovered.length === 0) {
       throw new NoGuardianAccountsFoundError();
@@ -866,8 +874,6 @@ export class MidenClientInterface {
       import('lib/i18n')
     ]);
 
-    registerGuardianOrigin(guardianEndpoint);
-
     const sk = deserializeHotSecretKey(hotSecretKeyHex);
     const publicKey = sk.publicKey();
     const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
@@ -877,15 +883,22 @@ export class MidenClientInterface {
     commitmentHandle.free();
     publicKey.free();
 
-    const adopted = await this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
-      const { commitment: hotCommitment } = await getSignerDetailsFromAccount(acc, false);
-      if (normalizeCommitment(hotCommitment) === pastedCommitment) return;
-      const { commitment: coldCommitment } = await getSignerDetailsFromAccount(acc, true);
-      if (normalizeCommitment(coldCommitment) === pastedCommitment) {
-        throw new Error(getMessage('importHotKeyIsRecoveryKey'));
-      }
-      throw new Error(getMessage('importHotKeyNotActive'));
-    });
+    // Not yet bound to an account: on mobile its origin routes through native HTTP
+    // while it is looked up, and for the session only once an account is adopted from it.
+    const adopted = await withGuardianProbe(
+      guardianEndpoint,
+      () =>
+        this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
+          const { commitment: hotCommitment } = await getSignerDetailsFromAccount(acc, false);
+          if (normalizeCommitment(hotCommitment) === pastedCommitment) return;
+          const { commitment: coldCommitment } = await getSignerDetailsFromAccount(acc, true);
+          if (normalizeCommitment(coldCommitment) === pastedCommitment) {
+            throw new Error(getMessage('importHotKeyIsRecoveryKey'));
+          }
+          throw new Error(getMessage('importHotKeyNotActive'));
+        }),
+      found => found.length > 0
+    );
 
     if (adopted.length === 0) {
       throw new NoGuardianAccountsFoundError(getMessage('importHotKeyNoAccount'));

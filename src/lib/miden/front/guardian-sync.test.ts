@@ -281,6 +281,7 @@ describe('zustandProvider', () => {
 describe('syncGuardianAccounts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetGuardianSyncOutageForTest();
     storeState.accounts = [];
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockIsExtension.mockReturnValue(true);
@@ -323,6 +324,22 @@ describe('syncGuardianAccounts', () => {
 
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith('guardian-heal', undefined, zustandProvider);
+  });
+
+  it('runs the hardening self-heal again after the hot key rotates', async () => {
+    // A rotation evicted before its own hardening leaves the repair to this check.
+    storeState.accounts = [{ publicKey: 'guardian-heal', type: WalletType.Guardian, hotPublicKey: 'hot-heal' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+    await syncGuardianAccounts();
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+
+    storeState.accounts[0]!.hotPublicKey = 'hot-rotated';
+    await syncGuardianAccounts();
+
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(2);
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenLastCalledWith('guardian-heal', undefined, zustandProvider);
   });
 
   it('drives the queued hardening row off-extension, where the SW nudge is a no-op', async () => {

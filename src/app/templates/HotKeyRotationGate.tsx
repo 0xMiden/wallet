@@ -2,11 +2,15 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { useAppEnv } from 'app/env';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { Spinner } from 'components/ui/Spinner';
+import { canHandoffToSidePanel, ONBOARDING_HANDOFF_ROUTES } from 'lib/extension/side-panel-handoff';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,
@@ -17,7 +21,7 @@ import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/m
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
-import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
 import {
   hotKeyRotationLockName,
   isLiveRotationFundingRow,
@@ -30,16 +34,18 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import { RotationFundingPanel, useRotationFundingClaim, useRotationGateRows } from './HotKeyRotationFunding';
 import {
+  describeRotationFailure,
   isBelowBaseFee,
   newestRow,
   resolveRotationGateView,
-  rotationFundingMinimum
+  rotationFundingMinimum,
+  type RotationFailure
 } from './HotKeyRotationGate.selectors';
 
 /**
@@ -61,11 +67,22 @@ import {
  *
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
+ *
+ * The onboarding tab stays ungated while it finishes onboarding (the finishing
+ * mark, held until the handler navigates on) and on its two side-panel handoff
+ * screens: the panel's own gate starts the rotation, or adopts it if one is in
+ * flight, so blocking the tab here would only hold the one tap that opens the
+ * panel until the rotation lands (#1097).
  */
 export const HotKeyRotationGate: FC = () => {
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const { fullPage } = useAppEnv();
+  const { pathname } = Woozie.useLocation();
+  const finishingOnboarding = useOnboardingFinishing();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
+  if (fullPage && canHandoffToSidePanel() && (finishingOnboarding || ONBOARDING_HANDOFF_ROUTES.has(pathname)))
+    return null;
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
@@ -156,6 +173,29 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
     throw new Error('Hot-key rotation lock callback did not produce a transaction id');
   }
   return txId;
+};
+
+/**
+ * The terminal failure. `w-full` on the column and `wrap-anywhere` on the text: in this centred
+ * flex column a box otherwise sizes to its widest unbreakable token, and the overlay only scrolls
+ * vertically, so a long id in a raw error ran off both sides of the screen (#1250).
+ */
+const RotationFailedPanel: FC<{ failure: RotationFailure; onRetry: () => void }> = ({ failure, onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <div data-testid="hot-key-rotation-failed" className="flex w-full flex-col items-center gap-4">
+      <h1 className="text-lg font-semibold text-ink">
+        {t(failure.unconfirmed ? 'hotKeyRotationUnconfirmedTitle' : 'hotKeyRotationFailedTitle')}
+      </h1>
+      <p data-testid="hot-key-rotation-failed-message" className="w-full text-sm text-ink wrap-anywhere select-text">
+        {failure.message ?? t(failure.unconfirmed ? 'hotKeyRotationUnconfirmedBody' : 'hotKeyRotationFailedGeneric')}
+      </p>
+      <ErrorDetails details={failure.details} className="w-full items-center" />
+      <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
+        {t('hotKeyRotationRetry')}
+      </Button>
+    </div>
+  );
 };
 
 const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
@@ -276,8 +316,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
 
   if (gate.view === 'recovery-seed' && row) {
-    return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
+    return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
+
+  const claimFailure = describeRotationFailure(gate.view === 'funding' ? gate.failedClaim : undefined, null);
 
   return (
     // A translucent scrim: the wallet stays visible
@@ -300,25 +342,16 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
               baseFee,
               balances.find(balance => balance.tokenId === feeFaucetId)
             )}
-            claimError={gate.failedClaim?.error}
+            claimMessage={claimFailure.message ?? undefined}
+            claimDetails={claimFailure.details}
+            claimUnconfirmed={claimFailure.unconfirmed}
             onRetryClaim={() => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}
             onCheckAgain={onRetry}
           />
         ) : gate.view === 'failed' ? (
-          <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
-            <p className="text-sm text-ink break-words select-text">
-              {/* An old-format shortfall row still carries the raw kernel line as its error. */}
-              {initError ??
-                (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
-                t('hotKeyRotationFailedGeneric')}
-            </p>
-            <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
-              {t('hotKeyRotationRetry')}
-            </Button>
-          </div>
+          <RotationFailedPanel failure={describeRotationFailure(row, initError)} onRetry={onRetry} />
         ) : (
           <>
             <Spinner />

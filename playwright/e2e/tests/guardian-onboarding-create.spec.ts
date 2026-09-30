@@ -21,13 +21,16 @@
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
  *                                  '/#meet-guardian' (onAction 'create-password-submit')
- *   Meet your Guardian           `onboarding-meet-guardian`
- *     └ tick the three facts     → the fastest operator's card appears
- *     └ "Choose a different      → '/#choose-guardian' (onAction 'choose-guardian')
- *        Guardian"
- *   Choose guardian              `onboarding-choose-guardian`
- *     └ Continue                 → WalletType.Guardian + '/#confirmation'
- *                                  (onAction 'choose-guardian-submit')
+ *   Meet your Guardian           `onboarding-meet-guardian`: the fastest operator's card
+ *                                  and its Change action, from the first probe round
+ *     └ tick the three facts     → Continue opens
+ *     └ the card's "Change"      → '/#choose-guardian' (onAction 'choose-guardian')
+ *   Choose guardian              `onboarding-choose-guardian`, on the card's operator
+ *     └ Continue, facts ticked   → WalletType.Guardian + '/#confirmation'
+ *                                  (onAction 'choose-guardian-submit'), once the
+ *                                  picked operator has answered online
+ *     └ Continue, facts unticked → back to Meet your Guardian (onAction 'back'),
+ *                                  its card showing the pick
  *   Confirmation                 `onboarding-confirmation`
  *     └ "Open wallet"            → register() → the telemetry consent prompt
  *                                  `onboarding-help-improve-wallet`

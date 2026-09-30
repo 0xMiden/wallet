@@ -1,9 +1,14 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
 
+import type { Transition } from 'framer-motion';
+
+import { springs, tabBarSwap, useMotion } from 'lib/animation';
+
 /**
  * Whether the page a component renders in is the one on screen. TabLayout keeps a visited tab
- * mounted under the active one and MobilePageLayers keeps a page mounted under a slide page, so work
- * a page does only for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
+ * mounted under the active one, MobilePageLayers keeps a page mounted under a slide page, and
+ * HomeSwipeContainer keeps every Home page mounted beside the centred one, so work a page does only
+ * for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
  * while false, never `isPaused`: SWR sends a shared key's mutate and error retry to its first subscriber, and a paused
  * one swallows them (see History).
  */
@@ -38,6 +43,17 @@ export function useTabShownAgain(): boolean {
     wasShown.current = shown;
   }, [shown]);
   return shownAgain;
+}
+
+/**
+ * The Activity list's layout transition: `springs.settle`, with only its `layout` channel on `tabBarSwap` in the commit
+ * `useTabShownAgain` reports, so a row or date group that survives a filter a link changed while the tab was hidden
+ * takes its new place at once (#1198). Only the layout channel: a row's `whileTap` press reads the same `transition`,
+ * and nothing re-renders the row after that commit, so a whole swap would leave its press instant until the next one.
+ */
+export function useSettleLayoutTransition(): Transition {
+  const settle = useMotion(springs.settle);
+  return useTabShownAgain() ? { ...settle, layout: tabBarSwap } : settle;
 }
 
 /**

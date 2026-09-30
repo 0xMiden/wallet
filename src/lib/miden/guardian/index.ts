@@ -28,8 +28,8 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
-import { registerGuardianOrigin } from './native-http';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
+import { registerGuardianOrigin, withGuardianProbe } from './native-http';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
@@ -109,10 +109,12 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
  * bounds its counterparts for exactly this reason; the coordinated path had the
  * same hole (F-144 bounded only the endpoint persist beside it).
  *
- * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` /
- * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS`: generous, because expiring early costs an
- * attempt out of the budget, and its job is only to convert silence into a
- * failure the loop can consume.
+ * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` and to the shared
+ * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS` (./serialize), which bounds the pre-sign
+ * pubkey check on both switch paths, this file's `createSwitchGuardianProposal`
+ * included: generous, because expiring early costs an attempt out of the
+ * budget, and its job is only to convert silence into a failure the loop can
+ * consume.
  */
 export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
@@ -614,16 +616,21 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
-      registerGuardianOrigin(newGuardianEndpoint);
-      const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      // Fetch the new guardian's ECDSA commitment to match the account's scheme.
-      // Validated before use: the SDK interpolates this wire value into
-      // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
-      // nor length. Same boundary the direct-switch path applies.
-      const commitment = assertGuardianKeyCommitment(
-        (await newGuardian.getPubkey('ecdsa')).commitment,
-        newGuardianEndpoint
-      );
+      // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+      const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
+        const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
+        // Fetch the new guardian's ECDSA commitment to match the account's scheme.
+        // Validated before use: the SDK interpolates this wire value into
+        // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
+        // nor length. Same boundary the direct-switch path applies.
+        // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
+        const answer = await withTimeout(
+          newGuardian.getPubkey('ecdsa'),
+          NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+          `New guardian ${newGuardianEndpoint} pubkey fetch`
+        );
+        return assertGuardianKeyCommitment(answer.commitment, newGuardianEndpoint);
+      });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await withWasmClientLock(() =>

@@ -1,9 +1,14 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { deferred } from 'lib/epoch/testing/earn-locks';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -49,7 +54,10 @@ const mockNavigate = jest.fn();
 const mockClearNoteReceivedNotification = jest.fn();
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  // Interpolations are appended to the key, so a test can read the count or name a label was given.
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
+  })
 }));
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({
@@ -73,17 +81,20 @@ jest.mock('app/templates/HomePrompts', () => ({
   __esModule: true,
   default: ({
     account,
+    balances,
     claimableNotes,
     fundingNotes,
     tokenPrices
   }: {
     account: { publicKey: string };
+    balances?: unknown[];
     claimableNotes?: unknown[];
     fundingNotes?: unknown[];
     tokenPrices: Record<string, unknown>;
   }) => (
     <div
       data-testid="home-prompts"
+      data-balance-count={balances?.length ?? 0}
       data-note-count={claimableNotes?.length ?? 0}
       data-funding-notes={fundingNotes === undefined ? 'unloaded' : String(fundingNotes.length)}
       data-price-symbols={Object.keys(tokenPrices).join(',')}
@@ -94,8 +105,13 @@ jest.mock('app/templates/HomePrompts', () => ({
 }));
 
 jest.mock('components/AssetRow', () => ({
-  AssetRow: ({ asset, onClick }: { asset: any; onClick: () => void }) => (
-    <button data-testid="asset-row" data-token={asset.tokenId} onClick={onClick}>
+  AssetRow: ({ asset, onClick, sparkline }: { asset: any; onClick: () => void; sparkline?: boolean }) => (
+    <button
+      data-testid="asset-row"
+      data-token={asset.tokenId}
+      data-sparkline={sparkline === false ? 'off' : 'on'}
+      onClick={onClick}
+    >
       {asset.metadata.symbol}
     </button>
   )
@@ -103,6 +119,11 @@ jest.mock('components/AssetRow', () => ({
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
+}));
+
+// The pill has its own suite; here it only has to sit above the balance card.
+jest.mock('components/NetworkModePill', () => ({
+  NetworkModePill: () => <div data-testid="network-mode-pill" />
 }));
 
 jest.mock('components/Loader', () => ({
@@ -147,6 +168,21 @@ jest.mock('components/ui', () => ({
       </div>
     ) : null,
   AssetListItemSkeleton: (props: { 'data-testid'?: string }) => <div data-testid={props['data-testid']} />,
+  // Forwards its ref like the real TextAction, so a test can assert focus lands on this button.
+  TextAction: React.forwardRef<
+    HTMLButtonElement,
+    { children: React.ReactNode; onClick: () => void; 'aria-label'?: string }
+  >(({ children, onClick, 'aria-label': ariaLabel }, ref) => (
+    <button ref={ref} type="button" aria-label={ariaLabel} onClick={onClick}>
+      {children}
+    </button>
+  )),
+  ErrorLine: ({ children, 'data-testid': dataTestId }: { children?: React.ReactNode; 'data-testid'?: string }) =>
+    children ? (
+      <p role="alert" data-testid={dataTestId}>
+        {children}
+      </p>
+    ) : null,
   SearchInput: ({
     value,
     onChange,
@@ -201,6 +237,22 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
 jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { name: 'zustand-provider' }
 }));
+
+// `lib/settings/helpers` is mocked without the haptic setting, so the real haptics would throw.
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+const mockHapticLight = jest.mocked(hapticLight);
+
+// The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
+let mockStoredHiddenTokens: string[] | null = null;
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
+const mockReadStorage = jest.mocked(fetchFromStorage);
+const mockWriteStorage = jest.mocked(putToStorage);
 
 // The factory owns the state: the token registry reads the platform while it loads, before any
 // `let` in this file is initialised.
@@ -272,6 +324,18 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
+    resetHiddenTokens();
+    mockStoredHiddenTokens = null;
+    mockReadStorage.mockReset();
+    mockReadStorage.mockImplementation((key: string) =>
+      Promise.resolve(key.startsWith('hidden-tokens:') ? mockStoredHiddenTokens : null)
+    );
+    mockWriteStorage.mockReset();
+    // A save reads the set inside its turn, so a write lands where the next read finds it.
+    mockWriteStorage.mockImplementation((key: string, value: unknown) => {
+      if (key.startsWith('hidden-tokens:')) mockStoredHiddenTokens = Array.isArray(value) ? value : null;
+      return Promise.resolve();
+    });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
@@ -297,6 +361,11 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
+      // The test network is named above the card, the first thing on Home.
+      expect(
+        screen.getByTestId('network-mode-pill').compareDocumentPosition(screen.getByTestId('balance-card')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
       // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
       // fields flow through.
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
@@ -406,8 +475,8 @@ describe('Explore', () => {
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
-        makeToken('t-btc', 'BTC', 'Bitcoin', 2)
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
+        makeToken(TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
       ];
       mockTokenPrices = {
         MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
@@ -418,14 +487,14 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-btc', 't-eth']);
+      expect(tokens).toEqual(['faucet-native', TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
@@ -434,23 +503,27 @@ describe('Explore', () => {
 
       // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', TOKEN_IETH.faucetId, 't-other']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId, 't-other']);
     });
 
     it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
         // would outrank everything by a factor of a million.
-        { tokenId: 't-unsized', balance: 1_000_000, metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true } }
+        {
+          tokenId: TOKEN_IETH.faucetId,
+          balance: 1_000_000,
+          metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true }
+        }
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
 
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', 't-unsized']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId]);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
@@ -537,6 +610,422 @@ describe('Explore', () => {
       await renderExplore();
       expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
       expect(screen.queryByTestId('search-input')).toBeNull();
+    });
+  });
+
+  describe('hidden assets', () => {
+    const KEY = 'hidden-tokens:v1:testnet:mtst1account';
+    const rowsIn = (testId: string) =>
+      within(screen.getByTestId(testId))
+        .getAllByTestId('asset-row')
+        .map(row => row.getAttribute('data-token'));
+    // Opens the section only if it is closed, so no case but the first depends on the default.
+    const openSection = async () => {
+      const toggle = screen.getByTestId('hidden-assets-toggle');
+      if (toggle.getAttribute('aria-expanded') === 'true') return;
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+    };
+    const unhideSpam = async () => {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' }));
+      });
+    };
+
+    beforeEach(() => {
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden'),
+        makeToken('t-btc', 'BTC', 'Bitcoin'),
+        makeToken('t-spam', 'SPAM', 'Free Airdrop')
+      ];
+    });
+
+    it('moves a hidden token out of the asset list into a Hidden assets section, collapsed, with its count', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+
+      expect(mockReadStorage).toHaveBeenCalledWith(KEY);
+      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+      const toggle = screen.getByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveTextContent('hiddenAssetsCount:1');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it('opens the section to list each hidden token without a sparkline, and opens its page from the row', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+
+      const toggle = screen.getByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const region = screen.getByRole('region', { name: 'hiddenAssets' });
+      expect(toggle).toHaveAttribute('aria-controls', region.id);
+      expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+      const hiddenRow = within(screen.getByTestId('hidden-asset-list')).getByTestId('asset-row');
+      expect(hiddenRow).toHaveAttribute('data-sparkline', 'off');
+      expect(within(screen.getByTestId('asset-list')).getAllByTestId('asset-row')[0]).toHaveAttribute(
+        'data-sparkline',
+        'on'
+      );
+
+      await act(async () => {
+        fireEvent.click(hiddenRow);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/token-detail/t-spam');
+    });
+
+    it('puts a token back in the asset list when it is unhidden, and drops the empty section', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+
+      await unhideSpam();
+
+      await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
+      expect(mockWriteStorage).toHaveBeenLastCalledWith(KEY, []);
+      expect(screen.queryByTestId('hidden-assets')).toBeNull();
+    });
+
+    it('keeps a token hidden and says so when unhiding it cannot be saved, until a later Unhide succeeds', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // A second hidden token keeps the section, and so its error line, on the page after the retry.
+        mockStoredHiddenTokens = ['t-spam', 't-junk'];
+        mockAllBalances = [...mockAllBalances, makeToken('t-junk', 'JUNK', 'Junk Token')];
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await renderExplore();
+        await openSection();
+
+        await unhideSpam();
+
+        expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam', 't-junk']);
+        expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+
+        await unhideSpam();
+
+        await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']);
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('keeps the section open with its error when an Unhide that emptied it fails after the empty state rendered', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const write = deferred<void>();
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        await renderExplore();
+        await openSection();
+        mockWriteStorage.mockImplementationOnce(() => write.promise);
+
+        await unhideSpam();
+        // The optimistic empty state has committed while the write is still held.
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+
+        await act(async () => {
+          write.reject(new Error('Storage unavailable'));
+        });
+
+        expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+        expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+      } finally {
+        mockWriteStorage.mockReset();
+        warn.mockRestore();
+      }
+    });
+
+    it('never filters the native token, even when the stored set holds its id', async () => {
+      mockStoredHiddenTokens = ['faucet-native', 't-spam'];
+      await renderExplore();
+
+      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
+    });
+
+    it('counts only hidden tokens the account holds', async () => {
+      mockStoredHiddenTokens = ['t-spam', 't-gone'];
+      await renderExplore();
+
+      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
+    });
+
+    it('shows no Hidden assets section when no held token is hidden', async () => {
+      mockStoredHiddenTokens = ['t-gone'];
+      await renderExplore();
+
+      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']);
+      expect(screen.queryByTestId('hidden-assets')).toBeNull();
+    });
+
+    it("still hands HomePrompts every balance and a hidden token's incoming transfer", async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      mockClaimableNotes = [makeNote('note-spam', 't-spam')];
+      await renderExplore();
+
+      const prompts = screen.getByTestId('home-prompts');
+      expect(prompts).toHaveAttribute('data-balance-count', '3');
+      expect(prompts).toHaveAttribute('data-note-count', '1');
+    });
+
+    it("reads the new account's set when the account changes", async () => {
+      mockReadStorage.mockImplementation((key: string) => Promise.resolve(key === KEY ? ['t-spam'] : null));
+      const { rerender } = await renderExplore();
+      expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+
+      mockAccount = { publicKey: 'mtst1other' };
+      await act(async () => {
+        rerender(<Explore />);
+      });
+
+      await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
+      expect(mockReadStorage).toHaveBeenCalledWith('hidden-tokens:v1:testnet:mtst1other');
+      expect(screen.queryByTestId('hidden-assets')).toBeNull();
+    });
+
+    it('shows no Hidden assets section while balances load', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      mockBalancesLoading = true;
+      await renderExplore();
+
+      expect(screen.getByTestId('asset-row-skeleton')).toBeInTheDocument();
+      expect(screen.queryByTestId('hidden-assets')).toBeNull();
+    });
+
+    it('closes again on a second toggle, taking the list away, and calls hapticLight on each tap', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      const toggle = screen.getByTestId('hidden-assets-toggle');
+
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(mockHapticLight).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      // The reveal preset plays an exit animation, so the list leaves the DOM a tick later.
+      await waitFor(() => expect(screen.queryByTestId('hidden-asset-list')).toBeNull());
+      expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    });
+
+    // Both accounts' sets are read before the switch that matters, so no empty render can reset the section: only
+    // the key on HiddenAssets does.
+    const switchTo = async (rerender: (ui: React.ReactElement) => void, publicKey: string) => {
+      mockAccount = { publicKey };
+      await act(async () => {
+        rerender(<Explore />);
+      });
+      await screen.findByTestId('hidden-assets-toggle');
+    };
+
+    it('closes the disclosure on an account switch, even if it was left open', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      const { rerender } = await renderExplore();
+      const first = mockAccount.publicKey;
+      await switchTo(rerender, 'mtst1other');
+      await switchTo(rerender, first);
+      await openSection();
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+      await switchTo(rerender, 'mtst1other');
+
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it("carries no Unhide error to another account's section", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        const { rerender } = await renderExplore();
+        const first = mockAccount.publicKey;
+        await switchTo(rerender, 'mtst1other');
+        await openSection();
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await unhideSpam();
+        expect(await screen.findByTestId('hidden-assets-error')).toBeInTheDocument();
+
+        await switchTo(rerender, first);
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
+        // The error line renders only while the section is open, so the check for a stale one is made open.
+        await openSection();
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('moves focus to the remaining Unhide action, then to the asset list once the section empties', async () => {
+      mockStoredHiddenTokens = ['t-spam', 't-junk'];
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden'),
+        makeToken('t-btc', 'BTC', 'Bitcoin'),
+        makeToken('t-spam', 'SPAM', 'Free Airdrop'),
+        makeToken('t-junk', 'JUNK', 'Junk Token')
+      ];
+      await renderExplore();
+      await openSection();
+      const junkUnhide = screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' });
+
+      // A plain click runs in RTL's synchronous act, so the save has not landed yet: focus moves at click time.
+      fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' }));
+      expect(rowsIn('hidden-asset-list')).toEqual(['t-spam', 't-junk']);
+      expect(document.activeElement).toBe(junkUnhide);
+      await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+      expect(document.activeElement).toBe(junkUnhide);
+
+      fireEvent.click(junkUnhide);
+      expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+      expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+      // Named by the Assets heading above it, so a screen reader announces where focus landed.
+      expect(document.activeElement).toBe(screen.getByRole('group', { name: 'assets' }));
+    });
+
+    describe('with two hidden rows', () => {
+      const spamUnhide = () => screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' });
+      const junkUnhide = () => screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' });
+      const writesToKey = () => mockWriteStorage.mock.calls.filter(([key]) => key === KEY).length;
+
+      beforeEach(() => {
+        mockStoredHiddenTokens = ['t-spam', 't-junk'];
+        mockAllBalances = [...mockAllBalances, makeToken('t-junk', 'JUNK', 'Junk Token')];
+      });
+
+      it('hands focus to the asset list when the last two rows are unhidden before the first save lands', async () => {
+        await renderExplore();
+        await openSection();
+
+        // Back to back: the first save's optimistic entry has not landed, so both rows are still listed.
+        fireEvent.click(spamUnhide());
+        fireEvent.click(junkUnhide());
+
+        expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+        expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+      });
+
+      it("saves once when one row's Unhide is tapped twice", async () => {
+        await renderExplore();
+        await openSection();
+
+        fireEvent.click(spamUnhide());
+        fireEvent.click(spamUnhide());
+
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+        expect(writesToKey()).toBe(1);
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      });
+
+      it('lets a token unhidden and hidden again be unhidden again', async () => {
+        await renderExplore();
+        await openSection();
+        await unhideSpam();
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
+
+        const outside = renderHook(() => useHiddenTokens('mtst1account'));
+        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+        await act(async () => {
+          await outside.result.current.hide('t-spam');
+        });
+        outside.unmount();
+        await waitFor(() => expect(rowsIn('hidden-asset-list')).toContain('t-spam'));
+
+        await unhideSpam();
+
+        await waitFor(() => expect(rowsIn('asset-list')).toContain('t-spam'));
+        expect(writesToKey()).toBe(3);
+      });
+    });
+
+    it('starts collapsed after the section empties, once a later hide fills it again', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+      await unhideSpam();
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+
+      // A hide from outside this page (the same module-level store) fills the section back up.
+      const outside = renderHook(() => useHiddenTokens('mtst1account'));
+      await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+      await act(async () => {
+        await outside.result.current.hide('t-btc');
+      });
+      outside.unmount();
+
+      const toggle = await screen.findByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it("drops a failed Unhide's error when the section empties, so a later refill opens without it", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        await renderExplore();
+        await openSection();
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await unhideSpam();
+        expect(await screen.findByTestId('hidden-assets-error')).toBeInTheDocument();
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+
+        // Another page empties the section, with no Unhide of this one's pending, then a hide refills it.
+        const outside = renderHook(() => useHiddenTokens('mtst1account'));
+        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+        await act(async () => {
+          await outside.result.current.unhide('t-spam');
+        });
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+        await act(async () => {
+          await outside.result.current.hide('t-btc');
+        });
+        outside.unmount();
+
+        expect(await screen.findByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
+        await openSection();
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-btc']);
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('still collapses when another page empties the section', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+
+      const outside = renderHook(() => useHiddenTokens('mtst1account'));
+      await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+      await act(async () => {
+        await outside.result.current.unhide('t-spam');
+      });
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+      await act(async () => {
+        await outside.result.current.hide('t-spam');
+      });
+      outside.unmount();
+
+      const toggle = await screen.findByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
     });
   });
 

@@ -310,28 +310,32 @@ describe('Receive - Address', () => {
     expect(warning.querySelector('[data-slot="body"]')).toHaveClass('text-caption', 'text-muted');
     expect(warning.querySelector('[data-slot="icon"]')).toHaveClass('text-pending-ink');
     // Last on the page: code, address, actions, then the warning that qualifies them.
-    const shareButton = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share')!;
+    const shareButton = container.querySelector('[data-testid="receive-share"]')!;
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
     expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
     expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
   });
 
-  it('renders Share and Cross-chain as rows of one ListGroup, with one haptic per tap', async () => {
+  it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {
     const container = await renderReceive();
 
     const actions = container.querySelector('[data-testid="receive-actions"]')!;
-    // The app's grouped fill list, like every other list in the wallet.
-    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
+    // Two equal choices in a row, each its own outlined tile.
+    expect(actions).toHaveClass('flex', 'gap-2.5');
     const share = actions.querySelector('[data-testid="receive-share"]')!;
     const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(share.tagName).toBe('BUTTON');
     expect(crossChain.tagName).toBe('BUTTON');
+    for (const tile of [share, crossChain]) {
+      expect(tile).toHaveClass('flex-1', 'flex-col', 'items-center', 'text-center', 'border-hairline');
+      expect(tile).not.toHaveClass('bg-fill');
+    }
     expect(share.querySelector('[data-slot="title"]')?.textContent).toBe('share');
+    expect(share.querySelector('[data-slot="caption"]')?.textContent).toBe('receiveShareCaption');
     expect(crossChain.querySelector('[data-slot="title"]')?.textContent).toBe('crossChain');
-    // Share opens the system sheet in place; only the cross-chain row goes somewhere.
-    expect(share.querySelector('[data-slot="chevron"]')).toBeNull();
-    expect(crossChain.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // The captions are semibold, the one weight step up from the body caption.
+    expect(share.querySelector('[data-slot="caption"]')).toHaveClass('text-caption', 'font-semibold', 'text-muted');
     // No label is sized by hand any more (the 40px `text-[2.5rem]` spans).
     expect(container.querySelector('[class*="text-[2.5rem]"]')).toBeNull();
 
@@ -391,7 +395,10 @@ describe('Receive - Address', () => {
     expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
     // One column, the shared home-group pane body: the code block sits straight in it, at the
     // 16px gutter every pane shares.
-    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
+    // Through the page's font scope, a `contents` box that adds no layout of its own.
+    const fontScope = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(fontScope).toHaveClass('contents', 'face-heading');
+    const column = fontScope.parentElement!;
     expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
     expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-5');
   });
@@ -416,7 +423,7 @@ describe('Receive - Address', () => {
   });
 
   describe('the receive green', () => {
-    it('paints the rows, the chevron and the copy glyph in the flow accent', async () => {
+    it('paints the tiles’ glyphs and the copy glyph in the flow accent', async () => {
       const container = await renderReceive();
 
       // The page keeps the app's surface: the green is in the affordances, not a wash.
@@ -425,15 +432,13 @@ describe('Receive - Address', () => {
       );
 
       for (const testId of ['receive-share', 'receive-cross-chain']) {
-        const row = container.querySelector(`[data-testid="${testId}"]`)!;
-        expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
-        expect(row).toHaveClass('before:bg-accent-receive/25');
+        const tile = container.querySelector(`[data-testid="${testId}"]`)!;
+        expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+        // The shared IconCircle at its 36px size, not a disc drawn on the page.
+        expect(tile.querySelector('[data-slot="icon"]')).toHaveClass('shrink-0', 'h-9', 'w-9', 'rounded-full');
         // The titles stay `ink`: the accent is under 4.5:1 as text.
-        expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+        expect(tile.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
       }
-      expect(container.querySelector('[data-testid="receive-cross-chain"] [data-slot="chevron"]')).toHaveClass(
-        'stroke-accent-receive'
-      );
 
       const copy = container.querySelector('[data-testid="receive-copy-address"]')!;
       expect(copy.querySelector('[data-copy-icon]')).toHaveClass('text-accent-receive');
@@ -607,7 +612,7 @@ describe('Receive - Address', () => {
     });
 
     const clickShare = async (container: HTMLElement) => {
-      const button = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share');
+      const button = container.querySelector<HTMLButtonElement>('[data-testid="receive-share"]');
       await act(async () => {
         button!.click();
       });

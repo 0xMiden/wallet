@@ -4,6 +4,7 @@ import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 import CSSTransition from 'react-transition-group/CSSTransition';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
@@ -19,6 +20,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const { isHidden } = useHiddenTokens(account.publicKey);
 
   return useMemo(() => {
     // A token whose decimals were never resolved contributes a `balance` that was
@@ -36,6 +38,8 @@ const Balance = memo<BalanceProps>(({ children }) => {
     let valuedAnything = false;
     for (const token of allTokenBalances) {
       if (!(token.balance > 0)) continue;
+      // The card sums what Home lists, and a hidden token is not listed (#813).
+      if (isHidden(token.tokenId)) continue;
       holdsAnything = true;
       if (!hasKnownScale(token.metadata)) continue;
       const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
@@ -61,7 +65,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances, tokenPrices]);
+  }, [children, allTokenBalances, isHidden, tokenPrices]);
 });
 
 export default Balance;

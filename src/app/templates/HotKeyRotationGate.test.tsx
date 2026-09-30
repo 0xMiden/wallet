@@ -1,11 +1,18 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { markOnboardingFinishing, ONBOARDING_FINISH_BUDGET_MS } from 'app/onboarding-finish';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
-import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  INVALID_NOTE_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 import type { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -30,6 +37,10 @@ let mockBalancesLoading = false;
 let mockFaucetId: string | null = 'native-faucet';
 let mockClaimable: { data?: ConsumableNote[]; isFallback: boolean } = { data: [], isFallback: false };
 const mockEnqueue = jest.fn(async (..._args: unknown[]): Promise<string | null> => 'claim-tx');
+// Defaults keep the gate's handoff-screen exemption off for every test but its own (#1097).
+let mockAppEnv: { fullPage: boolean } = { fullPage: false };
+let mockLocation: { pathname: string } = { pathname: '/' };
+let mockHandoffAvailable = false;
 
 let storeState: { currentAccount?: Partial<WalletAccount> };
 // Simulates another surface actively holding the generate-transactions-loop
@@ -81,6 +92,23 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+jest.mock('app/env', () => ({
+  useAppEnv: () => mockAppEnv
+}));
+
+// Partial mock: only `useLocation` is driven; `navigate` (used by the recovery-seed
+// prompt's onClose) keeps its real implementation, as it takes no wrapping provider.
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  useLocation: () => mockLocation
+}));
+
+// Partial mock: only `canHandoffToSidePanel` is driven, so the gate exempts the real handoff routes.
+jest.mock('lib/extension/side-panel-handoff', () => ({
+  ...jest.requireActual('lib/extension/side-panel-handoff'),
+  canHandoffToSidePanel: () => mockHandoffAvailable
+}));
 
 jest.mock('lib/dexie-live-query', () => ({
   subscribeToLiveQuery: (query: () => unknown, observer: { next: (value: unknown) => void }) => {
@@ -273,6 +301,9 @@ describe('HotKeyRotationGate', () => {
     mockInitiate.mockResolvedValue('tx-new');
     mockLoop.mockResolvedValue(undefined);
     mockUseTransactionRow.mockReturnValue({ row: undefined, loaded: true });
+    mockAppEnv = { fullPage: false };
+    mockLocation = { pathname: '/' };
+    mockHandoffAvailable = false;
   });
 
   it('renders nothing when there is no account or no rotation flag', () => {
@@ -341,18 +372,20 @@ describe('HotKeyRotationGate', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
-  it('shows the failure reason and retries with a fresh transaction', async () => {
+  it('puts an unclassified failure behind a short message and retries with a fresh transaction', async () => {
     mockUseTransactionRow.mockReturnValue({
-      row: { id: 'tx-new', status: ITransactionStatus.Failed, error: 'guardian unreachable' },
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' },
       loaded: true
     });
-
     mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
 
     render(<HotKeyRotationGate />);
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
 
     expect(screen.getByText('hotKeyRotationFailedTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationFailedGeneric');
+    expect(screen.queryByText('guardian unreachable')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
     expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
 
     // Failed rows are terminal: Retry enqueues a new transaction instead of adopting it.
@@ -360,15 +393,86 @@ describe('HotKeyRotationGate', () => {
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(2));
   });
 
-  it('falls back to a generic failure message when the row has no error text', async () => {
+  it('falls back to a generic failure message, with no details, when the row has no error text', async () => {
     mockUseTransactionRow.mockReturnValue({
-      row: { id: 'tx-new', status: ITransactionStatus.Failed },
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
       loaded: true
     });
 
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(screen.getByText('hotKeyRotationFailedGeneric')).toBeInTheDocument());
+    expect(screen.queryByText('showFullError')).not.toBeInTheDocument();
+  });
+
+  it('says a rotation that may have reached the network is not confirmed', async () => {
+    const raw = 'Error: Error during Guardian transaction submission or execution: request timeout';
+    mockUseTransactionRow.mockReturnValue({
+      row: {
+        id: 'tx-new',
+        status: ITransactionStatus.Failed,
+        type: 'replace-hot-key',
+        error: raw,
+        mayHaveSubmitted: true
+      },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByText('hotKeyRotationUnconfirmedTitle')).toBeInTheDocument();
+    expect(screen.queryByText('hotKeyRotationFailedTitle')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationUnconfirmedBody');
+    expect(screen.queryByText(raw)).not.toBeInTheDocument();
+  });
+
+  it('shows classified copy as the message and keeps its raw error for details', async () => {
+    mockUseTransactionRow.mockReturnValue({
+      row: {
+        id: 'tx-new',
+        status: ITransactionStatus.Failed,
+        type: 'replace-hot-key',
+        error: 'Local proving failed. Please try again.',
+        rawError: 'RuntimeError: unreachable'
+      },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
+      'Local proving failed. Please try again.'
+    );
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('RuntimeError: unreachable')).toBeInTheDocument();
+  });
+
+  it('puts a failed enqueue behind the generic message, with its error behind Show full error', async () => {
+    mockInitiate.mockRejectedValue(new Error('enqueue failed'));
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('hotKeyRotationFailedGeneric');
+    expect(screen.queryByText('enqueue failed')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('enqueue failed')).toBeInTheDocument();
+  });
+
+  it('keeps the message and its column inside the screen width', async () => {
+    mockUseTransactionRow.mockReturnValue({
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+
+    await screen.findByTestId('hot-key-rotation-failed');
+    // A fit-content column sizes to its widest unbreakable token; `w-full` pins it to the overlay.
+    expect(screen.getByTestId('hot-key-rotation-failed')).toHaveClass('w-full');
+    expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveClass('w-full', 'wrap-anywhere');
   });
 
   it('disappears once the rotation flag clears', async () => {
@@ -815,6 +919,7 @@ describe('HotKeyRotationGate', () => {
       await waitFor(() =>
         expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
       );
+      fireEvent.click(screen.getByText('showFullError'));
       expect(screen.getByText('guardian unreachable')).toBeInTheDocument();
       fireEvent.click(screen.getByTestId('hot-key-rotation-funding-claim-retry'));
       await waitFor(() =>
@@ -824,6 +929,116 @@ describe('HotKeyRotationGate', () => {
           verificationBaseFee: 10000
         })
       );
+    });
+
+    it('keeps a long claim error inside the screen width', async () => {
+      const error = '0x' + 'ab'.repeat(64);
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.queryByText(error)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText(error)).toHaveClass('w-full', 'wrap-anywhere');
+    });
+
+    it('shows a classified claim failure with its raw error behind Show full error', async () => {
+      const raw = 'RuntimeError: unreachable';
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', {
+          status: ITransactionStatus.Failed,
+          error: 'Local proving failed. Please try again.',
+          rawError: raw,
+          noteIds: ['n1']
+        })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByText('Local proving failed. Please try again.')).toBeInTheDocument();
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText(raw)).toBeInTheDocument();
+    });
+
+    it('keeps the generic status for an unclassified claim failure, with its raw error behind Show full error', async () => {
+      const raw = 'RuntimeError: unreachable';
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error: raw, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+        'hotKeyRotationFundingClaimFailed'
+      );
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText(raw)).toBeInTheDocument();
+    });
+
+    it('shows a claim the wallet failed with its own reason inline, with no Show full error', async () => {
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, error: INVALID_NOTE_ERROR, noteIds: ['n1'] })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed')
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+        'hotKeyRotationFundingClaimFailed'
+      );
+      expect(screen.getByText(INVALID_NOTE_ERROR)).toBeInTheDocument();
+      expect(screen.queryByText('showFullError')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['may have submitted', { error: 'RuntimeError: request timeout', mayHaveSubmitted: true }],
+      ['was reaped as stuck', { error: TRANSACTION_STUCK_ERROR }],
+      ['was interrupted when the browser closed', { error: TRANSACTION_INTERRUPTED_ON_STARTUP }],
+      ['was interrupted by the node check', { error: TRANSACTION_INTERRUPTED_ERROR }]
+    ])('says a claim that %s could not be confirmed, and keeps Try again', async (_label, failure) => {
+      trackShortfall();
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-1', { status: ITransactionStatus.Failed, noteIds: ['n1'], ...failure })
+      ];
+      mockClaimable = { data: [nativeNote('n1')], isFallback: false };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveTextContent(
+          'hotKeyRotationFundingClaimUnconfirmed'
+        )
+      );
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claim-failed');
+      expect(screen.getByTestId('hot-key-rotation-funding-claim-retry')).toBeInTheDocument();
     });
 
     it('gives Try again and Check again a light haptic', async () => {
@@ -965,6 +1180,111 @@ describe('HotKeyRotationGate', () => {
       await screen.findByTestId('hot-key-rotation-failed');
       expect(screen.getByText(TRANSACTION_VAULT_SHORTFALL_ERROR)).toBeInTheDocument();
       expect(screen.queryByText(/assertion failed/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the onboarding-tab handoff screens (#1097)', () => {
+    beforeEach(() => {
+      mockAppEnv = { fullPage: true };
+      mockHandoffAvailable = true;
+    });
+
+    it.each(['/finish-side-panel', '/help-improve-wallet'])(
+      'renders nothing and starts no rotation on %s',
+      async route => {
+        mockLocation = { pathname: route };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+      }
+    );
+
+    it('renders the gate on a non-handoff full-page route', async () => {
+      mockLocation = { pathname: '/' };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the consent screen when the side panel is unavailable', async () => {
+      mockLocation = { pathname: '/help-improve-wallet' };
+      mockHandoffAvailable = false;
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the gate on the handoff screen inside the side-panel window itself', async () => {
+      mockLocation = { pathname: '/finish-side-panel' };
+      mockAppEnv = { fullPage: false };
+      render(<HotKeyRotationGate />);
+      expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+      await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    });
+
+    // The mark is module-global, so each test releases its own after unmounting the gate, and no rotation starts
+    // after the test.
+    it("renders nothing and starts no rotation at '/' while the onboarding tab finishes, and gates once the mark is released", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(container).toBeEmptyDOMElement();
+        expect(mockInitiate).not.toHaveBeenCalled();
+
+        act(() => mark.release());
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
+    });
+
+    it("gates once the finishing mark's budget runs out", async () => {
+      jest.useFakeTimers();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mark = markOnboardingFinishing();
+      try {
+        mark.arm();
+        mockLocation = { pathname: '/' };
+        const { container } = render(<HotKeyRotationGate />);
+        act(() => {
+          jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS - 1);
+        });
+        expect(container).toBeEmptyDOMElement();
+
+        act(() => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+        warn.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    it("renders the gate at '/' while the onboarding tab finishes without a side panel", async () => {
+      const mark = markOnboardingFinishing();
+      try {
+        mockLocation = { pathname: '/' };
+        mockHandoffAvailable = false;
+        render(<HotKeyRotationGate />);
+        expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+        await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+      } finally {
+        cleanup();
+        mark.release();
+      }
     });
   });
 });

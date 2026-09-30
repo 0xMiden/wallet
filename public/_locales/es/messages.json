@@ -180,18 +180,6 @@
     "message": "Pan",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Mi posición en $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ en $network$",
     "englishSource": "$asset$ on $network$",
@@ -600,6 +588,14 @@
   "cancelled": {
     "message": "Cancelado",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "Sin confirmar",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "El monedero no ha podido confirmar si se ha procesado correctamente. Es posible que aún llegue, así que comprueba tu saldo una vez que el monedero se haya sincronizado antes de volver a enviarlo.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "Mostrar el error completo",
@@ -1878,12 +1874,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Comprueba tu frase de recuperación",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Haz una copia de seguridad de tu monedero",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Anota tu frase de recuperación y asegúrate de que recuerdas la primera y la última palabra para poder restaurar esta cartera más adelante.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Guarda tu frase de recuperación para poder restaurar este monedero en un dispositivo nuevo.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "La firma segura no está disponible",
@@ -2190,31 +2186,6 @@
     "message": "Un «Guardian» almacena el estado de tu cuenta y te ayuda a recuperarla. Piensa en él como un servidor que te hace una copia de seguridad, pero que nunca puede acceder a tus fondos.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "El operador más rápido en este momento, de entre $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "El operador de esta red",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "El «Guardian» no puede mover tus fondos por sí solo.",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "El «Guardian» realiza una copia de seguridad del estado de tu cuenta",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Puedes cambiar de Guardian con tu frase de recuperación",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Comprobando qué operador responde más rápido…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2197,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Prefiero crear una cuenta totalmente privada en su lugar",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Elige otra Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Un operador independiente de Guardian en Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin es una empresa de seguridad de blockchain responsable de las bibliotecas de contratos inteligentes más utilizadas para Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm crea y gestiona infraestructura blockchain para redes y rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass es una empresa de ingeniería dedicada al desarrollo de infraestructura avanzada de criptografía y blockchain.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) es un custodio de activos digitales regulado en Corea del Sur.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Más información sobre el Guardian",
@@ -2294,6 +2241,19 @@
   "meetGuardianYourGuardian": {
     "message": "Tu Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Cambiar",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ hace una copia de seguridad de tu cuenta. Nunca puede mover tus fondos y puedes cambiar cuando quieras.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",
@@ -2418,6 +2378,18 @@
   "creatingYourWallet": {
     "message": "Creando tu monedero…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Restaurar tu monedero…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Configuración de tu monedero…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Abre tu monedero para terminar de restaurarlo.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Introduce la contraseña",
@@ -2788,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Ha surgido un problema al rotar tu clave de uso diario.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Ha surgido un problema al rotar tu clave diaria. Tus fondos están a salvo y puedes volver a intentarlo ahora.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "No se ha confirmado la rotación diaria de claves",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "El monedero no ha podido confirmar si la rotación se ha llevado a cabo. Tus fondos están a salvo, aunque es posible que se haya pagado la comisión de red. Espera un minuto a que el monedero se sincronice antes de volver a intentarlo.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Volver a intentarlo",
@@ -2835,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "El MIDEN que has recibido no se ha podido reclamar.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "El monedero no ha podido confirmar si el MIDEN que has recibido ya ha sido reclamado. Espera un minuto a que el monedero se sincronice antes de volver a intentarlo.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Inténtalo de nuevo",
@@ -3959,6 +3943,14 @@
     "message": "No se ha podido completar una transacción. Abre el monedero para comprobarlo.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transacción no confirmada",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "El monedero no ha podido confirmar si la transacción se ha realizado. Abre el monedero antes de volver a enviarla.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Toca aquí para aceptarla",
     "englishSource": "Tap here to accept it"
@@ -4303,6 +4295,10 @@
     "message": "Compartir",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Envía tu dirección",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Copiar",
     "englishSource": "Copy"
@@ -4535,6 +4531,14 @@
     "message": "sin verificar",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Sin verificar",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Este token no figura en la lista de tokens verificados de Miden. Cualquiera puede crear un token con cualquier nombre, así que comprueba el ID de faucet antes de confiar en él.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "No se ha podido verificar mediante simulación. Las cantidades que figuran a continuación son las declaradas por la página web.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -4719,6 +4723,10 @@
     "message": "Guardar y continuar",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "No se han podido guardar estos puntos finales. Inténtalo de nuevo.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Restablecer los valores predeterminados",
     "englishSource": "Reset to defaults"
@@ -4726,6 +4734,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Restablecer la configuración predeterminada y volver a dar de alta",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "El restablecimiento no se ha completado. Inténtalo de nuevo.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminales de red",
@@ -5013,14 +5025,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$: información sobre esta red",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Los tokens no tienen valor real",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restaurar",
@@ -5449,5 +5465,51 @@
   "revealRecoveryPhrase": {
     "message": "Revelar la frase de recuperación",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Ocultar token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Mostrar token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Oculto desde «Inicio». Permanece en tu monedero y sus transferencias aún pueden reclamarse.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Activos ocultos",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Activos ocultos ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Mostrar",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Mostrar $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "No se han podido actualizar los tokens ocultos. Inténtalo de nuevo.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "No se han podido cargar los tokens ocultos.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
 
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from './drawer';
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from './drawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -70,13 +70,34 @@ describe('Drawer', () => {
     expect(close.className).toContain('text-muted');
   });
 
-  it('renders DrawerTitle at 18px/24 Nunito 800, left-aligned, on the ink token', () => {
+  it('sizes a title in the header at the tab title and ends the header with the rule', () => {
     render(
       <Drawer open>
         <DrawerContent>
           <DrawerHeader>
-            <DrawerTitle>Settings</DrawerTitle>
+            <DrawerTitle>Address Book</DrawerTitle>
           </DrawerHeader>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const title = screen.getByRole('heading', { name: 'Address Book' });
+    // The header's title slot overrides the title's own section size.
+    expect(title.parentElement).toHaveClass('[&>[data-slot=drawer-title]]:text-title-tab');
+    const header = title.closest('[data-slot="drawer-header"]')!;
+    const rule = header.lastElementChild!;
+    expect(rule).toHaveClass('h-1', 'rounded-full', 'bg-fill');
+    expect(rule).toHaveAttribute('aria-hidden', 'true');
+    // The rule is the header's only separator: no divider border on the header itself.
+    expect(header.className).not.toMatch(/\bborder-b\b/);
+  });
+
+  it('renders a DrawerTitle outside the header at the section title, left-aligned, on the ink token', () => {
+    // An AlertSheet's question: a title with no DrawerHeader around it keeps its own size.
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerTitle>Settings</DrawerTitle>
         </DrawerContent>
       </Drawer>
     );
@@ -87,20 +108,22 @@ describe('Drawer', () => {
     expect(title.className).toContain('text-ink');
   });
 
-  it('draws no rule under the header: a sheet separates with fill groups, not a divider', () => {
+  it('sets DrawerDescription under the header rule, in the muted caption heading at the page gutter', () => {
     render(
       <Drawer open>
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>Settings</DrawerTitle>
           </DrawerHeader>
+          <DrawerDescription>What this sheet is for.</DrawerDescription>
         </DrawerContent>
       </Drawer>
     );
 
-    const header = document.querySelector('[data-slot="drawer-header"]')!;
-    expect(header.className).not.toMatch(/\bborder-b\b/);
-    expect(header.className).toContain('px-4');
+    const description = screen.getByText('What this sheet is for.');
+    expect(description).toHaveAttribute('data-slot', 'drawer-description');
+    expect(description).toHaveClass('px-4', 'pb-2', 'text-caption-heading', 'text-muted');
+    expect(description).not.toHaveClass('text-body-sm');
   });
 
   it('dims the page behind with one plain scrim token and no blur', () => {

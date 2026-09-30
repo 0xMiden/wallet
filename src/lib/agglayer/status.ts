@@ -1,20 +1,24 @@
+import { withRequestTimeout } from 'lib/remote-json';
+
 import { AGGLAYER_BRIDGE_API } from './constant';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
-// the claim/poll flow forever; bound every AggLayer request. On timeout the
-// AbortController rejects the fetch, so the bridge tracker's poll simply fails
-// this tick and retries on the next — a transient outage is survived, never a
-// wedged "Claim Pending" that can't make progress.
+// the claim/poll flow forever; bound every AggLayer request, its body read
+// included. On timeout the request rejects, so the bridge tracker's poll simply
+// fails this tick and retries on the next: a transient outage is survived, never
+// a wedged "Claim Pending" that can't make progress.
 const AGGLAYER_FETCH_TIMEOUT_MS = 15_000;
 
-async function agglayerFetch(url: string, timeoutMs: number = AGGLAYER_FETCH_TIMEOUT_MS): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+/** The JSON body at `url`; a non-ok response rejects as `<failure> <status>`. */
+function agglayerJson<T>(url: string, failure: string): Promise<T> {
+  return withRequestTimeout(AGGLAYER_FETCH_TIMEOUT_MS, async signal => {
+    const res = await fetch(url, { signal });
+    if (!res.ok) {
+      throw new Error(`${failure} ${res.status}`);
+    }
+    const data: T = await res.json();
+    return data;
+  });
 }
 
 // One row from the bridge indexer's `deposits` array.
@@ -94,11 +98,10 @@ interface BridgesResponse {
 // We pull a small window rather than just the latest so we can match our own
 // deposit by origin tx hash and not confuse it with an earlier bridge.
 export async function fetchDeposits(destAddr: string, limit = 10): Promise<AgglayerDeposit[]> {
-  const res = await agglayerFetch(`${AGGLAYER_BRIDGE_API}/${destAddr}?limit=${limit}&offset=0`);
-  if (!res.ok) {
-    throw new Error(`Agglayer bridge status ${res.status}`);
-  }
-  const data: BridgesResponse = await res.json();
+  const data = await agglayerJson<BridgesResponse>(
+    `${AGGLAYER_BRIDGE_API}/${destAddr}?limit=${limit}&offset=0`,
+    'Agglayer bridge status'
+  );
   return data.deposits ?? [];
 }
 
@@ -119,7 +122,7 @@ const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
 
 // Origin and claim hashes come back from the indexer with inconsistent `0x`
 // prefixing and casing, so compare them normalized.
-function sameTxHash(left: string, right: string): boolean {
+export function sameTxHash(left: string, right: string): boolean {
   const normalize = (hash: string) => hash.trim().toLowerCase().replace(/^0x/, '');
   return normalize(left) === normalize(right);
 }
@@ -169,10 +172,9 @@ export async function findClaimableMidenToEvmDeposit(
 
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
 export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
-  const res = await agglayerFetch(`${BRIDGE_SERVICE_URL}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`);
-  if (!res.ok) {
-    throw new Error(`Agglayer merkle-proof status ${res.status}`);
-  }
-  const data: MerkleProofResponse = await res.json();
+  const data = await agglayerJson<MerkleProofResponse>(
+    `${BRIDGE_SERVICE_URL}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
+    'Agglayer merkle-proof status'
+  );
   return data.proof;
 }

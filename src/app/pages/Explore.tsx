@@ -1,15 +1,27 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, RefObject, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { Icon, IconName } from 'app/icons/v2';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, AnimatedNumber, AssetListItemSkeleton, BalanceCard } from 'components/ui';
+import { NetworkModePill } from 'components/NetworkModePill';
+import {
+  AccountsDrawer,
+  AnimatedNumber,
+  AssetListItemSkeleton,
+  BalanceCard,
+  ErrorLine,
+  TextAction
+} from 'components/ui';
+import { springs, useMotion, usePreset } from 'lib/animation';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -24,6 +36,7 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
@@ -72,6 +85,8 @@ const Explore: FC = () => {
   const shouldAutoConsume = isAutoConsumeEnabled();
 
   const address = account.publicKey;
+
+  const { isHidden, unhide } = useHiddenTokens(address);
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
@@ -176,7 +191,7 @@ const Explore: FC = () => {
     }
   }, [address]);
 
-  const sortedTokens = useMemo(() => {
+  const { sortedTokens, hiddenTokens } = useMemo(() => {
     // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
     // nothing, never as its token count at $1 a unit.
     const fiatValues = new Map(
@@ -187,13 +202,19 @@ const Explore: FC = () => {
           : 0
       ])
     );
-    return [...allTokenBalances].sort((a, b) => {
+    const sorted = [...allTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
       return fiatValues.get(b)! - fiatValues.get(a)!;
     });
-  }, [allTokenBalances, midenFaucetId, tokenPrices]);
+    // A hidden token moves to the Hidden assets section under the list; the hook never reports
+    // the native token hidden.
+    return {
+      sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
+      hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
+    };
+  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -298,11 +319,15 @@ const Explore: FC = () => {
           className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
+          <NetworkModePill />
+
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
             balances={allTokenBalances}
             sortedTokens={sortedTokens}
+            hiddenTokens={hiddenTokens}
+            onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
             claimableNotes={manuallyClaimableNotes}
@@ -324,6 +349,8 @@ interface HomeOverviewProps {
   tokenPrices: TokenPrices;
   balances: TokenBalanceData[];
   sortedTokens: TokenBalanceData[];
+  hiddenTokens: TokenBalanceData[];
+  onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
   claimableNotes: readonly PendingNoteValue[] | undefined;
@@ -341,6 +368,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   tokenPrices,
   balances,
   sortedTokens,
+  hiddenTokens,
+  onUnhide,
   account,
   balancesLoading,
   claimableNotes,
@@ -348,6 +377,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
+  // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
+  const assetListRef = useRef<HTMLDivElement>(null);
+  const assetsHeadingId = useId();
   return (
     <>
       <Balance>
@@ -393,10 +425,21 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
+        <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
+          {t('assets')}
+        </span>
       </div>
 
-      <div className="flex flex-col divide-y divide-rule-default" data-testid="asset-list" aria-busy={balancesLoading}>
+      <div
+        className="flex flex-col divide-y divide-rule-default"
+        data-testid="asset-list"
+        role="group"
+        aria-busy={balancesLoading}
+        aria-labelledby={assetsHeadingId}
+        // Focusable so an unhide that empties the Hidden assets section has somewhere to land.
+        ref={assetListRef}
+        tabIndex={-1}
+      >
         {/* The hook's zero placeholder is not a balance: under the loading card it read as an empty wallet (#1123). */}
         {balancesLoading ? (
           <AssetListItemSkeleton data-testid="asset-row-skeleton" />
@@ -412,6 +455,140 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           ))
         )}
       </div>
+
+      {!balancesLoading && (
+        <HiddenAssets
+          key={address}
+          tokens={hiddenTokens}
+          tokenPrices={tokenPrices}
+          onUnhide={onUnhide}
+          assetListRef={assetListRef}
+        />
+      )}
     </>
+  );
+};
+
+interface HiddenAssetsProps {
+  tokens: TokenBalanceData[];
+  tokenPrices: TokenPrices;
+  onUnhide: (tokenId: string) => Promise<boolean>;
+  assetListRef: RefObject<HTMLDivElement>;
+}
+
+/** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
+const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  // The last Unhide's own result (#813): the hook reports none, only what each call resolves with.
+  const [unhideFailed, setUnhideFailed] = useState(false);
+  // Unhides started here and not yet resolved: their optimistic empty state is not the section emptying.
+  const [pendingUnhides, setPendingUnhides] = useState(0);
+  const listId = useId();
+  const reveal = usePreset('reveal');
+  const turn = useMotion(springs.standard);
+  const unhideButtons = useRef<Map<string, HTMLButtonElement>>(new Map());
+  // A tapped row counts as gone, for the focus hand-off and for further taps, until its Unhide settles:
+  // it stays listed until the store's optimistic entry lands.
+  const inFlightUnhides = useRef<Set<string>>(new Set());
+
+  // The section stays mounted (returning null) while `tokens` is empty, so a hidden token
+  // reappearing later would otherwise come back open with a stale error: collapse and drop it now.
+  // Not while an unhide of its own is pending: a failed one rolls back into the open section with its error.
+  useEffect(() => {
+    if (tokens.length === 0 && pendingUnhides === 0) {
+      setOpen(false);
+      setUnhideFailed(false);
+    }
+  }, [tokens.length, pendingUnhides]);
+
+  if (tokens.length === 0) return null;
+
+  return (
+    <section data-testid="hidden-assets" className="flex flex-col">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        data-testid="hidden-assets-toggle"
+        onClick={() => {
+          hapticLight();
+          setOpen(value => !value);
+        }}
+        className="flex min-h-11 w-full items-center justify-between px-1 text-left text-label text-muted focus-visible:outline-accent-primary"
+      >
+        {t('hiddenAssetsCount', { count: tokens.length })}
+        {/* `initial={false}` mounts the chevron at rest, so it turns only in answer to a tap. */}
+        <motion.span
+          aria-hidden
+          className="flex h-6 w-6 shrink-0 items-center justify-center"
+          initial={false}
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={turn}
+        >
+          <Icon name={IconName.ChevronDown} size="sm" fill="currentColor" />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="hidden-asset-list"
+            id={listId}
+            role="region"
+            aria-label={t('hiddenAssets')}
+            {...reveal}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col divide-y divide-rule-default" data-testid="hidden-asset-list">
+              {tokens.map((asset, index) => (
+                <div key={asset.tokenId} className="flex items-center gap-2">
+                  {/* No sparkline: beside Unhide at the popup's width it would leave the name about 25px. */}
+                  <div className="min-w-0 flex-1">
+                    <AssetRow
+                      asset={asset}
+                      tokenPrices={tokenPrices}
+                      sparkline={false}
+                      onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+                    />
+                  </div>
+                  <TextAction
+                    ref={el => {
+                      if (el) unhideButtons.current.set(asset.tokenId, el);
+                      else unhideButtons.current.delete(asset.tokenId);
+                    }}
+                    className="shrink-0"
+                    aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
+                    onClick={() => {
+                      const inFlight = inFlightUnhides.current;
+                      if (inFlight.has(asset.tokenId)) return;
+                      // Focus moves now: this button unmounts with its row, and both targets exist at the click.
+                      const neighbour =
+                        tokens.slice(index + 1).find(token => !inFlight.has(token.tokenId)) ??
+                        tokens
+                          .slice(0, index)
+                          .reverse()
+                          .find(token => !inFlight.has(token.tokenId));
+                      if (neighbour) unhideButtons.current.get(neighbour.tokenId)?.focus();
+                      else assetListRef.current?.focus();
+                      inFlight.add(asset.tokenId);
+                      setPendingUnhides(count => count + 1);
+                      void onUnhide(asset.tokenId)
+                        .then(succeeded => {
+                          setUnhideFailed(!succeeded);
+                          setPendingUnhides(count => count - 1);
+                        })
+                        .finally(() => inFlight.delete(asset.tokenId));
+                    }}
+                  >
+                    {t('unhide')}
+                  </TextAction>
+                </div>
+              ))}
+            </div>
+            <ErrorLine data-testid="hidden-assets-error">{unhideFailed ? t('hiddenTokensError') : null}</ErrorLine>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 };
