@@ -9,7 +9,7 @@ import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { getTransactionIconBackgroundColor } from './TransactionIcon';
-import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
+import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
@@ -92,6 +92,7 @@ jest.mock('components/ui', () => ({
       value: string;
       symbol?: string;
       direction?: string;
+      preformatted?: boolean;
       extra?: { key: string; value: string; symbol?: string }[];
     };
     status: string;
@@ -108,6 +109,7 @@ jest.mock('components/ui', () => ({
       data-amount-value={amount?.value ?? ''}
       data-amount-symbol={amount?.symbol ?? ''}
       data-amount-direction={amount?.direction ?? ''}
+      data-amount-preformatted={amount?.preformatted ? 'yes' : 'no'}
       // Flattened as `key:value symbol|…` so both the contents AND the order
       // (the row renders them unsorted, first-seen) are assertable.
       data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
@@ -197,6 +199,7 @@ jest.mock('./transactionUtils', () => ({
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
+  formatMoneyAmount: jest.requireActual('./transactionUtils').formatMoneyAmount,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
@@ -262,6 +265,7 @@ beforeEach(() => {
     (entry: MockFaucetEntry) =>
       Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
   );
+  jest.mocked(isBridgeInEntry).mockReturnValue(false);
 });
 
 const noop = jest.fn();
@@ -434,6 +438,43 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-status', 'failed');
   });
 
+  // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
+  // from rounding 0.015123 ETH to 0.015 again.
+  it('marks a bridge-in and a bridge-out amount preformatted', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '10.65',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'ETH',
+      outAmount: '0.015123',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const rowWithAmount = (value: string) =>
+      screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
+    expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
+    expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---
@@ -578,7 +619,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'earn-deposit',
       txType: 'earn-deposit',
       transactionIcon: undefined,
-      amount: '5',
+      amount: '10.6555',
       token: 'USDC',
       message: 'Depositing',
       txId: 'tx-earn-deposit',
@@ -607,6 +648,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+2');
     expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
+    // Already formatted by `earnWithdrawAmountFields`, so the row must not round it again.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
     expect(row).toHaveAttribute('data-status', 'delivering');
   });
 
@@ -615,8 +658,10 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('Depositing');
     expect(iconNameIn(row)).toBe('Earn');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-earn');
-    expect(row).toHaveAttribute('data-amount-value', '-5');
+    expect(row).toHaveAttribute('data-amount-value', '-10.6555');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
+    // The amount typed, as its Review showed it: the row's 3-decimal pass would cut it to 10.655.
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   it('renders a date separator per calendar day', () => {
@@ -710,6 +755,35 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       expect(row).toHaveAttribute('data-status', 'cancelled');
       expect(row.querySelector('svg')).not.toBeNull();
     }
+  });
+
+  // A cancelled bridge-out falls through to the plain row, whose generic pass would round the typed amount again.
+  it.each([
+    ['the unscoped list', undefined],
+    ['a token-scoped list', 'faucet-usdc']
+  ])('shows a cancelled bridge-out amount as typed in %s', (_label, tokenId) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            amount: '1.234567',
+            token: 'USDC',
+            faucetId: 'faucet-usdc'
+          })
+        ]}
+        fullHistory
+        tokenId={tokenId}
+      />
+    );
+
+    const row = rowByTitle('cancelled');
+    expect(row).toHaveAttribute('data-amount-value', '1.234567');
+    expect(row).toHaveAttribute('data-amount-preformatted', 'yes');
   });
 
   it('renders the receive row with a short (<=12) address returned verbatim', () => {

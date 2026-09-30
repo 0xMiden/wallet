@@ -170,6 +170,17 @@ describe('ActivityRow', () => {
       expect(screen.getByText('0.00012')).toBeTruthy();
     });
 
+    // An Earn withdrawal's amount is already formatted by the money helper; the 3-decimal pass
+    // would round its 0.0012 to 0.001.
+    it('shows a preformatted amount as given instead of re-rounding it', () => {
+      const { unmount } = renderRow({ amount: { value: '+0.0012', symbol: 'USDC', preformatted: true } });
+      expect(screen.getByText('+0.0012')).toBeTruthy();
+      unmount();
+
+      renderRow({ amount: { value: '+0.0012', symbol: 'USDC' } });
+      expect(screen.getByText('+0.001')).toBeTruthy();
+    });
+
     it('preserves a leading + sign and formats the remainder', () => {
       renderRow({ amount: { value: '+50.5', direction: 'positive' } });
 
