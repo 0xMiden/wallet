@@ -1,6 +1,11 @@
 import { CapacitorHttp } from '@capacitor/core';
 
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import {
+  getEffectiveNoteTransportUrl,
+  getEffectiveProverUrl,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -16,12 +21,21 @@ import { isMobile } from 'lib/platform';
  * origin avoids Capacitor's global fetch-patching mode, which is known to
  * break binary responses (the SDK's gRPC-web/WASM fetches).
  *
+ * So an origin the app itself fetches from (the page, the node RPC, the prover,
+ * the note transport) is never routed, whoever registered it, judged per request.
+ * And an endpoint not yet known to be a Guardian is routed only while a probe of
+ * it is in flight (`probeGuardianOrigin`), so a URL that turns out not to be one
+ * is not left routed for the session.
+ *
  * The guardian API is JSON-only, so reconstructing a `Response` from the
  * native result is lossless. Extension/desktop are unaffected (`isMobile()`
  * no-ops the install); the extension bypasses CORS via host permissions.
  */
 
+// Routed for the session: the built-ins, and endpoints bound to an account or proved to be a Guardian.
 const guardianOrigins = new Set<string>();
+// Routed only while probed: each origin's in-flight probes.
+const probeHolds = new Map<string, Set<symbol>>();
 
 /**
  * Seed the built-in guardian origins. Deferred from module-load to first
@@ -38,21 +52,86 @@ function seedBuiltinGuardianOrigins(): void {
   }
 }
 
-function addOrigin(endpoint: string): void {
+function parseOrigin(url: string): string | null {
   try {
-    guardianOrigins.add(new URL(endpoint).origin);
+    const { origin } = new URL(url);
+    // A non-http(s) URL such as capacitor://localhost has the opaque origin "null", which all of them share.
+    return origin === 'null' ? null : origin;
   } catch {
-    // Not a parseable URL (e.g. half-typed custom endpoint) — nothing to match.
+    // Not a parseable URL (a half-typed custom endpoint, a relative request URL): nothing to match.
+    return null;
   }
 }
 
+function addOrigin(endpoint: string): void {
+  const origin = parseOrigin(endpoint);
+  if (origin) guardianOrigins.add(origin);
+}
+
 /**
- * Track a guardian endpoint so the fetch interceptor recognizes it. Call this
- * wherever a guardian client is constructed — that's what makes custom
- * (self-hosted) endpoints work; the built-in GUARDIAN_OPTIONS are pre-seeded.
+ * Route a guardian endpoint's origin for the rest of the session. For an
+ * endpoint the account is bound to, or one just verified as a Guardian; an
+ * endpoint that is still being checked takes `probeGuardianOrigin` instead.
+ * The built-in GUARDIAN_OPTIONS are pre-seeded.
  */
 export function registerGuardianOrigin(endpoint: string): void {
   addOrigin(endpoint);
+}
+
+/**
+ * Route `endpoint`'s origin while it is probed, for a caller that cannot yet
+ * tell whether a Guardian answers there. Settle with `true` once one does,
+ * which keeps the origin routed as `registerGuardianOrigin` would, or `false`,
+ * which releases this probe's hold. The first settle decides; later ones do
+ * nothing. A probe never removes an origin registered for the session, and an
+ * unparseable endpoint gets a settle that does nothing. Never throws.
+ */
+export function probeGuardianOrigin(endpoint: string): (isGuardian: boolean) => void {
+  const origin = parseOrigin(endpoint);
+  if (!origin) return () => undefined;
+  const hold = Symbol(origin);
+  const holds = probeHolds.get(origin) ?? new Set<symbol>();
+  holds.add(hold);
+  probeHolds.set(origin, holds);
+  return isGuardian => {
+    if (!holds.delete(hold)) return;
+    if (isGuardian) guardianOrigins.add(origin);
+    if (holds.size === 0) probeHolds.delete(origin);
+  };
+}
+
+/**
+ * Run `check` under a probe of `endpoint` (`probeGuardianOrigin`) and return its
+ * result. The probe settles with the verdict `isGuardian(result)` once `check`
+ * resolves, so the origin stays routed only for a result that shows a Guardian,
+ * and with `false` when `check` rejects, with the rejection passed on.
+ */
+export async function withGuardianProbe<T>(
+  endpoint: string,
+  check: () => Promise<T>,
+  isGuardian: (result: T) => boolean = () => true
+): Promise<T> {
+  const settle = probeGuardianOrigin(endpoint);
+  try {
+    const result = await check();
+    settle(isGuardian(result));
+    return result;
+  } finally {
+    // A no-op after the verdict above: only the first settle counts.
+    settle(false);
+  }
+}
+
+function isRoutedOrigin(origin: string): boolean {
+  if (!guardianOrigins.has(origin) && !probeHolds.has(origin)) return false;
+  // Read per request, never at import (see seedBuiltinGuardianOrigins), so an endpoint override applies at once.
+  const appOwned = [
+    globalThis.location.origin,
+    getEffectiveRpcUrl(),
+    getEffectiveProverUrl(),
+    getEffectiveNoteTransportUrl()
+  ];
+  return !appOwned.some(url => url !== undefined && parseOrigin(url) === origin);
 }
 
 let installed = false;
@@ -67,13 +146,8 @@ export function installGuardianCorsBypass(): void {
 
   globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    let origin: string | null = null;
-    try {
-      origin = new URL(url).origin;
-    } catch {
-      origin = null;
-    }
-    if (!origin || !guardianOrigins.has(origin)) {
+    const origin = parseOrigin(url);
+    if (!origin || !isRoutedOrigin(origin)) {
       return originalFetch(input, init);
     }
     return guardianNativeFetch(url, input, init);

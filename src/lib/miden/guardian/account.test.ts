@@ -9,6 +9,7 @@
  */
 
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
   assertGuardianKeyCommitment,
@@ -190,6 +191,10 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
     return { sk };
   })
 }));
+
+jest.mock('./native-http');
+const { mockProbeVerdicts, registerGuardianOrigin, resetMockProbes } =
+  jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
 describe('getSignerDetailsFromAccount', () => {
   beforeEach(() => {
@@ -404,10 +409,11 @@ describe('guardianProviderFromEndpoint', () => {
 });
 
 describe('createGuardianAccount', () => {
+  const ACCOUNT_STATE = new Uint8Array([7, 8, 9]);
   const makeMultisig = () => ({
     account: {
       id: jest.fn(() => ({ toString: () => 'guardian-acc-id' })),
-      serialize: jest.fn(() => new Uint8Array([7, 8, 9]))
+      serialize: jest.fn(() => ACCOUNT_STATE)
     },
     registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
@@ -433,8 +439,9 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMockProbes();
     mockIsExtension.mockReturnValue(false);
-    multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
+    multisigClientConfig.getPubkey.mockResolvedValue({ commitment: `0x${'ab'.repeat(32)}`, pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
@@ -458,7 +465,7 @@ describe('createGuardianAccount', () => {
         threshold: 1,
         // Hot first, cold second — order is load-bearing for downstream role routing.
         signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
-        guardianCommitment: 'g-commit',
+        guardianCommitment: `0x${'ab'.repeat(32)}`,
         guardianPublicKey: 'g-pubkey',
         storageMode: 'private',
         signatureScheme: 'ecdsa',
@@ -487,6 +494,18 @@ describe('createGuardianAccount', () => {
     // supplied and the frozen global key is never consulted for a create, so it
     // resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
+  });
+
+  it('creates the account on the normalized commitment of an unprefixed uppercase Guardian key', async () => {
+    multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'AB'.repeat(32), pubkey: 'g-pubkey' });
+    multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+    await createAndRegister(makeWebClient(), new Uint8Array(32));
+
+    expect(multisigClientConfig.create).toHaveBeenCalledWith(
+      expect.objectContaining({ guardianCommitment: `0x${'ab'.repeat(32)}` }),
+      expect.anything()
+    );
   });
 
   it('generates a random seed when none is provided', async () => {
@@ -545,7 +564,7 @@ describe('createGuardianAccount', () => {
     const createKey = await fetchGuardianCreateKey('https://picked.guardian');
     expect(createKey).toEqual({
       guardianEndpoint: 'https://picked.guardian',
-      guardianCommitment: 'g-commit',
+      guardianCommitment: `0x${'ab'.repeat(32)}`,
       guardianPubkey: 'g-pubkey',
       rateLimitBudgetLeftMs: expect.any(Number)
     });
@@ -577,7 +596,7 @@ describe('createGuardianAccount', () => {
   // accepts (MultisigConfig.guardianPublicKey is optional), so GuardianCreateKey
   // carries the pubkey as optional and creation does not refuse its absence.
   it('resolves with no guardian pubkey when the guardian omits it, and passes that through to account creation', async () => {
-    multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: 'g-commit' });
+    multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: `0x${'ab'.repeat(32)}` });
 
     const createKey = await fetchGuardianCreateKey();
     expect(createKey.guardianPubkey).toBeUndefined();
@@ -590,6 +609,67 @@ describe('createGuardianAccount', () => {
       expect.objectContaining({ guardianPublicKey: undefined }),
       expect.anything()
     );
+  });
+
+  // Not yet bound to an account, so on mobile the endpoint stays routed only once it serves a Guardian key.
+  describe('a user-supplied endpoint', () => {
+    const create = () => createAndRegister(makeWebClient(), new Uint8Array(32), 'https://override.guardian');
+
+    it('stays routed once it serves a Guardian key, never registered ahead of the read', async () => {
+      multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: `0x${'ab'.repeat(32)}`, pubkey: 'g-pubkey' });
+      multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
+
+      await create();
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', true]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+    });
+
+    it('is released when its pubkey request fails, and no account is built', async () => {
+      multisigClientConfig.getPubkey.mockRejectedValueOnce(new Error('HTTP 404'));
+
+      await expect(create()).rejects.toThrow('Failed to create Guardian account');
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('is released when it serves a key that is not a Guardian key, and no account is built', async () => {
+      multisigClientConfig.getPubkey.mockResolvedValueOnce({ commitment: '0xdeadbeef', pubkey: 'g-pubkey' });
+
+      await expect(create()).rejects.toThrow('Failed to create Guardian account');
+
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(registerGuardianOrigin).not.toHaveBeenCalled();
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
+
+    it('is released at its own deadline when its pubkey request never answers, and no account is built', async () => {
+      multisigClientConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        let outcome: unknown = 'pending';
+        void create().then(
+          () => {
+            outcome = 'resolved';
+          },
+          (error: unknown) => {
+            outcome = error;
+          }
+        );
+        await jest.advanceTimersByTimeAsync(29_999);
+        expect(outcome).toBe('pending');
+        await jest.advanceTimersByTimeAsync(1);
+
+        expect(outcome).toMatchObject({ message: 'Failed to create Guardian account' });
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(mockProbeVerdicts).toEqual([['https://override.guardian', false]]);
+      expect(multisigClientConfig.create).not.toHaveBeenCalled();
+    });
   });
 
   it('wraps a registration failure in the creation error, with the cause kept', async () => {
@@ -630,6 +710,10 @@ describe('createGuardianAccount', () => {
 
       await expect(pending).resolves.toMatchObject({ account: multisig.account });
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      // Serialized once, before the retry loop, and the same state goes out on each attempt.
+      expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE));
     });
 
     it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
@@ -832,7 +916,10 @@ describe('createGuardianAccount', () => {
       expect(multisigClientConfig.getPubkey).toHaveBeenCalledTimes(1);
 
       await jest.advanceTimersByTimeAsync(30_000);
-      await expect(pending).resolves.toMatchObject({ guardianCommitment: 'g-commit', guardianPubkey: 'g-pubkey' });
+      await expect(pending).resolves.toMatchObject({
+        guardianCommitment: `0x${'ab'.repeat(32)}`,
+        guardianPubkey: 'g-pubkey'
+      });
       expect(mockAlarmsClear).toHaveBeenCalledWith(mockAlarmsCreate.mock.calls[0]?.[0]);
     });
   });

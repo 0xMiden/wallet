@@ -1,4 +1,7 @@
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
+// The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.
+const requireProbes = () =>
+  jest.requireMock<typeof import('../guardian/__mocks__/native-http')>('../guardian/native-http');
 
 describe('MidenClientInterface', () => {
   afterEach(() => {
@@ -1429,7 +1432,7 @@ describe('MidenClientInterface', () => {
     // limit ends the scan (a hold per match is two holds; one hoisted around the index's matches
     // would be one). The lock mock counts holds and records labels; the adoption and the key insert
     // refuse a call made outside a hold; the hold check throws the poison error once revoked.
-    const setupRecovery = async (onLookup?: (client: MidenClientInterfaceType) => void) => {
+    const setupRecovery = async (onLookup?: (client: MidenClientInterfaceType) => void, { finds = true } = {}) => {
       const held = { count: 0, labels: [] as string[], revoked: false };
       let iface: MidenClientInterfaceType | undefined;
       const requireHeld = (what: string) => {
@@ -1481,7 +1484,7 @@ describe('MidenClientInterface', () => {
         MultisigClient: class {
           recoverByKey = jest.fn(async () => {
             if (iface) onLookup?.(iface);
-            return lookups++ === 0 ? [matchAt(1), matchAt(2)] : [];
+            return finds && lookups++ === 0 ? [matchAt(1), matchAt(2)] : [];
           });
         },
         EcdsaSigner: class {}
@@ -1491,7 +1494,7 @@ describe('MidenClientInterface', () => {
         getSignerDetailsFromAccount: jest.fn(),
         insertGuardianAccountMonotonically: adopt
       }));
-      jest.doMock('../guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+      jest.doMock('../guardian/native-http');
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
       }));
@@ -1507,11 +1510,11 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       iface = client;
       const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), 'https://guardian.example');
-      return { held, insert, adopt, fakeMidenClient, recover };
+      return { held, insert, adopt, fakeMidenClient, recover, probes: requireProbes() };
     };
 
     it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
-      const { held, insert, adopt, fakeMidenClient, recover } = await setupRecovery();
+      const { held, insert, adopt, fakeMidenClient, recover, probes } = await setupRecovery();
 
       const recovered = await recover();
 
@@ -1527,6 +1530,18 @@ describe('MidenClientInterface', () => {
       ]);
       expect(insert).toHaveBeenCalledTimes(2);
       expect(held.count).toBe(0);
+      // Not yet bound, so the endpoint stays routed only once an account is adopted from it.
+      expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
+      expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
+    });
+
+    it('recoverGuardianAccountsBySeed releases an endpoint with no account for the seed, never registering it', async () => {
+      const { recover, probes } = await setupRecovery(undefined, { finds: false });
+      const { NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
+
+      await expect(recover()).rejects.toBeInstanceOf(NoGuardianAccountsFoundError);
+      expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', false]]);
+      expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
     });
 
     it('recoverGuardianAccountsBySeed: a client replaced during the lookup adopts nothing (#775)', async () => {
@@ -1573,7 +1588,7 @@ describe('MidenClientInterface', () => {
         },
         EcdsaSigner: class {}
       }));
-      jest.doMock('../guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+      jest.doMock('../guardian/native-http');
       jest.doMock('lib/miden-chain/effective-endpoints', () => ({
         getEffectiveNetworkName: () => 'testnet',
         getEffectiveRpcUrl: () => 'https://rpc.example',
@@ -1632,7 +1647,7 @@ describe('MidenClientInterface', () => {
         deserializeHotSecretKey: jest.fn(() => ({ publicKey: () => publicKey }))
       }));
       jest.doMock('lib/i18n', () => ({ getMessage: jest.fn((key: string) => key) }));
-      jest.doMock('../guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+      jest.doMock('../guardian/native-http');
       jest.doMock('../guardian/account', () => ({
         getSignerDetailsFromAccount,
         insertGuardianAccountMonotonically: jest.fn(),
@@ -1664,6 +1679,20 @@ describe('MidenClientInterface', () => {
         code: GUARDIAN_ACCOUNT_NOT_FOUND,
         message: 'importHotKeyNoAccount'
       });
+      expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', false]]);
+    });
+
+    it('releases the endpoint when the lookup fails, never registering it', async () => {
+      setup();
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockRejectedValue(new Error('HTTP 404'));
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+        'HTTP 404'
+      );
+      expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', false]]);
+      expect(requireProbes().registerGuardianOrigin).not.toHaveBeenCalled();
     });
 
     it('resolves with the adopted account when the pasted key is the current hot key, in any case or prefix', async () => {
@@ -1678,6 +1707,7 @@ describe('MidenClientInterface', () => {
         { accountId: 'unreachable', hotPublicKey: '1122' }
       ]);
       expect(getSignerDetailsFromAccount).toHaveBeenCalledTimes(1);
+      expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
     });
 
     it('rejects with no code when the pasted key matches only the recovery (cold) key', async () => {

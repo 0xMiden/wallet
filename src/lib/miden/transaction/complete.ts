@@ -47,7 +47,8 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -452,8 +453,10 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let reRegisterAttempts = 0;
     let storedAccountId = tx.accountId;
     for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+      reRegisterAttempts = attempt;
       try {
         const accounts = await guardianProvider.getAccounts();
         const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
@@ -461,8 +464,9 @@ export const completeReplaceHotKeyTransaction = async (
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
         storedAccountId = walletAccount.publicKey;
-        const sdkAccount = await withWasmClientLock(async () => {
+        const sdkAccount = await withWasmClientLock(async hold => {
           await midenClientProxy.syncState();
+          assertWasmHoldCurrent(hold, 'post-rotation re-register: after the state sync');
           return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
@@ -478,6 +482,8 @@ export const completeReplaceHotKeyTransaction = async (
         break;
       } catch (e) {
         reRegisterError = e;
+        // After an eviction the next attempt's sync would join the abandoned one and park again.
+        if (isWasmClientPoisonedError(e)) break;
         if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
           console.warn(
             `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
@@ -490,10 +496,11 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
+    const reRegisterEvicted = isWasmClientPoisonedError(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
-        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+        `Failed to re-register post-rotation signer set on guardian after ${reRegisterAttempts} attempt(s) - ` +
           'the new hot key stays unauthorized (401) until a re-register lands:',
         reRegisterError
       );
@@ -525,8 +532,13 @@ export const completeReplaceHotKeyTransaction = async (
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    // idempotent; never affects the rotation's success. After an eviction it is
+    // skipped rather than rebuilding the service against the node that just
+    // parked: the next guardian sync lap re-runs the check, because the swap
+    // above changed the hot key that sync's once-per-session gate is keyed on.
+    if (!reRegisterEvicted) {
+      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {

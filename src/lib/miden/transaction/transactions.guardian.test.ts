@@ -7346,6 +7346,7 @@ describe('completeReplaceHotKeyTransaction', () => {
       syncState: async () => {},
       getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
     });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
 
     const swapHotKey = jest.fn(async () => {});
     const provider = {
@@ -7363,6 +7364,74 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+    // Only an eviction skips the hardening, not a failed re-register (F-060).
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
+  });
+
+  it('stops the post-rotation account read when the state sync loses the hold (F-053)', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // After an eviction the proxy's getAccount would resolve the successor's client.
+    const getAccount = jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) }));
+    const syncState = jest.fn(async () => {
+      revokeHold();
+    });
+    mockGetMidenClient.mockResolvedValue({ syncState, getAccount });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    // A retry's sync would join the evicted one and park again (F-057).
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+    // The best-effort hardening would build a service against the node that just parked (F-059).
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  it('retries a post-rotation re-register a realm teardown aborted (F-057)', async () => {
+    // A teardown leaves nothing behind to join, so the retry runs on a fresh realm.
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const syncState = jest.fn(async () => {}).mockRejectedValueOnce(new OperationAbortedError('op-1', 'deadline'));
+    mockGetMidenClient.mockResolvedValue({
+      syncState,
+      getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
+    });
+    mockBuildColdMultisigService.mockResolvedValue({
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(syncState).toHaveBeenCalledTimes(2);
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(false);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
   });
 
   it('recovers a transient re-register failure instead of leaving the new hot key unauthorized', async () => {

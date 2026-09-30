@@ -14,7 +14,8 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
 import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
+import { isGuardianKeyCommitment } from './key-commitment';
+import { withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
@@ -281,7 +282,7 @@ export function getGuardianCommitmentFromAccount(account: Account): string | und
  * on-chain commitment comparison.
  */
 export function assertGuardianKeyCommitment(commitment: unknown, endpoint: string): string {
-  if (typeof commitment !== 'string' || !/^(0x)?[0-9a-fA-F]{64}$/.test(commitment)) {
+  if (!isGuardianKeyCommitment(commitment)) {
     throw new Error(
       `Guardian endpoint ${endpoint} returned a malformed key commitment; expected a 32-byte hex word (64 hex digits)`
     );
@@ -363,28 +364,33 @@ export async function fetchGuardianCreateKey(
   // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
   // inherits the frozen global key (#408 stage 3).
   const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
-  registerGuardianOrigin(guardianEndpoint);
   const startMs = monotonicNowMs();
   // Set while `assertLive` runs, so its refusal is told apart from a guardian failure.
   let checkingLive = false;
   try {
-    const { commitment, pubkey } = await withGuardianRateLimitRetry(
-      () =>
-        withTimeout(
-          new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
-          GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
-          'Guardian key fetch'
-        ),
-      {
-        deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
-        sleepFn: sleepKeepingWorkerAlive,
-        afterWait: () => {
-          checkingLive = true;
-          assertLive();
-          checkingLive = false;
+    // Not yet bound to an account: on mobile its origin routes through native HTTP while
+    // its key is read, and for the session only once that key is a Guardian's. An absent
+    // `pubkey` passes (see GuardianCreateKey); a commitment that is not a Guardian's is refused.
+    const { commitment, pubkey } = await withGuardianProbe(guardianEndpoint, async () => {
+      const answer = await withGuardianRateLimitRetry(
+        () =>
+          withTimeout(
+            new GuardianHttpClient(guardianEndpoint).getPubkey('ecdsa'),
+            GUARDIAN_CREATE_REQUEST_TIMEOUT_MS,
+            'Guardian key fetch'
+          ),
+        {
+          deadlineMs: startMs + GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS,
+          sleepFn: sleepKeepingWorkerAlive,
+          afterWait: () => {
+            checkingLive = true;
+            assertLive();
+            checkingLive = false;
+          }
         }
-      }
-    );
+      );
+      return { ...answer, commitment: assertGuardianKeyCommitment(answer.commitment, guardianEndpoint) };
+    });
     const rateLimitBudgetLeftMs = GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS - (monotonicNowMs() - startMs);
     return { guardianEndpoint, guardianCommitment: commitment, guardianPubkey: pubkey, rateLimitBudgetLeftMs };
   } catch (e) {
@@ -481,7 +487,7 @@ export async function createGuardianAccount(
       new EcdsaSigner(coldSk)
     );
 
-    // The account object is borrowed from the client, so its read needs the hold too.
+    // The build parks, so an abandoned flow stops here instead of serializing a state nobody registers.
     assertLive('before the account serialize');
     // The state /configure receives, serialized now: registration runs after the hold ends (#1207).
     const stateBase64 = u8ToB64(multisig.account.serialize());
