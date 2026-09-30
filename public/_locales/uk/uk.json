@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Прийняття…",
   "transfersSection": "Перекази",
   "activityUnread": "Непрочитане",
-  "revealRecoveryPhrase": "Розкрити фразу відновлення"
+  "revealRecoveryPhrase": "Розкрити фразу відновлення",
+  "hideToken": "Приховати токен",
+  "unhideToken": "Показати токен",
+  "tokenHiddenNotice": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
+  "hiddenAssets": "Приховані активи",
+  "hiddenAssetsCount": "Приховані активи ($count$)",
+  "unhide": "Показати",
+  "unhideTokenLabel": "Відкрити $name$",
+  "hiddenTokensError": "Не вдалося оновити приховані токени. Спробуйте ще раз.",
+  "hiddenTokensUnreadable": "Приховані токени не вдалося завантажити."
 }

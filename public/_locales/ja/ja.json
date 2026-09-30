@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "受け取り中…",
   "transfersSection": "送金",
   "activityUnread": "未読",
-  "revealRecoveryPhrase": "リカバリーフレーズを表示"
+  "revealRecoveryPhrase": "リカバリーフレーズを表示",
+  "hideToken": "トークンを非表示にする",
+  "unhideToken": "トークンの非表示を解除",
+  "tokenHiddenNotice": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
+  "hiddenAssets": "隠された資産",
+  "hiddenAssetsCount": "隠された資産（$count$）",
+  "unhide": "非表示を解除",
+  "unhideTokenLabel": "$name$ の非表示を解除",
+  "hiddenTokensError": "非表示のトークンを更新できませんでした。もう一度お試しください。",
+  "hiddenTokensUnreadable": "非表示のトークンを読み込むことができませんでした。"
 }

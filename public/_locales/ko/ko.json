@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "수락 중…",
   "transfersSection": "이체",
   "activityUnread": "읽지 않음",
-  "revealRecoveryPhrase": "복구 문구 공개"
+  "revealRecoveryPhrase": "복구 문구 공개",
+  "hideToken": "토큰 숨기기",
+  "unhideToken": "토큰 숨김 해제",
+  "tokenHiddenNotice": "홈에서 숨김. 이는 지갑에 남아 있으며, 해당 전송 내역은 여전히 청구할 수 있습니다.",
+  "hiddenAssets": "숨겨진 자산",
+  "hiddenAssetsCount": "숨겨진 자산($count$)",
+  "unhide": "숨김 해제",
+  "unhideTokenLabel": "$name$ 숨김 해제",
+  "hiddenTokensError": "숨겨진 토큰을 업데이트할 수 없습니다. 다시 시도해 주세요.",
+  "hiddenTokensUnreadable": "숨겨진 토큰을 불러올 수 없습니다."
 }

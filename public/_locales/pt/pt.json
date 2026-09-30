@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "A aceitar…",
   "transfersSection": "Transferências",
   "activityUnread": "Não lida",
-  "revealRecoveryPhrase": "Revelar a frase de recuperação"
+  "revealRecoveryPhrase": "Revelar a frase de recuperação",
+  "hideToken": "Ocultar token",
+  "unhideToken": "Exibir token",
+  "tokenHiddenNotice": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
+  "hiddenAssets": "Ativos ocultos",
+  "hiddenAssetsCount": "Ativos ocultos ($count$)",
+  "unhide": "Mostrar",
+  "unhideTokenLabel": "Exibir $name$",
+  "hiddenTokensError": "Não foi possível atualizar os tokens ocultos. Tente novamente.",
+  "hiddenTokensUnreadable": "Não foi possível carregar os tokens ocultos."
 }

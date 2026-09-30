@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "リカバリーフレーズを表示",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "トークンを非表示にする",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "トークンの非表示を解除",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隠された資産",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隠された資産（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "非表示を解除",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ の非表示を解除",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "非表示のトークンを更新できませんでした。もう一度お試しください。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "非表示のトークンを読み込むことができませんでした。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

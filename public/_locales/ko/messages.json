@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "복구 문구 공개",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "토큰 숨기기",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "토큰 숨김 해제",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "홈에서 숨김. 이는 지갑에 남아 있으며, 해당 전송 내역은 여전히 청구할 수 있습니다.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "숨겨진 자산",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "숨겨진 자산($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "숨김 해제",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ 숨김 해제",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "숨겨진 토큰을 업데이트할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "숨겨진 토큰을 불러올 수 없습니다.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Akceptowanie…",
   "transfersSection": "Transfery",
   "activityUnread": "Nieprzeczytane",
-  "revealRecoveryPhrase": "Ujawnij frazę odzyskiwania"
+  "revealRecoveryPhrase": "Ujawnij frazę odzyskiwania",
+  "hideToken": "Ukryj token",
+  "unhideToken": "Odkryj token",
+  "tokenHiddenNotice": "Ukryty w portfelu. Pozostaje w portfelu, a jego przelewy nadal można odebrać.",
+  "hiddenAssets": "Ukryte aktywa",
+  "hiddenAssetsCount": "Ukryte aktywa ($count$)",
+  "unhide": "Pokaż",
+  "unhideTokenLabel": "Odblokuj $name$",
+  "hiddenTokensError": "Nie udało się zaktualizować ukrytych tokenów. Spróbuj ponownie.",
+  "hiddenTokensUnreadable": "Nie udało się załadować ukrytych tokenów."
 }

@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Kabul ediliyor…",
   "transfersSection": "Transferler",
   "activityUnread": "Okunmadı",
-  "revealRecoveryPhrase": "Kurtarma ifadesini göster"
+  "revealRecoveryPhrase": "Kurtarma ifadesini göster",
+  "hideToken": "Token'ı gizle",
+  "unhideToken": "Token'ı görünür hale getir",
+  "tokenHiddenNotice": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
+  "hiddenAssets": "Gizli varlıklar",
+  "hiddenAssetsCount": "Gizli varlıklar ($count$)",
+  "unhide": "Gizlemeyi kaldır",
+  "unhideTokenLabel": "$name$'i görünür hale getirin",
+  "hiddenTokensError": "Gizli token'lar güncellenemedi. Lütfen tekrar deneyin.",
+  "hiddenTokensUnreadable": "Gizli token'lar yüklenemedi."
 }

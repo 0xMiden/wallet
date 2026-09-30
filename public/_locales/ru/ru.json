@@ -1231,5 +1231,14 @@
   "activityAcceptingTransfer": "Принятие…",
   "transfersSection": "Переводы",
   "activityUnread": "Непрочитанное",
-  "revealRecoveryPhrase": "Раскрыть фразу восстановления"
+  "revealRecoveryPhrase": "Раскрыть фразу восстановления",
+  "hideToken": "Скрыть токен",
+  "unhideToken": "Показать токен",
+  "tokenHiddenNotice": "Скрыто из «Дома». Оно остается в вашем кошельке, и его переводы по-прежнему можно получить.",
+  "hiddenAssets": "Скрытые активы",
+  "hiddenAssetsCount": "Скрытые активы ($count$)",
+  "unhide": "Показать",
+  "unhideTokenLabel": "Показать $name$",
+  "hiddenTokensError": "Не удалось обновить скрытые токены. Пожалуйста, попробуйте ещё раз.",
+  "hiddenTokensUnreadable": "Скрытые токены не удалось загрузить."
 }

@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Wiederherstellungsphrase anzeigen",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Token ausblenden",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Token einblenden",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Versteckte Vermögenswerte",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Versteckte Vermögenswerte ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Einblenden",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ wieder einblenden",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Versteckte Token konnten nicht aktualisiert werden. Bitte versuche es erneut.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Versteckte Token konnten nicht geladen werden.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

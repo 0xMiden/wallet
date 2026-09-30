@@ -5437,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Afficher la phrase de récupération",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Masquer le jeton",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Afficher le jeton",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Actifs cachés",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Actifs cachés ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Afficher",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Afficher l'$name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Impossible de mettre à jour les jetons cachés. Veuillez réessayer.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Les jetons cachés n’ont pas pu être chargés.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }
