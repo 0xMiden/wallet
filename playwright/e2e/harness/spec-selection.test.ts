@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import { listPlaywrightTests } from './playwright-list';
 
@@ -375,6 +375,102 @@ const jobViolations = (file: string, job: ParsedJob, required: string[]): NameVi
 const workflowViolations = (file: string, text: string): NameViolation[] =>
   parseJobs(text).flatMap(job => jobViolations(file, job, REQUIRED_NAMES));
 
+/** This file, which names every required name and API pattern in order to test the rules below. */
+const THIS_FILE = relative(repoRoot, __filename);
+
+/** Whether a file's first 8 KB holds a NUL byte, the mark of a binary. */
+const looksBinary = (file: string): boolean => {
+  const fd = openSync(resolve(repoRoot, file), 'r');
+  try {
+    const head = new Uint8Array(8192);
+    return head.subarray(0, readSync(fd, head, 0, head.length, 0)).includes(0);
+  } finally {
+    closeSync(fd);
+  }
+};
+
+/**
+ * Every tracked file CI can run: all but docs, Markdown, the lockfile, this file and binaries.
+ * A tracked symlink to a directory is skipped, since the files under it are tracked themselves.
+ */
+const ciSourceFiles = (): string[] => {
+  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' });
+  if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr}`);
+  return listed.stdout
+    .split('\0')
+    .filter(
+      file =>
+        file !== '' && !file.startsWith('docs/') && !file.endsWith('.md') && file !== 'yarn.lock' && file !== THIS_FILE
+    )
+    .filter(file => statSync(resolve(repoRoot, file)).isFile() && !looksBinary(file));
+};
+
+/** The entries of a one-line `needs:` value, a single id or a flow list, or none for any other line. */
+const needsEntries = (line: string): string[] => {
+  const value = /^\s*needs:\s*(.*?)\s*$/.exec(line)?.[1];
+  if (value === undefined) return [];
+  const list = /^\[(.*)\]$/.exec(value)?.[1];
+  return list === undefined ? [value] : list.split(',').map(entry => entry.trim());
+};
+
+/** The index of a job's own id line and of the indent-4 `name:` line in its block, each -1 when absent. */
+const jobLines = (lines: string[], jobId: string): { idAt: number; nameAt: number } => {
+  const idAt = lines.indexOf(`  ${jobId}:`);
+  if (idAt === -1) return { idAt, nameAt: -1 };
+  const end = lines.findIndex((line, i) => i > idAt && isContent(line) && indentOf(line) <= 2);
+  const nameAt = lines.findIndex((line, i) => i > idAt && (end === -1 || i < end) && /^ {4}name:/.test(line));
+  return { idAt, nameAt };
+};
+
+type LiteralViolation = { file: string; line: number; name: string };
+
+/**
+ * Every content line naming a required name anywhere but where its designated job reports it:
+ * that job's own `name:` line and, for a gate, its own id line, both in its designated file, or
+ * a `needs:` entry naming the gate. A name computed at run time is left to the API rule.
+ */
+const requiredNameLiteralViolations = (file: string, text: string): LiteralViolation[] => {
+  const lines = text.split(/\r?\n/);
+  const allowed = (name: string, at: number): boolean =>
+    FULL_NAME_JOBS.some(job => {
+      if (job.name !== name) return false;
+      const isGate = job.jobId === name;
+      if (isGate && needsEntries(lines[at]!).includes(name)) return true;
+      if (job.file !== file) return false;
+      const { idAt, nameAt } = jobLines(lines, job.jobId);
+      return at === nameAt || (isGate && at === idAt);
+    });
+  return lines.flatMap((line, at) =>
+    isContent(line)
+      ? REQUIRED_NAMES.filter(name => line.includes(name) && !allowed(name, at)).map(name => ({
+          file,
+          line: at + 1,
+          name
+        }))
+      : []
+  );
+};
+
+/**
+ * The only files that may write the Checks or Statuses API. A file joins this list only after
+ * a human confirms it never reports a required E2E name.
+ */
+const API_WRITER_ALLOWLIST = ['.github/workflows/check-linked-web-sdk-pr.yml'];
+
+const API_WRITE = /check-runs|\/statuses\b|checks\.(create|update)|createCommitStatus|\b(checks|statuses):\s*write\b/;
+
+type ApiViolation = { file: string; line: number; text: string };
+
+/** Every content line that could write the Checks or Statuses API, or grants that write, in a file off the allowlist. */
+const apiWriterViolations = (file: string, text: string): ApiViolation[] =>
+  API_WRITER_ALLOWLIST.includes(file)
+    ? []
+    : text
+        .split(/\r?\n/)
+        .flatMap((line, at) =>
+          isContent(line) && API_WRITE.test(line) ? [{ file, line: at + 1, text: line.trim() }] : []
+        );
+
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
   it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
     const src = combinedWorkflowSource();
@@ -649,6 +745,85 @@ const nameViolationCases: Array<[string, 'flags' | 'throws', string, string]> = 
   ]
 ];
 
+/** A workflow whose one job runs `step`, a steps-list item already indented and newline-terminated. */
+const workflowWithStep = (step: string): string =>
+  `jobs:\n  some-job:\n    runs-on: ubuntu-latest\n    steps:\n${step}`;
+
+const CHECK_RUN_COMMAND =
+  "gh api repos/$GITHUB_REPOSITORY/check-runs -f name='local-e2e (chrome)' -f head_sha=$SHA -f conclusion=success";
+
+type SourceCase = [title: string, file: string, text: string];
+
+const L1: SourceCase = [
+  'L1: a workflow step posting a check run',
+  '.github/workflows/synthetic-check-run.yml',
+  workflowWithStep(`      - run: ${CHECK_RUN_COMMAND}\n`)
+];
+const L5: SourceCase = [
+  'L5: a script posting a status',
+  'scripts/x.sh',
+  `#!/usr/bin/env bash\ngh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=success -f context='local-e2e (chrome)'\n`
+];
+const A1: SourceCase = [
+  'A1: a workflow step posting a check run under a computed name',
+  '.github/workflows/synthetic-computed-check-run.yml',
+  workflowWithStep(
+    `      - run: gh api repos/$GITHUB_REPOSITORY/check-runs -f name="local-e2e ($B)" -f head_sha=$SHA -f conclusion=success\n`
+  )
+];
+
+/** Each case is a source file the literal rule must flag, with the required name it must flag there. */
+const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
+  [...L1, 'local-e2e (chrome)'],
+  [
+    'L2: a workflow step posting a status',
+    '.github/workflows/synthetic-status.yml',
+    workflowWithStep(
+      '      - run: gh api repos/$GITHUB_REPOSITORY/statuses/$SHA -f state=success -f context=bridge-guardian-e2e-gate\n'
+    ),
+    'bridge-guardian-e2e-gate'
+  ],
+  [
+    'L3: a github-script step calling checks.create',
+    '.github/workflows/synthetic-github-script.yml',
+    workflowWithStep(
+      "      - uses: actions/github-script@v7\n        with:\n          script: |\n            await github.rest.checks.create({ name: 'guardian-lifecycle-e2e-gate' })\n"
+    ),
+    'guardian-lifecycle-e2e-gate'
+  ],
+  [
+    "L4: L1's step inside a composite action",
+    '.github/actions/x/action.yml',
+    `name: x\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: ${CHECK_RUN_COMMAND}\n`,
+    'local-e2e (chrome)'
+  ],
+  [...L5, 'local-e2e (chrome)'],
+  [
+    'L6: a local-stack script posting a check run',
+    'playwright/e2e/local-stack/x.sh',
+    `#!/usr/bin/env bash\n${CHECK_RUN_COMMAND}\n`,
+    'local-e2e (chrome)'
+  ],
+  [
+    'L7: the real Local workflow plus a second job named local-e2e (chrome)',
+    LOCAL,
+    `${configSource(LOCAL)}  other-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n`,
+    'local-e2e (chrome)'
+  ]
+];
+
+/** Each case is a source file the API rule must flag. */
+const apiWriterCases: SourceCase[] = [
+  A1,
+  [
+    'A2: a workflow granting checks: write',
+    '.github/workflows/synthetic-checks-write.yml',
+    'permissions:\n  checks: write\njobs:\n  some-job:\n    runs-on: ubuntu-latest\n'
+  ],
+  L1,
+  L5
+];
+
 describe('no workflow can report a required E2E check name except through the computed full-run form', () => {
   it('the checker passes on every file in .github/workflows today', () => {
     const violations = allWorkflowFiles().flatMap(file => workflowViolations(file, configSource(file)));
@@ -665,6 +840,58 @@ describe('no workflow can report a required E2E check name except through the co
 
   it.each(nameViolationCases)('%s -> the checker %s', (_title, expected, file, text) => {
     expect(checkerOutcome(file, text)).toBe(expected);
+  });
+
+  it.each(requiredNameLiteralCases)('%s -> the literal rule flags it', (_title, file, text, name) => {
+    expect(requiredNameLiteralViolations(file, text).map(violation => violation.name)).toContain(name);
+  });
+
+  it.each(apiWriterCases)('%s -> the API rule flags it', (_title, file, text) => {
+    expect(apiWriterViolations(file, text)).not.toEqual([]);
+  });
+
+  it('A1 names no required name literally, so only the API rule catches it', () => {
+    const [, file, text] = A1;
+    expect(requiredNameLiteralViolations(file, text)).toEqual([]);
+  });
+
+  it('a comment line naming a required name passes the literal rule', () => {
+    const text = `# ${REQUIRED_NAMES.join(', ')}\nset -e\n    # ${REQUIRED_NAMES.join(', ')}\n`;
+    expect(requiredNameLiteralViolations('scripts/x.sh', text)).toEqual([]);
+  });
+
+  it.each(FULL_NAME_JOBS)('the real $file reports $name and passes the literal rule', ({ file, name }) => {
+    const text = configSource(file);
+    expect(text).toContain(name);
+    expect(requiredNameLiteralViolations(file, text)).toEqual([]);
+  });
+
+  it('the real check-linked-web-sdk-pr.yml writes the Checks API and passes the API rule', () => {
+    const file = '.github/workflows/check-linked-web-sdk-pr.yml';
+    const text = configSource(file);
+    expect(text).toContain('checks: write');
+    expect(apiWriterViolations(file, text)).toEqual([]);
+  });
+
+  it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
+    const files = ciSourceFiles();
+    expect(files).toEqual(
+      expect.arrayContaining([
+        '.github/actions/inject-linked-web-sdk-pr/action.yml',
+        'scripts/select-e2e-changes.sh',
+        'playwright/e2e/local-stack/run-note-transport.sh',
+        ...allWorkflowFiles()
+      ])
+    );
+    for (const skipped of ['CHANGELOG.md', 'yarn.lock', 'playwright/e2e/harness/spec-selection.test.ts']) {
+      expect(files).not.toContain(skipped);
+    }
+  });
+
+  it('neither rule finds anything in any file CI can run today', () => {
+    const sources: Array<[string, string]> = ciSourceFiles().map(file => [file, configSource(file)]);
+    expect(sources.flatMap(([file, text]) => requiredNameLiteralViolations(file, text))).toEqual([]);
+    expect(sources.flatMap(([file, text]) => apiWriterViolations(file, text))).toEqual([]);
   });
 });
 
