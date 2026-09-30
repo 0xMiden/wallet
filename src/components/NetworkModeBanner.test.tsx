@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -28,7 +28,132 @@ jest.mock('components/NetworkModeSheet', () => ({
     open ? <button type="button" data-testid="network-mode-sheet" onClick={() => onOpenChange(false)} /> : null
 }));
 
+// The access sheet has its own suite. Here it shows that the banner opened it, and the function the
+// banner gave it to check a code.
+const mockRedeem = jest.fn();
+jest.mock('lib/mainnet-access', () => ({
+  redeemMainnetAccessCode: (code: string) => mockRedeem(code)
+}));
+jest.mock('components/MainnetAccessSheet', () => ({
+  MainnetAccessSheet: ({
+    open,
+    onOpenChange,
+    onSubmit
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onSubmit: (code: string) => Promise<string>;
+  }) =>
+    open ? (
+      <div data-testid="mainnet-access-sheet">
+        <button type="button" data-testid="mainnet-access-submit" onClick={() => onSubmit('47291835')} />
+        <button type="button" data-testid="mainnet-access-close" onClick={() => onOpenChange(false)} />
+      </div>
+    ) : null
+}));
+
+// The welcome has its own suite. Here it shows that an accepted code opened it, and a way to leave.
+jest.mock('components/mainnet-welcome/MainnetWelcome', () => ({
+  MainnetWelcome: ({ open, onContinue }: { open: boolean; onContinue: () => void }) =>
+    open ? <button type="button" data-testid="mainnet-welcome" onClick={onContinue} /> : null
+}));
+
 const openSheet = () => fireEvent.click(screen.getByTestId('network-mode-banner'));
+
+describe('NetworkModeBanner (the home variant)', () => {
+  beforeEach(() => {
+    mockNetworkKey = 'testnet';
+    mockRedeem.mockReset();
+    jest.mocked(hapticLight).mockClear();
+  });
+
+  it('names the effective network and offers the switch to mainnet', () => {
+    mockNetworkKey = 'devnet';
+
+    render(<NetworkModeBanner variant="home" />);
+
+    expect(screen.getByTestId('network-mode-banner-network')).toHaveTextContent('networkModeHomeBanner:devnet');
+    expect(screen.getByTestId('network-mode-banner-switch')).toHaveTextContent('switchToMainnet');
+  });
+
+  it('renders nothing on mainnet', () => {
+    mockNetworkKey = null;
+
+    const { container } = render(<NetworkModeBanner variant="home" />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('opens the explanation sheet from the network name, with one haptic', () => {
+    render(<NetworkModeBanner variant="home" />);
+    const name = screen.getByTestId('network-mode-banner-network');
+    expect(name).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(name);
+
+    expect(screen.getByTestId('network-mode-sheet')).toBeInTheDocument();
+    expect(screen.queryByTestId('mainnet-access-sheet')).not.toBeInTheDocument();
+    expect(name).toHaveAttribute('aria-expanded', 'true');
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the mainnet access sheet from the switch action, and closes it again', () => {
+    render(<NetworkModeBanner variant="home" />);
+    const action = screen.getByTestId('network-mode-banner-switch');
+    expect(action).toHaveAttribute('aria-haspopup', 'dialog');
+
+    fireEvent.click(action);
+
+    expect(screen.getByTestId('mainnet-access-sheet')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
+    expect(action).toHaveAttribute('aria-expanded', 'true');
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('mainnet-access-close'));
+
+    expect(screen.queryByTestId('mainnet-access-sheet')).not.toBeInTheDocument();
+    expect(action).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('checks a submitted code with the access-code service, and a refused code opens no welcome', async () => {
+    mockRedeem.mockResolvedValue('rejected');
+    render(<NetworkModeBanner variant="home" />);
+    fireEvent.click(screen.getByTestId('network-mode-banner-switch'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-access-submit'));
+    });
+
+    expect(mockRedeem).toHaveBeenCalledWith('47291835');
+    expect(screen.queryByTestId('mainnet-welcome')).not.toBeInTheDocument();
+  });
+
+  it('opens the welcome when the code is accepted, and closes it on Continue', async () => {
+    mockRedeem.mockResolvedValue('granted');
+    render(<NetworkModeBanner variant="home" />);
+    fireEvent.click(screen.getByTestId('network-mode-banner-switch'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-access-submit'));
+    });
+
+    expect(screen.getByTestId('mainnet-welcome')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('mainnet-welcome'));
+
+    expect(screen.queryByTestId('mainnet-welcome')).not.toBeInTheDocument();
+  });
+
+  it('stands down under a shell that already names the network', () => {
+    render(
+      <NetworkNamedByShell>
+        <NetworkModeBanner variant="home" />
+      </NetworkNamedByShell>
+    );
+
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+});
 
 describe('NetworkModeBanner (the dApp confirm window)', () => {
   beforeEach(() => {

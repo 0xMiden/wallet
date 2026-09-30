@@ -34,6 +34,7 @@ export enum ImportType {
 
 export enum OnboardingStep {
   Welcome = 'welcome',
+  MainnetAccess = 'mainnet-access',
   NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
@@ -102,6 +103,16 @@ export type SelectImportTypeAction = {
 
 export type NetworkNoticeAcknowledgeAction = {
   id: 'network-notice-acknowledge';
+};
+
+/** The mainnet access code was accepted: the chosen flow starts on mainnet, with no test-network notice. */
+export type MainnetAccessGrantedAction = {
+  id: 'mainnet-access-granted';
+};
+
+/** The user has no mainnet access code: the test-network notice follows. */
+export type MainnetAccessSkipAction = {
+  id: 'mainnet-access-skip';
 };
 
 export type ImportFromSeedAction = {
@@ -222,6 +233,8 @@ export type OnboardingAction =
   | BackupSeedPhraseAction
   | SelectImportTypeAction
   | NetworkNoticeAcknowledgeAction
+  | MainnetAccessGrantedAction
+  | MainnetAccessSkipAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction

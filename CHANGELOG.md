@@ -6,6 +6,9 @@
 
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
 - [FEATURE][all] A token can be hidden from its token page: it leaves Home's asset list, the Home total and the send token picker, and is listed under Hidden assets on Home, where it can be unhidden; its transfers can still be claimed, and the native token cannot be hidden (#813).
+- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. Every sheet opens and closes about 25% slower.
+- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Every sheet opens and closes about 25% slower.
+- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Onboarding on a test network asks for the mainnet access code on a new step between Welcome and the test-network notice; an accepted code skips the notice. Every sheet opens and closes about 25% slower.
 
 ### Changes
 

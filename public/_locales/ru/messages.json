@@ -5006,6 +5006,81 @@
       }
     }
   },
+  "networkModeHomeBanner": {
+    "message": "Вы находитесь на сайте Miden $network$",
+    "englishSource": "You are on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchToMainnet": {
+    "message": "Переключиться на основную сеть",
+    "englishSource": "Switch to mainnet"
+  },
+  "mainnetAccessDescription": {
+    "message": "На данный момент доступ к Mainnet предоставляется только по приглашению. Введите полученный вами 8-значный код доступа.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  },
+  "mainnetAccessCodeLabel": {
+    "message": "Код доступа",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Разблокировать мейннет",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessNoCode": {
+    "message": "Нет кода? Вы можете продолжать пользоваться Miden $network$.",
+    "englishSource": "No code? You can keep using Miden $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Этот код не сработал. Проверьте его и попробуйте ещё раз.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Нам не удалось проверить этот код. Попытайтесь позже.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessHeader": {
+    "message": "Доступ к основной сети",
+    "englishSource": "Mainnet access"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "На данный момент доступ к Mainnet предоставляется только по приглашению. Введите восьмизначный код из вашего приглашения, и ваш кошелек начнёт работу в сети Miden Mainnet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Код находится в вашем пригласительном письме.",
+    "englishSource": "The code is in your invite email."
+  },
+  "mainnetAccessContinueOnNetwork": {
+    "message": "Продолжение на Miden $network$",
+    "englishSource": "Continue on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetWelcomeTitle": {
+    "message": "Добро пожаловать в основную сеть",
+    "englishSource": "Welcome to mainnet"
+  },
+  "mainnetWelcomeBody": {
+    "message": "Только что готово. Ваш код доступа сработал.",
+    "englishSource": "Fresh out of the oven. Your access code worked."
+  },
   "networkModePillNoValue": {
     "message": "Токены не имеют реальной ценности",
     "englishSource": "Tokens have no real value"

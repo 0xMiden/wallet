@@ -612,22 +612,34 @@ const Welcome: FC = () => {
       navigate('/#select-import-type');
     };
 
+    // The chosen flow, once the test-network screens are through.
+    const startChosenFlow = () => {
+      if (onboardingType === OnboardingType.Import) {
+        startImportFlow();
+      } else {
+        startCreateFlow();
+      }
+    };
+
     switch (action.id) {
       case 'network-notice-acknowledge':
-        if (onboardingType === OnboardingType.Import) {
-          startImportFlow();
-        } else {
-          startCreateFlow();
-        }
+        startChosenFlow();
+        break;
+      case 'mainnet-access-granted':
+        // An accepted code skips the test-network notice. The network itself does not change yet.
+        startChosenFlow();
+        break;
+      case 'mainnet-access-skip':
+        navigate('/#network-notice');
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
         resetFlowState();
-        // On a test network the chosen flow waits behind the network notice
-        // (#875); acknowledging the notice starts it.
+        // On a test network the chosen flow waits behind the mainnet access step and the network
+        // notice (#875); an accepted code or an acknowledged notice starts it.
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Create);
-          navigate('/#network-notice');
+          navigate('/#mainnet-access');
         } else {
           startCreateFlow();
         }
@@ -702,7 +714,7 @@ const Welcome: FC = () => {
         resetFlowState();
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
-          navigate('/#network-notice');
+          navigate('/#mainnet-access');
         } else {
           startImportFlow();
         }
@@ -875,8 +887,11 @@ const Welcome: FC = () => {
         navigate('/#create-password');
         break;
       case 'back':
-        if (
-          step === OnboardingStep.NetworkNotice ||
+        if (step === OnboardingStep.NetworkNotice) {
+          // The notice follows the mainnet access step, which stays in the flow.
+          navigate('/#mainnet-access');
+        } else if (
+          step === OnboardingStep.MainnetAccess ||
           step === OnboardingStep.SelectImportType ||
           step === OnboardingStep.SelectWalletType ||
           step === OnboardingStep.ChooseProtection
@@ -972,14 +987,15 @@ const Welcome: FC = () => {
       case '':
         setStep(OnboardingStep.Welcome);
         break;
+      case '#mainnet-access':
       case '#network-notice':
         // The chosen flow is in-memory only, so a reload here has nothing to
-        // continue with; mainnet has no notice. Either way, restart from Welcome.
+        // continue with; mainnet has neither screen. Either way, restart from Welcome.
         if (onboardingType === null || !getTestNetworkNameKey()) {
           navigate('/');
           break;
         }
-        setStep(OnboardingStep.NetworkNotice);
+        setStep(hash === '#mainnet-access' ? OnboardingStep.MainnetAccess : OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
         setOnboardingType(OnboardingType.Create);

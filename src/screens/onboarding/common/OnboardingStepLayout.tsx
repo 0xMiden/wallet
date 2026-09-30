@@ -17,6 +17,12 @@ export interface OnboardingStepLayoutProps {
   footer?: React.ReactNode;
   /** `stack` (default) puts the footer's buttons one above the other; `row` splits the row. */
   footerLayout?: SubPageLayoutProps['footerLayout'];
+  /**
+   * Makes the body the step's `<form>`, so Enter in a field submits it. The footer sits outside
+   * it, so a submit button there passes `form={formId}`.
+   */
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  formId?: string;
   'data-testid'?: string;
 }
 
@@ -34,10 +40,19 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   children,
   footer,
   footerLayout = 'stack',
+  onSubmit,
+  formId,
   'data-testid': dataTestId
 }) => (
   // No tab bar is ever drawn over onboarding, so the pinned CTA keeps the flat 16px margin.
-  <SubPageLayout data-testid={dataTestId} footer={footer} footerLayout={footerLayout} footerNavbarCushion={false}>
+  <SubPageLayout
+    data-testid={dataTestId}
+    footer={footer}
+    footerLayout={footerLayout}
+    footerNavbarCushion={false}
+    onSubmit={onSubmit}
+    formId={formId}
+  >
     {(eyebrow || title || description || aside) && (
       <div data-slot="step-heading" className="flex shrink-0 flex-col items-start gap-2 pt-4">
         {eyebrow && <div className="pb-1">{eyebrow}</div>}
