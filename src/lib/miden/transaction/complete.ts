@@ -532,9 +532,10 @@ export const completeReplaceHotKeyTransaction = async (
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success. After an eviction the
-    // hardening waits for the guardian sync, which repairs it, rather than
-    // rebuilding the service against the node that just parked.
+    // idempotent; never affects the rotation's success. After an eviction it is
+    // skipped rather than rebuilding the service against the node that just
+    // parked: the next guardian sync lap re-runs the check, because the swap
+    // above changed the hot key that sync's once-per-session gate is keyed on.
     if (!reRegisterEvicted) {
       await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
     }
