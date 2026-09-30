@@ -1343,7 +1343,7 @@ describe('generateTransaction — Guardian routing', () => {
   // A rotation that can run to completion: the cold service's proposal creator is
   // scripted per test, completion runs for real with its re-register stubbed, and
   // the hardening check that follows it finds the account already hardened.
-  const arrangeRotation = (createProposal: jest.Mock) => {
+  const arrangeRotation = (createProposal: jest.Mock, waitForTransactionCommit = jest.fn(async () => {})) => {
     const client = makeClientApi(makeResult());
     const coldService = {
       guardianEndpoint: 'https://old.guardian',
@@ -1360,7 +1360,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
-      waitForTransactionCommit: jest.fn(async () => {}),
+      waitForTransactionCommit,
       client
     });
     const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
@@ -5728,6 +5728,68 @@ describe('generateTransaction — Guardian routing', () => {
     );
   });
 
+  it('Guardian switch-guardian: a coordinated commit wait that times out on a switch the node confirms still completes it', async () => {
+    const txId = 'switch-guardian-wait-confirmed';
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    const multisigService = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: {
+          id: 'prop-switch',
+          metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
+        },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig'
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new Error('Transaction confirmation timed out after 60000ms');
+      }),
+      client: makeClientApi(makeResult())
+    });
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Guardian switched');
+  });
+
   it('Guardian switch-guardian: OLD guardian unreachable at service init → direct on-chain switch fallback', async () => {
     const txId = 'switch-guardian-direct-1';
     const result = makeResult();
@@ -6514,6 +6576,72 @@ describe('generateTransaction — Guardian routing', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  const timedOutCommitWait = () =>
+    jest.fn(async () => {
+      throw new Error('Transaction confirmation timed out after 60000ms');
+    });
+
+  it('Guardian replace-hot-key: a commit wait that times out on a rotation the node confirms still completes it', async () => {
+    const { tx, row, coldService, swapHotKey, provider } = arrangeRotation(proposalFor(), timedOutCommitWait());
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+    expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  it('Guardian replace-hot-key: a commit wait that times out on a rotation the node discarded abandons its candidate and fails', async () => {
+    const { tx, row, coldService, swapHotKey, provider } = arrangeRotation(proposalFor(), timedOutCommitWait());
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    let statusAtAbandon: unknown;
+    coldService.abandonCandidate.mockImplementation(async () => {
+      statusAtAbandon = row()?.status;
+    });
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(statusAtAbandon).toBeDefined();
+    expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+    expect(swapHotKey).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expect(row()?.error).toMatch(/did not land: the node discarded it/);
+  });
+
+  // swapHotKey deletes the old hot key and its native wrapper, so a rotation that may never land
+  // must not complete on no evidence.
+  it('Guardian replace-hot-key: a commit wait that times out with no verdict fails the row and swaps nothing', async () => {
+    const { tx, row, coldService, swapHotKey, provider } = arrangeRotation(proposalFor(), timedOutCommitWait());
+    // Scripted, not left to the default: earlier cases in this file replace the mock's implementation.
+    mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expect(swapHotKey).not.toHaveBeenCalled();
+    expect(coldService.abandonCandidate).not.toHaveBeenCalled();
   });
 
   it('Guardian replace-hot-key: stamps the endpoint it runs under before a proposal failure', async () => {

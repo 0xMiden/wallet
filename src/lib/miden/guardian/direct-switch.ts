@@ -533,6 +533,10 @@ export const createDirectSwitchGuardianRequest = async (
  * as chain confirmation. The transaction RECORD is the thing the node has an
  * opinion about, and `getTransactionCommitState` is the same authority
  * `verifySendLanded` uses for the equivalent double-send question.
+ *
+ * The coordinated structural commit wait (`waitForStructuralCommit`) reads it too, and
+ * the same reasons hold there: the leaf's apply already wrote the local account, and a
+ * pending or unknown record is no verdict.
  */
 export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
   try {

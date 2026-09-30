@@ -147,7 +147,8 @@ export interface ISwitchGuardianExtraInputs {
   switchProposalId?: string;
   switchDeltaPushed?: boolean;
   // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
-  // abandons this nonce's candidate on the outgoing guardian before the row fails (#1233).
+  // abandons this nonce's candidate on the outgoing guardian before the row fails, through
+  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233).
   switchProposalNonce?: number;
 }
 

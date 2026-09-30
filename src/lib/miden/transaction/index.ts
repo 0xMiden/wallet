@@ -920,9 +920,10 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   the per-account endpoint. The replace-hot-key and switch-guardian completion
  *   handlers tolerate a missing TransactionResult. When the node discarded the
  *   switch, completion throws `GuardianSwitchDiscardedError`; a coordinated row
- *   first abandons its proposal's candidate on the outgoing guardian, bounded and
- *   best-effort, then rethrows that error so the caller fails the row on the node's
- *   verdict. Any other rejection is rethrown without the abandon.
+ *   first abandons its proposal's candidate on the outgoing guardian through
+ *   `abandonDiscardedCandidate`, the helper the coordinated commit wait shares, with
+ *   the nonce the row recorded, then rethrows that error so the caller fails the row
+ *   on the node's verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
@@ -1009,13 +1010,7 @@ async function reconcileStructuralApplyFailure(
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
     const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
     if (isGuardianSwitchDiscardedError(error) && service && typeof nonce === 'number') {
-      const outgoing = service;
-      await withOutgoingGuardianDeadline(
-        () => outgoing.abandonCandidate(nonce),
-        'abandoning the discarded switch candidate on the outgoing guardian'
-      ).catch(abandonError =>
-        console.warn(`[Guardian] could not abandon the discarded switch candidate at nonce ${nonce}:`, abandonError)
-      );
+      await abandonDiscardedCandidate(service, nonce);
     }
     throw error;
   }
@@ -2253,6 +2248,58 @@ const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, propo
   (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
 
 /**
+ * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
+ * best-effort like the other outgoing-guardian cleanups. Safe although the submit resolved: a discarded
+ * transaction has left the mempool and never lands, and the guardian refuses the abandon if it did.
+ */
+const abandonDiscardedCandidate = async (service: MultisigService, nonce: number): Promise<void> => {
+  try {
+    await withOutgoingGuardianDeadline(
+      () => service.abandonCandidate(nonce),
+      'abandoning the discarded candidate on its guardian'
+    );
+  } catch (abandonError) {
+    console.warn(`[Guardian] could not abandon the discarded candidate at nonce ${nonce}:`, abandonError);
+  }
+};
+
+/**
+ * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
+ * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * rotation or a threshold update.
+ *
+ * A wait that fails without the node's own discard asks the node once. Committed: return, and the
+ * caller completes as after a resolved wait. Discarded: abandon the candidate, then fail. No verdict:
+ * fail with the wait's error and abandon nothing, since the write may still land. Unlike the direct
+ * path, no verdict never completes: a rotation's completion deletes the old hot key, so completing one
+ * that never lands leaves the device without an on-chain signer.
+ */
+const waitForStructuralCommit = async (
+  id: string,
+  service: MultisigService,
+  nonce: number,
+  type: ITransactionType
+): Promise<void> => {
+  try {
+    await midenClientProxy.waitForTransactionCommit(id);
+  } catch (waitError) {
+    const discardedAtWait = isTransactionDiscardedError(waitError);
+    const landed = discardedAtWait ? false : await didDirectSwitchLand(id);
+    if (landed === true) {
+      console.warn(
+        `Guardian ${type} ${id} is confirmed on chain despite the failed commit wait; completing:`,
+        waitError
+      );
+      return;
+    }
+    if (landed === undefined) throw waitError;
+    await abandonDiscardedCandidate(service, nonce);
+    if (discardedAtWait) throw waitError;
+    throw new Error(`Guardian ${type} ${id} did not land: the node discarded it.`, { cause: waitError });
+  }
+};
+
+/**
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
@@ -3323,7 +3370,7 @@ const generateGuardianTransaction = async (
     // structural completion below (e.g. leaving replace-hot-key's chain rotation done
     // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
     // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-    await midenClientProxy.waitForTransactionCommit(id);
+    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type);
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.

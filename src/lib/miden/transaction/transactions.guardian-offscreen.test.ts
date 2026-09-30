@@ -271,13 +271,17 @@ const mockProxyWaitForCommit = jest.fn(async (..._a: unknown[]) => {});
 // Default: note not found → 'unknown' → the killed consume falls through to Failed
 // (the pre-#3a behavior for the non-consume kill tests that don't touch it).
 const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as unknown[]);
+// The node's verdict on a transaction, which the real `didDirectSwitchLand` reads after a structural
+// commit wait fails. Default: still pending, no verdict.
+const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
     waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
-    getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a)
+    getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a),
+    getTransactionCommitState: (...a: unknown[]) => mockProxyGetCommitState(...a)
   }
 }));
 
@@ -3348,4 +3352,90 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
 
     expect(service.pushSwitchDelta).not.toHaveBeenCalled();
   });
+
+  // The pushed delta is a candidate for a nonce the chain will never see once the node discards the
+  // switch; abandoned before the row fails, so nothing reads Failed while it stands.
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'abandons the switch candidate before the row fails when the node discards the switch at the commit wait (flag $flag)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-discarded-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      let statusAtAbandon: unknown;
+      service.abandonCandidate.mockImplementation(async () => {
+        statusAtAbandon = txStore.find(r => r.id === id)?.status;
+      });
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'));
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(statusAtAbandon).toBeDefined();
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.error).toMatch(/Transaction rejected: exec-tx-hash/);
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    }
+  );
+
+  // The co-sign already handed the guardian these types' candidates.
+  it.each(structuralCases().filter(c => c.type !== 'switch-guardian'))(
+    '$type: abandons its co-signed candidate before the row fails when the node discards it at the commit wait',
+    async ({ row, complete }) => {
+      const id = `wait-discarded-${row.type}`;
+      const { service, provider: sp } = arrangeStructural(id, row);
+      let statusAtAbandon: unknown;
+      service.abandonCandidate.mockImplementation(async () => {
+        statusAtAbandon = txStore.find(r => r.id === id)?.status;
+      });
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(statusAtAbandon).toBeDefined();
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.error).toMatch(/Transaction rejected: exec-tx-hash/);
+      expect(complete).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'asks the node after a commit wait that ends without a verdict, and fails the row when the node has none either (flag $flag)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-no-verdict-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'));
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(mockProxyGetCommitState).toHaveBeenCalledWith('exec-tx-hash');
+      expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+    }
+  );
 });
