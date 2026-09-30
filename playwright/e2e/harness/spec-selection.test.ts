@@ -435,6 +435,32 @@ const jobLines = (lines: string[], jobId: string): { idAt: number; nameAt: numbe
   return { idAt, nameAt };
 };
 
+/** The reason and remedy each violation's text starts with, before the line it names. */
+const REMEDY = {
+  lineBreak:
+    'a line break other than LF or CRLF, which YAML reads as a new line and these rules do not, so save the file with LF line endings',
+  apiWrite: 'the line writes or grants the Checks or Statuses API, which only an API_WRITER_ALLOWLIST file may do',
+  quotedKey: 'a quoted mapping key, which these rules do not read, so write the key unquoted',
+  permissionsWord:
+    '`permissions` may appear in a workflow only as a plain `permissions:` key, so reword the mention or move it to a comment line',
+  permissionsShape:
+    'a permissions value or block line outside the allowlist, so write `permissions:` as block lines `scope: read|write|none`, with checks and statuses only read or none, and no quotes, flow form, anchors, tags or merge keys'
+};
+
+const WORKFLOW_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
+const ACTION_PATH = /^\.github\/actions\/[^/]+\/action\.ya?ml$/;
+/** A line break YAML reads and the rules' split on LF or CRLF does not. */
+const NON_LF_BREAK = /\r(?!\n)|[\u2028\u2029\u0085]/;
+
+/** One offending line, or line 0 for a violation of the whole file, and what to do about it. */
+type Violation = { file: string; line: number; text: string };
+
+/** A workflow or composite action holding NON_LF_BREAK, as one violation: the rules would not read the lines YAML does. */
+const lineBreakViolations = (file: string, text: string): Violation[] =>
+  (WORKFLOW_PATH.test(file) || ACTION_PATH.test(file)) && NON_LF_BREAK.test(text)
+    ? [{ file, line: 0, text: REMEDY.lineBreak }]
+    : [];
+
 type LiteralViolation = { file: string; line: number; name: string };
 
 /**
@@ -442,9 +468,12 @@ type LiteralViolation = { file: string; line: number; name: string };
  * that job's own `name:` line and, for a gate, its own id line or a `needs:` entry naming it,
  * all in its designated file. It reads every line of every file CI can run, allowlisted API
  * writers included, whatever carries the name: a job name, a check-run or status payload, an
- * action input or a script. A name computed at run time is left to the API rule.
+ * action input or a script. A name computed at run time is left to the API rule. A workflow or
+ * composite action breaking a line other than at LF or CRLF is refused whole before any line is read.
  */
-const requiredNameLiteralViolations = (file: string, text: string): LiteralViolation[] => {
+const requiredNameLiteralViolations = (file: string, text: string): Array<LiteralViolation | Violation> => {
+  const refused = lineBreakViolations(file, text);
+  if (refused.length > 0) return refused;
   const lines = text.split(/\r?\n/);
   const allowed = (name: string, at: number): boolean =>
     FULL_NAME_JOBS.some(job => {
@@ -480,22 +509,20 @@ const API_WRITER_ALLOWLIST = [
 const API_WRITE =
   /check-runs|\/statuses\b|checks\.(create|update)|createCommitStatus|\b(create|update)CheckRun\b|\bwrite-all\b|\b(checks|statuses)["']?\s*:\s*["']?write\b/;
 
-const WORKFLOW_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
-
 /** A plain `permissions` key at any indent, and the rest of its line. */
 const PERMISSIONS_KEY = /^\s*permissions\s*:(.*)$/;
 const PERMISSIONS_VALUE = /^\s*(\{\}|read-all)?\s*(#.*)?$/;
 const PERMISSION_SCOPE = /^\s+([a-z][a-z-]*):\s*(read|write|none)\s*(#.*)?$/;
-/** A quoted `permissions` key, or a double-quoted key holding an escape, at the top level or on a job. */
-const QUOTED_PERMISSIONS_KEY = /^(?: {4})?(?:"[^"]*\\|(["'])permissions\1\s*:)/;
+/** A line whose first token is a quoted mapping key, which may spell `permissions` with an escape. */
+const QUOTED_KEY = /^\s*(-\s+)?["'][^"']*["']\s*:/;
 
-/** The index of every line of a workflow that its permissions allowlist does not name. */
+/** The index of every line on or under a plain `permissions` key that its allowlist does not name. */
 const unlistedPermissionLines = (lines: string[]): Set<number> => {
   const unlisted = new Set<number>();
   lines.forEach((line, at) => {
     const key = PERMISSIONS_KEY.exec(line);
-    if (QUOTED_PERMISSIONS_KEY.test(line) || (key && !PERMISSIONS_VALUE.test(key[1]!))) unlisted.add(at);
     if (!key) return;
+    if (!PERMISSIONS_VALUE.test(key[1]!)) unlisted.add(at);
     const end = lines.findIndex((next, i) => i > at && isContent(next) && indentOf(next) <= indentOf(line));
     for (let i = at + 1; i < (end === -1 ? lines.length : end); i++) {
       const scope = PERMISSION_SCOPE.exec(lines[i]!);
@@ -506,28 +533,35 @@ const unlistedPermissionLines = (lines: string[]): Set<number> => {
   return unlisted;
 };
 
-/** One offending line, or line 0 for a violation of the whole file. */
-type ApiViolation = { file: string; line: number; text: string };
-
 /**
- * Every way a file could write the Checks or Statuses API with the workflow token: a content
- * line calling either REST API or the GraphQL check-run mutations, or granting that write
- * (`checks` or `statuses` set to `write` in any quoting, spacing or flow form, or `write-all`),
- * and a workflow with no top-level `permissions:` block, whose token takes the repository's
- * default permissions. In a workflow the grant check is also a strict allowlist, so any shape
- * it does not name is a violation: a `permissions:` line carries only an empty value, `{}` or
- * `read-all`; every content line in the block under it is a plain `scope: read|write|none`,
- * with `checks` and `statuses` only `read` or `none`, so a quoted key, an escape, an explicit
- * `?` key, a flow collection, an anchor, an alias, a tag or a merge key there is flagged; and a
- * quoted or escaped `permissions` key at the top level or on a job is flagged. An allowlisted
+ * Every way a file could write the Checks or Statuses API with the workflow token, each
+ * violation's text naming its reason and remedy (REMEDY) and then the trimmed line. A workflow
+ * or composite action breaking a line other than at LF or CRLF is refused whole before any line
+ * rule. In any file, a content line calling either REST API or the GraphQL check-run mutations,
+ * or granting that write (`checks` or `statuses` set to `write` in any quoting, spacing or flow
+ * form, or `write-all`), is flagged. A workflow is read only in the plain shape these rules
+ * model, so it is also flagged for: no top-level `permissions:` block, whose token takes the
+ * repository's default permissions; a content line whose first token is a quoted mapping key;
+ * a content line holding the word `permissions` other than as a plain `permissions:` key at any
+ * indent, such as behind a tag, anchor, alias, explicit `?` key, quote or merge key, inside a
+ * flow mapping, or in a `run:` body; and a `permissions:` value other than empty, `{}` or
+ * `read-all`, or a content line in the block under it other than a plain
+ * `scope: read|write|none` with `checks` and `statuses` only `read` or `none`. An allowlisted
  * file is exempt only while its text hashes to its pin, so any edit to it, on whichever line,
  * is one violation for the whole file.
  *
- * The one path outside every rule is an action given a PAT or App token from a secret, whose
- * checks scope is granted outside the repository; the guard for that one is the ruleset
- * pinning each required check's source to GitHub Actions.
+ * These rules guard against a workflow reporting a required name by accident, in the plain YAML
+ * style every workflow here uses, and they refuse every shape a person writes by accident.
+ * Deliberately encoded YAML, such as a tag, anchor, explicit key or flow mapping wrapped around
+ * an escaped key, is out of scope: its author could edit this test as easily, and parseJobs
+ * already throws on such shapes at job level. The one reporting path outside every rule is an
+ * action given a PAT or App token from a secret, whose checks scope is granted outside the
+ * repository; the guard for that one is the ruleset pinning each required check's source to
+ * GitHub Actions.
  */
-const apiWriterViolations = (file: string, text: string): ApiViolation[] => {
+const apiWriterViolations = (file: string, text: string): Violation[] => {
+  const refused = lineBreakViolations(file, text);
+  if (refused.length > 0) return refused;
   const pinned = API_WRITER_ALLOWLIST.find(entry => entry.file === file);
   if (pinned) {
     return createHash('sha256').update(text).digest('hex') === pinned.sha256
@@ -542,16 +576,24 @@ const apiWriterViolations = (file: string, text: string): ApiViolation[] => {
   }
   const lines = text.split(/\r?\n/);
   const workflow = WORKFLOW_PATH.test(file);
-  const defaultToken: ApiViolation[] =
+  const defaultToken: Violation[] =
     workflow && !lines.some(line => line.startsWith('permissions:'))
       ? [{ file, line: 0, text: 'no top-level permissions: block, so the token takes the repository default' }]
       : [];
   const unlisted = workflow ? unlistedPermissionLines(lines) : new Set<number>();
+  const remedyFor = (line: string, at: number): string | null => {
+    if (!isContent(line)) return null;
+    if (API_WRITE.test(line)) return REMEDY.apiWrite;
+    if (workflow && QUOTED_KEY.test(line)) return REMEDY.quotedKey;
+    if (workflow && /\bpermissions\b/.test(line) && !PERMISSIONS_KEY.test(line)) return REMEDY.permissionsWord;
+    return unlisted.has(at) ? REMEDY.permissionsShape : null;
+  };
   return [
     ...defaultToken,
-    ...lines.flatMap((line, at) =>
-      (isContent(line) && API_WRITE.test(line)) || unlisted.has(at) ? [{ file, line: at + 1, text: line.trim() }] : []
-    )
+    ...lines.flatMap((line, at) => {
+      const remedy = remedyFor(line, at);
+      return remedy === null ? [] : [{ file, line: at + 1, text: `${remedy}: ${line.trim()}` }];
+    })
   ];
 };
 
@@ -861,8 +903,17 @@ const A1: SourceCase = [
     `      - run: gh api repos/$GITHUB_REPOSITORY/check-runs -f name="local-e2e ($B)" -f head_sha=$SHA -f conclusion=success\n`
   )
 ];
+/** YAML reads the bare CR as a line break, so the step after it runs; split on LF, it is part of the comment. */
+const B1: SourceCase = [
+  'B1: a composite action whose bare CR ends a comment before a check-run step',
+  '.github/actions/x/action.yml',
+  `name: x\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      # note\r      run: gh api repos/$R/check-runs -f name='local-e2e (chrome)'\n`
+];
 
-/** Each case is a source file the literal rule must flag, with the required name it must flag there. */
+/**
+ * Each case is a source file the literal rule must flag, with the required name it must flag
+ * there, or 'the whole file' for a file it refuses whole at line 0.
+ */
 const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
   [...L1, 'local-e2e (chrome)'],
   [
@@ -905,7 +956,8 @@ const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
     '.github/workflows/synthetic-needs-gate.yml',
     'permissions:\n  contents: read\njobs:\n  some-job:\n    needs: [bridge-guardian-e2e-gate]\n    runs-on: ubuntu-latest\n',
     'bridge-guardian-e2e-gate'
-  ]
+  ],
+  [...B1, 'the whole file']
 ];
 
 const GRANTS = [`checks: 'write'`, `statuses: "write"`, `"checks": write`, `checks : write`];
@@ -928,8 +980,21 @@ const UNREADABLE_GRANTS: Array<[title: string, entry: string]> = [
   ['"\\x63hecks": write', 'permissions:\n  "\\x63hecks": write'],
   ['? checks / : write', 'permissions:\n  ? checks\n  : write'],
   ['"permissions": key over checks: "\\u0077rite"', '"permissions":\n  checks: "\\u0077rite"'],
-  ['"\\x70ermissions": key over checks: "\\u0077rite"', '"\\x70ermissions":\n  checks: "\\u0077rite"']
+  ['"\\x70ermissions": key over checks: "\\u0077rite"', '"\\x70ermissions":\n  checks: "\\u0077rite"'],
+  ['!!str permissions: key over checks: "\\u0077rite"', '!!str permissions:\n  checks: "\\u0077rite"'],
+  ['&p permissions: key over checks: "\\u0077rite"', '&p permissions:\n  checks: "\\u0077rite"'],
+  ['? permissions / : key over checks: "\\u0077rite"', '? permissions\n:\n  checks: "\\u0077rite"']
 ];
+
+/** Grants behind a line break YAML reads and a split on LF does not, each a titled entry for workflowWith. */
+const LINE_BREAK_GRANTS: Array<[title: string, entry: string]> = [
+  ['permissions: then a bare CR before checks: "\\u0077rite"', 'permissions:\r  checks: "\\u0077rite"'],
+  ['permissions: then U+2028 before checks: "\\u0077rite"', 'permissions:\u2028  checks: "\\u0077rite"']
+];
+
+/** A workflow indented four spaces a level, read-only at its top level, with `entry` among its one job's keys at indent 8. */
+const fourSpaceJobWith = (entry: string): string =>
+  `permissions:\n    contents: read\njobs:\n    some-job:\n        runs-on: ubuntu-latest\n${entry.replace(/^/gm, '        ')}\n`;
 
 /** Permissions entries that grant no checks or statuses write. */
 const READABLE_GRANTS = ['permissions:\n  checks: read', 'permissions:\n  statuses: none', 'permissions: {}'];
@@ -1029,6 +1094,29 @@ const apiWriterCases: ApiCase[] = [
     )
   ),
   [
+    'A7: a job-level "permissions": key at indent 8 in a four-space workflow over checks: "\\u0077rite"',
+    '.github/workflows/synthetic-grant.yml',
+    fourSpaceJobWith('"permissions":\n    checks: "\\u0077rite"'),
+    'a line'
+  ],
+  [
+    'A7: a job-level "\\x70ermissions": key at indent 8 over checks: "\\u0077rite"',
+    '.github/workflows/synthetic-grant.yml',
+    fourSpaceJobWith('"\\x70ermissions":\n    checks: "\\u0077rite"'),
+    'a line'
+  ],
+  ...LINE_BREAK_GRANTS.flatMap(([title, entry]) =>
+    LEVELS.map(
+      (level): ApiCase => [
+        `A8: a ${level} ${title}`,
+        '.github/workflows/synthetic-line-break.yml',
+        workflowWith(level, entry),
+        'the whole file'
+      ]
+    )
+  ),
+  [...B1, 'the whole file'],
+  [
     'P1: the pinned workflow also granting statuses: write',
     LINKED,
     linkedWith('\n  checks: write\n', '\n  checks: write\n  statuses: write\n'),
@@ -1080,6 +1168,24 @@ const apiWriterCases: ApiCase[] = [
   [...L5, 'a line']
 ];
 
+/** Each case is a workflow with one violation, on `line`, whose text must be `remedy` and then that line trimmed. */
+const remedyCases: Array<[title: string, text: SourceText, line: number, remedy: string]> = [
+  [
+    'R1: a flow-form permissions: { contents: read }',
+    `permissions: { contents: read }\n${ONE_JOB}`,
+    1,
+    REMEDY.permissionsShape
+  ],
+  [
+    'R2: a run: step mentioning permissions',
+    workflowWithStep('      - run: echo permissions\n'),
+    7,
+    REMEDY.permissionsWord
+  ],
+  ['R3: a quoted "on": key', `"on": push\n${READ_ONLY}${ONE_JOB}`, 1, REMEDY.quotedKey],
+  ["R4: A1's check-run step", A1[2], 7, REMEDY.apiWrite]
+];
+
 describe('no workflow can report a required E2E check name except through the computed full-run form', () => {
   it('the checker passes on every file in .github/workflows today', () => {
     const violations = allWorkflowFiles().flatMap(file => workflowViolations(file, configSource(file)));
@@ -1098,14 +1204,26 @@ describe('no workflow can report a required E2E check name except through the co
     expect(checkerOutcome(file, text)).toBe(expected);
   });
 
-  it.each(requiredNameLiteralCases)('%s -> the literal rule flags it', (_title, file, text, name) => {
-    expect(requiredNameLiteralViolations(file, sourceText(text)).map(violation => violation.name)).toContain(name);
+  it.each(requiredNameLiteralCases)('%s -> the literal rule flags it', (_title, file, text, flagged) => {
+    const violations = requiredNameLiteralViolations(file, sourceText(text));
+    expect(violations.map(violation => ('name' in violation ? violation.name : 'the whole file'))).toContain(flagged);
   });
 
   it.each(apiWriterCases)('%s -> the API rule flags it', (_title, file, text, arm) => {
     const lines = apiWriterViolations(file, sourceText(text)).map(violation => violation.line);
     expect(lines.filter(line => (arm === 'the whole file' ? line === 0 : line > 0))).not.toEqual([]);
   });
+
+  it.each(remedyCases)(
+    '%s -> its one violation names its reason and remedy, then the line',
+    (_title, text, line, remedy) => {
+      const file = '.github/workflows/synthetic-remedy.yml';
+      const source = sourceText(text);
+      expect(apiWriterViolations(file, source)).toEqual([
+        { file, line, text: `${remedy}: ${source.split('\n')[line - 1]!.trim()}` }
+      ]);
+    }
+  );
 
   it.each(LEVELS.flatMap(level => READABLE_GRANTS.map((entry): [Level, string] => [level, entry])))(
     'a %s %j passes the API rule',
