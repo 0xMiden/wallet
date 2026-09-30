@@ -221,117 +221,154 @@ const allWorkflowFiles = (): string[] =>
     .map(name => `.github/workflows/${name}`)
     .sort();
 
-/** Strips a `name:` value's surrounding quotes, trailing comment and CR, in that order. */
-const normalizeScalar = (raw: string): string => {
-  const value = raw.replace(/\r$/, '').trim();
-  if (value.startsWith("'") || value.startsWith('"')) {
-    const quote = value[0]!;
-    const end = value.indexOf(quote, 1);
-    return end === -1 ? value.slice(1) : value.slice(1, end);
-  }
-  const commentAt = value.search(/\s#/);
-  return (commentAt === -1 ? value : value.slice(0, commentAt)).trim();
-};
-
-type ParsedJob = { jobId: string; rawName: string | null; matrixCombos: string[] | null };
+const isContent = (line: string): boolean => line.trim() !== '' && !line.trimStart().startsWith('#');
+const indentOf = (line: string): number => line.search(/\S/);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Every job under a workflow file's `jobs:` key, parsed from its text: job ids at
- * two-space indent, each job's own `name:` (indent 4, the direct-child level -- never a
- * step's `- name:`) and its `strategy:`/`matrix:` axis values when it has one. No YAML
- * parser is a direct dependency, so this reads text the same way this file's other
- * helpers (`runBlockAfter`, `jobIfAfter`, `onBlock`) already do.
+ * A scalar read exactly: a quoted string closed on its line with no escapes, or a one-line
+ * plain scalar that starts with no YAML indicator and holds no `: `. Anything else (empty,
+ * a block scalar, an alias, an anchor, a tag, a flow collection) throws.
+ */
+const readScalar = (raw: string): string => {
+  const value = raw.trim();
+  const quoted = /^'([^']*)'\s*(?:#.*)?$/.exec(value) ?? /^"([^"\\]*)"\s*(?:#.*)?$/.exec(value);
+  if (quoted) return quoted[1]!;
+  const plain = /^[^\s\-?:,[\]{}#&*!|>'"%@`].*?(?=\s+#|$)/.exec(value)?.[0];
+  if (plain === undefined || /:(\s|$)/.test(plain)) throw new Error(`unreadable scalar ${JSON.stringify(raw)}`);
+  return plain;
+};
+
+type MappingEntry = { key: string; value: string; block: string[] };
+
+/**
+ * The entries of a block mapping whose keys sit at `indent`: a plain `key:`, the rest of its
+ * line, and the deeper content lines under it. Any other content line, or a repeated key, throws.
+ */
+const readMapping = (lines: string[], indent: number): MappingEntry[] => {
+  const entries: MappingEntry[] = [];
+  for (const line of lines.filter(isContent)) {
+    const last = entries[entries.length - 1];
+    if (last && indentOf(line) > indent) {
+      last.block.push(line);
+      continue;
+    }
+    const match = new RegExp(`^ {${indent}}([A-Za-z0-9_-]+):(?:\\s+(.*))?$`).exec(line);
+    if (!match || entries.some(entry => entry.key === match[1])) {
+      throw new Error(`unreadable line at indent ${indent}: ${JSON.stringify(line)}`);
+    }
+    entries.push({ key: match[1]!, value: (match[2] ?? '').trim(), block: [] });
+  }
+  return entries;
+};
+
+type ParsedJob = { jobId: string; rawName: string | null; matrix: { combos: string[] | null } | null };
+
+/** A job's matrix: none, `combos: null` when it has an include, an exclude, any `${{ }}` or inline content, else every combination of its axes. */
+const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
+  if (strategy.value !== '') throw new Error(`strategy with inline content ${JSON.stringify(strategy.value)}`);
+  const matrix = readMapping(strategy.block, 6).find(entry => entry.key === 'matrix');
+  if (!matrix) return null;
+  if (matrix.value !== '' || matrix.block.some(line => line.includes('${{'))) return { combos: null };
+  const axes = readMapping(matrix.block, 8);
+  if (axes.some(axis => axis.key === 'include' || axis.key === 'exclude')) return { combos: null };
+  const values = axes.map(({ key, value, block }) => {
+    const flow = /^\[([^\]]*)\]$/.exec(value);
+    if (flow && block.length === 0) return flow[1]!.split(',').map(readScalar);
+    const items = block.map(line => /^\s+- (.*)$/.exec(line)?.[1]);
+    if (value !== '' || items.length === 0 || items.includes(undefined)) {
+      throw new Error(`unreadable matrix axis ${key}`);
+    }
+    return items.map(item => readScalar(item!));
+  });
+  return {
+    combos: values.reduce<string[]>(
+      (combos, axis) => combos.flatMap(c => axis.map(v => (c === '' ? v : `${c}, ${v}`))),
+      ['']
+    )
+  };
+};
+
+/**
+ * Every job under a workflow's `jobs:` key, read from its text. Only the plain shape every
+ * workflow here uses is read: one bare `jobs:` line, each job id alone on its indent-2 line,
+ * job keys at indent 4, a one-line `name:` scalar, and a matrix of flow or block-sequence
+ * axes under `strategy:`. Anything else throws, since a shape this cannot read could hide a
+ * required name. No YAML parser is a direct dependency, so this reads text.
  */
 const parseJobs = (text: string): ParsedJob[] => {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const jobsAt = lines.findIndex(line => line === 'jobs:');
-  if (jobsAt === -1) return [];
-  // jobs: is always the last top-level key in this repo's workflows; the section ends
-  // at the next 0-indent, non-blank line, or at EOF.
-  let sectionEnd = lines.length;
-  for (let i = jobsAt + 1; i < lines.length; i++) {
-    if (lines[i]!.trim() !== '' && /^\S/.test(lines[i]!)) {
-      sectionEnd = i;
-      break;
-    }
+  const jobsLines = lines.filter(line => /^jobs\s*:/.test(line));
+  if (jobsLines.length !== 1 || jobsLines[0] !== 'jobs:') {
+    throw new Error(`expected one bare jobs: line, found ${JSON.stringify(jobsLines)}`);
   }
-  const jobIdAt: number[] = [];
-  for (let i = jobsAt + 1; i < sectionEnd; i++) {
-    if (/^ {2}[A-Za-z0-9_.-]+:\s*$/.test(lines[i]!)) jobIdAt.push(i);
-  }
-  return jobIdAt.map((start, k) => {
-    const jobId = /^ {2}([A-Za-z0-9_.-]+):/.exec(lines[start]!)![1]!;
-    const end = jobIdAt[k + 1] ?? sectionEnd;
-    const body = lines.slice(start + 1, end);
-    const nameLine = body.find(line => /^ {4}name:\s?/.test(line));
-    const rawName = nameLine ? normalizeScalar(nameLine.replace(/^ {4}name:\s?/, '')) : null;
-    const matrixAt = body.findIndex(line => /^\s*matrix:\s*$/.test(line));
-    let matrixCombos: string[] | null = null;
-    if (matrixAt !== -1) {
-      const matrixIndent = body[matrixAt]!.search(/\S/);
-      const axes: string[][] = [];
-      for (const line of body.slice(matrixAt + 1)) {
-        const indent = line.search(/\S/);
-        if (line.trim() !== '' && indent <= matrixIndent) break;
-        const axis = /^\s+[A-Za-z0-9_-]+:\s*\[([^\]]*)\]\s*$/.exec(line);
-        if (axis) {
-          axes.push(
-            axis[1]!
-              .split(',')
-              .map(v => normalizeScalar(v))
-              .filter(v => v !== '')
-          );
-        }
-      }
-      if (axes.length > 0) {
-        matrixCombos = axes.reduce<string[]>(
-          (combos, values) => combos.flatMap(c => values.map(v => (c === '' ? v : `${c}, ${v}`))),
-          ['']
-        );
-      }
-    }
-    return { jobId, rawName, matrixCombos };
+  const jobsAt = lines.indexOf('jobs:');
+  // A column-0 comment does not end a YAML mapping; only a column-0 key does.
+  const sectionEnd = lines.findIndex((line, i) => i > jobsAt && /^[^\s#]/.test(line));
+  const section = lines.slice(jobsAt + 1, sectionEnd === -1 ? undefined : sectionEnd);
+  return readMapping(section, 2).map(({ key: jobId, value, block }) => {
+    if (value !== '') throw new Error(`job id ${jobId} is not alone on its line`);
+    const entries = readMapping(block, 4);
+    const name = entries.find(entry => entry.key === 'name');
+    if (name && name.block.length > 0) throw new Error(`job ${jobId}'s name continues past its line`);
+    const strategy = entries.find(entry => entry.key === 'strategy');
+    return { jobId, rawName: name ? readScalar(name.value) : null, matrix: strategy ? readMatrix(strategy) : null };
   });
 };
 
-/** A token no legitimate name text contains, standing in for a `matrix.` interpolation while the rest of the name is escaped for regex use. */
-const MATRIX_WILDCARD_TOKEN = '\u0000';
-
-/** The pattern of everything `name` could render to once its `matrix.` interpolations are substituted with real values. */
-const wildcardFromName = (name: string): RegExp => {
-  const withToken = name.replace(/\$\{\{[^}]*\bmatrix\.[^}]*\}\}/g, MATRIX_WILDCARD_TOKEN);
-  const escaped = withToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${escaped.split(MATRIX_WILDCARD_TOKEN).join('.*')}$`);
+/**
+ * The pattern source of every text `name` could render to. Everything from its first `${{`
+ * to its last `}}` is one wildcard, so no expression is read as literal text and a `}}`
+ * inside a string literal cannot end one early.
+ */
+const wildcardFromName = (name: string): string => {
+  const open = name.indexOf('${{');
+  if (open === -1) return escapeRegExp(name);
+  const close = name.lastIndexOf('}}');
+  return `${escapeRegExp(name.slice(0, open))}.*${close > open ? escapeRegExp(name.slice(close + 2)) : ''}`;
 };
+
+const LOCAL = '.github/workflows/pr-e2e-local.yml';
+const GUARDIAN = '.github/workflows/pr-e2e-guardian-lifecycle.yml';
+const BRIDGE = '.github/workflows/pr-e2e-bridge-guardian.yml';
+
+/** The one job in each E2E workflow that may compute its name from FULL, and the required name it computes. */
+const FULL_NAME_JOBS = [
+  { file: LOCAL, jobId: 'chrome-local', name: 'local-e2e (chrome)' },
+  { file: GUARDIAN, jobId: 'guardian-lifecycle-e2e-gate', name: 'guardian-lifecycle-e2e-gate' },
+  { file: BRIDGE, jobId: 'bridge-guardian-e2e-gate', name: 'bridge-guardian-e2e-gate' }
+];
 
 /** The one safe shape: `${{ (FULL) && '<required>' || '<required> (stacked)' }}`, FULL exactly the constant. */
 const TERNARY_NAME = /^\$\{\{\s*\(([\s\S]+?)\)\s*&&\s*'([^']*)'\s*\|\|\s*'([^']*)'\s*\}\}$/;
 
 type NameViolation = { file: string; jobId: string; name: string };
 
+/** Whether `job` is its workflow's designated job, named exactly the FULL ternary of its own required name, with no matrix. */
+const isDesignatedFullName = (file: string, job: ParsedJob): boolean => {
+  const designated = FULL_NAME_JOBS.find(entry => entry.file === file && entry.jobId === job.jobId);
+  const ternary = TERNARY_NAME.exec(job.rawName ?? '');
+  return (
+    designated !== undefined &&
+    ternary !== null &&
+    job.matrix === null &&
+    ternary[1]!.trim() === FULL &&
+    ternary[2] === designated.name &&
+    ternary[3] === `${designated.name} (stacked)`
+  );
+};
+
 /**
- * Every required name one job could report to GitHub other than through the computed
- * FULL form: its `name:` under a condition other than FULL, a matrix-suffixed job id or
- * literal name, or a name whose `matrix.` interpolation could render one.
+ * Every required name one job could report other than as its designated FULL name. A
+ * matrix job's name counts with and without its combination suffix: GitHub leaves the
+ * suffix off a name that references the matrix, which an expression may or may not do.
  */
 const jobViolations = (file: string, job: ParsedJob, required: string[]): NameViolation[] => {
-  if (job.rawName) {
-    const ternary = TERNARY_NAME.exec(job.rawName);
-    if (ternary) {
-      const condition = ternary[1]!.trim();
-      const trueBranch = ternary[2]!;
-      const falseBranch = ternary[3]!;
-      if (condition === FULL && falseBranch === `${trueBranch} (stacked)`) return [];
-      return required.includes(trueBranch) ? [{ file, jobId: job.jobId, name: trueBranch }] : [];
-    }
-    if (/\$\{\{[^}]*\bmatrix\.[^}]*\}\}/.test(job.rawName)) {
-      const pattern = wildcardFromName(job.rawName);
-      return required.filter(name => pattern.test(name)).map(name => ({ file, jobId: job.jobId, name }));
-    }
-  }
-  const base = job.rawName ?? job.jobId;
-  const candidates = job.matrixCombos ? job.matrixCombos.map(combo => `${base} (${combo})`) : [base];
-  return candidates.filter(name => required.includes(name)).map(name => ({ file, jobId: job.jobId, name }));
+  if (isDesignatedFullName(file, job)) return [];
+  const combos = job.matrix?.combos?.map(escapeRegExp).join('|') ?? '.*';
+  const suffix = job.matrix ? `(?: \\((?:${combos})\\))?` : '';
+  const pattern = new RegExp(`^${wildcardFromName(job.rawName ?? job.jobId)}${suffix}$`);
+  return required.filter(name => pattern.test(name)).map(name => ({ file, jobId: job.jobId, name }));
 };
 
 /** Every C-06 violation in one workflow file's text, taking (file, text) so the real tree and synthetic cases share this one code path. */
@@ -371,51 +408,244 @@ describe('a stacked pull request reports its E2E checks under names no branch re
   });
 });
 
+/** What the checker does with one workflow's text. */
+const checkerOutcome = (file: string, text: string): 'flags' | 'throws' | 'passes' => {
+  try {
+    return workflowViolations(file, text).length > 0 ? 'flags' : 'passes';
+  } catch {
+    return 'throws';
+  }
+};
+
+const fullNameOf = (name: string): string => `\${{ (${FULL}) && '${name}' || '${name} (stacked)' }}`;
+
 /**
- * Each case is a workflow file name and its full text; every one must be flagged by
- * `workflowViolations`, and none is caught by the narrow, three-file, unquoted-only
- * regex this checker replaces (F-012, F-017).
+ * Each case is a title, what the checker must do, a workflow file name and its full text.
+ * A case under one of the three E2E workflows' names exercises the one exemption, which
+ * only the designated job there can earn.
  */
-const nameViolationCases: Array<[string, string, string]> = [
+const nameViolationCases: Array<[string, 'flags' | 'throws', string, string]> = [
   [
     'a quoted literal equal to a required name',
+    'flags',
     'synthetic-quoted.yml',
     "jobs:\n  some-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n"
   ],
   [
     'a required name with a trailing comment',
+    'flags',
     'synthetic-commented.yml',
     'jobs:\n  some-job:\n    name: bridge-guardian-e2e-gate # x\n    runs-on: ubuntu-latest\n'
   ],
   [
     'a required name terminated by CRLF',
+    'flags',
     'synthetic-crlf.yml',
     'jobs:\r\n  some-job:\r\n    name: bridge-guardian-e2e-gate\r\n    runs-on: ubuntu-latest\r\n'
   ],
   [
     'a guardian-lifecycle-e2e-gate job with no name, reporting via its job id',
+    'flags',
     'synthetic-jobid-a.yml',
     'jobs:\n  guardian-lifecycle-e2e-gate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n'
   ],
   [
     'a bridge-guardian-e2e-gate job with no name, reporting via its job id',
+    'flags',
     'synthetic-jobid-b.yml',
     'jobs:\n  bridge-guardian-e2e-gate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n'
   ],
   [
     'a local-e2e job with a browser matrix and no name',
+    'flags',
     'synthetic-matrix-id.yml',
     'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n'
   ],
   [
     'a name that interpolates matrix.browser',
+    'flags',
     'synthetic-matrix-name.yml',
-    'jobs:\n  some-job:\n    name: local-e2e (${{ matrix.browser }})\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n'
+    `jobs:\n  some-job:\n    name: local-e2e (\${{ matrix.browser }})\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n`
   ],
   [
     'a computed name under a condition other than FULL, in a fourth file',
+    'flags',
     'synthetic-wrong-condition.yml',
-    "jobs:\n  some-job:\n    name: ${{ (github.event_name == 'pull_request') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}\n    runs-on: ubuntu-latest\n"
+    `jobs:\n  some-job:\n    name: \${{ (github.event_name == 'pull_request') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'a FULL ternary with a required name in its false branch',
+    'flags',
+    'synthetic-false-branch.yml',
+    `jobs:\n  some-job:\n    name: \${{ (${FULL}) && 'bridge-guardian-e2e-gate (stacked)' || 'bridge-guardian-e2e-gate' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'the designated Bridge gate with another required name in its false branch',
+    'flags',
+    BRIDGE,
+    `jobs:\n  bridge-guardian-e2e-gate:\n    name: \${{ (${FULL}) && 'bridge-guardian-e2e-gate' || 'local-e2e (chrome)' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'the designated Local job under a condition other than FULL',
+    'flags',
+    LOCAL,
+    `jobs:\n  chrome-local:\n    name: \${{ (github.event_name == 'pull_request') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'the designated Local job computing another required name',
+    'flags',
+    LOCAL,
+    `jobs:\n  chrome-local:\n    name: ${fullNameOf('bridge-guardian-e2e-gate')}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'an unparenthesised && and || name on the designated Guardian gate',
+    'flags',
+    GUARDIAN,
+    `jobs:\n  guardian-lifecycle-e2e-gate:\n    name: \${{ ${FULL} && 'guardian-lifecycle-e2e-gate' || 'guardian-lifecycle-e2e-gate (stacked)' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    `\${{ 'guardian-lifecycle-e2e-gate' }} on the designated Guardian gate`,
+    'flags',
+    GUARDIAN,
+    `jobs:\n  guardian-lifecycle-e2e-gate:\n    name: \${{ 'guardian-lifecycle-e2e-gate' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    `local-e2e (\${{ 'chrome' }})`,
+    'flags',
+    'synthetic-mixed-a.yml',
+    `jobs:\n  some-job:\n    name: local-e2e (\${{ 'chrome' }})\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    `bridge-guardian-e2e-\${{ 'gate' }}`,
+    'flags',
+    'synthetic-mixed-b.yml',
+    `jobs:\n  some-job:\n    name: bridge-guardian-e2e-\${{ 'gate' }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    `\${{ format('{0}-gate', 'bridge-guardian-e2e') }}`,
+    'flags',
+    'synthetic-format.yml',
+    `jobs:\n  some-job:\n    name: \${{ format('{0}-gate', 'bridge-guardian-e2e') }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'an exact FULL-ternary local-e2e (chrome) job copied into a fourth file',
+    'flags',
+    'synthetic-copied-ternary.yml',
+    `jobs:\n  chrome-local:\n    name: ${fullNameOf('local-e2e (chrome)')}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'an exact FULL-ternary local-e2e (chrome) job under another job id in the Local workflow',
+    'flags',
+    LOCAL,
+    `jobs:\n  chrome-local-copy:\n    name: ${fullNameOf('local-e2e (chrome)')}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'the designated Local job carrying a matrix',
+    'flags',
+    LOCAL,
+    `jobs:\n  chrome-local:\n    name: ${fullNameOf('local-e2e (chrome)')}\n    strategy:\n      matrix:\n        browser: [chrome]\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'a local-e2e job with a block-sequence browser matrix',
+    'flags',
+    'synthetic-block-matrix.yml',
+    'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        browser:\n          - chrome\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a local-e2e job with an include-only matrix',
+    'flags',
+    'synthetic-include-matrix.yml',
+    'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        include:\n          - browser: chrome\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a local-e2e job with a fromJSON matrix',
+    'flags',
+    'synthetic-fromjson-matrix.yml',
+    `jobs:\n  local-e2e:\n    strategy:\n      matrix: \${{ fromJSON(needs.x.outputs.m) }}\n    runs-on: ubuntu-latest\n`
+  ],
+  [
+    'a required-name job after a column-0 comment inside jobs:',
+    'flags',
+    'synthetic-column-0-comment.yml',
+    'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n# x\n  bridge-guardian-e2e-gate:\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a bridge-guardian-e2e-gate: # x job id with no name',
+    'throws',
+    'synthetic-commented-id.yml',
+    'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n  bridge-guardian-e2e-gate: # x\n    needs: some-job\n'
+  ],
+  [
+    'jobs: # x followed by a bridge-guardian-e2e-gate job',
+    'throws',
+    'synthetic-commented-jobs.yml',
+    'jobs: # x\n  bridge-guardian-e2e-gate:\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a jobs key written as jobs :',
+    'throws',
+    'synthetic-spaced-jobs.yml',
+    'jobs :\n  bridge-guardian-e2e-gate:\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a four-space-indented bridge-guardian-e2e-gate job',
+    'throws',
+    'synthetic-four-space-id.yml',
+    'jobs:\n    bridge-guardian-e2e-gate:\n      runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a job whose keys sit at indent 6',
+    'throws',
+    'synthetic-six-space-keys.yml',
+    'jobs:\n  some-job:\n      name: bridge-guardian-e2e-gate\n      runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a job-level <<: merge key',
+    'throws',
+    'synthetic-merge-key.yml',
+    'jobs:\n  base:\n    runs-on: ubuntu-latest\n    env: &gate\n      name: bridge-guardian-e2e-gate\n  some-job:\n    <<: *gate\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a job with two name: keys',
+    'throws',
+    'synthetic-two-names.yml',
+    'jobs:\n  some-job:\n    name: some-job\n    name: bridge-guardian-e2e-gate\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    "a name: value 'bridge-guardian-e2e-gate' on the next line",
+    'throws',
+    'synthetic-name-next-line.yml',
+    'jobs:\n  some-job:\n    name:\n      bridge-guardian-e2e-gate\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a name: >- block scalar',
+    'throws',
+    'synthetic-name-folded.yml',
+    'jobs:\n  some-job:\n    name: >-\n      bridge-guardian-e2e-gate\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a name: that is an alias',
+    'throws',
+    'synthetic-name-alias.yml',
+    'jobs:\n  base:\n    runs-on: ubuntu-latest\n    env:\n      GATE: &gate bridge-guardian-e2e-gate\n  some-job:\n    name: *gate\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a plain name: value continued on the next line',
+    'throws',
+    'synthetic-name-continued.yml',
+    'jobs:\n  some-job:\n    name: local-e2e\n      (chrome)\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a strategy: with inline content',
+    'throws',
+    'synthetic-inline-strategy.yml',
+    'jobs:\n  local-e2e:\n    strategy: { matrix: { browser: [chrome] } }\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a matrix axis value it cannot read',
+    'throws',
+    'synthetic-tagged-axis.yml',
+    'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        browser: [!!str chrome]\n    runs-on: ubuntu-latest\n'
   ]
 ];
 
@@ -425,8 +655,16 @@ describe('no workflow can report a required E2E check name except through the co
     expect(violations).toEqual([]);
   });
 
-  it.each(nameViolationCases)('%s is caught by the broadened checker', (_title, file, text) => {
-    expect(workflowViolations(file, text).length).toBeGreaterThan(0);
+  it('parseJobs reads at least one job from every workflow, and each designated job from its own', () => {
+    expect(allWorkflowFiles().filter(file => parseJobs(configSource(file)).length === 0)).toEqual([]);
+    const missing = FULL_NAME_JOBS.filter(
+      ({ file, jobId }) => !parseJobs(configSource(file)).some(job => job.jobId === jobId)
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it.each(nameViolationCases)('%s -> the checker %s', (_title, expected, file, text) => {
+    expect(checkerOutcome(file, text)).toBe(expected);
   });
 });
 
