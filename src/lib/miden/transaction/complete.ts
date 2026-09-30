@@ -1541,6 +1541,7 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
       ...(reclaimHeight != null ? { reclaimHeight } : {})
     };
     demoted = tx;
+    return undefined;
   });
 
   // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
