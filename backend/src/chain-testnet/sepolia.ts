@@ -45,7 +45,8 @@ export interface RelayTransaction {
   authorization: SignedAuthorization | null;
 }
 
-export interface SentRelay {
+export interface PreparedRelay {
+  serializedTransaction: Hex;
   hash: Hex;
   /** The relayer nonce of the transaction. */
   nonce: number;
@@ -59,8 +60,9 @@ export interface Chain {
   executor: Address;
   readAccount(evmAddress: Address, token: Address): Promise<AccountState>;
   readBalance(evmAddress: Address, token: Address): Promise<bigint>;
-  /** Estimate the gas with the authorization list, then send. Do not wait for the receipt. */
-  sendRelay(transaction: RelayTransaction): Promise<SentRelay>;
+  /** Sign locally. This method must not broadcast. */
+  prepareRelay(transaction: RelayTransaction, minimumNonce: number): Promise<PreparedRelay>;
+  broadcastRelay(serializedTransaction: Hex): Promise<Hex>;
   /** Null when the node has no receipt yet. */
   getReceiptStatus(hash: Hex): Promise<ReceiptStatus>;
 }
@@ -130,13 +132,17 @@ export function createSepoliaChain({ rpcUrl, relayerPrivateKey }: SepoliaChainOp
     return { needsAuthorization: !delegated, authorizationNonce, sequence, salt, balance };
   }
 
-  async function sendRelay({ to, data, authorization }: RelayTransaction): Promise<SentRelay> {
+  async function prepareRelay(
+    { to, data, authorization }: RelayTransaction,
+    minimumNonce: number
+  ): Promise<PreparedRelay> {
     const authorizationList = authorization === null ? undefined : [authorization];
     // eth_estimateGas includes the authorization list, so it simulates the delegation and both calls together.
     // Do not use a plain eth_call on an EOA that is not delegated: it executes nothing and succeeds.
     const gas = await publicClient.estimateGas({ account, to, data, value: 0n, authorizationList });
-    const nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' });
-    const hash = await walletClient.sendTransaction({
+    const pendingNonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' });
+    const nonce = Math.max(pendingNonce, minimumNonce);
+    const request = await walletClient.prepareTransactionRequest({
       account,
       chain: sepolia,
       to,
@@ -146,7 +152,8 @@ export function createSepoliaChain({ rpcUrl, relayerPrivateKey }: SepoliaChainOp
       nonce,
       gas: gas + gas / 5n
     });
-    return { hash, nonce, type4: authorization !== null };
+    const serializedTransaction = await walletClient.signTransaction(request);
+    return { serializedTransaction, hash: keccak256(serializedTransaction), nonce, type4: authorization !== null };
   }
 
   async function getReceiptStatus(hash: Hex): Promise<ReceiptStatus> {
@@ -161,5 +168,21 @@ export function createSepoliaChain({ rpcUrl, relayerPrivateKey }: SepoliaChainOp
     }
   }
 
-  return { executor: account.address, readAccount, readBalance, sendRelay, getReceiptStatus };
+  async function broadcastRelay(serializedTransaction: Hex): Promise<Hex> {
+    try {
+      return await walletClient.sendRawTransaction({ serializedTransaction });
+    } catch {
+      // RPC errors can contain the signed bytes. Keep those bytes out of the log.
+      throw new Error('Relay broadcast failed; the stored transaction will be retried');
+    }
+  }
+
+  return {
+    executor: account.address,
+    readAccount,
+    readBalance,
+    prepareRelay,
+    getReceiptStatus,
+    broadcastRelay
+  };
 }

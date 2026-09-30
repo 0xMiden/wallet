@@ -17,10 +17,11 @@ Copy `.env.example` to `.env` and set the values. The server checks the values a
 | --- | --- | --- |
 | `TRANSAK_API_KEY` | yes | |
 | `TRANSAK_API_SECRET` | yes | |
-| `TRANSAK_ENV` | no | `staging` (or `production`) |
+| `TRANSAK_ENV` | no | `staging`; `production` is rejected until a production bridge exists |
 | `TRANSAK_REFERRER_DOMAIN` | no | `com.miden.bread` (the app bundle ID / package name) |
 | `PORT` | no | `8787` |
 | `ALLOWED_ORIGINS` | no | `*` (all origins) |
+| `TRUSTED_PROXIES` | no | Empty; explicit proxy IP addresses or CIDR ranges, separated by commas |
 | `MAX_FIAT_AMOUNT_USD` | no | `10000` |
 | `RELAYER_PRIVATE_KEY` | yes | The Sepolia key that pays gas (`0x` + 64 hex) |
 | `SEPOLIA_RPC_URL` | no | `https://ethereum-sepolia-rpc.publicnode.com` |
@@ -101,13 +102,16 @@ All errors are JSON: `{ "error": string }`.
   Send an authorization only when `needsAuthorization` is true.
 
 Each IP can send 10 requests per minute to each POST route, and 60 per minute (burst 30) to `GET /orders/:id`.
-More requests get 429. Behind a reverse proxy, `req.ip` is the proxy address. Set Express `trust proxy` before you
-deploy like that.
+More requests get 429. Behind a reverse proxy, set `TRUSTED_PROXIES` to its IP addresses or CIDR ranges.
+For example, a proxy on the same host can use `127.0.0.1,::1`. The proxy must set `X-Forwarded-For` from the
+client connection and remove untrusted values. Express uses this configuration for both Transak sessions and
+rate limits. Empty configuration trusts no forwarded headers. Blanket trust and zero-length CIDR prefixes are rejected.
 
 Transak pins each widget session to the `x-user-ip` header. In staging only (`TRANSAK_ENV=staging`), when the caller
 IP is private (loopback, LAN, CGNAT), for example a simulator that calls `localhost`, the server sends its own public
 IP instead. It gets that IP once from `api.ipify.org`. On one machine or one network, the widget then loads from the
-same IP. A public caller IP goes to Transak unchanged. In production the caller IP always goes to Transak unchanged.
+same IP. A public caller IP goes to Transak unchanged. The production IP resolver also passes the caller IP unchanged,
+but this server rejects production mode because its bridge is testnet-only.
 
 ## Order states and the worker
 
@@ -207,3 +211,23 @@ The server writes one JSON line per event to stdout: `{ ts, level, event, orderI
   in-app browser, and closes the widget when the order address is not the wallet address.
 - The server does not log signatures, authorizations or request bodies. It logs Transak error details only on the
   server.
+
+## Relay recovery and settlement
+
+Run one backend worker per database and use a relayer key dedicated to this backend. The worker waits for
+Transak `COMPLETED` before it relays an order. It updates the bridge amount from settlement and requests a new
+signature if the signed amount changed. A provisional quote does not trigger a transfer from an existing balance.
+
+The worker prepares and signs each relay locally. It then stores the signed bytes, hash, sender and nonce in SQLite
+and changes the order to `relay_sent` before broadcast. This state includes a stored transaction that awaits its
+first successful broadcast. A new checkout cannot cancel it. Nonces reserved in SQLite are not reused if the RPC
+has not received those transactions yet.
+
+After a restart or a lost RPC response, the worker checks the stored hash for a receipt. If there is no receipt,
+it broadcasts the same signed bytes again. It does not sign a replacement or create a second transfer. Pending
+transactions retain their original fees; automatic fee replacement is not included. The signed bytes stay private
+to the backend and are removed when the receipt is processed. Existing databases receive the new columns at startup;
+old `relay_sent` rows that have only a hash continue to use receipt polling.
+
+Transak refresh, session and order requests have a 15-second timeout, including response-body reads. The local
+public-IP lookup also has a 15-second timeout. A failed token refresh does not prevent the next request from retrying.

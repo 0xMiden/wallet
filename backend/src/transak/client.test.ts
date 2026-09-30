@@ -201,3 +201,72 @@ describe('getOrderByPartnerId', () => {
     assert.equal(calls.filter(call => call.url.endsWith('/refresh-token')).length, 2);
   });
 });
+
+describe('request deadlines', () => {
+  for (const stalledPath of ['/refresh-token', '/auth/session']) {
+    it(`aborts ${stalledPath} and permits the next request`, async () => {
+      const working = stubFetch({ tokenExpiresAt: 10_000_000 });
+      let stall = true;
+      const fetch: FetchLike = (url, init) => {
+        if (!stall || !url.endsWith(stalledPath)) return working.fetch(url, init);
+        const signal = init.signal;
+        assert.ok(signal);
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('request timed out')), { once: true });
+        });
+      };
+      const client = createTransakClient({
+        apiKey: 'KEY',
+        apiSecret: 'SECRET',
+        env: 'staging',
+        fetch,
+        now: () => 0,
+        timeoutMs: 10
+      });
+      // AbortSignal timers do not keep the test process alive.
+      const keepAlive = setInterval(() => {}, 1000);
+      try {
+        await Promise.all([
+          assert.rejects(client.createWidgetSession(params, USER_IP), TransakError),
+          assert.rejects(client.createWidgetSession(params, USER_IP), TransakError)
+        ]);
+        stall = false;
+        assert.ok(await client.createWidgetSession(params, USER_IP));
+      } finally {
+        clearInterval(keepAlive);
+      }
+    });
+  }
+});
+
+it('aborts a stalled response body and clears the shared refresh promise', async () => {
+  const working = stubFetch({ tokenExpiresAt: 10_000_000 });
+  let stall = true;
+  const fetch: FetchLike = (url, init) => {
+    if (!stall) return working.fetch(url, init);
+    const signal = init.signal;
+    assert.ok(signal);
+    const stream = new ReadableStream({
+      start(controller) {
+        signal.addEventListener('abort', () => controller.error(new Error('body timed out')), { once: true });
+      }
+    });
+    return Promise.resolve(new Response(stream));
+  };
+  const client = createTransakClient({
+    apiKey: 'KEY',
+    apiSecret: 'SECRET',
+    env: 'staging',
+    fetch,
+    now: () => 0,
+    timeoutMs: 10
+  });
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(client.createWidgetSession(params, USER_IP), TransakError);
+    stall = false;
+    assert.ok(await client.createWidgetSession(params, USER_IP));
+  } finally {
+    clearInterval(keepAlive);
+  }
+});

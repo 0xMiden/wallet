@@ -9,6 +9,8 @@
 
 ### Changes
 
+- [FIX][backend] Store relays before broadcast for cancellation and restart safety, reconcile Transak settlement amounts, add trusted proxy configuration and request timeouts, and block production purchases while the bridge uses testnet.
+
 - [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007 using the connected Miden account with no stand-in recipient override, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.

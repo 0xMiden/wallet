@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-
 import type { Address, Hex } from 'viem';
 import { z } from 'zod';
 
@@ -30,6 +29,12 @@ export interface Order {
   /** The signed EIP-7702 authorization as JSON. */
   authorization: string | null;
   relayTxHash: Hex | null;
+  /** Signed relay bytes kept until a receipt is stored. Never send these to the frontend. */
+  relayRawTransaction: Hex | null;
+  relayNonce: number | null;
+  relaySender: Address | null;
+  /** Last completed amount from Transak, before any balance adjustment. */
+  settledTokenAmount: string | null;
   relayAttempts: number;
   state: OrderState;
   error: string | null;
@@ -51,6 +56,10 @@ export interface OrderPatch {
   signature?: Hex | null;
   authorization?: string | null;
   relayTxHash?: Hex | null;
+  relayRawTransaction?: Hex | null;
+  relayNonce?: number | null;
+  relaySender?: Address | null;
+  settledTokenAmount?: string | null;
   relayAttempts?: number;
   error?: string | null;
 }
@@ -66,6 +75,10 @@ const PATCH_COLUMNS: { [K in keyof OrderPatch]-?: string } = {
   signature: 'signature',
   authorization: 'authorization',
   relayTxHash: 'relay_tx_hash',
+  relayRawTransaction: 'relay_raw_transaction',
+  relayNonce: 'relay_nonce',
+  relaySender: 'relay_sender',
+  settledTokenAmount: 'settled_token_amount',
   relayAttempts: 'relay_attempts',
   error: 'error'
 };
@@ -126,6 +139,10 @@ const rowSchema = z
     signature: hexSchema.nullable(),
     authorization: z.string().nullable(),
     relay_tx_hash: hexSchema.nullable(),
+    relay_raw_transaction: hexSchema.nullable(),
+    relay_nonce: integer.nullable(),
+    relay_sender: addressSchema.nullable(),
+    settled_token_amount: z.string().nullable(),
     relay_attempts: integer,
     state: z.enum(ORDER_STATES),
     error: z.string().nullable(),
@@ -151,6 +168,10 @@ const rowSchema = z
       signature: row.signature,
       authorization: row.authorization,
       relayTxHash: row.relay_tx_hash,
+      relayRawTransaction: row.relay_raw_transaction,
+      relayNonce: row.relay_nonce,
+      relaySender: row.relay_sender,
+      settledTokenAmount: row.settled_token_amount,
       relayAttempts: row.relay_attempts,
       state: row.state,
       error: row.error,
@@ -168,6 +189,22 @@ export function openDatabase(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  // Existing databases keep their orders. Each new column starts with NULL.
+  const columns = z.array(z.object({ name: z.string() })).parse(db.prepare('PRAGMA table_info(orders)').all());
+  const additions = [
+    'relay_raw_transaction TEXT',
+    'relay_nonce INTEGER',
+    'relay_sender TEXT',
+    'settled_token_amount TEXT'
+  ];
+  for (const column of additions) {
+    const name = column.split(' ')[0];
+    if (!columns.some(entry => entry.name === name)) {
+      db.exec(`ALTER TABLE orders ADD COLUMN ${column}`);
+    }
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS orders_relay_nonce
+    ON orders (relay_sender, relay_nonce) WHERE state = 'relay_sent';`);
   return db;
 }
 
@@ -263,6 +300,15 @@ export class OrderStore {
     return created;
   }
 
+  /** Reserve nonces that the RPC may not have received yet. */
+  nextRelayNonce(sender: Address): number {
+    const row = this.db
+      .prepare("SELECT MAX(relay_nonce) AS nonce FROM orders WHERE state = 'relay_sent' AND relay_sender = ?")
+      .get(sender);
+    const { nonce } = z.object({ nonce: integer.nullable() }).parse(row);
+    return nonce === null ? 0 : nonce + 1;
+  }
+
   /** Change fields but not the state. Return false when the order is not in `state` any more. */
   update(id: string, state: OrderState, patch: OrderPatch): boolean {
     return this.write(id, state, null, patch);
@@ -272,8 +318,15 @@ export class OrderStore {
    * Move the order from `from` to `to` and apply `patch`. The update has a guard on `from`,
    * so a second writer that saw an older state changes nothing. Return false in that case.
    */
-  transition(id: string, from: OrderState, to: OrderState, patch: OrderPatch, reason: string): boolean {
-    const changed = this.write(id, from, to, patch);
+  transition(
+    id: string,
+    from: OrderState,
+    to: OrderState,
+    patch: OrderPatch,
+    reason: string,
+    expectedTokenAmount?: string
+  ): boolean {
+    const changed = this.write(id, from, to, patch, expectedTokenAmount);
     if (changed) {
       logEvent(to === 'failed' ? 'warn' : 'info', 'order_transition', { orderId: id, from, to, reason });
     } else {
@@ -282,7 +335,13 @@ export class OrderStore {
     return changed;
   }
 
-  private write(id: string, from: OrderState, to: OrderState | null, patch: OrderPatch): boolean {
+  private write(
+    id: string,
+    from: OrderState,
+    to: OrderState | null,
+    patch: OrderPatch,
+    expectedTokenAmount?: string
+  ): boolean {
     const at = this.now();
     const sets: string[] = ['updated_at = ?'];
     const values: SQLInputValue[] = [at];
@@ -301,9 +360,15 @@ export class OrderStore {
       sets.push(`${PATCH_COLUMNS[key]} = ?`);
       values.push(value);
     }
+    values.push(id, from);
+    let guard = '';
+    if (expectedTokenAmount !== undefined) {
+      guard = ' AND token_amount = ?';
+      values.push(expectedTokenAmount);
+    }
     const result = this.db
-      .prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ? AND state = ?`)
-      .run(...values, id, from);
+      .prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ? AND state = ?${guard}`)
+      .run(...values);
     return Number(result.changes) === 1;
   }
 }

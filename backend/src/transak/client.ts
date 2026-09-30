@@ -67,8 +67,8 @@ export interface TransakClient {
 /** The path of the Transak Get Orders API, on the partner API host. */
 export const TRANSAK_ORDERS_PATH = '/partners/api/v2/orders';
 
-/** A Get Orders call that takes longer than this number of milliseconds fails. */
-const ORDERS_TIMEOUT_MS = 15_000;
+/** A Transak call that takes longer than this number of milliseconds fails. */
+const TRANSAK_TIMEOUT_MS = 15_000;
 
 /** A Transak call failed. `detail` is for the server log only. */
 export class TransakError extends Error {
@@ -138,6 +138,7 @@ export interface TransakClientOptions {
   fetch: FetchLike;
   /** Returns the time in milliseconds. */
   now: () => number;
+  timeoutMs?: number;
 }
 
 interface CachedToken {
@@ -147,7 +148,12 @@ interface CachedToken {
 }
 
 async function readJson(response: Response, what: string): Promise<unknown> {
-  const text = await response.text();
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new TransakError(`${what}: response read failed`);
+  }
   if (!response.ok) {
     throw new TransakError(`${what}: HTTP ${response.status}: ${text.slice(0, 500)}`);
   }
@@ -167,7 +173,14 @@ function parseWith<T>(what: string, schema: z.ZodType<T>, body: unknown): T {
   return result.data;
 }
 
-export function createTransakClient({ apiKey, apiSecret, env, fetch, now }: TransakClientOptions): TransakClient {
+export function createTransakClient({
+  apiKey,
+  apiSecret,
+  env,
+  fetch,
+  now,
+  timeoutMs = TRANSAK_TIMEOUT_MS
+}: TransakClientOptions): TransakClient {
   const hosts = transakHosts(env);
   let cached: CachedToken | null = null;
   let inFlight: Promise<string> | null = null;
@@ -177,6 +190,7 @@ export function createTransakClient({ apiKey, apiSecret, env, fetch, now }: Tran
     try {
       response = await fetch(`${hosts.api}/partners/api/v2/refresh-token`, {
         method: 'POST',
+        signal: AbortSignal.timeout(timeoutMs),
         headers: {
           'api-secret': apiSecret,
           'x-api-key': apiKey,
@@ -214,6 +228,7 @@ export function createTransakClient({ apiKey, apiSecret, env, fetch, now }: Tran
     try {
       response = await fetch(`${hosts.gateway}/api/v2/auth/session`, {
         method: 'POST',
+        signal: AbortSignal.timeout(timeoutMs),
         // Transak needs `x-api-key` on every call, and the IP of the end user on this call.
         headers: {
           'access-token': accessToken,
@@ -244,7 +259,7 @@ export function createTransakClient({ apiKey, apiSecret, env, fetch, now }: Tran
       response = await fetch(`${hosts.api}${TRANSAK_ORDERS_PATH}?${query.toString()}`, {
         method: 'GET',
         headers: { 'access-token': accessToken, 'x-api-key': apiKey, accept: 'application/json' },
-        signal: AbortSignal.timeout(ORDERS_TIMEOUT_MS)
+        signal: AbortSignal.timeout(timeoutMs)
       });
     } catch (error) {
       throw new TransakError(`orders: network error: ${String(error)}`);

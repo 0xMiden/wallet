@@ -92,7 +92,8 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
         authorization: body.authorization === undefined ? null : JSON.stringify(body.authorization),
         error: null
       },
-      'wallet signed'
+      'wallet signed',
+      order.tokenAmount
     );
     if (!changed) {
       throw new HttpError(409, 'Order does not wait for a signature');

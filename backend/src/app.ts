@@ -13,7 +13,12 @@ import type { UserIpResolver } from './transak/user-ip.js';
 export interface AppDeps {
   config: Pick<
     Config,
-    'referrerDomain' | 'allowedOrigins' | 'maxFiatAmountUsd' | 'onrampTokenAddress' | 'onrampTokenDecimals'
+    | 'trustedProxies'
+    | 'referrerDomain'
+    | 'allowedOrigins'
+    | 'maxFiatAmountUsd'
+    | 'onrampTokenAddress'
+    | 'onrampTokenDecimals'
   >;
   transak: TransakClient;
   /** Maps the caller IP to the IP that Transak pins the session to. */
@@ -29,6 +34,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps): Express {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', deps.config.trustedProxies);
   app.use(cors(deps.config.allowedOrigins));
   app.use(express.json({ limit: '8kb' }));
 

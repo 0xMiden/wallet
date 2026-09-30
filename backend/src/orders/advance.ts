@@ -128,14 +128,11 @@ async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
 
 async function advanceAwaitingSignature(order: Order, deps: OrderDeps): Promise<void> {
   const { order: synced, status } = await syncTransak(order, deps);
+  if (synced.state !== 'awaiting_signature') {
+    return;
+  }
   if (transakPhase(status) === 'failed') {
-    deps.store.transition(
-      synced.id,
-      'awaiting_signature',
-      'failed',
-      { error: `Transak order ${status}` },
-      'transak'
-    );
+    deps.store.transition(synced.id, 'awaiting_signature', 'failed', { error: `Transak order ${status}` }, 'transak');
     return;
   }
   if (deps.now() - synced.stateChangedAt > SIGNATURE_TIMEOUT_MS) {
@@ -168,22 +165,29 @@ function staleReason(
 
 async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   const { order: synced, status } = await syncTransak(order, deps);
+  if (synced.state !== 'signed') {
+    return;
+  }
   if (synced.tokenAmount === null) {
     deps.store.transition(synced.id, 'signed', 'failed', { error: 'Order has no token amount' }, 'bad row');
     return;
   }
+  if (transakPhase(status) === 'failed') {
+    deps.store.transition(
+      synced.id,
+      'signed',
+      'failed',
+      { ...CLEAR_SIGNATURE, error: `Transak order ${status}` },
+      'transak'
+    );
+    return;
+  }
+  // A provisional quote must not spend an existing wallet balance.
+  if (status !== 'COMPLETED' || synced.settledTokenAmount === null) {
+    return;
+  }
   const balance = await deps.chain.readBalance(synced.evmAddress, synced.tokenAddress);
   if (balance < BigInt(synced.tokenAmount)) {
-    if (transakPhase(status) === 'failed') {
-      deps.store.transition(
-        synced.id,
-        'signed',
-        'failed',
-        { ...CLEAR_SIGNATURE, error: `Transak order ${status}` },
-        'transak'
-      );
-      return;
-    }
     await handleUnderdelivery(synced, deps, balance);
     return;
   }
@@ -216,12 +220,35 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   // An address that is already delegated to Calibur needs no authorization.
   const authorization =
     fresh.needsAuthorization && storedAuthorization !== null ? toSignedAuthorization(storedAuthorization) : null;
-  const sent = await deps.chain.sendRelay({
-    to: synced.evmAddress,
-    data: encodeBuyExecution(input, synced.signature),
-    authorization
-  });
+  const sent = await deps.chain.prepareRelay(
+    {
+      to: synced.evmAddress,
+      data: encodeBuyExecution(input, synced.signature),
+      authorization
+    },
+    deps.store.nextRelayNonce(deps.chain.executor)
+  );
   const attempts = synced.relayAttempts + 1;
+  // Store the signed bytes before broadcast. A cancelled order cannot reserve this relay.
+  const reserved = deps.store.transition(
+    synced.id,
+    'signed',
+    'relay_sent',
+    {
+      relayTxHash: sent.hash,
+      relayRawTransaction: sent.serializedTransaction,
+      relayNonce: sent.nonce,
+      relaySender: deps.chain.executor,
+      relayAttempts: attempts,
+      error: null
+    },
+    'relay reserved',
+    synced.tokenAmount
+  );
+  if (!reserved) {
+    return;
+  }
+  await deps.chain.broadcastRelay(sent.serializedTransaction);
   logEvent('info', 'relay_sent', {
     orderId: synced.id,
     hash: sent.hash,
@@ -229,13 +256,6 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
     type4: sent.type4,
     attempt: attempts
   });
-  deps.store.transition(
-    synced.id,
-    'signed',
-    'relay_sent',
-    { relayTxHash: sent.hash, relayAttempts: attempts, error: null },
-    'relay sent'
-  );
 }
 
 async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
@@ -259,7 +279,7 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
         order.id,
         'relay_sent',
         'deposited',
-        { signature: null, authorization: null },
+        { signature: null, authorization: null, relayRawTransaction: null },
         'relay succeeded'
       );
       return;
@@ -269,7 +289,7 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
           order.id,
           'relay_sent',
           'failed',
-          { ...CLEAR_SIGNATURE, error: `Relay reverted ${order.relayAttempts} times` },
+          { ...CLEAR_SIGNATURE, relayRawTransaction: null, error: `Relay reverted ${order.relayAttempts} times` },
           'relay reverted'
         );
         return;
@@ -279,7 +299,14 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
         order.id,
         'relay_sent',
         'awaiting_signature',
-        { ...CLEAR_SIGNATURE, relayTxHash: null, error: 'Relay reverted' },
+        {
+          ...CLEAR_SIGNATURE,
+          relayTxHash: null,
+          relayRawTransaction: null,
+          relayNonce: null,
+          relaySender: null,
+          error: 'Relay reverted'
+        },
         'relay reverted'
       );
       return;
@@ -287,6 +314,10 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
       if (deps.now() - order.stateChangedAt > RECEIPT_WARNING_MS && !deps.receiptWarnings.has(order.relayTxHash)) {
         deps.receiptWarnings.add(order.relayTxHash);
         logEvent('warn', 'relay_receipt_missing', { orderId: order.id, hash: order.relayTxHash });
+      }
+      // Repeat the same transaction after a crash or a lost RPC response. Its hash cannot change.
+      if (order.relayRawTransaction !== null) {
+        await deps.chain.broadcastRelay(order.relayRawTransaction);
       }
       return;
   }

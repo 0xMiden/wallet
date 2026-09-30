@@ -1,5 +1,4 @@
 import { isIP } from 'node:net';
-
 import { z } from 'zod';
 
 import type { FetchLike } from './client.js';
@@ -69,7 +68,11 @@ export function createUserIpResolver(fetch: FetchLike): UserIpResolver {
   let publicIp: Promise<string> | null = null;
 
   async function lookUpPublicIp(): Promise<string> {
-    const response = await fetch(PUBLIC_IP_LOOKUP_URL, { method: 'GET', headers: { accept: 'application/json' } });
+    const response = await fetch(PUBLIC_IP_LOOKUP_URL, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(15_000)
+    });
     if (!response.ok) {
       throw new Error(`Public IP lookup failed: HTTP ${response.status}`);
     }

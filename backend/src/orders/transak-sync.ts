@@ -116,9 +116,28 @@ export async function syncTransak(order: Order, deps: OrderDeps): Promise<Transa
   if (transak.status === 'COMPLETED' && order.transakCompletedAt === null) {
     patch.transakCompletedAt = deps.now();
   }
+  if (transak.status === 'COMPLETED' && transak.cryptoAmount !== null && transak.cryptoAmount > 0) {
+    const amount = toBaseUnits(transak.cryptoAmount, order.tokenDecimals).toString();
+    if (amount !== '0' && amount !== order.settledTokenAmount) {
+      patch.settledTokenAmount = amount;
+      patch.tokenAmount = amount;
+      if (order.tokenAmount !== amount && order.state === 'signed') {
+        deps.store.transition(
+          order.id,
+          'signed',
+          'awaiting_signature',
+          { ...patch, batchNonce: null, salt: null, deadline: null, signature: null, authorization: null },
+          'settled amount changed'
+        );
+        const fresh = deps.store.get(order.id) ?? order;
+        return { order: fresh, called: true, transak, status: transak.status };
+      }
+    }
+  }
   if (Object.keys(patch).length === 0) {
     return { order, called: true, transak, status: transak.status };
   }
   deps.store.update(order.id, order.state, patch);
-  return { order: { ...order, ...patch }, called: true, transak, status: transak.status };
+  const fresh = deps.store.get(order.id) ?? order;
+  return { order: fresh, called: true, transak, status: transak.status };
 }

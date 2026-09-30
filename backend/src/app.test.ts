@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import type { Server } from 'node:http';
-
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { z } from 'zod';
 
@@ -114,6 +113,7 @@ before(async () => {
     config: {
       referrerDomain: 'wallet.miden.xyz',
       allowedOrigins: '*',
+      trustedProxies: [],
       maxFiatAmountUsd: 1000,
       onrampTokenAddress: TOKEN,
       onrampTokenDecimals: 18
@@ -124,13 +124,14 @@ before(async () => {
     orders: {
       get: id => orders.get(id),
       createCheckout: input => orders.createCheckout(input),
-      transition: (id, from, to, patch, reason) => orders.transition(id, from, to, patch, reason)
+      transition: (id, from, to, patch, reason, amount) => orders.transition(id, from, to, patch, reason, amount)
     },
     chain: {
       executor: EXECUTOR,
       readAccount: () => chain.readAccount(),
       readBalance: () => chain.readBalance(),
-      sendRelay: transaction => chain.sendRelay(transaction),
+      prepareRelay: (transaction, nonce) => chain.prepareRelay(transaction, nonce),
+      broadcastRelay: raw => chain.broadcastRelay(raw),
       getReceiptStatus: hash => chain.getReceiptStatus(hash)
     },
     now: () => now,
@@ -447,6 +448,20 @@ describe('GET /orders/:id', () => {
 });
 
 describe('POST /orders/:id/signature', () => {
+  it('rejects an amount changed while the signature request reads the chain', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const id = await awaitingOrder(account);
+    const body = await signedBody(account, account, id);
+    const readAccount = chain.readAccount.bind(chain);
+    chain.readAccount = async () => {
+      orders.update(id, 'awaiting_signature', { tokenAmount: (12n * 10n ** 18n).toString() });
+      return readAccount();
+    };
+    await expectError(await post(`/orders/${id}/signature`, body), 409);
+    assert.equal(orders.get(id)?.state, 'awaiting_signature');
+    assert.equal(orders.get(id)?.signature, null);
+  });
+
   it('accepts a valid batch signature and authorization, then refuses a second one with 409', async () => {
     const account = privateKeyToAccount(generatePrivateKey());
     const id = await awaitingOrder(account);

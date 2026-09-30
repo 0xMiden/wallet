@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-
 import { decodeFunctionData, type Hex } from 'viem';
 import { z } from 'zod';
 
@@ -125,6 +124,7 @@ function awaiting(tokenAmount: bigint = 10n * ONE): string {
 
 function signed(tokenAmount: bigint = 10n * ONE): string {
   const id = awaiting(tokenAmount);
+  transak.set(id, 'COMPLETED', Number(tokenAmount) / Number(ONE));
   assert.ok(
     store.transition(
       id,
@@ -230,7 +230,9 @@ describe('checkout', () => {
     await step(id);
     await step(id);
     const amounts = logs
-      .map(line => z.object({ event: z.string(), cryptoAmount: z.number().nullable().optional() }).parse(JSON.parse(line)))
+      .map(line =>
+        z.object({ event: z.string(), cryptoAmount: z.number().nullable().optional() }).parse(JSON.parse(line))
+      )
       .filter(entry => entry.event === 'transak_crypto_amount')
       .map(entry => entry.cryptoAmount);
     assert.deepEqual(amounts, [9.87, 9.85]);
@@ -464,9 +466,9 @@ describe('slow Transak poll', () => {
     assertState(await step(id), 'expired');
   });
 
-  it('sends the relay in signed when the Transak call is skipped', async () => {
+  it('sends the relay in signed when a completed Transak call is skipped', async () => {
     const id = signed();
-    transak.set(id, 'PROCESSING', 10);
+    transak.set(id, 'COMPLETED', 10);
     assertState(await step(id), 'signed');
     chain.account.balance = 10n * ONE;
     assertState(await step(id), 'relay_sent');
@@ -625,5 +627,164 @@ describe('worker', () => {
     assertState(current(moving), 'relay_sent');
     // The second tick started while the first ran, so it did nothing: one send only.
     assert.equal(chain.sent.length, 1);
+  });
+});
+
+describe('relay reservation and recovery', () => {
+  it('does not broadcast an order cancelled during a Transak call', async () => {
+    const id = signed();
+    chain.account.balance = 10n * ONE;
+    let release: () => void = () => {};
+    transak.gate = new Promise(resolve => {
+      release = resolve;
+    });
+    const advancing = step(id);
+    checkout();
+    release();
+    await advancing;
+    assertState(current(id), 'cancelled');
+    assert.equal(chain.broadcasts.length, 0);
+  });
+
+  it('does not broadcast an order cancelled while the relay is prepared', async () => {
+    const id = signed();
+    chain.account.balance = 10n * ONE;
+    const prepareRelay = chain.prepareRelay.bind(chain);
+    chain.prepareRelay = async (transaction, nonce) => {
+      const prepared = await prepareRelay(transaction, nonce);
+      checkout();
+      return prepared;
+    };
+    await step(id);
+    assertState(current(id), 'cancelled');
+    assert.equal(chain.broadcasts.length, 0);
+  });
+
+  it('stores the bytes before broadcast and retries them after a worker restart', async () => {
+    const id = signed();
+    chain.account.balance = 10n * ONE;
+    chain.failBroadcast = true;
+    await assert.rejects(step(id), /RPC response lost/);
+    const reserved = current(id);
+    assertState(reserved, 'relay_sent');
+    assert.ok(reserved.relayRawTransaction);
+    assert.ok(reserved.relayTxHash);
+    assert.throws(() => checkout(), OrderConflictError);
+    assert.equal(store.nextRelayNonce(chain.executor), (reserved.relayNonce ?? 0) + 1);
+    chain.failBroadcast = false;
+    const worker = createWorker(workerOptions());
+    try {
+      await worker.tick();
+    } finally {
+      worker.stop();
+    }
+    assert.deepEqual(chain.broadcasts, [reserved.relayRawTransaction, reserved.relayRawTransaction]);
+    assert.equal(chain.prepared.size, 1);
+    assert.equal(current(id).relayAttempts, 1);
+    chain.receipts.set(reserved.relayTxHash, 'success');
+    assertState(await step(id), 'deposited');
+    assert.equal(current(id).relayRawTransaction, null);
+  });
+
+  it('finds a mined relay after the RPC response was lost without checking the balance', async () => {
+    const id = signed();
+    chain.account.balance = 10n * ONE;
+    chain.failBroadcast = true;
+    await assert.rejects(step(id));
+    const hash = current(id).relayTxHash;
+    assert.ok(hash);
+    chain.receipts.set(hash, 'success');
+    chain.account.balance = 0n;
+    assertState(await step(id), 'deposited');
+    assert.equal(chain.broadcasts.length, 1);
+  });
+});
+
+describe('settled amounts', () => {
+  [9, 12].forEach(finalAmount => {
+    it(`requires a new signature when 10 tokens settle at ${finalAmount}`, async () => {
+      const id = signed();
+      transak.set(id, 'COMPLETED', finalAmount);
+      chain.account.balance = 100n * ONE;
+      const order = await step(id);
+      assertState(order, 'awaiting_signature');
+      assert.equal(order.tokenAmount, (BigInt(finalAmount) * ONE).toString());
+      assert.equal(order.signature, null);
+      assert.equal(chain.broadcasts.length, 0);
+    });
+  });
+
+  it('updates an unsigned amount when settlement changes', async () => {
+    const id = awaiting();
+    transak.set(id, 'COMPLETED', 12);
+    assert.equal((await step(id)).tokenAmount, (12n * ONE).toString());
+    transak.set(id, 'COMPLETED', 11);
+    assert.equal((await step(id)).tokenAmount, (11n * ONE).toString());
+  });
+
+  it('does not relay a provisional quote from an existing balance', async () => {
+    const id = signed();
+    transak.set(id, 'PROCESSING', 10);
+    chain.account.balance = 100n * ONE;
+    assertState(await step(id), 'signed');
+    assert.equal(chain.broadcasts.length, 0);
+  });
+
+  it('rejects a signature for an amount changed during verification', async () => {
+    const id = awaiting();
+    transak.set(id, 'COMPLETED', 12);
+    await step(id);
+    assert.equal(
+      store.transition(
+        id,
+        'awaiting_signature',
+        'signed',
+        {
+          signature: SIGNATURE
+        },
+        'wallet signed',
+        (10n * ONE).toString()
+      ),
+      false
+    );
+    assertState(current(id), 'awaiting_signature');
+  });
+
+  it('does not reset the reduced amount on each completed poll', async () => {
+    const id = awaiting();
+    transak.set(id, 'COMPLETED', 10);
+    chain.account.balance = 9n * ONE;
+    await step(id);
+    now += UNDERDELIVERY_GRACE_MS;
+    await step(id);
+    assert.equal((await step(id)).tokenAmount, (9n * ONE).toString());
+  });
+});
+
+describe('reserved relay nonces', () => {
+  it('does not reuse the nonce of a relay that the RPC has not received', async () => {
+    const id = signed();
+    chain.account.balance = 10n * ONE;
+    chain.failBroadcast = true;
+    await assert.rejects(step(id));
+    const first = current(id);
+    assert.ok(first.relayNonce !== null);
+    const other = checkout('0x3333333333333333333333333333333333333333');
+    assert.throws(
+      () =>
+        store.transition(
+          other,
+          'checkout',
+          'relay_sent',
+          {
+            relayNonce: first.relayNonce,
+            relaySender: chain.executor
+          },
+          'test'
+        ),
+      /UNIQUE constraint/
+    );
+    assertState(current(other), 'checkout');
+    assert.equal(store.nextRelayNonce(chain.executor), first.relayNonce + 1);
   });
 });

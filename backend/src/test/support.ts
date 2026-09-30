@@ -1,7 +1,7 @@
-import { getAddress, type Address, type Hex } from 'viem';
+import { getAddress, keccak256, type Address, type Hex } from 'viem';
 
 import { CALIBUR_SEPOLIA_ADDRESS } from '../chain-testnet/calibur.js';
-import type { AccountState, Chain, ReceiptStatus, RelayTransaction, SentRelay } from '../chain-testnet/sepolia.js';
+import type { AccountState, Chain, PreparedRelay, ReceiptStatus, RelayTransaction } from '../chain-testnet/sepolia.js';
 import { setLogWriter } from '../log.js';
 import { openDatabase, OrderStore } from '../orders/store.js';
 import type { TransakOrder } from '../transak/client.js';
@@ -38,6 +38,9 @@ export class FakeChain implements Chain {
   sent: RelayTransaction[] = [];
   receipts = new Map<Hex, ReceiptStatus>();
   failSend = false;
+  failBroadcast = false;
+  broadcasts: Hex[] = [];
+  prepared = new Map<Hex, RelayTransaction>();
   private count = 0;
 
   async readAccount(): Promise<AccountState> {
@@ -48,14 +51,31 @@ export class FakeChain implements Chain {
     return this.account.balance;
   }
 
-  async sendRelay(transaction: RelayTransaction): Promise<SentRelay> {
+  async prepareRelay(transaction: RelayTransaction, minimumNonce: number): Promise<PreparedRelay> {
     if (this.failSend) {
       throw new Error('estimateGas reverted');
     }
-    this.sent.push(transaction);
-    this.count += 1;
-    const hash: Hex = `0x${this.count.toString(16).padStart(64, '0')}`;
-    return { hash, nonce: this.count, type4: transaction.authorization !== null };
+    this.count = Math.max(this.count + 1, minimumNonce);
+    const serializedTransaction: Hex = `0x${this.count.toString(16).padStart(64, '0')}`;
+    this.prepared.set(serializedTransaction, transaction);
+    return {
+      serializedTransaction,
+      hash: keccak256(serializedTransaction),
+      nonce: this.count,
+      type4: transaction.authorization !== null
+    };
+  }
+
+  async broadcastRelay(serializedTransaction: Hex): Promise<Hex> {
+    this.broadcasts.push(serializedTransaction);
+    if (this.failBroadcast) {
+      throw new Error('RPC response lost');
+    }
+    const transaction = this.prepared.get(serializedTransaction);
+    if (transaction !== undefined && !this.sent.includes(transaction)) {
+      this.sent.push(transaction);
+    }
+    return keccak256(serializedTransaction);
   }
 
   async getReceiptStatus(hash: Hex): Promise<ReceiptStatus> {
@@ -93,4 +113,3 @@ export class FakeTransakOrders {
     return this.orders.get(partnerOrderId) ?? null;
   }
 }
-

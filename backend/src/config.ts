@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { getAddress, isAddress, type Address, type Hex } from 'viem';
 import { z } from 'zod';
 
@@ -17,6 +18,7 @@ export interface Config {
   referrerDomain: string;
   port: number;
   allowedOrigins: AllowedOrigins;
+  trustedProxies: string[];
   maxFiatAmountUsd: number;
   /** The key of the account that pays gas for the relayed bridge batch. */
   relayerPrivateKey: Hex;
@@ -51,6 +53,7 @@ const envSchema = z.object({
   TRANSAK_REFERRER_DOMAIN: z.string().trim().min(1).default('com.miden.bread'),
   PORT: z.coerce.number().int().min(0).max(65535).default(8787),
   ALLOWED_ORIGINS: z.string().trim().default(''),
+  TRUSTED_PROXIES: z.string().trim().default(''),
   MAX_FIAT_AMOUNT_USD: z.coerce.number().positive().default(10000),
   RELAYER_PRIVATE_KEY: privateKeySchema,
   SEPOLIA_RPC_URL: z.url().default('https://ethereum-sepolia-rpc.publicnode.com'),
@@ -72,11 +75,35 @@ function parseAllowedOrigins(raw: string): AllowedOrigins {
   return origins.length > 0 ? origins : '*';
 }
 
+/** Accept explicit proxy IP addresses or CIDR ranges. Never trust every caller. */
+function parseTrustedProxies(raw: string): string[] {
+  const entries = raw
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  for (const entry of entries) {
+    const [address = '', prefix, extra] = entry.split('/');
+    const family = isIP(address);
+    const maximum = family === 4 ? 32 : 128;
+    if (
+      family === 0 ||
+      extra !== undefined ||
+      (prefix !== undefined && (!/^\d+$/.test(prefix) || Number(prefix) <= 0 || Number(prefix) > maximum))
+    ) {
+      throw new Error('TRUSTED_PROXIES must contain proxy IP addresses or CIDR ranges with a nonzero prefix');
+    }
+  }
+  return entries;
+}
+
 /** Parse the environment. Throw at start when a value is missing or not valid. */
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   // An empty value is the same as an unset value, so the defaults apply.
   const present = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined && value !== ''));
   const parsed = envSchema.parse(present);
+  if (parsed.TRANSAK_ENV === 'production') {
+    throw new Error('TRANSAK_ENV=production is not supported: the bridge uses Sepolia testnet');
+  }
   return {
     transakApiKey: parsed.TRANSAK_API_KEY,
     transakApiSecret: parsed.TRANSAK_API_SECRET,
@@ -84,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     referrerDomain: parsed.TRANSAK_REFERRER_DOMAIN,
     port: parsed.PORT,
     allowedOrigins: parseAllowedOrigins(parsed.ALLOWED_ORIGINS),
+    trustedProxies: parseTrustedProxies(parsed.TRUSTED_PROXIES),
     maxFiatAmountUsd: parsed.MAX_FIAT_AMOUNT_USD,
     relayerPrivateKey: parsed.RELAYER_PRIVATE_KEY,
     sepoliaRpcUrl: parsed.SEPOLIA_RPC_URL,
