@@ -139,9 +139,18 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // The wipe and registerWallet can each fail here; a failure usually
-        // comes after the wipe, so it surfaces the reason and stays put so
-        // Retry is reachable (#630).
+        // The wipe and registerWallet can each fail here, and what a failure
+        // leaves depends on the platform. On DESKTOP the platform key-value
+        // store is localStorage (`DesktopStorage`), so clearClientStorage()
+        // above removes the stored wallet, and a failure after it, the usual
+        // case, leaves none. On the extension and on mobile the wallet lives in
+        // browser.storage.local / Capacitor Preferences, which clearClientStorage()
+        // cannot reach, so it goes with `Vault.spawn`'s clearStorage(), and a
+        // failure can come before or after that clear and leave it or not.
+        // Swallowing the error into console.error (and then navigating away
+        // regardless) showed an empty wallet with no explanation,
+        // indistinguishable from data loss, so on every platform the page shows
+        // the error and stays put so Retry is reachable (#630).
         console.error(e);
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
