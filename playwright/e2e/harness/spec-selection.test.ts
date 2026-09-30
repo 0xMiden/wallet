@@ -684,27 +684,14 @@ describe('a stacked-named gate skips instead of computing a pass on a stacked pu
     expect(gateSrc).not.toMatch(/BASE_REF/);
   });
 
-  it.each<[string, string, string, number]>([
-    ['pull_request', 'feature', 'success', 0],
-    ['pull_request', 'feature', 'skipped', 1],
-    ['pull_request', 'feature', 'failure', 1],
-    ['pull_request', 'feature', 'cancelled', 1],
-    ['pull_request', 'main', 'success', 0],
-    ['pull_request', 'main', 'skipped', 1],
-    ['pull_request', 'main', 'failure', 1],
-    ['pull_request', 'main', 'cancelled', 1],
-    ['pull_request', 'next', 'success', 0],
-    ['pull_request', 'next', 'skipped', 1],
-    ['pull_request', 'next', 'failure', 1],
-    ['pull_request', 'next', 'cancelled', 1],
-    ['push', '', 'success', 0],
-    ['push', '', 'skipped', 1],
-    ['push', '', 'failure', 1],
-    ['push', '', 'cancelled', 1]
-  ])('the Bridge gate script: event=%s base=%s result=%s -> exit %i', (eventName, base, result, expected) => {
+  it.each<[string, number]>([
+    ['success', 0],
+    ['skipped', 1],
+    ['failure', 1],
+    ['cancelled', 1]
+  ])('the Bridge gate script: result=%s -> exit %i', (result, expected) => {
     const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate:');
-    const status = gateExit(script, { EVENT_NAME: eventName, BASE_REF: base, RESULT: result });
-    expect(status).toBe(expected);
+    expect(gateExit(script, { RESULT: result })).toBe(expected);
   });
 });
 
@@ -713,8 +700,12 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
     ['success', 'false', 'skipped', 0],
     ['success', 'true', 'skipped', 1],
     ['success', 'true', 'success', 0],
-    ['failure', 'true', 'success', 1]
-  ])('select=%s run=%s e2e=%s -> exit %i', (selectResult, selected, e2eResult, expected) => {
+    ['failure', 'true', 'success', 1],
+    ['success', '', 'skipped', 1],
+    ['success', 'maybe', 'success', 1],
+    ['success', 'false', 'success', 1],
+    ['success', 'false', 'failure', 1]
+  ])('select=%s run=%p e2e=%s -> exit %i', (selectResult, selected, e2eResult, expected) => {
     const script = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', 'guardian-lifecycle-e2e-gate:');
     const status = gateExit(script, {
       'needs.select-guardian-e2e.result': selectResult,
@@ -732,14 +723,18 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     );
   });
 
-  it('the Guardian selector runs for a pull request into main or next and for push and dispatch', () => {
+  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker and no changed path, and runs on push and dispatch', () => {
     const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
+    // HEAD...HEAD is an empty diff, so a pull request with no marker has no path to select it.
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).stdout.trim();
+    expect(head).toMatch(/^[0-9a-f]{40,64}$/);
     const arms = [
-      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'main', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
-      { GITHUB_EVENT_NAME: 'pull_request', BASE_REF: 'next', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
-      { GITHUB_EVENT_NAME: 'push', BASE_REF: '', PR_BODY: '', expected: 'run=true' }
+      { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
+      { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: '', expected: 'run=false' },
+      { GITHUB_EVENT_NAME: 'push', PR_BODY: '', expected: 'run=true' },
+      { GITHUB_EVENT_NAME: 'workflow_dispatch', PR_BODY: '', expected: 'run=true' }
     ];
-    for (const { GITHUB_EVENT_NAME, BASE_REF, PR_BODY, expected } of arms) {
+    for (const { GITHUB_EVENT_NAME, PR_BODY, expected } of arms) {
       const dir = mkdtempSync(join(tmpdir(), 'guardian-select-'));
       const outputFile = join(dir, 'output');
       try {
@@ -748,10 +743,9 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
           env: {
             ...process.env,
             GITHUB_EVENT_NAME,
-            BASE_REF,
             PR_BODY,
-            BASE_SHA: '',
-            HEAD_SHA: '',
+            BASE_SHA: head,
+            HEAD_SHA: head,
             GITHUB_OUTPUT: outputFile
           }
         });
