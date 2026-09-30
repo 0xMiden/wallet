@@ -180,7 +180,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
           {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
-          <TokenInfo tokenId={tokenId} address={account.publicKey} />
+          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
 
           <section data-testid="token-detail-activity">
             <SectionHeader size="lg" tone="muted">

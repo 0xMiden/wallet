@@ -970,5 +970,59 @@ describe('TokenDetail', () => {
       expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
       warn.mockRestore();
     });
+
+    // The page stays mounted across an account switch; only TokenInfo's key keeps a save result on its own account.
+    const switchAccount = (view: ReturnType<typeof render>) => {
+      mockUseAccount.mockReturnValue({ publicKey: 'pk-456' });
+      view.rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    };
+
+    it("does not show one account's failed save on the next account's page", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockReadStorage.mockResolvedValue([]);
+        const view = renderPage();
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        fireEvent.click(toggle());
+        expect(await screen.findByTestId('token-detail-hidden-error')).toBeInTheDocument();
+
+        switchAccount(view);
+
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('lands a save still pending at an account switch on no page', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockReadStorage.mockResolvedValue([]);
+        const view = renderPage();
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        let failWrite!: (error: Error) => void;
+        mockWriteStorage.mockImplementationOnce(
+          () =>
+            new Promise<void>((_resolve, reject) => {
+              failWrite = reject;
+            })
+        );
+        fireEvent.click(toggle());
+        await waitFor(() => expect(mockWriteStorage).toHaveBeenCalledTimes(1));
+
+        switchAccount(view);
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        await act(async () => {
+          failWrite(new Error('Storage unavailable'));
+        });
+
+        expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+        expect(toggle()).toHaveTextContent('hideToken');
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 });
