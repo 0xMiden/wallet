@@ -866,6 +866,7 @@ describe('TokenDetail', () => {
       expect(glyph).toHaveAttribute('name', 'eye-off');
       expect(glyph).toHaveAttribute('aria-hidden', 'true');
       expect(screen.queryByTestId('token-detail-hidden-notice')).toBeNull();
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
     });
 
     it('hides the token on tap, stays on the page, and flips the row to Unhide with a note', async () => {
@@ -912,11 +913,32 @@ describe('TokenDetail', () => {
       expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
     });
 
+    it.each([
+      ['the native token', () => TOKEN_ID],
+      ['a page before the native token is known', () => null]
+    ])('shows no unreadable note for %s, which offers no row', async (_label, nativeId) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockNativeFaucetId = nativeId();
+        mockReadStorage.mockRejectedValue(new Error('Read unavailable'));
+        renderPage();
+
+        // The store marks the set unreadable right after this warning.
+        await waitFor(() => expect(warn).toHaveBeenCalled());
+        expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+        expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it('keeps the row disabled while the hidden set is being read', () => {
       renderPage();
 
       expect(toggle()).toBeDisabled();
       expect(toggle()).toHaveTextContent('hideToken');
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
     });
 
     it('keeps the row disabled and shows a note, not the alert, when the hidden set cannot be read', async () => {
@@ -939,6 +961,7 @@ describe('TokenDetail', () => {
 
       fireEvent.click(toggle());
       expect(await screen.findByTestId('token-detail-hidden-error')).toHaveTextContent('hiddenTokensError');
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
       expect(toggle()).toHaveTextContent('hideToken');
       expect(toggle()).toBeEnabled();
 
