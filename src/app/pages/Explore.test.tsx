@@ -5,6 +5,7 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -701,6 +702,33 @@ describe('Explore', () => {
       }
     });
 
+    it('keeps the section open with its error when an Unhide that emptied it fails after the empty state rendered', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const write = deferred<void>();
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        await renderExplore();
+        await openSection();
+        mockWriteStorage.mockImplementationOnce(() => write.promise);
+
+        await unhideSpam();
+        // The optimistic empty state has committed while the write is still held.
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+
+        await act(async () => {
+          write.reject(new Error('Storage unavailable'));
+        });
+
+        expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+        expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
+      } finally {
+        mockWriteStorage.mockReset();
+        warn.mockRestore();
+      }
+    });
+
     it('shows no error line for a hide that failed outside Home, only for its own last Unhide', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
@@ -830,16 +858,17 @@ describe('Explore', () => {
       ];
       await renderExplore();
       await openSection();
+      const junkUnhide = screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' });
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' }));
-      });
+      // A plain click runs in RTL's synchronous act, so the save has not landed yet: focus moves at click time.
+      fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Free Airdrop' }));
+      expect(rowsIn('hidden-asset-list')).toEqual(['t-spam', 't-junk']);
+      expect(document.activeElement).toBe(junkUnhide);
       await waitFor(() => expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']));
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' }));
+      expect(document.activeElement).toBe(junkUnhide);
 
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'unhideTokenLabel:Junk Token' }));
-      });
+      fireEvent.click(junkUnhide);
+      expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
       await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
       expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
       // Named by the Assets heading above it, so a screen reader announces where focus landed.
@@ -866,6 +895,27 @@ describe('Explore', () => {
       const toggle = await screen.findByTestId('hidden-assets-toggle');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+    });
+
+    it('still collapses when another page empties the section', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+
+      const outside = renderHook(() => useHiddenTokens('mtst1account'));
+      await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+      await act(async () => {
+        await outside.result.current.unhide('t-spam');
+      });
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+      await act(async () => {
+        await outside.result.current.hide('t-spam');
+      });
+      outside.unmount();
+
+      const toggle = await screen.findByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
     });
   });
 

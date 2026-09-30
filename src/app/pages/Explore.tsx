@@ -458,7 +458,6 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       {!balancesLoading && (
         <HiddenAssets
           key={address}
-          address={address}
           tokens={hiddenTokens}
           tokenPrices={tokenPrices}
           onUnhide={onUnhide}
@@ -470,50 +469,35 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 };
 
 interface HiddenAssetsProps {
-  address: string;
   tokens: TokenBalanceData[];
   tokenPrices: TokenPrices;
   onUnhide: (tokenId: string) => Promise<boolean>;
   assetListRef: RefObject<HTMLDivElement>;
 }
 
-/** Which element takes focus once `tokens` reflects an unhide: chosen before the write, read after. */
-type UnhideFocusTarget = { kind: 'row'; tokenId: string } | { kind: 'asset-list' };
-
 /** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
-const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, onUnhide, assetListRef }) => {
+const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // The last Unhide's own result (#813): the hook's `failed` also covers a hide that failed
   // elsewhere, which this section has no business re-announcing on every reopen.
   const [unhideFailed, setUnhideFailed] = useState(false);
+  // Unhides started here and not yet resolved: their optimistic empty state is not the section emptying.
+  const [pendingUnhides, setPendingUnhides] = useState(0);
   const listId = useId();
   const reveal = usePreset('reveal');
   const turn = useMotion(springs.standard);
-  const focusTarget = useRef<UnhideFocusTarget | null>(null);
   const unhideButtons = useRef<Map<string, HTMLButtonElement>>(new Map());
-
-  // The clicked row unmounts with its Unhide button as soon as `tokens` drops it (optimistic
-  // update): land focus on the row that takes its place, or the asset list once none remain.
-  useEffect(() => {
-    const target = focusTarget.current;
-    if (!target) return;
-    focusTarget.current = null;
-    if (target.kind === 'asset-list') {
-      assetListRef.current?.focus();
-    } else {
-      unhideButtons.current.get(target.tokenId)?.focus();
-    }
-  }, [tokens, assetListRef]);
 
   // The section stays mounted (returning null) while `tokens` is empty, so a hidden token
   // reappearing later would otherwise come back open with a stale error: collapse and drop it now.
+  // Not while an unhide of its own is pending: a failed one rolls back into the open section with its error.
   useEffect(() => {
-    if (tokens.length === 0) {
+    if (tokens.length === 0 && pendingUnhides === 0) {
       setOpen(false);
       setUnhideFailed(false);
     }
-  }, [tokens.length]);
+  }, [tokens.length, pendingUnhides]);
 
   if (tokens.length === 0) return null;
 
@@ -554,7 +538,7 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, onU
           >
             <div className="flex flex-col divide-y divide-rule-default" data-testid="hidden-asset-list">
               {tokens.map((asset, index) => (
-                <div key={`${address}:${asset.tokenId}`} className="flex items-center gap-2">
+                <div key={asset.tokenId} className="flex items-center gap-2">
                   {/* No sparkline: beside Unhide at the popup's width it would leave the name about 25px. */}
                   <div className="min-w-0 flex-1">
                     <AssetRow
@@ -572,14 +556,15 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, onU
                     className="shrink-0"
                     aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
                     onClick={() => {
-                      const next = tokens[index + 1];
-                      const prev = tokens[index - 1];
-                      focusTarget.current = next
-                        ? { kind: 'row', tokenId: next.tokenId }
-                        : prev
-                          ? { kind: 'row', tokenId: prev.tokenId }
-                          : { kind: 'asset-list' };
-                      void onUnhide(asset.tokenId).then(succeeded => setUnhideFailed(!succeeded));
+                      // Focus moves now: this button unmounts with its row, and both targets exist at the click.
+                      const neighbour = tokens[index + 1] ?? tokens[index - 1];
+                      if (neighbour) unhideButtons.current.get(neighbour.tokenId)?.focus();
+                      else assetListRef.current?.focus();
+                      setPendingUnhides(count => count + 1);
+                      void onUnhide(asset.tokenId).then(succeeded => {
+                        setUnhideFailed(!succeeded);
+                        setPendingUnhides(count => count - 1);
+                      });
                     }}
                   >
                     {t('unhide')}
