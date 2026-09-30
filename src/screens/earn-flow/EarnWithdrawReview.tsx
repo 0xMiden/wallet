@@ -2,13 +2,13 @@ import React, { FC, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { goBack, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -114,7 +114,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} />}
             <EarnHero
               labelId="earn-withdraw-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(position.withdrawable, 'receives', withdrawSymbol)}
               unit={<EarnAmountUnit symbol={withdrawSymbol} />}
               label={t('earnWithdrawAmount')}
             />
