@@ -28,7 +28,11 @@ export const IconCircle: React.FC<IconCircleProps> = ({ children, size = 'md', c
   <span
     aria-hidden="true"
     data-slot="icon"
-    className={cn('flex shrink-0 items-center justify-center rounded-full bg-fill text-ink', ICON_CIRCLE_SIZE[size], className)}
+    className={cn(
+      'flex shrink-0 items-center justify-center rounded-full bg-fill text-ink',
+      ICON_CIRCLE_SIZE[size],
+      className
+    )}
   >
     {children}
   </span>
