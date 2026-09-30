@@ -6,7 +6,7 @@
  */
 
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
@@ -200,13 +200,15 @@ jest.mock('lib/miden/transaction/switch-guardian-residual', () => ({
 }));
 
 const mockGetAccount = jest.fn();
+// Pass-through by default; a case that models a contended mutex advances the clock before the callback.
+const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>, _options?: unknown) => fn());
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
-  withWasmClientLock: async (fn: () => Promise<unknown>) => fn(),
+  withWasmClientLock: (fn: () => Promise<unknown>, options?: unknown) => mockWithWasmClientLock(fn, options),
   // This lock hands out no hold, so there is no ownership for the post-switch read to re-check.
   assertWasmHoldCurrent: () => {}
 }));
@@ -2445,6 +2447,18 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       );
     });
 
+    // Init and the adopt time their own hold inside their lock callback and report it through onHeld
+    // (guardian/index.test.ts pins that); these stand-ins keep the same contract over the suite's lock.
+    const heldUnderLock = <T>(onHeld: unknown, work: () => Promise<T>): Promise<T> =>
+      mockWithWasmClientLock(async () => {
+        const heldFrom = monotonicNowMs();
+        try {
+          return await work();
+        } finally {
+          (onHeld as ((ms: number) => void) | undefined)?.(monotonicNowMs() - heldFrom);
+        }
+      }) as Promise<T>;
+
     it('adopts the post-switch state from the previous guardian, then registers it and clears the flag', async () => {
       await runUntilPersistent();
 
@@ -2453,7 +2467,9 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         '0xhot',
         '0xaabb',
         zustandProvider.signWord,
-        previousEndpoint
+        previousEndpoint,
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' },
+        expect.any(Function)
       );
       expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
       expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
@@ -2542,10 +2558,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       let now = t0;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
-      mockAdoptGuardianState.mockImplementation(async () => {
-        now += 50_000;
-        throw new Error('504 Gateway Timeout');
-      });
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 50_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      );
 
       await runUntilPersistent();
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);
@@ -2563,10 +2581,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       let now = 1_000_000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
-      mockAdoptGuardianState.mockImplementation(async () => {
-        now += 9_000;
-        throw new Error('Failed to fetch');
-      });
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 9_000;
+          throw new Error('Failed to fetch');
+        })
+      );
 
       await runUntilPersistent();
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);
@@ -2577,6 +2597,93 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
       dateSpy.mockRestore();
       perfSpy.mockRestore();
+    });
+
+    // Init reaches the same operator under its own hold, so a 504 there holds the lock as long.
+    it('stops contacting a previous guardian whose init failed slowly', async () => {
+      const t0 = 1_000_000;
+      let now = t0;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockMultisigInit.mockImplementation((...args: unknown[]) =>
+        heldUnderLock(args[6], async () => {
+          now += 50_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    it('counts the init and the adopt together toward a park', async () => {
+      const t0 = 1_000_000;
+      let now = t0;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      const previous = { adoptGuardianStateOnce: mockAdoptGuardianState };
+      mockMultisigInit.mockImplementation((...args: unknown[]) =>
+        heldUnderLock(args[6], async () => {
+          now += 6_000;
+          return previous;
+        })
+      );
+      // Not yet canonicalized: the adopt imports nothing.
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 6_000;
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+      const checks = mockCheckEndpointCommitment.mock.calls.length;
+
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(checks + 1);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // Waiting behind another holder is not the operator's time: a lap whose holds were quick is no park.
+    it('does not count time queued for the lock toward a park', async () => {
+      let now = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockWithWasmClientLock.mockImplementation(async (fn: () => Promise<unknown>) => {
+        now += 11_000;
+        return fn();
+      });
+      const previous = { adoptGuardianStateOnce: mockAdoptGuardianState };
+      mockMultisigInit.mockImplementation((...args: unknown[]) => heldUnderLock(args[6], async () => previous));
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) => heldUnderLock(onHeld, async () => {}));
+
+      try {
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+        expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      } finally {
+        mockWithWasmClientLock.mockImplementation(async (fn: () => Promise<unknown>) => fn());
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
     });
 
     describe('whose delta the landed push did not deliver', () => {
@@ -2650,7 +2757,28 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
       });
 
-      // The re-push runs outside any lock, so its wait is no park: only the adopt's hold is timed.
+      // A fast refusal took no hold, so it costs one lap and lights nothing; the adopt's own hold is timed.
+      it('adopts without pausing when the previous guardian answers the re-push with a fast 503', async () => {
+        let now = 1_000_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        mockPushSwitchDelta.mockRejectedValue(Object.assign(new Error('Service Unavailable'), { status: 503 }));
+        // Not yet canonicalized: the adopt imports nothing, so the next due lap tries again.
+        mockAdoptGuardianState.mockImplementation(async () => {});
+
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+        expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      });
+
+      // The re-push runs outside any lock, so its wait is no park: only the holds that reach the operator are timed.
       it('books a slow re-push followed by a quick adopt as a lap that did not park', async () => {
         let now = 1_000_000;
         const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);

@@ -522,6 +522,11 @@ async function adoptFromPreviousGuardian(
   if (isSyncFused(fuseKey)) return false;
   let postSwitch = false;
   let parked = false;
+  // The lock time of the holds that reach that operator, each from its acquisition.
+  let heldMs = 0;
+  const onHeld = (ms: number) => {
+    heldMs += ms;
+  };
   try {
     const sdkAccount = await withWasmClientLock(
       async () => midenClientProxy.getAccount(account.publicKey),
@@ -533,10 +538,13 @@ async function adoptFromPreviousGuardian(
         `0x${account.hotPublicKey}`,
         `0x${hotCommitment}`,
         zustandProvider.signWord,
-        unsaved.previousGuardianEndpoint
+        unsaved.previousGuardianEndpoint,
+        GUARDIAN_ADOPT_INIT_LOCK_OPTIONS,
+        onHeld
       );
       // Without the delta the landed push did not deliver, that guardian never holds the post-switch
-      // state. Push it again, outside any lock; a guardian that stays silent would park the adopt.
+      // state. Push it again, outside any lock; a guardian that sits on it for the whole budget would
+      // park the adopt's hold next.
       const repush =
         !unsaved.switchDeltaPushed && typeof unsaved.switchProposalId === 'string'
           ? await previous.pushSwitchDeltaBounded(unsaved.switchProposalId)
@@ -549,12 +557,7 @@ async function adoptFromPreviousGuardian(
       if (repush === 'silent') {
         parked = true;
       } else {
-        const adoptStartedAt = monotonicNowMs();
-        try {
-          await previous.adoptGuardianStateOnce();
-        } finally {
-          parked = monotonicNowMs() - adoptStartedAt > PARKED_SYNC_FAILURE_MS;
-        }
+        await previous.adoptGuardianStateOnce(onHeld);
         // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
         postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
       }
@@ -566,11 +569,13 @@ async function adoptFromPreviousGuardian(
       error
     );
   }
-  // Booked by how long the adopt held the lock, never by what the copy reads, so the pause is one-shot.
-  // The refusal window is measured from before this ran, so an unpaused adopt lasting T holds the lock
-  // T of every 60 s: a gateway answering a silent operator with a 504 before the watchdog (stock HAProxy
-  // at 50 s) would hold it most of the time.
-  if (parked) noteSyncParked(fuseKey);
+  // A park is an eviction, a re-push that sat out its budget, or init and the adopt together holding the
+  // lock past PARKED_SYNC_FAILURE_MS; never time queued behind another holder, and never what the copy
+  // reads, so the pause is one-shot and a fast refusal costs one lap and lights nothing. The refusal window
+  // is measured from before this ran, so an unpaused lap holding T holds the lock T of every 60 s: a gateway
+  // answering a silent operator with a 504 before the watchdog (stock HAProxy at 50 s) would hold it most
+  // of the time.
+  if (parked || heldMs > PARKED_SYNC_FAILURE_MS) noteSyncParked(fuseKey);
   else noteSyncSuccess(fuseKey);
   return postSwitch;
 }
@@ -853,6 +858,9 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
  * that has not answered in two minutes is parked, not slow.
  */
 const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-read' };
+
+/** The previous guardian's init on the self-heal's adopt, timer-driven like the reads above. */
+const GUARDIAN_ADOPT_INIT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' };
 
 async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.

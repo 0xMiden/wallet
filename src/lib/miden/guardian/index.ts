@@ -22,7 +22,6 @@ import {
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
-import { isGuardianUnreachableError } from './direct-switch';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
@@ -35,9 +34,17 @@ import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
-import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
+  getMidenClient,
+  withWasmClientLock,
+  type WasmClientLockOptions,
+  type WasmLockHold
+} from '../sdk/miden-client';
 import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
 /**
@@ -136,13 +143,18 @@ export class MultisigService {
    *
    * `guardianEndpoint` is resolved per-account by the caller (see
    * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
+   * `lockOptions` bound and label the load's hold (the default hold without them),
+   * and `onHeld` receives how long that hold lasted, from acquisition, even when
+   * the load throws.
    */
   static async init(
     account: Account,
     publicKey: string,
     signerCommitment: string,
     signWordFn: SignWordFunction,
-    guardianEndpoint: string
+    guardianEndpoint: string,
+    lockOptions?: WasmClientLockOptions,
+    onHeld?: (ms: number) => void
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
@@ -159,7 +171,7 @@ export class MultisigService {
       // that is never terminated). Reusing the singleton also lets the multisig
       // lib's rawClientCache WeakMap (keyed by this client instance) hit across
       // every init, so at most ONE shared raw worker is created total.
-      const { multisig, client } = await withWasmClientLock(async hold => {
+      const loadUnderHold = async (hold: WasmLockHold) => {
         const webClient = (await getMidenClient()).client;
         // The build above is an await, and on the #777 path it is the long one: this
         // initializer is reachable from the unattended guardian sync loop, whose whole
@@ -179,7 +191,15 @@ export class MultisigService {
           midenRpcEndpoint: getEffectiveRpcUrl()
         });
         return { multisig: await multisigClient.load(account.id().toString(), signer), client: multisigClient };
-      });
+      };
+      const { multisig, client } = await withWasmClientLock(async hold => {
+        const heldFrom = monotonicNowMs();
+        try {
+          return await loadUnderHold(hold);
+        } finally {
+          onHeld?.(monotonicNowMs() - heldFrom);
+        }
+      }, lockOptions);
 
       return new MultisigService(multisig, client, guardianEndpoint);
     } catch (error) {
@@ -393,8 +413,9 @@ export class MultisigService {
 
   /**
    * `pushSwitchDelta` on the one outgoing-guardian budget, outside any lock, and never rejecting:
-   * `'pushed'` when it landed in time, `'silent'` when the guardian timed out or is unreachable, and
-   * `'refused'` for any other answer, which says the guardian is there (#1233).
+   * `'pushed'` when it landed in time, `'silent'` when the guardian sat on it for the whole budget (what
+   * predicts a parked hold next), and `'refused'` for any other rejection, an unreachable answer
+   * included, since that one came back inside the budget (#1233).
    */
   async pushSwitchDeltaBounded(proposalId: string): Promise<'pushed' | 'silent' | 'refused'> {
     try {
@@ -405,8 +426,7 @@ export class MultisigService {
       );
       return 'pushed';
     } catch (error) {
-      const outcome =
-        error instanceof GuardianProbeTimeoutError || isGuardianUnreachableError(error) ? 'silent' : 'refused';
+      const outcome = error instanceof GuardianProbeTimeoutError ? 'silent' : 'refused';
       console.warn(`[Guardian] the outgoing guardian did not take the executed switch delta (${outcome}):`, error);
       return outcome;
     }
@@ -442,13 +462,21 @@ export class MultisigService {
    * the read half on its own, for a caller that needs the guardian's own view
    * before it can tell a stale allowlist from a device that has been rotated out.
    * `multisig.syncState()` only overwrites local when the guardian is genuinely
-   * AHEAD, so this cannot pull a good local account backwards.
+   * AHEAD, so this cannot pull a good local account backwards. `onHeld` receives
+   * how long the hold lasted, from acquisition, even when the read throws.
    */
-  async adoptGuardianStateOnce(): Promise<void> {
-    await withWasmClientLock(() => this.multisig.syncState(), {
-      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-      label: 'guardian-adopt'
-    });
+  async adoptGuardianStateOnce(onHeld?: (ms: number) => void): Promise<void> {
+    await withWasmClientLock(
+      async () => {
+        const heldFrom = monotonicNowMs();
+        try {
+          await this.multisig.syncState();
+        } finally {
+          onHeld?.(monotonicNowMs() - heldFrom);
+        }
+      },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }
+    );
   }
 
   sync(): Promise<void> {

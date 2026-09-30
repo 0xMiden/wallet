@@ -89,6 +89,8 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 let currentWasmHold: object | null = null;
 // Set by the one test that needs the watchdog to land mid-build.
 let evictDuringClientBuild = false;
+// Runs before a hold begins: the time a caller spends queued for the mutex.
+let beforeWasmHold: (() => void) | undefined;
 const wasmLockOptionsSeen: unknown[] = [];
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
@@ -111,6 +113,7 @@ jest.mock('../sdk/miden-client', () => {
     },
     withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       wasmLockOptionsSeen.push(options);
+      beforeWasmHold?.();
       const hold = {};
       currentWasmHold = hold;
       try {
@@ -529,7 +532,8 @@ describe('MultisigService', () => {
       }
     });
 
-    it('pushSwitchDeltaBounded reads an unreachable guardian as silent and any other answer as refused', async () => {
+    // Only a timeout is silent: an unreachable answer came back at once, so it holds nothing next lap.
+    it('pushSwitchDeltaBounded reads an unreachable guardian and any other answer as refused', async () => {
       const unreachable = Object.assign(new Error('Service Unavailable'), { status: 503 });
       const conflict = Object.assign(new Error('a pending delta exists'), { status: 409 });
 
@@ -537,7 +541,7 @@ describe('MultisigService', () => {
         boundedPush(async () => {
           throw unreachable;
         }).pushSwitchDeltaBounded('0xprop')
-      ).resolves.toBe('silent');
+      ).resolves.toBe('refused');
       await expect(
         boundedPush(async () => {
           throw conflict;
@@ -586,6 +590,31 @@ describe('MultisigService', () => {
       await service.adoptGuardianStateOnce();
 
       expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }]);
+    });
+
+    it('reports how long adoptGuardianStateOnce held its lock, from acquisition, even when it fails', async () => {
+      let now = 0;
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      beforeWasmHold = () => {
+        now += 4_000;
+      };
+      const multisig = makeMultisig({
+        syncState: jest.fn(async () => {
+          now += 7_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onHeld = jest.fn();
+
+      try {
+        await expect(service.adoptGuardianStateOnce(onHeld)).rejects.toThrow('504 Gateway Timeout');
+      } finally {
+        beforeWasmHold = undefined;
+        perfSpy.mockRestore();
+      }
+
+      expect(onHeld).toHaveBeenCalledWith(7_000);
     });
 
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
@@ -1029,6 +1058,42 @@ describe('MultisigService', () => {
       await expect(
         MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
       ).rejects.toThrow('load failed');
+    });
+
+    it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' };
+      wasmLockOptionsSeen.length = 0;
+
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian', options);
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
+    });
+
+    it('reports how long it held its lock, from acquisition, even when load fails', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      let now = 0;
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      beforeWasmHold = () => {
+        now += 4_000;
+      };
+      multisigClientConfig.load.mockImplementationOnce(async () => {
+        now += 7_000;
+        throw new Error('load failed');
+      });
+      const onHeld = jest.fn();
+
+      try {
+        await expect(
+          MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian', undefined, onHeld)
+        ).rejects.toThrow('load failed');
+      } finally {
+        beforeWasmHold = undefined;
+        perfSpy.mockRestore();
+      }
+
+      expect(onHeld).toHaveBeenCalledWith(7_000);
     });
   });
 
