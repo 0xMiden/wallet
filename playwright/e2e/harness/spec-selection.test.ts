@@ -482,6 +482,30 @@ const API_WRITE =
 
 const WORKFLOW_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 
+/** A plain `permissions` key at any indent, and the rest of its line. */
+const PERMISSIONS_KEY = /^\s*permissions\s*:(.*)$/;
+const PERMISSIONS_VALUE = /^\s*(\{\}|read-all)?\s*(#.*)?$/;
+const PERMISSION_SCOPE = /^\s+([a-z][a-z-]*):\s*(read|write|none)\s*(#.*)?$/;
+/** A quoted `permissions` key, or a double-quoted key holding an escape, at the top level or on a job. */
+const QUOTED_PERMISSIONS_KEY = /^(?: {4})?(?:"[^"]*\\|(["'])permissions\1\s*:)/;
+
+/** The index of every line of a workflow that its permissions allowlist does not name. */
+const unlistedPermissionLines = (lines: string[]): Set<number> => {
+  const unlisted = new Set<number>();
+  lines.forEach((line, at) => {
+    const key = PERMISSIONS_KEY.exec(line);
+    if (QUOTED_PERMISSIONS_KEY.test(line) || (key && !PERMISSIONS_VALUE.test(key[1]!))) unlisted.add(at);
+    if (!key) return;
+    const end = lines.findIndex((next, i) => i > at && isContent(next) && indentOf(next) <= indentOf(line));
+    for (let i = at + 1; i < (end === -1 ? lines.length : end); i++) {
+      const scope = PERMISSION_SCOPE.exec(lines[i]!);
+      const grantsWrite = scope !== null && scope[2] === 'write' && /^(checks|statuses)$/.test(scope[1]!);
+      if (isContent(lines[i]!) && (scope === null || grantsWrite)) unlisted.add(i);
+    }
+  });
+  return unlisted;
+};
+
 /** One offending line, or line 0 for a violation of the whole file. */
 type ApiViolation = { file: string; line: number; text: string };
 
@@ -490,13 +514,18 @@ type ApiViolation = { file: string; line: number; text: string };
  * line calling either REST API or the GraphQL check-run mutations, or granting that write
  * (`checks` or `statuses` set to `write` in any quoting, spacing or flow form, or `write-all`),
  * and a workflow with no top-level `permissions:` block, whose token takes the repository's
- * default permissions. An allowlisted file is exempt only while its text hashes to its pin, so
- * any edit to it, on whichever line, is one violation for the whole file.
+ * default permissions. In a workflow the grant check is also a strict allowlist, so any shape
+ * it does not name is a violation: a `permissions:` line carries only an empty value, `{}` or
+ * `read-all`; every content line in the block under it is a plain `scope: read|write|none`,
+ * with `checks` and `statuses` only `read` or `none`, so a quoted key, an escape, an explicit
+ * `?` key, a flow collection, an anchor, an alias, a tag or a merge key there is flagged; and a
+ * quoted or escaped `permissions` key at the top level or on a job is flagged. An allowlisted
+ * file is exempt only while its text hashes to its pin, so any edit to it, on whichever line,
+ * is one violation for the whole file.
  *
- * The one path a text rule cannot see is an action given a PAT or App token from a secret,
- * whose checks scope is granted outside the repository. The workflow token has no other
- * unchecked path; the guard for that one is the ruleset pinning each required check's source
- * to GitHub Actions.
+ * The one path outside every rule is an action given a PAT or App token from a secret, whose
+ * checks scope is granted outside the repository; the guard for that one is the ruleset
+ * pinning each required check's source to GitHub Actions.
  */
 const apiWriterViolations = (file: string, text: string): ApiViolation[] => {
   const pinned = API_WRITER_ALLOWLIST.find(entry => entry.file === file);
@@ -512,14 +541,16 @@ const apiWriterViolations = (file: string, text: string): ApiViolation[] => {
         ];
   }
   const lines = text.split(/\r?\n/);
+  const workflow = WORKFLOW_PATH.test(file);
   const defaultToken: ApiViolation[] =
-    WORKFLOW_PATH.test(file) && !lines.some(line => line.startsWith('permissions:'))
+    workflow && !lines.some(line => line.startsWith('permissions:'))
       ? [{ file, line: 0, text: 'no top-level permissions: block, so the token takes the repository default' }]
       : [];
+  const unlisted = workflow ? unlistedPermissionLines(lines) : new Set<number>();
   return [
     ...defaultToken,
     ...lines.flatMap((line, at) =>
-      isContent(line) && API_WRITE.test(line) ? [{ file, line: at + 1, text: line.trim() }] : []
+      (isContent(line) && API_WRITE.test(line)) || unlisted.has(at) ? [{ file, line: at + 1, text: line.trim() }] : []
     )
   ];
 };
@@ -798,14 +829,20 @@ const nameViolationCases: Array<[string, 'flags' | 'throws', string, string]> = 
   ]
 ];
 
-/** A workflow whose one job runs `step`, a steps-list item already indented and newline-terminated. */
-const workflowWithStep = (step: string): string =>
-  `jobs:\n  some-job:\n    runs-on: ubuntu-latest\n    steps:\n${step}`;
+const READ_ONLY = 'permissions:\n  contents: read\n';
+const ONE_JOB = 'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n';
+
+/** A read-only workflow whose one job runs `step`, a steps-list item already indented and newline-terminated. */
+const workflowWithStep = (step: string): string => `${READ_ONLY}${ONE_JOB}    steps:\n${step}`;
 
 const CHECK_RUN_COMMAND =
   "gh api repos/$GITHUB_REPOSITORY/check-runs -f name='local-e2e (chrome)' -f head_sha=$SHA -f conclusion=success";
 
-type SourceCase = [title: string, file: string, text: string];
+/** A case's text: a literal, or a function reading a live repository file when its own case runs. */
+type SourceText = string | (() => string);
+const sourceText = (text: SourceText): string => (typeof text === 'function' ? text() : text);
+
+type SourceCase = [title: string, file: string, text: SourceText];
 
 const L1: SourceCase = [
   'L1: a workflow step posting a check run',
@@ -860,7 +897,7 @@ const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
   [
     'L7: the real Local workflow plus a second job named local-e2e (chrome)',
     LOCAL,
-    `${configSource(LOCAL)}  other-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n`,
+    () => `${configSource(LOCAL)}  other-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n`,
     'local-e2e (chrome)'
   ],
   [
@@ -871,78 +908,137 @@ const requiredNameLiteralCases: Array<[...SourceCase, string]> = [
   ]
 ];
 
-const READ_ONLY = 'permissions:\n  contents: read\n';
-const ONE_JOB = 'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n';
 const GRANTS = [`checks: 'write'`, `statuses: "write"`, `"checks": write`, `checks : write`];
+
+type Level = 'top-level' | 'job-level';
+const LEVELS: Level[] = ['top-level', 'job-level'];
+
+/** A workflow holding `entry`, written at indent 0, at its top level or in its one job under a read-only top level. */
+const workflowWith = (level: Level, entry: string): string =>
+  level === 'top-level' ? `${entry}\n${ONE_JOB}` : `${READ_ONLY}${ONE_JOB}${entry.replace(/^/gm, '    ')}\n`;
+
+/** Checks or statuses grants no single-line `write` pattern reads, each a titled entry for workflowWith. */
+const UNREADABLE_GRANTS: Array<[title: string, entry: string]> = [
+  ['checks: with write on the next line', 'permissions:\n  checks:\n    write'],
+  ['checks: &w write', 'permissions:\n  checks: &w write'],
+  ['statuses: !!str write', 'permissions:\n  statuses: !!str write'],
+  ['checks: *w aliasing an env: anchor &w write', 'env:\n  W: &w write\npermissions:\n  checks: *w'],
+  ['checks: "\\u0077rite"', 'permissions:\n  checks: "\\u0077rite"'],
+  ['permissions: "write\\x2dall"', 'permissions: "write\\x2dall"'],
+  ['"\\x63hecks": write', 'permissions:\n  "\\x63hecks": write'],
+  ['? checks / : write', 'permissions:\n  ? checks\n  : write'],
+  ['"permissions": key over checks: "\\u0077rite"', '"permissions":\n  checks: "\\u0077rite"'],
+  ['"\\x70ermissions": key over checks: "\\u0077rite"', '"\\x70ermissions":\n  checks: "\\u0077rite"']
+];
+
+/** Permissions entries that grant no checks or statuses write. */
+const READABLE_GRANTS = ['permissions:\n  checks: read', 'permissions:\n  statuses: none', 'permissions: {}'];
 
 const LINKED = '.github/workflows/check-linked-web-sdk-pr.yml';
 const LINKED_POST = '              | gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input - >/dev/null\n';
 
-/** The real LINKED text with `from`, which must occur in it exactly once, replaced by `to`. */
-const linkedWith = (from: string, to: string): string => {
-  const text = configSource(LINKED);
-  if (text.split(from).length !== 2) throw new Error(`expected exactly one ${JSON.stringify(from)} in ${LINKED}`);
-  return text.replace(from, () => to);
-};
+/**
+ * A case text: the real LINKED text, read when its case runs, with `from`, which must occur in
+ * it exactly once, replaced by `to`.
+ */
+const linkedWith =
+  (from: string, to: string): (() => string) =>
+  () => {
+    const text = configSource(LINKED);
+    if (text.split(from).length !== 2) {
+      throw new Error(
+        `${LINKED} changed: re-review it, then update API_WRITER_ALLOWLIST's sha256 and this case's anchor ${JSON.stringify(from)}`
+      );
+    }
+    return text.replace(from, () => to);
+  };
 
-/** Each case is a source file the API rule must flag. */
-const apiWriterCases: SourceCase[] = [
-  A1,
+/** Where the API rule must flag a case: at one of its lines, or at line 0 for the whole file. */
+type ApiArm = 'a line' | 'the whole file';
+type ApiCase = [...SourceCase, ApiArm];
+
+/** Each case is a source file the API rule must flag, and where it must flag it. */
+const apiWriterCases: ApiCase[] = [
+  [...A1, 'a line'],
   [
     'A2: a workflow granting checks: write',
     '.github/workflows/synthetic-checks-write.yml',
-    'permissions:\n  checks: write\njobs:\n  some-job:\n    runs-on: ubuntu-latest\n'
+    'permissions:\n  checks: write\njobs:\n  some-job:\n    runs-on: ubuntu-latest\n',
+    'a line'
   ],
   [
     'A3: a top-level permissions: write-all',
     '.github/workflows/synthetic-write-all.yml',
-    `permissions: write-all\n${ONE_JOB}`
+    `permissions: write-all\n${ONE_JOB}`,
+    'a line'
   ],
   [
     'A3: a job-level permissions: write-all',
     '.github/workflows/synthetic-write-all.yml',
-    `${READ_ONLY}${ONE_JOB}    permissions: write-all\n`
+    `${READ_ONLY}${ONE_JOB}    permissions: write-all\n`,
+    'a line'
   ],
   [
     'A4: a step creating a check run through the GraphQL API',
     '.github/workflows/synthetic-graphql.yml',
-    READ_ONLY +
-      workflowWithStep(
-        `      - run: gh api graphql -f query='mutation { createCheckRun(input: {name: "local-e2e ($B)"}) }'\n`
-      )
+    workflowWithStep(
+      `      - run: gh api graphql -f query='mutation { createCheckRun(input: {name: "local-e2e ($B)"}) }'\n`
+    ),
+    'a line'
   ],
   [
     'A5: a workflow with no top-level permissions block',
     '.github/workflows/synthetic-default-token.yml',
-    `on: push\n${ONE_JOB}`
+    `on: push\n${ONE_JOB}`,
+    'the whole file'
   ],
-  ...GRANTS.flatMap((grant): SourceCase[] => [
-    [`A6: a top-level ${grant}`, '.github/workflows/synthetic-grant.yml', `permissions:\n  ${grant}\n${ONE_JOB}`],
+  ...GRANTS.flatMap((grant): ApiCase[] => [
+    [
+      `A6: a top-level ${grant}`,
+      '.github/workflows/synthetic-grant.yml',
+      `permissions:\n  ${grant}\n${ONE_JOB}`,
+      'a line'
+    ],
     [
       `A6: a job-level ${grant}`,
       '.github/workflows/synthetic-grant.yml',
-      `${READ_ONLY}${ONE_JOB}    permissions:\n      ${grant}\n`
+      `${READ_ONLY}${ONE_JOB}    permissions:\n      ${grant}\n`,
+      'a line'
     ]
   ]),
   [
     "A6: a top-level flow permissions: { checks: 'write' }",
     '.github/workflows/synthetic-grant.yml',
-    `permissions: { checks: 'write' }\n${ONE_JOB}`
+    `permissions: { checks: 'write' }\n${ONE_JOB}`,
+    'a line'
   ],
   [
     "A6: a job-level flow permissions: { checks: 'write' }",
     '.github/workflows/synthetic-grant.yml',
-    `${READ_ONLY}${ONE_JOB}    permissions: { checks: 'write' }\n`
+    `${READ_ONLY}${ONE_JOB}    permissions: { checks: 'write' }\n`,
+    'a line'
   ],
+  ...UNREADABLE_GRANTS.flatMap(([title, entry]) =>
+    LEVELS.map(
+      (level): ApiCase => [
+        `A7: a ${level} ${title}`,
+        '.github/workflows/synthetic-grant.yml',
+        workflowWith(level, entry),
+        'a line'
+      ]
+    )
+  ),
   [
     'P1: the pinned workflow also granting statuses: write',
     LINKED,
-    linkedWith('\n  checks: write\n', '\n  checks: write\n  statuses: write\n')
+    linkedWith('\n  checks: write\n', '\n  checks: write\n  statuses: write\n'),
+    'the whole file'
   ],
   [
     'P2: the pinned workflow naming its check from a variable',
     LINKED,
-    linkedWith('local name="linked-web-sdk-pr-ready"', 'local name="$CHECK_NAME"')
+    linkedWith('local name="linked-web-sdk-pr-ready"', 'local name="$CHECK_NAME"'),
+    'the whole file'
   ],
   [
     'P3: the pinned workflow posting a second check run',
@@ -950,22 +1046,26 @@ const apiWriterCases: SourceCase[] = [
     linkedWith(
       LINKED_POST,
       `${LINKED_POST}              gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" -f name="$CHECK_NAME" -f head_sha="$head_sha" >/dev/null\n`
-    )
+    ),
+    'the whole file'
   ],
   [
     'P4: the pinned workflow passing a computed name to its check run',
     LINKED,
-    linkedWith('--arg name "$name"', '--arg name "local-e2e ($B)"')
+    linkedWith('--arg name "$name"', '--arg name "local-e2e ($B)"'),
+    'the whole file'
   ],
   [
     'P5: the pinned workflow computing its check name in jq',
     LINKED,
-    linkedWith('{name: $name', '{name: ("local-e2e (" + $status + ")")')
+    linkedWith('{name: $name', '{name: ("local-e2e (" + $status + ")")'),
+    'the whole file'
   ],
   [
     'P6: the pinned workflow with its check-run POST repeated',
     LINKED,
-    linkedWith(LINKED_POST, LINKED_POST + LINKED_POST)
+    linkedWith(LINKED_POST, LINKED_POST + LINKED_POST),
+    'the whole file'
   ],
   [
     'P7: the pinned workflow adding a test reporter that names its check',
@@ -973,10 +1073,11 @@ const apiWriterCases: SourceCase[] = [
     linkedWith(
       '      - uses: actions/checkout@v6\n',
       `      - uses: actions/checkout@v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
-    )
+    ),
+    'the whole file'
   ],
-  L1,
-  L5
+  [...L1, 'a line'],
+  [...L5, 'a line']
 ];
 
 describe('no workflow can report a required E2E check name except through the computed full-run form', () => {
@@ -998,16 +1099,32 @@ describe('no workflow can report a required E2E check name except through the co
   });
 
   it.each(requiredNameLiteralCases)('%s -> the literal rule flags it', (_title, file, text, name) => {
-    expect(requiredNameLiteralViolations(file, text).map(violation => violation.name)).toContain(name);
+    expect(requiredNameLiteralViolations(file, sourceText(text)).map(violation => violation.name)).toContain(name);
   });
 
-  it.each(apiWriterCases)('%s -> the API rule flags it', (_title, file, text) => {
-    expect(apiWriterViolations(file, text)).not.toEqual([]);
+  it.each(apiWriterCases)('%s -> the API rule flags it', (_title, file, text, arm) => {
+    const lines = apiWriterViolations(file, sourceText(text)).map(violation => violation.line);
+    expect(lines.filter(line => (arm === 'the whole file' ? line === 0 : line > 0))).not.toEqual([]);
+  });
+
+  it.each(LEVELS.flatMap(level => READABLE_GRANTS.map((entry): [Level, string] => [level, entry])))(
+    'a %s %j passes the API rule',
+    (level, entry) => {
+      expect(apiWriterViolations('.github/workflows/synthetic-grant.yml', workflowWith(level, entry))).toEqual([]);
+    }
+  );
+
+  it('every case built from a live repository file holds a function, so only that case reads the file', () => {
+    const live = [...requiredNameLiteralCases, ...apiWriterCases].filter(
+      ([, file]) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.isFile() === true
+    );
+    expect(live.map(([, file]) => file)).toEqual(expect.arrayContaining([LINKED, LOCAL]));
+    expect(live.filter(([, , text]) => typeof text !== 'function').map(([title]) => title)).toEqual([]);
   });
 
   it('A1 names no required name literally, so only the API rule catches it', () => {
     const [, file, text] = A1;
-    expect(requiredNameLiteralViolations(file, text)).toEqual([]);
+    expect(requiredNameLiteralViolations(file, sourceText(text))).toEqual([]);
   });
 
   it('a comment line naming a required name passes the literal rule', () => {
@@ -1025,6 +1142,12 @@ describe('no workflow can report a required E2E check name except through the co
     const text = configSource(LINKED);
     expect(text).toContain('checks: write');
     expect(apiWriterViolations(LINKED, text)).toEqual([]);
+  });
+
+  it('P8: a routine edit to the pinned workflow is one violation for the whole file, naming its pinned sha256', () => {
+    expect(apiWriterViolations(LINKED, `${configSource(LINKED)}# routine edit\n`)).toEqual([
+      { file: LINKED, line: 0, text: expect.stringContaining('update its pinned sha256') }
+    ]);
   });
 
   it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
