@@ -1098,6 +1098,9 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // under-report "landed", which fails safe.
   const committed = await Repo.transactions.where({ id: transaction.id }).first();
   const freshSyncWorthTrying = committed?.stage !== 'syncing';
+  // A watchdog-evicted pre-flight sync fails without a read (#1233): nothing executed in this attempt,
+  // and the read would be the first hold after the eviction.
+  if (committed?.stage === 'syncing' && isSyncWatchdogEviction(error)) return false;
   const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
@@ -2524,6 +2527,7 @@ const generateDirectSwitchGuardianTransaction = async (
   // stops asserting a confirmation nothing established.
   let commitUnconfirmed = false;
   if (!commitConfirmed) {
+    // Asked after an evicted wait too: the finalize holds this node anyway, and this is the only discard check.
     const landed = await didDirectSwitchLand(id);
     if (landed === false) {
       throw new Error(

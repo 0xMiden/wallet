@@ -38,8 +38,8 @@ import {
   withWasmClientLock,
   type WasmClientLockOptions
 } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { syncUnderBoundedLock } from '../sync-lock';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { syncBeforeVerdict } from '../sync-lock';
 
 /**
  * Direct on-chain guardian rotation — the fallback for when the OUTGOING
@@ -540,27 +540,16 @@ export const createDirectSwitchGuardianRequest = async (
  * pending or unknown record is no verdict.
  *
  * TWO HOLDS, as `verifySendLanded` takes: a best-effort sync at the sync ceiling, labelled,
- * then the record read in a default hold of its own, since it is a local store read. A failed
- * sync still reads the last-synced record: 'committed' and 'discarded' are final rulings, so a
- * stale record can only turn a verdict into no verdict, never into a wrong one. A watchdog
- * eviction of the sync is the exception and reads nothing: that read would be the first hold
- * after the eviction and would rebuild the client against the node that just parked.
+ * then the record read in a default hold of its own, since it is a local store read. The sync
+ * and its eviction rule are `syncBeforeVerdict`'s (no read after a watchdog eviction). After
+ * any other failed sync the last-synced record is still read: 'committed' and 'discarded' are
+ * final rulings, so a stale record can only turn a verdict into no verdict, never into a wrong one.
  */
 export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
-  try {
-    await syncUnderBoundedLock('guardian-verdict-sync');
-  } catch (syncError) {
-    if (isSyncWatchdogEviction(syncError)) {
-      console.warn(
-        `Sync evicted before reading the node-side state of transaction ${transactionId}; no verdict:`,
-        syncError
-      );
-      return undefined;
-    }
-    console.warn(
-      `Could not sync before reading the node-side state of transaction ${transactionId}; reading its last-synced record:`,
-      syncError
-    );
+  if (
+    !(await syncBeforeVerdict('guardian-verdict-sync', `reading the node-side state of transaction ${transactionId}`))
+  ) {
+    return undefined;
   }
   try {
     const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(transactionId));

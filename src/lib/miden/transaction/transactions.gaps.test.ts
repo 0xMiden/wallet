@@ -1282,22 +1282,28 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  const deadlineKill = () => new OperationAbortedError('op-kill', 'deadline');
+  const watchdogKill = () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    return new WasmClientPoisonedError('watchdog');
+  };
+
   it.each([
-    ['the pre-flight sync itself is killed', true, 1],
-    ['the consume is killed after pickup', false, 2]
+    ['the pre-flight sync itself is killed', deadlineKill, true, 1],
+    ['the consume is killed after pickup', watchdogKill, false, 2]
   ])(
     're-syncs before adjudicating only when the sync was not what died — %s (#777)',
-    async (_label, killDuringSync, expectedSyncs) => {
+    async (_label, kill, killDuringSync, expectedSyncs) => {
       // The adjudication normally opens with a fresh sync so the note state is
       // current. When the thing that just died IS the pre-flight sync, that fresh
       // sync is the worst possible next move: the SDK coalesces concurrent syncs
-      // onto one in-flight promise, and after a watchdog eviction the promise it
-      // abandoned is still the in-flight one — so the "fresh" sync re-attaches to a
-      // dead promise and parks the wallet's only WASM lock for another full
-      // ceiling. The committed stage is what distinguishes the two cases; the kill
-      // shape is not, which is why an evicted PROVE still gets its fresh sync.
-      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
-      const kill = () => new WasmClientPoisonedError('watchdog');
+      // onto one in-flight promise, and a killed sync's promise is still the
+      // in-flight one, so the "fresh" sync re-attaches to a dead promise and
+      // parks the wallet's only WASM lock for another full ceiling. The committed
+      // stage is what distinguishes the two cases; the kill shape is not, which is
+      // why an evicted PROVE still gets its fresh sync. A watchdog-evicted
+      // pre-flight sync reads nothing at all (#1233, below), so the sync kill here
+      // is the offscreen deadline's.
       const syncState = jest.fn(async () => {
         if (killDuringSync) throw kill();
       });
@@ -1326,6 +1332,33 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
     }
   );
+
+  // Nothing executed in that attempt, and the read would be the first hold after the eviction.
+  it('fails a consume whose pre-flight sync the watchdog evicted, without reading the note (#1233)', async () => {
+    const syncState = jest.fn(async () => {
+      throw watchdogKill();
+    });
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState,
+      consumeNoteId: jest.fn(async () => {
+        throw watchdogKill();
+      }),
+      getInputNoteDetails
+    });
+    pushConsume('nk-sync-evicted');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(getInputNoteDetails).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === 'nk-sync-evicted')!.status).toBe(ITransactionStatus.Failed);
+  });
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
     // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
@@ -1416,6 +1449,80 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     try {
       const verdict = await verifyConsumeLanded({ id: 'v-syncfail', noteId: 'note-kill' }, true);
       expect(verdict).toBe('landed-local');
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  // After a watchdog eviction of the verdict's own sync the read would be the first hold after it, and
+  // would rebuild the client against the node that just parked.
+  it('verifySendLanded: a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifySendLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getTransactionCommitState = jest.fn(async () => 'pending');
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getTransactionCommitState
+    });
+    try {
+      expect(await verifySendLanded({ id: 'v-send-evicted', transactionId: '0xtx' })).toBe('unknown');
+      expect(getTransactionCommitState).not.toHaveBeenCalled();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  it.each([
+    ['sync unreachable', () => new Error('sync unreachable')],
+    [
+      'realm-error',
+      () => {
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        return new WasmClientPoisonedError('realm-error');
+      }
+    ]
+  ])(
+    'verifySendLanded: a sync that fails without a watchdog eviction still reads the last-synced record (%s)',
+    async (_label, syncError) => {
+      const { verifySendLanded } = require('./cancel');
+      const getTransactionCommitState = jest.fn(async () => 'pending');
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState: jest.fn(async () => {
+          throw syncError();
+        }),
+        getTransactionCommitState
+      });
+      try {
+        expect(await verifySendLanded({ id: 'v-send-syncfail', transactionId: '0xtx' })).toBe('landed');
+        expect(getTransactionCommitState).toHaveBeenCalledTimes(1);
+        expect(getTransactionCommitState).toHaveBeenCalledWith('0xtx');
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+    }
+  );
+
+  it('verifyConsumeLanded(sync=true): a watchdog-evicted sync gives no verdict and reads nothing (#1233)', async () => {
+    const { verifyConsumeLanded } = require('./cancel');
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const getInputNoteDetails = jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }]);
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      getInputNoteDetails
+    });
+    try {
+      expect(await verifyConsumeLanded({ id: 'v-consume-evicted', noteId: 'note-kill' }, true)).toBe('unknown');
+      expect(getInputNoteDetails).not.toHaveBeenCalled();
     } finally {
       sdk.getMidenClient = orig;
     }

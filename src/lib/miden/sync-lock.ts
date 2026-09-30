@@ -1,6 +1,6 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 
 /**
  * A chain sync under the WASM lock with the sync watchdog ceiling (#777).
@@ -48,3 +48,27 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  */
 export const syncUnderBoundedLock = (label?: string): Promise<void> =>
   withWasmClientLock(async () => midenClientProxy.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label });
+
+/**
+ * The best-effort sync before a verdict read (#1233): `didDirectSwitchLand`, `verifySendLanded` and
+ * `verifyConsumeLanded`. `true` means read the record, `false` means answer "no verdict" and read
+ * nothing. The rule lives here so the three cannot drift apart.
+ *
+ * A watchdog eviction of the sync is the one failure that reads nothing: that read would be the first
+ * hold after the eviction, and would rebuild the client against the node that just parked. Any other
+ * failure (an ordinary sync error, a realm-error poison, whose client is replaced in milliseconds)
+ * still reads the last-synced record, as each caller documents. Never throws.
+ */
+export const syncBeforeVerdict = async (label: string, context: string): Promise<boolean> => {
+  try {
+    await syncUnderBoundedLock(label);
+    return true;
+  } catch (error) {
+    if (isSyncWatchdogEviction(error)) {
+      console.warn(`Sync evicted before ${context}; no verdict:`, error);
+      return false;
+    }
+    console.warn(`Could not sync before ${context}; reading the last-synced record:`, error);
+    return true;
+  }
+};

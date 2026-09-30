@@ -6077,6 +6077,85 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true });
   });
 
+  // An evicted wait still asks the node: the finalize takes a hold against the same node anyway, and
+  // this verdict is the direct path's only discard check.
+  it.each([
+    [
+      'a watchdog-evicted commit wait on the direct path still asks the node, and a discard fails the row (#1233)',
+      false,
+      false,
+      ITransactionStatus.Failed,
+      {}
+    ],
+    [
+      'a watchdog-evicted commit wait on the direct path still asks the node, and no verdict finalizes unconfirmed (#1233)',
+      undefined,
+      true,
+      ITransactionStatus.Completed,
+      { commitUnconfirmed: true }
+    ]
+  ])('Guardian switch-guardian: %s', async (_title, verdict, finalizes, status, extraInputs) => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = `switch-guardian-direct-wait-evicted-${String(verdict)}`;
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockDidDirectSwitchLand.mockResolvedValueOnce(verdict);
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      }),
+      client: makeClientApi(result)
+    });
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+    errorSpy.mockRestore();
+
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+    const endpointWrite = ['guardian-acc', 'https://new.guardian'];
+    const finalizeCall = ['guardian-acc', 'https://new.guardian', { ...provider, signWord: expect.any(Function) }];
+    expect(setGuardianEndpoint.mock.calls).toEqual(finalizes ? [endpointWrite] : []);
+    expect(mockFinalizeDirectSwitch.mock.calls).toEqual(finalizes ? [finalizeCall] : []);
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(status);
+    expect(row.extraInputs).toMatchObject(extraInputs);
+  });
+
   // The mirror of the case above: the chain DID answer, so the row must not
   // carry the uncertainty flag and the receipt keeps its plain success copy.
   it('Guardian switch-guardian: a commit the chain confirms after a failed wait is not marked unconfirmed', async () => {
