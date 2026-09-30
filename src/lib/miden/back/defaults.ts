@@ -32,3 +32,6 @@ export const intercom = {
 };
 
 export class PublicError extends Error {}
+
+/** The code on `swapHotKey`'s refusal of a key this wallet does not hold; the port carries codes, not classes. */
+export const HOT_KEY_NOT_STORED = 'HOT_KEY_NOT_STORED';

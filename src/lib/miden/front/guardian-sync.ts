@@ -1,6 +1,7 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the function is only called during a sync, never at module load.
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
+import { HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
@@ -118,8 +119,10 @@ const hardeningChecked = new Set<string>();
 // lives in decideColdReRegisterSelfHeal (guardian-selfheal.ts, unit-tested).
 const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
-// When the pending-activation finisher last ran the cold heal for each rotation-pending account (#1233).
+// When the pending-activation finisher last checked each rotation-pending account, and the heals it ran (#1233).
 const pendingActivationState = new Map<string, SelfHealAttemptState>();
+// The Failed rotation rows a permanent refusal answered, per account, as sorted ids (#1233).
+const refusedActivations = new Map<string, string>();
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -474,6 +477,7 @@ export function __resetGuardianSyncOutageForTest(): void {
   consecutiveAuthFailures.clear();
   selfHealState.clear();
   pendingActivationState.clear();
+  refusedActivations.clear();
   rateLimitedUntil.clear();
   hardeningChecked.clear();
   missingRegistrationState.clear();
@@ -931,19 +935,35 @@ async function findOwnRotation(accountPublicKey: string, onChainCommitment: stri
 
 /**
  * Point the account at the rotation's key and complete its row, once the chain-verified signer set
- * names that key. A refused swap is permanent: this device cannot sign as the chain's hot signer.
+ * names that key. Only the vault's coded refusal is permanent: this wallet does not hold the key, so
+ * this device cannot sign as the chain's hot signer. Matched on the code, which the extension port
+ * carries, never on the message. Any other failure (a locked vault, the intercom, storage) returns
+ * 'attempted', since the push ran and is booked like every push: the row stays Failed, the next due
+ * heal re-verifies and swaps, and three failures in a row still bound the `/configure` writes.
  */
 async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
   try {
     if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
     await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey);
   } catch (swapError) {
+    if (
+      typeof swapError === 'object' &&
+      swapError !== null &&
+      'code' in swapError &&
+      swapError.code === HOT_KEY_NOT_STORED
+    ) {
+      console.warn(
+        `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; this device cannot ` +
+          `sign as the account's hot signer:`,
+        swapError
+      );
+      return 'refused-permanently';
+    }
     console.warn(
-      `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; this device cannot ` +
-        `sign as the account's hot signer:`,
+      `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; a later heal retries it:`,
       swapError
     );
-    return 'refused-permanently';
+    return 'attempted';
   }
   try {
     await markRotationCompleted(rotation.id);
@@ -957,7 +977,15 @@ async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation):
   return 'attempted';
 }
 
-async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<SelfHealOutcome> {
+/**
+ * `finishOnly` is the pending-activation finisher's call (#1233): no 401 asked for a repair, so it
+ * pushes only to finish this device's own rotation.
+ */
+async function attemptColdReRegisterSelfHeal(
+  account: WalletAccount,
+  fuseKey: SyncFuseKey,
+  finishOnly = false
+): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
 
@@ -1150,6 +1178,14 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
           `re-registering the chain's state to finish it`
       );
     }
+    // The holds got through, so the fuse books a success in the finally.
+    if (finishOnly && !rotation) {
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey}: this device has no rotation of its own to ` +
+          `finish, and no 401 asked for a repair.`
+      );
+      return 'refused-transiently';
+    }
 
     // Counted as an attempt from the push, not from the call: `/configure` may land even if the
     // call then throws or is torn down mid-flight, while a rejection before the push (the read
@@ -1201,6 +1237,9 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
  * 401s into the heal; this is its trigger, keyed on the flag so a hot === cold record is covered too.
  * Adds no hold of its own: the heal's holds are bounded, labelled and fused. Backs off 1, 2, 4, 8 and
  * 16 cooldowns, then every fused-probe interval, and never gives up, so a late landing still finishes.
+ * Every exit stamps that clock, and only a heal counts an attempt: the row read is unindexed (a row
+ * carries a bare or a composite account id, which an index matches only by prefix) and the endpoint
+ * resolve follows it, so an unstamped exit would repeat both on every 3 s lap.
  */
 async function finishPendingActivations(accounts: WalletAccount[], generation: number): Promise<void> {
   for (const account of accounts) {
@@ -1208,27 +1247,52 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
     if (account.type !== WalletType.Guardian || account.requiresHotKeyRotation !== true || !account.coldPublicKey) {
       continue;
     }
+    const prev = pendingActivationState.get(account.publicKey);
+    const stamp = () =>
+      pendingActivationState.set(account.publicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: Date.now() });
     try {
-      const prev = pendingActivationState.get(account.publicKey);
       if (
         prev &&
         Date.now() - prev.lastAttemptAt <
-          Math.min(SELF_HEAL_COOLDOWN_MS * 2 ** (prev.attempts - 1), FUSED_SYNC_PROBE_INTERVAL_MS)
+          Math.min(SELF_HEAL_COOLDOWN_MS * 2 ** Math.max(prev.attempts - 1, 0), FUSED_SYNC_PROBE_INTERVAL_MS)
       ) {
         continue;
       }
+      const rows = await findFailedHotKeyRotations(account.publicKey);
       // No guardian traffic without a row to finish.
-      if ((await findFailedHotKeyRotations(account.publicKey)).length === 0) continue;
+      if (rows.length === 0) {
+        stamp();
+        continue;
+      }
+      // The rows a permanent refusal answered are unchanged, so the push would be refused again. The
+      // Activate Device Key banner remains the repair, and a new Failed rotation reopens the heal.
+      const rowSet = rows
+        .map(row => row.id)
+        .sort()
+        .join(',');
+      if (refusedActivations.get(account.publicKey) === rowSet) {
+        stamp();
+        continue;
+      }
       const endpoint = await resolveGuardianEndpoint(account);
       const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
-      if (isSyncFused(healFuseKey)) continue;
-      await attemptColdReRegisterSelfHeal(account, healFuseKey);
+      if (isSyncFused(healFuseKey)) {
+        stamp();
+        continue;
+      }
+      const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, true);
+      if (outcome === 'refused-permanently') {
+        refusedActivations.set(account.publicKey, rowSet);
+      } else {
+        refusedActivations.delete(account.publicKey);
+      }
       pendingActivationState.set(account.publicKey, {
         attempts: (prev?.attempts ?? 0) + 1,
         lastAttemptAt: Date.now()
       });
     } catch (error) {
       console.warn(`[Guardian Sync] could not finish the pending activation of ${account.publicKey}:`, error);
+      stamp();
     }
   }
 }

@@ -18,7 +18,7 @@ import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { PublicError } from 'lib/miden/back/defaults';
+import { HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOneWithLegacyFallBack,
@@ -2121,7 +2121,9 @@ export class Vault {
       // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
       // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.
       if (!(await isStored(accAuthSecretKeyStrgKey(newHotPubKey)))) {
-        throw new PublicError('The new hot key is not stored in this wallet');
+        throw Object.assign(new PublicError('The new hot key is not stored in this wallet'), {
+          code: HOT_KEY_NOT_STORED
+        });
       }
 
       const oldHotPubKey = account.hotPublicKey;

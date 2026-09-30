@@ -13,7 +13,7 @@ import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transac
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { PublicError } from './defaults';
+import { HOT_KEY_NOT_STORED, PublicError } from './defaults';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import {
   encryptAndSaveMany,
@@ -1521,7 +1521,10 @@ describe('Vault.swapHotKey', () => {
   it('swapHotKey refuses a key this wallet does not hold', async () => {
     const vault = await seedGuardianAccount();
 
-    await expect(vault.swapHotKey('guardian-acc-1', 'missing-pub')).rejects.toBeInstanceOf(PublicError);
+    const swap = vault.swapHotKey('guardian-acc-1', 'missing-pub');
+    await expect(swap).rejects.toBeInstanceOf(PublicError);
+    // The heal closes its budget on this code alone, never on the message (#1233).
+    await expect(swap).rejects.toMatchObject({ code: HOT_KEY_NOT_STORED });
 
     const [account] = await vault.fetchAccounts();
     expect(account?.hotPublicKey).toBe('hot-pub-hex');

@@ -215,6 +215,8 @@ jest.mock('lib/miden/transaction/hot-key-rotation-residual', () => ({
 const mockGetAccount = jest.fn();
 // Pass-through by default; a case that models a contended mutex advances the clock before the callback.
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>, _options?: unknown) => fn());
+// A no-op by default; a case loses the hold by making it throw.
+const mockAssertWasmHoldCurrent = jest.fn((_hold: unknown, _where: string) => {});
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
@@ -222,8 +224,8 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
   withWasmClientLock: (fn: () => Promise<unknown>, options?: unknown) => mockWithWasmClientLock(fn, options),
-  // This lock hands out no hold, so there is no ownership for the post-switch read to re-check.
-  assertWasmHoldCurrent: () => {}
+  // This lock hands out no hold, so every re-check sees `undefined`.
+  assertWasmHoldCurrent: (hold: unknown, where: string) => mockAssertWasmHoldCurrent(hold, where)
 }));
 
 describe('zustandProvider', () => {
@@ -1486,10 +1488,13 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(isGuardianUnrepairable('acct-own-unread')).toBe(false);
   });
 
+  // The shape deserializeError gives the refusal on the extension: a plain error carrying the code.
   it('closes the budget when the vault refuses the swap (#1233)', async () => {
     arrangeOwnRotation('acct-own-unswappable');
     mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
-    storeState.swapHotKey.mockRejectedValueOnce(new Error('The new hot key is not stored in this wallet'));
+    storeState.swapHotKey.mockRejectedValueOnce(
+      Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+    );
 
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
 
@@ -1497,6 +1502,22 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
     expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
     expect(isGuardianUnrepairable('acct-own-unswappable')).toBe(true);
+  });
+
+  // A locked vault, an intercom or a storage failure: the push ran, so it is booked as one, and the
+  // next due heal re-verifies before it swaps.
+  it('keeps the budget open and swaps on a later heal when the swap fails transiently (#1233)', async () => {
+    arrangeOwnRotation('acct-own-locked');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    storeState.swapHotKey.mockRejectedValueOnce(new Error('Wallet is locked'));
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + 1);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(2);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(2);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    expect(isGuardianUnrepairable('acct-own-locked')).toBe(false);
   });
 
   // #1233: a post-recovery or migrated account has no hot key, so the sync loop filters it out and it
@@ -1590,6 +1611,83 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
       expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
+    });
+
+    // Nothing of its own to finish and no 401 asking for a repair, so the finisher must not push.
+    it('does not re-register a pending account whose slot 0 is its own recorded key (#1233)', async () => {
+      storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
+      mockGetSignerDetails.mockResolvedValue({ commitment: '0xAABB' });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockReRegister).not.toHaveBeenCalled();
+      expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    });
+
+    const lapsAt = async (times: number[]) => {
+      const nowSpy = jest.spyOn(Date, 'now');
+      for (const at of times) {
+        nowSpy.mockReturnValue(at);
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+    };
+
+    it('checks a pending account with no Failed rotation at most once per cooldown, counting no attempt (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockResolvedValue([]);
+      const t0 = Date.now();
+
+      await lapsAt([t0, t0 + 3_000, t0 + SELF_HEAL_COOLDOWN_MS]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
+      await lapsAt([t0 + 2 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks a pending account whose heal fuse is lit at most once per cooldown (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+      const t0 = Date.now();
+
+      await lapsAt([t0, t0 + 3_000]);
+
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    });
+
+    it('stops re-running a heal the vault refused permanently until the Failed rotations change (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      storeState.swapHotKey.mockRejectedValue(
+        Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+      );
+      const t0 = Date.now();
+
+      await lapsAt([t0, t0 + SELF_HEAL_COOLDOWN_MS, t0 + 3 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([
+        { id: 'row-act', newHotPublicKey: 'new-hot-pub' },
+        { id: 'row-act-2', newHotPublicKey: 'new-hot-pub' }
+      ]);
+      await lapsAt([t0 + 5 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockReRegister).toHaveBeenCalledTimes(2);
+    });
+
+    it('checks a pending account whose rows cannot be read at most once per cooldown (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockRejectedValue(new Error('rows unreadable'));
+      const t0 = Date.now();
+
+      await lapsAt([t0, t0 + 3_000]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
+
+      await lapsAt([t0 + SELF_HEAL_COOLDOWN_MS]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
     });
   });
 });
@@ -2291,6 +2389,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
     mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
     mockMultisigInit.mockReset();
+    mockAssertWasmHoldCurrent.mockReset();
   });
 
   // #1233: the heal's holds report to the account's heal fuse, which gates the heal.
@@ -2331,6 +2430,53 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     });
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
+
+  // The account handle is borrowed from the client, so a read of it after a lost hold is a double borrow.
+  it('stops the snapshot at a hold lost during its account read (#1233)', async () => {
+    const where = 'missing-registration snapshot: after the account read';
+    mockAssertWasmHoldCurrent.mockImplementation((_hold: unknown, at: string) => {
+      if (at === where) throw new WasmClientPoisonedError('watchdog');
+    });
+
+    await expect(runUntilPersistent()).resolves.toBeUndefined();
+
+    expect(mockAssertWasmHoldCurrent).toHaveBeenCalledWith(undefined, where);
+    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // One eviction short of the fuse, then a register that is not an eviction, then evictions again:
+  // the fuse stays unlit only if that register withdrew the evidence.
+  it.each([
+    ['resolves', () => mockFinalizeDirectGuardianSwitch.mockResolvedValueOnce(undefined)],
+    ['rejects', () => mockFinalizeDirectGuardianSwitch.mockRejectedValueOnce(new Error('configure rejected'))]
+  ])(
+    "a register that gets through or fails without an eviction withdraws the heal fuse's evidence (%s) (#1233)",
+    async (_label, variant) => {
+      const evicted = () =>
+        new GuardianRegistrationPreflightError('Could not prepare the guardian registration: evicted', {
+          cause: new WasmClientPoisonedError('watchdog')
+        });
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(evicted());
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        mockFinalizeDirectGuardianSwitch.mockRejectedValueOnce(evicted());
+      }
+      variant();
+      let now = 8_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+      await runUntilPersistent();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1);
+      expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(false);
+    }
+  );
 
   // All four codes reach this branch: the operator uses them interchangeably for
   // "I cannot produce state for that account", and only `account_not_found` used
