@@ -1,5 +1,5 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import type { WalletAccount } from 'lib/shared/types';
 
 import {
@@ -24,12 +24,36 @@ import {
 
 // Mocked by the SAME specifier the source imports them under — a `lib/...`
 // path here would leave the real module in the graph.
-const mockWithWasmClientLock = jest.fn(<T>(fn: () => Promise<T>) => fn());
+// Models hold OWNERSHIP, as index.test.ts does: a pass-through lock with no hold
+// would make the preflight's post-await re-checks unreachable, and every eviction
+// test below vacuously green.
+let currentWasmHold: object | null = null;
+const wasmLockOptionsSeen: unknown[] = [];
+const ownedWasmHold = async <T>(fn: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
+  wasmLockOptionsSeen.push(options);
+  const hold = {};
+  currentWasmHold = hold;
+  try {
+    return await fn(hold);
+  } finally {
+    if (currentWasmHold === hold) currentWasmHold = null;
+  }
+};
+const mockWithWasmClientLock = jest.fn(ownedWasmHold);
 const mockGetMidenClient = jest.fn();
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: <T>(fn: () => Promise<T>) => mockWithWasmClientLock(fn)
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the preflight's classifier sees the shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: () => mockGetMidenClient(),
+    getCurrentWasmLockHold: () => currentWasmHold,
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && currentWasmHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    withWasmClientLock: <T>(fn: (hold: object) => Promise<T>, options?: unknown) => mockWithWasmClientLock(fn, options)
+  };
+});
 
 const mockFreeChainAnchor = jest.fn();
 jest.mock('../sdk/chain-anchor', () => ({
@@ -226,7 +250,9 @@ const sdkAccount = {
 beforeEach(() => {
   jest.clearAllMocks();
   walletSignerArgs.length = 0;
-  mockWithWasmClientLock.mockImplementation(<T>(fn: () => Promise<T>) => fn());
+  currentWasmHold = null;
+  wasmLockOptionsSeen.length = 0;
+  mockWithWasmClientLock.mockImplementation(ownedWasmHold);
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => sdkAccount),
@@ -913,6 +939,57 @@ describe('finalizeDirectGuardianSwitch', () => {
     ).catch((e: unknown) => e);
 
     expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('holds its preflight read on the options a caller passes', async () => {
+    mockGuardianConfigure.mockResolvedValue({ success: true });
+    const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-register' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any, options);
+    expect(wasmLockOptionsSeen).toEqual([options]);
+
+    wasmLockOptionsSeen.length = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
+    expect(wasmLockOptionsSeen).toEqual([undefined]);
+  });
+
+  // A timer-driven caller holds this at the sync ceiling, so the watchdog can hand the mutex on
+  // mid-read; the abandoned callback must not borrow the client its successor now owns.
+  it('stops before the account read when its hold was evicted during the sync', async () => {
+    mockProxySyncState.mockImplementationOnce(async () => {
+      currentWasmHold = null;
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockProxyGetAccount).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('stops before inspecting the account when its hold was evicted during the getAccount', async () => {
+    mockProxyGetAccount.mockImplementationOnce(async () => {
+      currentWasmHold = null;
+      return sdkAccount;
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockedMultisigClient.AccountInspector.fromAccount).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

@@ -77,7 +77,8 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider,
   /**
-   * Bound the account read at the sync ceiling instead of the five-minute backstop.
+   * Bound the account read and the service init at the sync ceiling instead of the
+   * five-minute backstop. The init's load waits on the guardian's `getState` inside its hold.
    *
    * Passed by the ONE caller on a cadence — the idle loop's guardian sync — and by nobody
    * else, which is the whole point of making it a parameter rather than a constant. On the
@@ -88,7 +89,10 @@ export async function getOrCreateMultisigService(
    * four laps to light the account's fuse. The ten transaction-pipeline callers keep the
    * backstop: a user is waiting on those, and `reconcileStructuralApplyFailure` in
    * particular runs after a structural change is already on chain, where giving up three
-   * minutes sooner risks stranding the account it exists to rescue.
+   * minutes sooner risks stranding the account it exists to rescue. A pipeline caller that
+   * arrives while the idle loop's build is in flight joins that build and inherits its sync
+   * ceiling, which is safe because the init is pre-write, so an eviction costs the caller a
+   * retry and nothing on chain.
    */
   boundAtSyncCeiling = false
 ): Promise<MultisigService> {
@@ -188,7 +192,10 @@ export async function getOrCreateMultisigService(
       `0x${hotPublicKey}`,
       `0x${commitment}`,
       provider.signWord,
-      currentEndpoint
+      currentEndpoint,
+      boundAtSyncCeiling
+        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+        : { label: 'guardian-service-init' }
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

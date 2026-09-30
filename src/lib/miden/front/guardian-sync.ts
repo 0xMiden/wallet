@@ -794,7 +794,12 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   };
 
   try {
-    await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider);
+    await finalizeDirectGuardianSwitch(
+      account.publicKey,
+      endpoint,
+      zustandProvider,
+      GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS
+    );
     bookSettled(attempts + 1);
     clearGuardianServiceFor(account.publicKey);
     // The operator now holds the post-switch state, so a switch row that said this device could not
@@ -862,6 +867,23 @@ const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, lab
 /** The previous guardian's init on the self-heal's adopt, timer-driven like the reads above. */
 const GUARDIAN_ADOPT_INIT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' };
 
+/**
+ * The heals' holds that reach a guardian or the node, timer-driven like the reads above: the cold
+ * service's init, the cold re-register, and the missing-registration push's preflight read.
+ */
+const GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-init'
+};
+const GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-reregister'
+};
+const GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-register'
+};
+
 async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
@@ -919,7 +941,12 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // below. Refusing here would make the heal unreachable in exactly the state
     // that needs it — the same shape of mistake as swallowing the failure, in the
     // opposite direction.
-    const coldService = await MultisigService.buildColdMultisigService(staleAccount, account, zustandProvider.signWord);
+    const coldService = await MultisigService.buildColdMultisigService(
+      staleAccount,
+      account,
+      zustandProvider.signWord,
+      GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS
+    );
     const adopted = await coldService
       .adoptGuardianStateOnce()
       .then(() => true)
@@ -1009,7 +1036,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // Counted as an attempt from HERE, before the await: `/configure` may land
     // even if the call then throws or is torn down mid-flight.
     attempted = true;
-    await coldService.reRegisterCurrentStateOnGuardian();
+    await coldService.reRegisterCurrentStateOnGuardian(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // The chain guard refused before any `/configure` (#1233): nothing was written, so no attempt is

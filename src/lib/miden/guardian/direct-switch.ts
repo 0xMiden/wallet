@@ -32,7 +32,12 @@ import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  withWasmClientLock,
+  type WasmClientLockOptions
+} from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -641,11 +646,15 @@ const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
  * the operator; the three call sites (`complete.ts`, the direct-switch pipeline,
  * and the missing-registration self-heal) all treat that as a refund rather than
  * a spent attempt.
+ *
+ * `lockOptions` bound and label the preflight read's hold; the self-heal, which runs
+ * on a timer, passes the sync ceiling.
  */
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
   newGuardianEndpoint: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  lockOptions?: WasmClientLockOptions
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -657,9 +666,13 @@ export const finalizeDirectGuardianSwitch = async (
 
   const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
     await asPreflight(() =>
-      withWasmClientLock(async () => {
+      withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
+        // Under a tighter ceiling the watchdog can hand the mutex on mid-read, and each read below
+        // borrows the client the successor now owns. Thrown inside `asPreflight`, so it is a refund.
+        assertWasmHoldCurrent(hold, 'direct-switch register: after the state sync');
         const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+        assertWasmHoldCurrent(hold, 'direct-switch register: after the account read');
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
         }
@@ -676,7 +689,7 @@ export const finalizeDirectGuardianSwitch = async (
           // feeds is about those bytes.
           guardianCommitment: getGuardianCommitmentFromAccount(account)
         };
-      })
+      }, lockOptions)
     );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set

@@ -798,6 +798,30 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(1);
   });
 
+  it('builds its cold service and re-registers at the sync ceiling, labelled', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-heal-bounded', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
+      { __sdkAccount: true },
+      expect.objectContaining({ publicKey: 'acct-heal-bounded' }),
+      expect.anything(),
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
+    );
+    expect(mockReRegister).toHaveBeenCalledWith({
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-self-heal-reregister'
+    });
+  });
+
   // Every other test in this describe tags its rejection with `__authRejection`.
   // This one throws the shape a real guardian sends, so the wiring from an actual
   // 401 through the real classifier to the `/configure` decision is pinned — the
@@ -1947,7 +1971,10 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
       await syncGuardianAccounts();
-      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider, {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'guardian-self-heal-register'
+      });
       // The cached service was built against an operator that had no state; drop it
       // so the next tick builds one against the now-registered account.
       expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('unregistered-pk');
@@ -1987,7 +2014,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
     // Against the operator that answered, not `undefined`.
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(account.publicKey, endpoint, expect.anything());
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+      account.publicKey,
+      endpoint,
+      expect.anything(),
+      expect.anything()
+    );
   });
 
   // An unreadable pointer gets the SAME refusal as no pointer at all. This call
@@ -2092,7 +2124,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     // doubled one, and the attempt is still available.
     nowSpy.mockReturnValue(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+      'unregistered-pk',
+      endpoint,
+      zustandProvider,
+      expect.anything()
+    );
 
     nowSpy.mockRestore();
   });
@@ -2294,7 +2331,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       2,
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      expect.anything()
     );
     nowSpy.mockRestore();
   });
@@ -2343,7 +2381,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      expect.anything()
     );
     nowSpy.mockRestore();
   });
@@ -2472,7 +2511,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         expect.any(Function)
       );
       expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
-      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        expect.anything()
+      );
       expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
     });
 
@@ -2544,7 +2588,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS);
       await syncGuardianAccounts();
       expect(mockMultisigInit).toHaveBeenCalledTimes(2);
-      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        expect.anything()
+      );
 
       dateSpy.mockRestore();
       perfSpy.mockRestore();
@@ -2719,7 +2768,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
           mockAdoptGuardianState.mock.invocationCallOrder[0]!
         );
         expect(mockMarkSwitchDeltaPushed).toHaveBeenCalledWith('switch-row');
-        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+          'unregistered-pk',
+          endpoint,
+          zustandProvider,
+          expect.anything()
+        );
       });
 
       it('skips the adopt when the re-push times out', async () => {

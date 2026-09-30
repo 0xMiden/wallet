@@ -28,7 +28,9 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  * chain-sync-only helper does not fit them.
  * The holds still on the DEFAULT ceiling are so deliberately: they
  * continue into other work under the same hold (a `getAccount`, a cold-restore's
- * on-chain probe) and so fall under the restriction below. The service worker's
+ * on-chain probe) and so fall under the restriction below. The exception is a
+ * hold a timer drives: it takes the sync ceiling and a label however much work
+ * follows its sync, and re-checks its hold after every parking await. The service worker's
  * own sync hold needs no ceiling for
  * a different reason — its 30s `withTimeout` rejects the lock callback, so the
  * mutex is released well inside any watchdog bound (see
@@ -40,7 +42,8 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  *
  * Use this ONLY for a hold whose whole job is the sync. A hold that continues
  * into other work after the sync must take `withWasmClientLock` itself, on the
- * default ceiling.
+ * default ceiling unless a timer drives it, in which case it passes the sync
+ * ceiling and a label and re-checks its hold after every parking await.
  */
 export const syncUnderBoundedLock = (label?: string): Promise<void> =>
   withWasmClientLock(async () => midenClientProxy.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label });

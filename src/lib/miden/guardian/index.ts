@@ -88,6 +88,9 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // sooner than the ceiling" property is gone. If that property is still wanted,
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
+// Stage 2's re-register, for every runSync caller: the idle loop reaches it on a timer, runSync's own sync hold
+// already takes this ceiling for all of them, and the stage is best-effort, falling through to the original error.
+const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync-realign' };
 
 /**
  * Per-attempt ceiling on the two POST-COMMIT round-trips to the NEW guardian in
@@ -216,12 +219,13 @@ export class MultisigService {
    * createReplaceHotKeyProposal uses an in-place swap target list.
    *
    * Caller is expected to drop the returned service immediately after use so
-   * cold key material doesn't outlive the operation.
+   * cold key material doesn't outlive the operation. `lockOptions` go to `init`.
    */
   static async buildColdMultisigService(
     account: Account,
     walletAccount: WalletAccount,
-    signWordFn: SignWordFunction
+    signWordFn: SignWordFunction,
+    lockOptions?: WasmClientLockOptions
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
@@ -233,7 +237,8 @@ export class MultisigService {
       `0x${walletAccount.coldPublicKey}`,
       `0x${commitment}`,
       signWordFn,
-      guardianEndpoint
+      guardianEndpoint,
+      lockOptions
     );
   }
 
@@ -579,7 +584,7 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian();
+              await this.reRegisterCurrentStateOnGuardian(GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
               continue;
             } catch (realignError) {
               console.warn('Last-resort guardian re-registration failed (non-fatal):', realignError);
@@ -868,8 +873,10 @@ export class MultisigService {
    *
    * Pushes only when the local account is the on-chain state; otherwise it refuses
    * with `GuardianReRegisterRefusedError` and writes nothing (#1233).
+   *
+   * `lockOptions` bound and label the read's hold; timer-driven callers pass the sync ceiling.
    */
-  async reRegisterCurrentStateOnGuardian(): Promise<void> {
+  async reRegisterCurrentStateOnGuardian(lockOptions?: WasmClientLockOptions): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -910,7 +917,7 @@ export class MultisigService {
       // 401 this method exists to prevent.
       const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
       return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
-    });
+    }, lockOptions);
     // Guard against a truncated read: AccountInspector.fromAccount swallows
     // per-slot storage-read failures (skips the slot, no throw), so a partial
     // read could yield an empty set. NEVER overwrite a good cached allowlist with

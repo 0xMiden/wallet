@@ -721,12 +721,17 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ syncState, registerOnGuardian });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      wasmLockOptionsSeen.length = 0;
 
       try {
         await service.sync();
         expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
         expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
         expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
+        // The idle loop reaches this re-register, so its hold is bounded and labelled like the sync's.
+        expect(
+          wasmLockOptionsSeen.filter(options => (options as { label?: string } | undefined)?.label !== 'guardian-sync')
+        ).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync-realign' }]);
       } finally {
         restoreTimers();
       }
@@ -812,6 +817,18 @@ describe('MultisigService', () => {
       mockGetAccount.mockResolvedValue(null);
 
       await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+    });
+
+    it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-reregister' };
+      wasmLockOptionsSeen.length = 0;
+
+      await service.reRegisterCurrentStateOnGuardian(options);
+      await service.reRegisterCurrentStateOnGuardian();
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
     });
 
     it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
@@ -1375,6 +1392,19 @@ describe('MultisigService', () => {
         /missing coldPublicKey/
       );
       expect(multisigClientConfig.load).not.toHaveBeenCalled();
+    });
+
+    it('holds its init on the options a caller passes, and on the default hold otherwise', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub' } as never;
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' };
+      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
+      wasmLockOptionsSeen.length = 0;
+
+      await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig', options);
+      await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig');
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
     });
   });
 
