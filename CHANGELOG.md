@@ -2,6 +2,10 @@
 
 ## 1.17.0 (TBD)
 
+### Changes
+
+- [CHANGE][all] CI builds this branch against the web-sdk that tracks rust-sdk#2645 (account witnesses and account-code upgrades). `@miden-sdk/miden-sdk` stays pinned at 0.17.0-rc.4 until that release. `TransactionRequest` bytes written by 0.17.0-rc.4 do not deserialize, so a proposal saved by that SDK has to be built again. The committed native prover binaries stay on `miden-client` 0.17.0-rc.4 until the same release.
+
 ## 1.17.0-rc.0 (2026-09-27)
 
 ### Changes
