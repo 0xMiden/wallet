@@ -313,6 +313,20 @@ it('retries a transient failure only once and stops repeated cursors', async () 
 const operatorCheckpoint = async (operator: string) =>
   Object.values((await readGuardianHistoryState()).checkpoints).find(value => value.operator === operator);
 const twoCheckpoint = () => operatorCheckpoint('https://two');
+const saveCheckpoint = async (operator: string, fields: Partial<GuardianHistoryCheckpoint>) => {
+  const { generation } = await readGuardianHistoryState();
+  await saveGuardianHistoryCheckpoint(generation, {
+    id: historyCheckpointId('testnet', 'account', operator),
+    network: 'testnet',
+    accountId: 'account',
+    operator,
+    version: GUARDIAN_HISTORY_VERSION,
+    seenCursors: [],
+    completed: false,
+    restored: 0,
+    ...fields
+  });
+};
 
 it('stops a cursor that returns after another one', async () => {
   const client = source('https://two', [
@@ -377,6 +391,13 @@ it('keeps the entry cap across a resumed pass', async () => {
   expect(client.getDelta).not.toHaveBeenCalled();
   expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
 
+  // A restart in the same session counts it as failed without asking it again.
+  const restart = await run();
+  expect(restart.sourceFailures).toBe(1);
+  expect(restart.failed).toBeUndefined();
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
   // The same overflow in every session is terminal once it has repeated up to the cap.
   forgetUnsupportedHistorySources();
   const second = await run();
@@ -387,6 +408,7 @@ it('keeps the entry cap across a resumed pass', async () => {
   forgetUnsupportedHistorySources();
   expect((await run()).failed).toBe(true);
   expect(client.getDelta).not.toHaveBeenCalled();
+  expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
 });
 
 it('keeps the nonce bound across a resumed pass', async () => {
@@ -877,6 +899,53 @@ it('records an unsupported answer to a retry issued after a lock in the session 
   expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'unsupported', unsupportedPasses: 1 });
 });
 
+it('does not record invalid data that settles after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockResolvedValue({ entries: [], nextCursor: 'x' })
+    .mockImplementationOnce(async () => {
+      forgetUnsupportedHistorySources();
+      return { entries: [], nextCursor: 'x' };
+    });
+  expect((await run()).sourceFailures).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 2 });
+});
+
+it('records invalid data from a retry issued after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  let attempts = 0;
+  jest.spyOn(client, 'getDeltaHistory').mockImplementation(async () => {
+    if (attempts++ === 0) {
+      forgetUnsupportedHistorySources();
+      throw new GuardianHttpError(503, 'Unavailable', 'network');
+    }
+    return { entries: [], nextCursor: 'x' };
+  });
+  expect((await run()).sourceFailures).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+});
+
+it('counts a saved cursor over the bound once per session', async () => {
+  await saveCheckpoint('https://two', { cursor: 'x'.repeat(MAX_HISTORY_CURSOR_LENGTH + 1) });
+  const client = clients.get('https://two');
+  if (!client) throw new Error('Missing test source');
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).not.toHaveBeenCalled();
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  expect((await run()).sourceFailures).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+});
+
 it('asks a deferred operator again in the next session and restores what it serves then', async () => {
   const client = source('https://two', []);
   jest
@@ -929,8 +998,125 @@ it('fails the current operator while it serves no history, once per session, and
 
   forgetUnsupportedHistorySources();
   expect((await run()).failed).toBe(true);
-  expect(await oneCheckpoint()).toMatchObject({ failure: 'unsupported', unsupportedPasses: 3, completed: false });
+  expect(await oneCheckpoint()).toMatchObject({
+    failure: 'unsupported',
+    unsupportedPasses: 3,
+    completed: false,
+    terminal: true
+  });
 });
+
+/** A createClient under which building operator two makes the rest of the run give way. */
+const yieldingAtTwo = () =>
+  jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
+    if (endpoint === 'https://two') shouldYield.mockResolvedValue('transaction');
+    return createClient(walletAccount, endpoint);
+  });
+
+const runWith = async (create: Parameters<typeof recoverGuardianHistory>[1]['createClient']) => {
+  shouldYield.mockResolvedValue(null);
+  return recoverGuardianHistory(account, { createClient: create, shouldYield, generation: await storedGeneration() });
+};
+
+it('asks a source whose data failed a check once per session across deferral restarts', async () => {
+  const one = source('https://one', []);
+  jest.spyOn(one, 'getDeltaHistory').mockResolvedValue({ entries: [], nextCursor: 'x' });
+  const deferring = yieldingAtTwo();
+  const oneCheckpoint = () => operatorCheckpoint('https://one');
+  for (let restart = 0; restart < 3; restart++) {
+    const result = await runWith(deferring);
+    expect(result.deferred).toBe(true);
+    expect(result.failed).toBeUndefined();
+    expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+  }
+  expect(one.getDeltaHistory).toHaveBeenCalledTimes(1);
+
+  forgetUnsupportedHistorySources();
+  expect((await runWith(deferring)).deferred).toBe(true);
+  expect(one.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 2 });
+});
+
+// The current operator one session short of the cap, how it fails again, and its checkpoint once at the cap.
+const oneShortOfTheCap: Array<
+  [string, Partial<GuardianHistoryCheckpoint>, (client: GuardianHttpClient) => void, Partial<GuardianHistoryCheckpoint>]
+> = [
+  [
+    'invalid data',
+    { failure: 'invalid-data', invalidDataPasses: 2 },
+    client => {
+      jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [], nextCursor: 'x' });
+    },
+    { failure: 'invalid-data', invalidDataPasses: 3 }
+  ],
+  [
+    'an unsupported answer',
+    { failure: 'unsupported', unsupportedPasses: 2 },
+    client => {
+      jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
+    },
+    { failure: 'unsupported', unsupportedPasses: 3, completed: false }
+  ]
+];
+
+it.each(oneShortOfTheCap)(
+  'fails the pass on %s at the cap only after reading the other operators',
+  async (_kind, seeded, failAgain, capped) => {
+    await saveCheckpoint('https://one', seeded);
+    failAgain(source('https://one', []));
+    const two = clients.get('https://two');
+    if (!two) throw new Error('Missing test source');
+    expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, failed: true, deferredSources: 0 });
+    expect(two.getDeltaHistory).toHaveBeenCalledTimes(1);
+    expect(await twoCheckpoint()).toMatchObject({ completed: true });
+    expect(await operatorCheckpoint('https://one')).toMatchObject({ ...capped, terminal: true });
+  }
+);
+
+it.each<[string, () => void]>([
+  ['in the same session', () => {}],
+  ['after the next lock', forgetUnsupportedHistorySources]
+])('marks a source a deferred pass capped once a later pass has read the others, %s', async (_label, between) => {
+  await saveCheckpoint('https://one', { failure: 'invalid-data', invalidDataPasses: 2 });
+  const one = source('https://one', []);
+  jest.spyOn(one, 'getDeltaHistory').mockResolvedValue({ entries: [], nextCursor: 'x' });
+  const oneCheckpoint = () => operatorCheckpoint('https://one');
+  expect((await runWith(yieldingAtTwo())).deferred).toBe(true);
+  expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3 });
+  expect((await oneCheckpoint())?.terminal).toBeUndefined();
+
+  between();
+  expect((await runWith(createClient)).failed).toBe(true);
+  expect(clients.get('https://two')?.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(one.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(await oneCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
+});
+
+it.each(oneShortOfTheCap)(
+  'leaves %s at the cap unmarked while another source fails in that pass',
+  async (_kind, seeded, failAgain, capped) => {
+    await saveCheckpoint('https://one', seeded);
+    const one = source('https://one', []);
+    failAgain(one);
+    const two = source('https://two', []);
+    jest.spyOn(two, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(503, 'Unavailable', 'network'));
+    const first = await run();
+    expect(first.failed).toBeUndefined();
+    expect(first.sourceFailures).toBe(2);
+    const unmarked = await operatorCheckpoint('https://one');
+    expect(unmarked).toMatchObject(capped);
+    expect(unmarked?.terminal).toBeUndefined();
+    expect(await hasFailedGuardianHistory(account)).toBe(false);
+
+    // Once the others complete, a later session marks it without asking it again.
+    forgetUnsupportedHistorySources();
+    jest.spyOn(two, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+    expect((await run()).failed).toBe(true);
+    expect(one.getDeltaHistory).toHaveBeenCalledTimes(1);
+    expect(await twoCheckpoint()).toMatchObject({ completed: true });
+    expect(await operatorCheckpoint('https://one')).toMatchObject({ ...capped, terminal: true });
+  }
+);
 
 it('counts the same answer from an operator a local switch left as a failed source', async () => {
   await localSwitch('https://two');
@@ -1071,20 +1257,8 @@ it.each<[string, Partial<GuardianHistoryCheckpoint>]>([
   expect(await hasFailedGuardianHistory(account)).toBe(false);
 });
 
-const saveOlderVersionCheckpoint = async (operator: string, fields: Partial<GuardianHistoryCheckpoint>) => {
-  const { generation } = await readGuardianHistoryState();
-  await saveGuardianHistoryCheckpoint(generation, {
-    id: historyCheckpointId('testnet', 'account', operator),
-    network: 'testnet',
-    accountId: 'account',
-    operator,
-    version: GUARDIAN_HISTORY_VERSION - 1,
-    seenCursors: [],
-    completed: false,
-    restored: 0,
-    ...fields
-  });
-};
+const saveOlderVersionCheckpoint = (operator: string, fields: Partial<GuardianHistoryCheckpoint>) =>
+  saveCheckpoint(operator, { version: GUARDIAN_HISTORY_VERSION - 1, ...fields });
 
 it('starts fresh over a checkpoint of another history version, so a fee failure saves one the stop matches', async () => {
   await saveOlderVersionCheckpoint('https://one', { failure: 'fee-metadata', feeScope: 'rpc-a|testnet' });

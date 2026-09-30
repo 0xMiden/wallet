@@ -701,7 +701,8 @@ let lockEpoch = 0;
  * The backend's lock hook. Frees every account a failed source held, so the
  * provider offers it again after the next unlock, as the partial-history card
  * promises, and starts a new session for the history sources that answered
- * unsupported, so that pass asks them again.
+ * unsupported or whose data failed a check, so that pass asks them again
+ * unless they are at MAX_UNSUPPORTED_HISTORY_PASSES.
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;

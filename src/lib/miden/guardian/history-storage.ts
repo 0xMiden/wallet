@@ -25,7 +25,8 @@ const checkpointSchema = z.object({
   failure: z
     .enum(['fee-metadata', 'account-not-found', 'authentication', 'unsupported', 'network', 'invalid-data'])
     .optional(),
-  feeScope: z.string().optional()
+  feeScope: z.string().optional(),
+  terminal: z.boolean().optional()
 });
 
 const stateSchema = z.object({

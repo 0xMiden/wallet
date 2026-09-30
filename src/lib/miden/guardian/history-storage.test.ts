@@ -43,6 +43,13 @@ it('retains the page cursor across reads', async () => {
   expect((await readGuardianHistoryState()).checkpoints.test).toEqual(checkpoint);
 });
 
+it('retains the terminal marker across reads', async () => {
+  const state = await readGuardianHistoryState();
+  const terminal = { ...checkpoint, failure: 'invalid-data' as const, invalidDataPasses: 3, terminal: true };
+  expect(await saveGuardianHistoryCheckpoint(state.generation, terminal)).toBe(true);
+  expect((await readGuardianHistoryState()).checkpoints.test).toEqual(terminal);
+});
+
 it('rejects a checkpoint from a pass that predates an import', async () => {
   const state = await readGuardianHistoryState();
   await clearGuardianHistoryCheckpoints();

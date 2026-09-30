@@ -59,6 +59,11 @@ export interface GuardianHistoryCheckpoint {
   failure?: GuardianHistoryFailure;
   /** The node (`cacheScope`) whose answer made a `fee-metadata` failure terminal; it holds only for that node. */
   feeScope?: string;
+  /**
+   * Set on a checkpoint at MAX_UNSUPPORTED_HISTORY_PASSES (an own operator's unsupported answer, or invalid data) by
+   * a pass that read every other operator, each of them completing, so the source ends recovery.
+   */
+  terminal?: boolean;
 }
 
 export function recoveredAction(proposal?: ProposalMetadata): ITransactionType {
