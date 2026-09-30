@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useEffect, useMemo, useReducer } from 'react';
+import React, { memo, RefObject, useMemo } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
@@ -432,10 +432,6 @@ const HistoryView = memo<HistoryViewProps>(
     const settle = useMotion(springs.settle);
     const shownAgain = useTabShownAgain();
     const layoutTransition = useMemo(() => (shownAgain ? withLayoutSwap(settle) : settle), [shownAgain, settle]);
-    const [, recheckAfterShow] = useReducer((n: number) => n + 1, 0);
-    useEffect(() => {
-      if (shownAgain && hasMore) queueMicrotask(recheckAfterShow);
-    }, [shownAgain, hasMore]);
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
@@ -628,15 +624,14 @@ const HistoryView = memo<HistoryViewProps>(
         {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
-            loadMore={loadMore}
+            // The scroller checks for a page in this commit's layout phase, and History's loadMore sets
+            // state before it awaits, so in the commit that shows the tab again it would re-render the
+            // list before framer reads the swap above. Deferred to a microtask, it runs after that read
+            // and loads the same page (#1198).
+            loadMore={shownAgain ? (page: number) => queueMicrotask(() => void loadMore(page)) : loadMore}
             hasMore={hasMore}
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
-            // Unskipped, the scroller's load check would re-render the list synchronously in this
-            // same commit, before framer reads the swap above. The skipped check runs from a
-            // microtask queued after framer's layout-phase read, and only when there is more to
-            // page (#1198).
-            initialLoad={!shownAgain}
           >
             {list}
           </InfiniteScroll>

@@ -230,14 +230,12 @@ type MockScrollerProps = {
   loadMore: (page: number) => void;
   useWindow?: boolean;
   getScrollParent?: () => HTMLElement | null;
-  initialLoad?: boolean;
 };
-const mockScroller: { props?: MockScrollerProps; renders: MockScrollerProps[] } = { renders: [] };
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
   default: (props: MockScrollerProps) => {
     mockScroller.props = props;
-    mockScroller.renders.push(props);
     return (
       <div data-testid="infinite-scroll" data-hasmore={String(props.hasMore)}>
         {props.children}
@@ -279,7 +277,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
   mockScroller.props = undefined;
-  mockScroller.renders = [];
   mockPendingWrapper.renders = [];
   mockGroupWrapper.renders = [];
   (isFaucetRequest as jest.Mock).mockImplementation(
@@ -1237,12 +1234,9 @@ describe('HistoryView infinite scroll wiring', () => {
       'children',
       'getScrollParent',
       'hasMore',
-      'initialLoad',
       'loadMore',
       'useWindow'
     ]);
-    // No TabActiveContext provider here, so the default (true) never "shows again" at mount (#1198).
-    expect(scroller?.initialLoad).toBe(true);
     expect(scroller?.useWindow).toBe(false);
     expect(scroller?.getScrollParent?.()).toBe(parent);
     expect(loadMore).not.toHaveBeenCalled();
@@ -1567,14 +1561,20 @@ describe('HistoryView - its tab shown again', () => {
   // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
   // never reads `.current`, so a bare DOM node is enough.
   const scrollParentRef = { current: document.createElement('div') };
-  const view = (shown: boolean, onScreen = true, hasMore = false) => (
+  const noMore = async () => {};
+  const view = (
+    shown: boolean,
+    onScreen = true,
+    hasMore = false,
+    loadMore: (page: number) => Promise<void> = noMore
+  ) => (
     <PageActiveContext.Provider value={onScreen}>
       <TabActiveContext.Provider value={shown}>
         <HistoryView
           fullHistory
           initialLoading={false}
           hasMore={hasMore}
-          loadMore={async () => {}}
+          loadMore={loadMore}
           entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
           pendingItems={[pending]}
           renderPendingItem={() => <span>Pending note</span>}
@@ -1614,47 +1614,19 @@ describe('HistoryView - its tab shown again', () => {
     expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
   });
 
-  it('renders the scroller with initialLoad false in the commit that shows the tab again', () => {
-    const { rerender } = render(view(true));
-    rerender(view(false));
-    mockScroller.renders = [];
-    rerender(view(true));
+  it("defers the scroller's page request in the commit that shows the tab again, and passes the parent's loadMore through otherwise", async () => {
+    const loadMore = jest.fn((_page: number) => Promise.resolve());
+    const { rerender } = render(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+    rerender(view(false, true, true, loadMore));
+    rerender(view(true, true, true, loadMore));
 
-    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false]);
-  });
-
-  it('takes no recheck render when there is nothing more to page (hasMore false)', async () => {
-    const { rerender } = render(view(true, true, false));
-    rerender(view(false, true, false));
-    mockScroller.renders = [];
-    rerender(view(true, true, false));
+    mockScroller.props?.loadMore(3);
+    expect(loadMore).not.toHaveBeenCalled();
     await act(async () => {});
+    expect(loadMore.mock.calls).toEqual([[3]]);
 
-    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false]);
-  });
-
-  it("re-enables initialLoad once that commit's effects flush when there is more to page (hasMore true), changing no other scroller prop", async () => {
-    const { rerender } = render(view(true, true, true));
-    rerender(view(false, true, true));
-    mockScroller.renders = [];
-    rerender(view(true, true, true));
-    await act(async () => {});
-
-    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([false, true]);
-    expect(mockScroller.renders[1]?.hasMore).toBe(mockScroller.renders[0]?.hasMore);
-    expect(mockScroller.renders[1]?.loadMore).toBe(mockScroller.renders[0]?.loadMore);
-    expect(mockScroller.renders[1]?.useWindow).toBe(mockScroller.renders[0]?.useWindow);
-  });
-
-  it('leaves initialLoad true on every other render: first mount, and a PageActiveContext flip while the tab stays shown', () => {
-    const { rerender } = render(view(true));
-    expect(mockScroller.renders.map(r => r.initialLoad)).toEqual([true]);
-
-    mockScroller.renders = [];
-    rerender(view(true, false));
-    rerender(view(true, true));
-
-    expect(mockScroller.renders.length).toBeGreaterThan(0);
-    expect(mockScroller.renders.every(r => r.initialLoad === true)).toBe(true);
+    rerender(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
   });
 });
