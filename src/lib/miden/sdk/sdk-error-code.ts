@@ -170,6 +170,25 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
 }
 
 /**
+ * A local store update that failed after the wallet's own `submitProven` resolved,
+ * which is the moment the node accepted the transaction (#945).
+ *
+ * A staged `submitProven` then `apply()` rejects with the raw store error, which
+ * says nothing about the submit. This carries both signals `isApplyAfterSubmitError`
+ * reads - the code, which the offscreen reply forwards as `errorCode`, and the
+ * mempool text - so the write classifies as submitted and is never requeued into a
+ * second submit.
+ */
+export class ApplyAfterSubmitError extends Error {
+  readonly code = 'ApplyTransactionAfterSubmitFailed';
+
+  constructor(cause: unknown) {
+    super("This transaction was accepted into the node's mempool but the local store update failed", { cause });
+    this.name = 'ApplyAfterSubmitError';
+  }
+}
+
+/**
  * True when a commit wait ended because the node DISCARDED the transaction —
  * a definitive "this will never land", as opposed to the indeterminate
  * timeout the same call throws when the poll window simply expires.
@@ -192,6 +211,26 @@ export function isTransactionDiscardedError(err: unknown): boolean {
   // text happened to embed the phrase must not be read as a node verdict.
   if (isWasmClientPoisonedError(err)) return false;
   return errorMessageParts(err).some(part => /transaction rejected/i.test(part));
+}
+
+/**
+ * True when the node refused a transaction because the account state it was
+ * built on is no longer the account's current state:
+ *
+ *   "... initial account commitment 0x... does not match the current commitment 0x... for account 0x..."
+ *
+ * The node answers this at admission, so the refused transaction never entered
+ * the mempool. A recovered Guardian device meets it when it built on state it
+ * adopted before the old device's last transaction settled (#904).
+ *
+ * Same rules as `isApplyAfterSubmitError`: both phrases must come from ONE error
+ * in the chain, and a lock-recovery eviction is never a node verdict.
+ */
+export function isStaleInitialCommitmentError(error: unknown): boolean {
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(part =>
+    /initial account commitment[\s\S]*does not match the current commitment/i.test(part)
+  );
 }
 
 /**

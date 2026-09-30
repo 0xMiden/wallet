@@ -141,14 +141,13 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked, clearInset, corner }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, clearInset }: any) => (
     <div
       data-testid="bottom-nav"
       data-active={activeId}
       data-docked={String(!!docked)}
       data-clear-inset={String(!!clearInset)}
     >
-      <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -165,26 +164,22 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => (
-    <div data-testid="action-bar" data-active={activeId} className={className}>
-      {items.map((it: any) => (
-        <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
-          {it.icon}
-          {it.label}
+  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
+    const tabActive = jest.requireActual('app/layouts/page-active').useTabActive();
+    return (
+      <div data-testid="action-bar" data-active={activeId} data-tab-active={String(tabActive)} className={className}>
+        {items.map((it: any) => (
+          <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+            {it.icon}
+            {it.label}
+          </button>
+        ))}
+        <button data-testid="action-unknown" onClick={() => onChange('__nope__')}>
+          unknown
         </button>
-      ))}
-      <button data-testid="action-unknown" onClick={() => onChange('__nope__')}>
-        unknown
-      </button>
-    </div>
-  )
-}));
-
-// The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
-jest.mock('components/NetworkModeRibbon', () => ({
-  NetworkModeRibbon: ({ docked }: { docked: boolean }) => (
-    <div data-testid="network-mode-ribbon" data-docked={String(docked)} />
-  )
+      </div>
+    );
+  }
 }));
 
 const mockNavigate = navigate as jest.Mock;
@@ -390,17 +385,7 @@ describe('TabLayout — tabs list composition', () => {
   });
 });
 
-describe('TabLayout — network corner ribbon', () => {
-  it.each([
-    ['mobile (docked)', true],
-    ['extension/desktop (floating)', false]
-  ])('puts the network ribbon in the bottom nav’s corner on %s', (_label, mobile) => {
-    mockPlatform.isMobile = mobile;
-    renderLayout();
-    expect(screen.getByTestId('bottom-nav-corner')).toContainElement(screen.getByTestId('network-mode-ribbon'));
-    expect(screen.getByTestId('network-mode-ribbon')).toHaveAttribute('data-docked', String(mobile));
-  });
-
+describe('TabLayout — test network', () => {
   it('shows no banner above the tabs', () => {
     renderLayout();
     expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
@@ -766,105 +751,64 @@ describe('TabLayout — Home band through the status bar', () => {
   });
 });
 
-describe('TabLayout - the tab bar marks body while it is mounted', () => {
-  const marked = () => document.body.hasAttribute('data-navbar-mounted');
+describe('TabLayout - the root declares the tab bar cushion for its own subtree', () => {
+  // main.css declares `--navbar-cushion` only on this root, so a page inherits the bar's room only while it
+  // sits inside the layout that draws the bar. A slide page is a sibling of the covered tab layer and keeps
+  // the flat 1rem while it slides (#1109).
+  const readCss = () =>
+    fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('marks body on mount and clears it on unmount', () => {
+  it.each([
+    ['docked', true],
+    ['floating', false]
+  ])('marks its root %s', (kind, mobile) => {
+    mockPlatform.isMobile = mobile;
     mockLocation.pathname = '/history';
-    const { unmount } = renderLayout();
-    expect(marked()).toBe(true);
-    unmount();
-    expect(marked()).toBe(false);
+    const { container } = renderLayout();
+    expect(getRoot(container)).toHaveAttribute('data-tab-layout', kind);
   });
 
-  it('keeps the mark while another layout is still mounted', () => {
+  it('renders its page inside the root, so the page inherits the cushion', () => {
     mockLocation.pathname = '/history';
-    const base = renderLayout();
-    const pushed = renderLayout();
-    pushed.unmount();
-    expect(marked()).toBe(true);
-    base.unmount();
-    expect(marked()).toBe(false);
+    const { container } = renderLayout();
+    expect(screen.getByTestId('child-content').closest('[data-tab-layout]')).toBe(getRoot(container));
   });
 
-  it('marks body before paint, in the commit that mounts the bar', () => {
-    mockLocation.pathname = '/history';
-    let seenAtLayout: boolean | undefined;
-    function LayoutProbe() {
-      React.useLayoutEffect(() => {
-        seenAtLayout = marked();
-      }, []);
-      return null;
-    }
-    render(
-      <>
-        <TabLayout>{<div />}</TabLayout>
-        <LayoutProbe />
-      </>
-    );
-    expect(seenAtLayout).toBe(true);
-  });
-
-  // Android's bar keeps its tabs above the system navigation bar, so it reaches further into the page
-  // and main.css gives flow CTAs more room under this mark (#1121).
-  const clearsInset = () => document.body.hasAttribute('data-navbar-clears-inset');
-
-  it('marks body for a bar that clears the inset on Android, until the last layout unmounts', () => {
+  // Android's bar keeps its tabs above the system navigation bar, so it reaches further into the page (#1121).
+  it('marks its root for a bar that clears the inset on Android', () => {
     mockPlatform.isMobile = true;
     mockPlatform.isAndroid = true;
     mockLocation.pathname = '/history';
-    const base = renderLayout();
-    const pushed = renderLayout();
-    expect(clearsInset()).toBe(true);
-    pushed.unmount();
-    expect(clearsInset()).toBe(true);
-    base.unmount();
-    expect(clearsInset()).toBe(false);
+    const { container } = renderLayout();
+    expect(getRoot(container)).toHaveAttribute('data-navbar-clears-inset', '');
   });
 
-  it('never marks body for a bar that clears the inset on iOS', () => {
+  it('never marks its root for a bar that clears the inset on iOS', () => {
     mockPlatform.isMobile = true;
     mockPlatform.isIOS = true;
     mockLocation.pathname = '/history';
-    renderLayout();
-    expect(clearsInset()).toBe(false);
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'false');
+    const { container } = renderLayout();
+    expect(getRoot(container)).not.toHaveAttribute('data-navbar-clears-inset');
   });
 
-  it.each([
-    ['Android', true],
-    ['iOS', false]
-  ])('marks body for the inset before paint on %s, in the commit that mounts the bar', (_platform, android) => {
-    mockPlatform.isMobile = true;
-    mockPlatform.isAndroid = android;
-    mockLocation.pathname = '/history';
-    let seenAtLayout: boolean | undefined;
-    function LayoutProbe() {
-      React.useLayoutEffect(() => {
-        seenAtLayout = clearsInset();
-      }, []);
-      return null;
-    }
-    render(
-      <>
-        <TabLayout>{<div />}</TabLayout>
-        <LayoutProbe />
-      </>
-    );
-    expect(seenAtLayout).toBe(android);
-  });
-
-  it('sizes the flow cushion under that mark from the bar and the body floor, never a copied 16px', () => {
-    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+  it('declares the cushion on the tab layout root and nowhere else', () => {
+    const css = readCss();
+    expect(css).toMatch(/\[data-tab-layout='docked'\]\s*\{\s*--navbar-cushion:\s*4rem;\s*\}/);
     expect(css).toMatch(
-      /body\[data-navbar-clears-inset\]\s*\{\s*--navbar-cushion:\s*calc\(\s*5\.5rem \+ env\(safe-area-inset-bottom\) - var\(--app-safe-bottom, max\(16px, env\(safe-area-inset-bottom\)\)\)\s*\);\s*\}/
+      /\[data-tab-layout='docked'\]\[data-navbar-clears-inset\]\s*\{\s*--navbar-cushion:\s*calc\(\s*5\.5rem \+ env\(safe-area-inset-bottom\) - var\(--app-safe-bottom, max\(16px, env\(safe-area-inset-bottom\)\)\)\s*\);\s*\}/
     );
+    expect(css).toMatch(/\[data-tab-layout='floating'\]\s*\{\s*--navbar-cushion:\s*6rem;\s*\}/);
+    const declaredOn = [...css.matchAll(/([^{}]+)\{[^{}]*--navbar-cushion\s*:/g)].map(match => match[1]!.trim());
+    expect(declaredOn).toEqual([
+      "[data-tab-layout='docked']",
+      "[data-tab-layout='docked'][data-navbar-clears-inset]",
+      "[data-tab-layout='floating']"
+    ]);
   });
 
-  it('collapses a flow footer cushion to 1rem when no tab bar is mounted', () => {
-    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
-    expect(css).toMatch(
-      /body:not\(\[data-navbar-mounted\]\) \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
+  it('still collapses the cushion to 1rem while the bar is hidden', () => {
+    expect(readCss()).toMatch(
+      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
     );
   });
 });
@@ -996,6 +940,45 @@ describe('TabLayout — mount fade and tab panes', () => {
       </PageActiveContext.Provider>
     );
     expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
+  });
+
+  // The Home pane is not rebuilt while hidden, so the bar keeps its old segment until the commit that
+  // shows the Home tab again; the tab-active context is how the bar tells that commit apart (#1068).
+  it('re-renders the hidden bar with the tab-active context, and shows it again with its new segment', () => {
+    mockLocation.pathname = '/send';
+    const { rerender } = renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+
+    mockLocation.pathname = '/history';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'false');
+
+    mockLocation.pathname = '/';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'overview');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+  });
+
+  // A slide page covering Home and closing back onto a different Home-group route is not a tab swap:
+  // the Home tab was never deselected, only covered, so the bar stays reported active throughout (#1068).
+  it('keeps the tab active while a slide page covers Home, and again once it closes onto Send', () => {
+    mockLocation.pathname = '/';
+    const { rerender } = render(
+      <PageActiveContext.Provider value={false}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+
+    mockLocation.pathname = '/send';
+    rerender(
+      <PageActiveContext.Provider value={true}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-tab-active', 'true');
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
   });
 
   it('refreshes the active tab content on every render', () => {

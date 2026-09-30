@@ -179,10 +179,14 @@ jest.mock('./HistoryItem', () => ({
   )
 }));
 
-// isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
-// each entry can opt into the faucet branch independently.
+// isFaucetRequest: driven off a test-only `__faucet` marker so each entry can opt into the faucet
+// branch independently, and, like the real one, true only for an entry that is a receive.
+type MockFaucetEntry = { __faucet?: boolean; transactionIcon?: string; txType?: string };
 jest.mock('./transactionUtils', () => ({
-  isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
+  isFaucetRequest: jest.fn(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  ),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
@@ -192,6 +196,7 @@ jest.mock('./transactionUtils', () => ({
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
@@ -253,7 +258,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
   mockScroller.props = undefined;
-  (isFaucetRequest as jest.Mock).mockImplementation((entry: { __faucet?: boolean }) => Boolean(entry.__faucet));
+  (isFaucetRequest as jest.Mock).mockImplementation(
+    (entry: MockFaucetEntry) =>
+      Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
+  );
 });
 
 const noop = jest.fn();
@@ -382,10 +390,10 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
-  // The row is a div with role=button and no tabIndex, so it cannot take focus. It gets press
-  // feedback and nothing that claims focus behaviour: a ring that can never render, and
-  // `select-none`, which would stop the activity text being selectable.
-  it('gives a tappable row press feedback without claiming focus behaviour it cannot deliver', () => {
+  // ActivityRow is mocked here, so this pins only what `Card asChild` adds: press feedback, and
+  // no focus classes of its own. The focus ring and `select-none` come from the row's own native
+  // button, and ActivityRow's tests pin them, with the real Card wrapped around it.
+  it('gives a tappable row press feedback from the card, and leaves focus styling to the row', () => {
     render(
       <HistoryView
         entries={[makeEntry({ key: 'tappable', txId: 'tx-tappable' })]}
@@ -541,16 +549,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txId: 'tx-swap-notoken',
       timestamp: DAY_B
     }),
-    // Faucet whose icon is NOT receive: covers the `icon==='RECEIVE' || faucet`
-    // right-hand branch for the "from" subtitle, plus a short address.
+    // A faucet claim still in flight (no icon yet): the faucet glyph, a positive amount and the
+    // "from" subtitle, plus a short address.
     makeEntry({
-      key: 'faucet-send',
+      key: 'faucet-in-flight',
       __faucet: true,
-      transactionIcon: 'SEND',
+      txType: 'consume',
       secondaryAddress: 'shortaddr',
       amount: '1',
       token: 'MDN',
-      txId: 'tx-faucet-send',
+      txId: 'tx-faucet-in-flight',
       timestamp: DAY_B
     }),
     // Smart Withdraw in flight: dedicated title/subtitle, positive amount and a
@@ -795,7 +803,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '');
   });
 
-  it('renders a faucet row whose icon is not RECEIVE, still using the "from" subtitle', () => {
+  it('renders a faucet claim in flight with the faucet glyph and the "from" subtitle', () => {
     renderFull();
     // Two faucet rows share the title; pick the one with the short address.
     const row = screen
@@ -1072,6 +1080,43 @@ describe('HistoryView batch-claim extra assets', () => {
     });
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
+});
+
+// A claim in flight has no icon yet (its entry is built from the transaction row), so the
+// direction comes from its type (#1102).
+describe('HistoryView claims in flight', () => {
+  const renderPending = (overrides: EntryOverrides) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'pending',
+            type: HistoryEntryType.PendingTransaction,
+            message: 'Generating transaction',
+            secondaryAddress: 'shortaddr',
+            amount: '3',
+            token: 'MDN',
+            txId: 'tx-pending',
+            ...overrides
+          })
+        ]}
+        fullHistory
+      />
+    );
+    return screen.getByTestId('activity-row');
+  };
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const row = renderPending({ txType: 'consume' });
+    expect(row).toHaveAttribute('data-subtitle', 'from: shortaddr');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('keeps a send in flight reading "to" its recipient', () => {
+    const row = renderPending({ txType: 'send' });
+    expect(row).toHaveAttribute('data-subtitle', 'to: shortaddr');
   });
 });
 

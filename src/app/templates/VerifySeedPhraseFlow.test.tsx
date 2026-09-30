@@ -1,7 +1,10 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { App } from '@capacitor/app';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import type { SeedPhraseStatus } from 'lib/shared/types';
 
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
@@ -15,13 +18,26 @@ const mockSeedState: { seedPhraseStatus?: SeedPhraseStatus } = {};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockSeedState) => SeedPhraseStatus | undefined) => selector(mockSeedState)
 }));
-jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
+// Hardware back runs through the real hook and registry; only the native listener is stubbed, so a
+// test presses the handler the page registered under its deps (#1042).
+let mockBackButton: (() => void) | undefined;
+jest.mock('@capacitor/app', () => ({
+  App: {
+    addListener: jest.fn((event: string, callback: () => void) => {
+      if (event === 'backButton') mockBackButton = callback;
+      return Promise.resolve({ remove: jest.fn() });
+    }),
+    minimizeApp: jest.fn()
+  }
+}));
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHapticLight = jest.fn();
 const mockHapticMedium = jest.fn();
+const mockClipboardWrite = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -101,13 +117,20 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { EyeOff: 'EyeOff' }
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -120,7 +143,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isAndroid: () => true
 }));
 
 jest.mock('lib/wallet-prompts', () => ({
@@ -167,12 +191,136 @@ const clickText = (text: string) => {
 };
 
 describe('VerifySeedPhraseFlow', () => {
+  beforeAll(async () => {
+    mockIsMobile = true;
+    await initMobileBackHandler();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue(TWELVE);
     mockCompleteWalletPrompt.mockResolvedValue(undefined);
+    mockClipboardWrite.mockResolvedValue(undefined);
+  });
+
+  const presentCopyLabel = () =>
+    screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
+
+  // Presses the Android back button; the app minimizes only when no handler consumed the press.
+  const hardwareBack = () => {
+    expect(mockBackButton).toBeDefined();
+    act(() => {
+      mockBackButton!();
+    });
+    expect(App.minimizeApp).not.toHaveBeenCalled();
+  };
+
+  const reachReviewOnMobile = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('passcode-submit'));
+    await screen.findByText('w1');
+  };
+
+  // #1042: hardware back does what the header back does on the step showing.
+  it('hardware back on the warning leaves the flow', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    hardwareBack();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hardware back on the auth step returns to the warning, as the header back does', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back on the quiz step returns to the review, as the header back does', async () => {
+    mockIsMobile = true;
+    await reachReviewOnMobile();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-quiz')).toBeTruthy();
+    hardwareBack();
+    expect(screen.getByTestId('verify-seed-review')).toBeTruthy();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('hardware back leaves once the phrase is removed while the auth step shows', async () => {
+    mockIsMobile = true;
+    const { rerender } = await renderFlow();
+    clickText('continue');
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    mockSeedState.seedPhraseStatus = 'removed';
+    try {
+      rerender(<VerifySeedPhraseFlow />);
+      hardwareBack();
+      expect(mockGoBack).toHaveBeenCalledTimes(1);
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
+  });
+
+  it('hardware back while the reveal is pending returns to the warning, and the phrase it returns is dropped', async () => {
+    mockIsMobile = true;
+    let resolveReveal: (v: string) => void = () => {};
+    mockRevealMnemonic.mockImplementation(
+      () =>
+        new Promise<string>(res => {
+          resolveReveal = res;
+        })
+    );
+    await renderFlow();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('passcode-submit'));
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
+    hardwareBack();
+    await act(async () => {
+      resolveReveal(TWELVE);
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('verify-seed-warning')).toBeTruthy();
+    expect(screen.queryByTestId('verify-seed-review')).toBeNull();
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  const reachReview = async () => {
+    await renderFlow();
+    clickText('continue');
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('w1');
+  };
+
+  it('copies the phrase through the shared clipboard and confirms only once the write lands', async () => {
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TWELVE });
+    expect(presentCopyLabel()).toBe('copied');
+  });
+
+  it('keeps the copy label when the clipboard write is refused', async () => {
+    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    await reachReview();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('verify-seed-copy'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(presentCopyLabel()).toBe('copyToClipboard');
   });
 
   it('disables the continue button while the hardware-protector probe is pending', async () => {
@@ -185,14 +333,77 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('falls back to hasHardwareProtector=false when the probe rejects', async () => {
-    mockHasHardwareProtector.mockRejectedValue(new Error('probe failed'));
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
     await renderFlow();
 
-    // With the probe rejected, continue is enabled and leads to the auth step.
-    expect((screen.getByText('continue') as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
     clickText('continue');
-    expect(screen.getByText('enterPassword')).toBeTruthy();
+    expect(screen.getByTestId('verify-seed-auth')).toBeTruthy();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('reveals through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    await renderFlow();
+
+    await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+    clickText('continue');
+    await flush();
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+  });
+
+  it.each([false, true])(
+    'shows an error and offers no credential step when both protector reads fail (remove: %s)',
+    async remove => {
+      mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+      mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+      render(<VerifySeedPhraseFlow remove={remove} />);
+
+      const notice = await screen.findByTestId('protector-probe-error');
+      expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.getByText('continue')).toBeDisabled();
+      expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+      expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    }
+  );
+
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<VerifySeedPhraseFlow />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.getByText('continue')).toBeDisabled();
+    expect(screen.queryByTestId('verify-seed-auth')).toBeNull();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<VerifySeedPhraseFlow />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.getByText('continue')).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      await waitFor(() => expect(screen.getByText('continue')).toBeEnabled());
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders each step through SubPageLayout, its actions in the footer', async () => {

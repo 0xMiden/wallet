@@ -24,6 +24,7 @@ import {
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  isReceiveEntry,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -296,6 +297,39 @@ describe('isFaucetRequest', () => {
     const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'other' };
     expect(isFaucetRequest(entry)).toBe(false);
   });
+
+  it('returns true for a claim in flight whose entry has no icon yet', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = {
+      transactionIcon: undefined,
+      txType: 'consume',
+      faucetId: 'native-id',
+      secondaryAddress: 'native-id'
+    };
+    expect(isFaucetRequest(entry)).toBe(true);
+  });
+});
+
+describe('isReceiveEntry', () => {
+  it('counts a settled receive by its icon', () => {
+    expect(isReceiveEntry({ transactionIcon: 'RECEIVE', txType: 'consume' })).toBe(true);
+  });
+
+  it('counts a claim still in flight, whose entry has no icon yet', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'consume' })).toBe(true);
+  });
+
+  it('does not count a send in flight', () => {
+    expect(isReceiveEntry({ transactionIcon: undefined, txType: 'send' })).toBe(false);
+  });
+
+  it('does not count a failed claim', () => {
+    expect(isReceiveEntry({ transactionIcon: 'FAILED', txType: 'consume' })).toBe(false);
+  });
+
+  it('does not count a settled send', () => {
+    expect(isReceiveEntry({ transactionIcon: 'SEND', txType: 'send' })).toBe(false);
+  });
 });
 
 describe('isFaucetMintTransaction', () => {
@@ -565,6 +599,16 @@ describe('bridgeRowDisplay', () => {
       network: 'Sepolia',
       status: 'pending'
     });
+  });
+
+  // Proves the value HistoryItem/HistoryView render for a bridge-out list row: neither
+  // reformats `outAmount` themselves, so this function's return is the list row's amount.
+  // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
+  // typed Miden-side send amount and must show as entered, not cut to two decimals.
+  it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
+    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
+      '0.015'
+    );
   });
 });
 

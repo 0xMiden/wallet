@@ -1,67 +1,76 @@
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { DESKTOP_STORAGE_PREFIX, getStorageProvider } from 'lib/platform/storage-adapter';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
-// Keys that are configuration, NOT wallet data, and must survive a storage
-// reset. The dev-settings endpoint override selects the network the wallet is
-// being created for, and it is set BEFORE creation. Without preserving it,
-// creating a wallet on a custom network wipes the override (the wipe below is a
-// blanket `clear()`), so the wallet silently reverts to the build-default
-// network while the account was already minted on the custom one, leaving the
-// account on one network and the client (balances, faucet, native token) on
-// another. The dev-settings reset opts out through `keepEndpointOverride: false`
-// rather than clearing the override afterwards.
-const PRESERVED_STORAGE_KEYS = [ENDPOINT_OVERRIDE_STORAGE_KEY];
+// Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
+// selects the network a wallet is created for and is set BEFORE creation; losing it mints the
+// account on one network while the client resolves another. Developer Settings' reset takes it
+// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards.
+export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
 
-async function clearPlatformKeyValueStorage(preservedKeys: readonly string[] = PRESERVED_STORAGE_KEYS): Promise<void> {
-  // Snapshot preserved config before the blanket wipe, restore it after.
-  const preserved: Record<string, unknown> = {};
-  for (const key of preservedKeys) {
-    const value = await fetchFromStorage(key).catch(() => null);
-    if (value != null) preserved[key] = value;
+// A wallet-setup reset also keeps the frozen legacy guardian URL until a setup succeeds: a
+// Guardian recovery with no pick and no probe result falls back to it, and a Retry after a
+// failed attempt must find the value the first attempt did. See `dropLegacyGuardianUrl`.
+export const SETUP_PRESERVED_STORAGE_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, GUARDIAN_URL_STORAGE_KEY];
+
+// Removes every key but the kept ones. A kept key is never deleted and written back, so no
+// failure can lose it, and a failure rejects the reset rather than being swallowed.
+async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
+  try {
+    if (isMobile()) {
+      const { Preferences } = await import('@capacitor/preferences');
+      const { keys } = await Preferences.keys();
+      for (const key of keys) {
+        if (!keep.includes(key)) await Preferences.remove({ key });
+      }
+    } else if (isDesktop()) {
+      removeLocalStorageExcept(keep);
+    } else if (isExtension()) {
+      const browser = await import('webextension-polyfill');
+      const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+      if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
+    }
+  } finally {
+    // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
+    // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
+    await rereadStorageCache();
   }
+}
 
-  if (isMobile()) {
-    // On mobile, use native Capacitor Preferences.clear()
-    const { Preferences } = await import('@capacitor/preferences');
-    await Preferences.clear();
-  } else if (isDesktop()) {
-    // On desktop, use localStorage
-    localStorage.clear();
-  } else if (isExtension()) {
-    // On extension, use browser.storage.local.clear()
-    const browser = await import('webextension-polyfill');
-    await browser.default.storage.local.clear();
-  }
-
-  for (const [key, value] of Object.entries(preserved)) {
-    await putToStorage(key, value).catch(() => {});
+// Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
+function removeLocalStorageExcept(keep: readonly string[]): void {
+  const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
+  for (const key of Object.keys(localStorage)) {
+    if (!kept.has(key)) localStorage.removeItem(key);
   }
 }
 
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Wipes the platform key-value store and then empties the `transactions` and
- * `spendingLimits` tables, but deliberately keeps the TridentMain Dexie connection alive. Using
- * `db.delete()` here would fire a `versionchange` event to every other open
- * handle (notably the page's, which was opened lazily by the onboarding UI),
- * force them closed, and leave no path to reopen them short of a page reload
- * — which is how we end up with `DatabaseClosedError` on every subsequent
- * page-side Dexie read and custom-faucet `fetchTokenMetadata` calls racing
- * against a partially-loaded SDK.
+ * Removes every platform key-value entry except `keep` (a setup keeps `SETUP_PRESERVED_STORAGE_KEYS`) and
+ * then empties the `transactions` and `spendingLimits` tables, but deliberately keeps the TridentMain Dexie
+ * connection alive. Using `db.delete()` here would fire a `versionchange` event
+ * to every other open handle (notably the page's, which was opened lazily by the
+ * onboarding UI), force them closed, and leave no path to reopen them short of a
+ * page reload - which is how we end up with `DatabaseClosedError` on every
+ * subsequent page-side Dexie read and custom-faucet `fetchTokenMetadata` calls
+ * racing against a partially-loaded SDK.
  *
  * The key-value clear comes first, as in `resetStorageDestructive`, because the vault lives there: a clear
- * that rejects leaves the vault, the caps and the history as they were, and a table clear that rejects
- * leaves no vault. `clearStorage(false)` clears only the key-value store.
+ * that rejects, even part way, leaves the caps and the history as they were, so a vault it did not reach
+ * keeps them, and a table clear that rejects leaves no vault. `clearStorage(false)` clears only the
+ * key-value store.
  *
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
-export async function clearStorage(clearDb: boolean = true) {
-  await clearPlatformKeyValueStorage();
+export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = SETUP_PRESERVED_STORAGE_KEYS) {
+  await clearPlatformKeyValueStorage(keep);
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -76,12 +85,18 @@ export async function clearStorage(clearDb: boolean = true) {
   primeNativeAssetId();
 }
 
+// Called once a setup has published its vault: every Guardian account it wrote carries its own
+// guardianEndpoint, so the fallback has nothing left to serve. A delete, never a write.
+export async function dropLegacyGuardianUrl(): Promise<void> {
+  await getStorageProvider().remove([GUARDIAN_URL_STORAGE_KEY]);
+}
+
 /**
  * Hard reset - explicitly what the options-page "Reset Wallet" button wants.
- * Deletes the Dexie database (forcing every live handle closed) AND clears
- * the platform key-value store. Callers should only use this when the user
- * has explicitly opted into a full wipe; for wallet creation flows use
- * `clearStorage` above instead.
+ * Deletes the Dexie database (forcing every live handle closed) AND every
+ * platform key-value entry except `PRESERVED_STORAGE_KEYS`. Callers should only
+ * use this when the user has explicitly opted into a full wipe; for wallet
+ * creation flows use `clearStorage` above instead.
  *
  * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
  * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
@@ -94,11 +109,11 @@ export async function clearStorage(clearDb: boolean = true) {
  * the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
  *
  * It fails closed. The vault lives in the key-value store, so a step after the clear that rejects leaves no
- * wallet to unlock, and a clear that rejects leaves the database untouched. A delete or reopen that rejects
- * would leave the old rows to whatever runs next (a restore from an encrypted file keeps the tables), so it
- * reopens the database and clears the transactions and spending limits, each step best effort, then rethrows
- * the original error. A caller's re-entry guard stays set through its report until the reload has been
- * attempted.
+ * wallet to unlock, and a clear that rejects, even part way, leaves the database untouched, so a vault it did
+ * not reach keeps its caps. A delete or reopen that rejects would leave the old rows to whatever runs next (a
+ * restore from an encrypted file keeps the tables), so it reopens the database and clears the transactions and
+ * spending limits, each step best effort, then rethrows the original error. A caller's re-entry guard stays set
+ * through its report until the reload has been attempted.
  */
 export async function resetStorageDestructive({
   keepEndpointOverride = true
@@ -120,7 +135,14 @@ export async function resetStorageDestructive({
   await resetNativeAssetCache();
 }
 
-export function clearClientStorage() {
-  localStorage.clear();
-  sessionStorage.clear();
+// The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
+// what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
+// and mobile those names are not in it, and the re-read finds nothing changed.
+export async function clearClientStorage(): Promise<void> {
+  try {
+    removeLocalStorageExcept(SETUP_PRESERVED_STORAGE_KEYS);
+    sessionStorage.clear();
+  } finally {
+    await rereadStorageCache();
+  }
 }

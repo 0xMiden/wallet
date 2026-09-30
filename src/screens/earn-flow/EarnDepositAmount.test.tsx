@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -54,7 +55,6 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
     confirmTitle?: string;
     showNetworkPill?: boolean;
     showBalanceHelper?: boolean;
-    footerClassName?: string;
     onAmountChange: (amount: string) => void;
     onSelectToken: () => void;
     onConfirm?: () => void;
@@ -68,7 +68,6 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
       data-confirm-title={props.confirmTitle}
       data-show-network-pill={String(props.showNetworkPill)}
       data-show-balance-helper={String(props.showBalanceHelper)}
-      data-footer={props.footerClassName}
       data-token-id={props.token?.id}
       data-token-name={props.token?.name}
       data-token-decimals={String(props.token?.decimals)}
@@ -101,7 +100,7 @@ jest.mock('./useEarnPositions', () => {
 // The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
 // capture from when balances were read (0 here: read before any quote), which the screen must not
 // trust; its price comes from the live quote in the store.
-const USDC_ROW = { tokenId: '0xusdcfaucet', balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+const USDC_ROW = { tokenId: MIDEN_USDC_FAUCET, balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
 let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
@@ -119,7 +118,7 @@ jest.mock('lib/store', () => ({
 // faucet constants and the id normalizer are used here.
 jest.mock('lib/epoch', () => ({
   MIDEN_USDC_DECIMALS: 6,
-  MIDEN_USDC_FAUCET: '0xusdcfaucet',
+  MIDEN_USDC_FAUCET: jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
   normalizeMidenIdToHex: (id: string) => id.toLowerCase()
 }));
 
@@ -153,7 +152,7 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-token-id', '0xusdcfaucet');
+    expect(select).toHaveAttribute('data-token-id', MIDEN_USDC_FAUCET);
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
@@ -197,7 +196,6 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
-    expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
   });
 
   it('names no vault in the header when vaultId matches nothing', () => {

@@ -8,11 +8,14 @@ import { IconCircle } from './FactRow';
 
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
-    /** `sm`: `text-label` `muted` (default, the spec's section label). `lg`: `text-title-section`
-     * `ink`, for a page-level section title such as Settings' coloured group headers. `xl`:
-     * `text-title-page` `ink`, the section title of a tab root, such as Explore's. */
+    /** `sm`: `text-label` `muted` (default, the spec's section label). `md`: the same label at
+     * `text-row-title`, 16px, for a detail page's sections (a transaction's details and notes).
+     * `lg`: `text-title-section` `ink`, for a page-level section title such as Settings' coloured
+     * group headers. `xl`: `text-title-page` `ink`, the section title of a tab root, such as
+     * Explore's. */
     size: {
       sm: 'text-label text-muted',
+      md: 'text-row-title text-muted',
       lg: 'text-title-section text-ink',
       xl: 'text-title-page text-ink'
     },

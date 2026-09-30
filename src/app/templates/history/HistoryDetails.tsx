@@ -126,16 +126,28 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
-  // raw quote/source string never renders with its full precision. `break-all`
-  // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
-  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '-';
-  const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
+  const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
+  // Only a genuine Epoch quote (unbounded precision) is rounded for display here. A
+  // Slow-route bridge-in's amounts, and a bridge-out's Miden-side send amount on EITHER
+  // route (always what was typed, capped by AmountInput at 6 decimals, never a quote), are
+  // shown as stored. `bridgeRowDisplay` already applies this same rule to a bridge-out's OUT
+  // side (it formats `bridgeOutputAmount` only, an Epoch-only field, and passes the
+  // Agglayer/no-quote fallback to `entry.amount` through unformatted), so this component
+  // reformats nothing further for bridge-out. `break-all` + `min-w-0` keep an unexpectedly
+  // long value from widening the page (#752).
+  const isEpochBridgeIn = bridgeIn && entry.bridgeInProvider === 'epoch';
+  const inAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(rawInAmount) : rawInAmount) ?? '-';
+  const displayedOutAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(outAmount) : outAmount) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+      <Icon
+        name={IconName.ArrowRight}
+        size="md"
+        fill="currentColor"
+        className="mx-0.5 shrink-0 self-center text-text-muted"
+      />
       <span className="min-w-0 text-ink">{displayedOutAmount}</span>
       <span className="min-w-0 text-text-muted">{outSymbol}</span>
     </div>
@@ -194,8 +206,10 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
 
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+      {/* 4px apart, with "show all" below: a chip with a neighbour keeps its tap target to its own box;
+          a lone chip has none to protect, so it keeps the taller one (#1046). */}
       {visibleNoteIds.map(noteId => (
-        <HashChip key={noteId} hash={noteId} trimHash />
+        <HashChip key={noteId} hash={noteId} trimHash compactHitArea={noteIds.length > 1} />
       ))}
       {isCollapsed && (
         <button
@@ -606,7 +620,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   return (
     <PageLayout hideToolbar>
       <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
-      <div className="flex flex-1 flex-col min-h-0 px-4">
+      {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
+          section labels, the ID chips) resolve to the heading face here, and the text that sets no
+          face of its own inherits it. */}
+      <div className="flex flex-1 flex-col min-h-0 px-4 face-heading">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -694,8 +711,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             </div>
 
-            {/* Transfer Details */}
-            <div className="mt-4">
+            {/* Transfer Details: flush under the hero, whose own 20px is the gap above the rule. */}
+            <div>
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>

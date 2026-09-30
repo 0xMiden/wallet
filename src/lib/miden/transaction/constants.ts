@@ -1,5 +1,7 @@
+import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStage } from '../db/types';
+import { ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -84,6 +86,11 @@ export const TRANSACTION_INTERRUPTED_ERROR = 'Transaction was interrupted';
 export const TRANSACTION_INTERRUPTED_ON_STARTUP = 'Transaction was interrupted when the browser closed';
 
 export const INVALID_NOTE_ERROR = 'Note is invalid';
+
+// Thrown before anything is minted: only the bytes built at initiate carry the mandate binding, and a note built
+// without it is one the allocator refuses to bind.
+export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
+  'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
@@ -228,6 +235,18 @@ export function isFeeConversionInfoMissingError(raw: string): boolean {
 }
 
 /**
+ * The remove-asset assertion below by its numeric code, which is all a failed local
+ * execution reports (`assertion failed with error code: ...`): an unfunded account's
+ * rotation failed in exactly that form and was never classified (#805).
+ *
+ * `ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW` in miden-protocol 0.16.1
+ * (`asm/kernels/transaction-core/src/fungible_asset.masm`). Derived like the
+ * conversion-info code above: the first 8 bytes, little-endian, of blake3 of the
+ * message, so matching the code is matching the message.
+ */
+export const ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE = '644413868907058392';
+
+/**
  * The kernel's generic remove-asset assertion, which says a vault held less of some
  * asset than the transaction tried to take out — but NOT which asset.
  *
@@ -240,7 +259,10 @@ export function isFeeConversionInfoMissingError(raw: string): boolean {
  * — which talked them out of the resync/retry that fixes the stale-state case.
  */
 export function isVaultShortfallError(raw: string): boolean {
-  return /amount of the asset in the vault is less than the amount to remove/i.test(raw);
+  return (
+    /amount of the asset in the vault is less than the amount to remove/i.test(raw) ||
+    raw.includes(ERR_VAULT_FUNGIBLE_ASSET_AMOUNT_LESS_THAN_AMOUNT_TO_WITHDRAW_CODE)
+  );
 }
 
 /**
@@ -251,6 +273,65 @@ export function isVaultShortfallError(raw: string): boolean {
 export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'The transaction could not be completed because an asset it moves was not available in full — either the ' +
   'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
+
+/**
+ * An everyday-key rotation that failed because the account could not pay its fee. A
+ * rotation moves no asset, so on this row type the only withdrawal that can fall short
+ * is the fee. A row a build without the code match failed keeps the raw kernel line as
+ * `error` and has no `rawError`, hence the fallback read.
+ */
+export function isVaultShortfallRow(row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError'>): boolean {
+  if (row.type !== 'replace-hot-key' || row.status !== ITransactionStatus.Failed) return false;
+  if (row.error === TRANSACTION_VAULT_SHORTFALL_ERROR) return true;
+  const raw = row.rawError ?? row.error;
+  return raw !== undefined && isVaultShortfallError(raw);
+}
+
+/** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */
+export const ROTATION_PENDING_CONSUME_ERROR =
+  "This account's everyday key has to be activated before it can claim transfers. Open the wallet to finish " +
+  'activating it.';
+
+/** The gate's claim named a note the account no longer lists as consumable. */
+export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
+  'This transfer is no longer available to claim. It may have been claimed on another device.';
+
+/**
+ * The gate's claim named a note holding anything the wallet cannot prove is the native asset, or one
+ * that is not a standard P2ID or P2IDE payment.
+ */
+export const ROTATION_FUNDING_NON_NATIVE_ERROR =
+  'The wallet stopped this claim because it could not confirm that the transfer holds only MIDEN.';
+
+/**
+ * A consume the wallet refused before building anything. The message IS the row's text,
+ * so it is matched by identity ahead of every reading of a raw cause: the row's message,
+ * and the outage verdict that would have #779's arm retry it until it expired.
+ */
+export class RotationGateConsumeRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RotationGateConsumeRefusal';
+  }
+}
+
+// Hedged: the proposal stages call the node as well as the guardian.
+export const GUARDIAN_UNREACHABLE_ERROR =
+  'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
+  'try again in a moment.';
+
+/**
+ * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
+ * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
+ * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ */
+export function isGuardianOutage(error: unknown): boolean {
+  if (error instanceof RotationGateConsumeRefusal) return false;
+  if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
+  const raw = formatRawTransactionError(error);
+  return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
+}
 
 function classifyTransactionError(
   error: unknown,
@@ -272,6 +353,9 @@ function classifyTransactionError(
     return abandonedPreWrite === true
       ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       : TRANSACTION_ENGINE_RECOVERED_ERROR;
+  }
+  if (error instanceof RotationGateConsumeRefusal) {
+    return error.message;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote
@@ -309,6 +393,11 @@ function classifyTransactionError(
   // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
     return TRANSACTION_VAULT_SHORTFALL_ERROR;
+  }
+  // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
+  // pipeline requeues it, #779); this names the failure for the operations that still end on it.
+  if ((stage === 'creating-proposal' || stage === 'signing-proposal') && isGuardianOutage(error)) {
+    return GUARDIAN_UNREACHABLE_ERROR;
   }
   return raw;
 }

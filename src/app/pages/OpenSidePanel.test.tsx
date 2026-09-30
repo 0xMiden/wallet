@@ -158,13 +158,14 @@ describe('OpenSidePanel', () => {
     expect(testContainer!.querySelector('[data-testid="finish-side-panel"]')).not.toBeNull();
   });
 
-  it('shows a spinner while the wallet is still being created', async () => {
+  it('shows a flow-neutral spinner while the wallet is still being set up', async () => {
     mockReady = false;
     await render();
 
     expect(testContainer!.querySelector('[data-testid="spinner"]')).not.toBeNull();
     expect(testContainer!.querySelector('h1')).toBeNull();
-    expect(testContainer!.textContent).toContain('Creating your wallet');
+    expect(testContainer!.textContent).toContain('Setting up your wallet');
+    expect(testContainer!.textContent).not.toContain('Creating your wallet');
   });
 
   it('opens the side panel and closes the onboarding tab on success', async () => {

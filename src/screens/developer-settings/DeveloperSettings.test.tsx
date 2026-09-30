@@ -29,7 +29,7 @@ jest.mock('lib/mobile/haptics', () => ({
 const mockIsExtension = { value: false };
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension.value,
-  // The pinned footer now reaches `stepFooterCushionClass`, which reads this to size the cushion.
+  // The pinned footer's slide (useSlideOnReflow) reads this to decide whether to animate at all.
   isMobile: () => false
 }));
 

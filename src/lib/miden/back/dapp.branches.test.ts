@@ -544,6 +544,13 @@ describe('getCurrentPermission — edge cases', () => {
     const res = await dapp.getCurrentPermission('https://unknown-dapp.xyz');
     expect(res.permission).toBeNull();
   });
+
+  it('omits the public key a legacy session stored as null (#174)', async () => {
+    storageState[STORAGE_KEY] = { 'https://miden.xyz': [{ ...SESSION, publicKey: null }] };
+    const res = await dapp.getCurrentPermission('https://miden.xyz');
+    expect(res.permission).not.toBeNull();
+    expect(res.permission).not.toHaveProperty('publicKey');
+  });
 });
 
 // ── waitForTransaction edge cases ──────────────────────────────

@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 
 /**
  * Whether the page a component renders in is the one on screen. TabLayout keeps a visited tab
@@ -11,6 +11,33 @@ export const PageActiveContext = createContext(true);
 
 export function usePageActive(): boolean {
   return useContext(PageActiveContext);
+}
+
+/**
+ * Whether the tab a component renders in is the selected tab, whatever covers its layer. Unlike
+ * PageActiveContext it stays true while a slide page covers the layer, so a tab's return (the pane
+ * shown again) can be told apart from a slide page's reveal.
+ */
+export const TabActiveContext = createContext(true);
+
+export function useTabActive(): boolean {
+  return useContext(TabActiveContext);
+}
+
+/**
+ * True for the one commit that shows a retained tab pane again. TabLayout hands a hidden pane its new
+ * route only in that commit, so whatever changed there changed out of sight: the pane takes its new
+ * state at once, since a slide or a pop from the state it left would read as a glitch. A slide page
+ * uncovering the pane is not this case, so this reads the tab-only signal, not the page/layer one.
+ */
+export function useTabShownAgain(): boolean {
+  const shown = useTabActive();
+  const wasShown = useRef(shown);
+  const shownAgain = shown && !wasShown.current;
+  useEffect(() => {
+    wasShown.current = shown;
+  }, [shown]);
+  return shownAgain;
 }
 
 /**

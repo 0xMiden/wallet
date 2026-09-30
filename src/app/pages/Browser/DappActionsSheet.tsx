@@ -7,7 +7,7 @@
  *
  *   [ Copy link ]  [ Add to My Dapps ]  [ Reopen ]
  *
- * Reuses the same `Drawer` primitive that Settings uses. `DappActive`
+ * Built on the shared `Drawer` primitive (`lib/ui/drawer`). `DappActive`
  * handles the webview visibility and parked-tray movement while this
  * sheet is open.
  */
@@ -55,17 +55,10 @@ const ActionButton: FC<ActionButtonProps> = ({ icon, label, onClick }) => (
 
 export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onOpenChange, onReopen }) => {
   const { t } = useTranslation();
-  // Whether the current session is already in the user's recents
-  // ("My Dapps" from the user's POV). When true the add/remove
-  // button toggles to the "Remove" state (filled icon, opposite
-  // label, opposite handler). Re-checked every time the sheet
-  // opens, so re-opening after an add/remove shows the fresh state;
-  // a reopen keeps the answer it already has, and a switch to
-  // another session reads as unresolved until its own read lands.
-  // Keyed to the session it answers for, and read back only when the keys match, so the answer for
-  // one dApp is never drawn for another. Blanking it on every effect run instead would throw away a
-  // correct answer on a reopen and flash "Add" over a saved dApp; and an effect cannot repaint the
-  // first commit after a switch, which a render-time comparison does by construction.
+  // Whether the session's URL is already in the user's recents, which drives the Add/Remove toggle;
+  // re-read every time the sheet opens. Blanking it on every effect run instead would flash "Add"
+  // over a saved dApp on a reopen, and an effect cannot repaint the first commit after a switch,
+  // which the render-time comparison below does.
   const [membership, setMembership] = useState<{ url: string; inStore: boolean } | null>(null);
   const isInMyDapps = session && membership?.url === session.url ? membership.inStore : null;
 
@@ -91,13 +84,11 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   const handleCopyLink = useCallback(() => {
     if (!session) return;
     hapticLight();
-    // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
-    // has its own web implementation, so the same call is correct on
-    // desktop, the extension and every mobile webview — not just WKWebView
-    // under a secure context. Swallow errors — the UI closes either way so
-    // the user isn't left with a stuck sheet, and there is nowhere left on
-    // screen to report a failure once it has.
-    void Clipboard.write({ string: session.url }).catch(() => {});
+    // The same `@capacitor/clipboard` write as `useClipboardCopy` (whose doc says what backs it on
+    // each surface); every failure arrives as a rejection this catch sees, never a synchronous
+    // throw. It is logged, not shown: the sheet closes either way and there is nowhere left on
+    // screen to report it.
+    void Clipboard.write({ string: session.url }).catch(error => console.error('[clipboard] failed to copy:', error));
     close();
   }, [session, close]);
 

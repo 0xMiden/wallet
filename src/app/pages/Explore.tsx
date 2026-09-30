@@ -9,6 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
+import { NetworkModePill } from 'components/NetworkModePill';
 import { AccountsDrawer, AnimatedNumber, AssetListItemSkeleton, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
@@ -78,12 +79,16 @@ const Explore: FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pullGestureRef = useRef<PullGesture | null>(null);
 
+  // A rotation-pending account's native notes are the rotation gate's to claim (#805).
+  // Narrower than consumeServiceFor's check (flag AND no hotPublicKey) -- deliberate:
+  // the only cost is one auto-claim delayed a sync lap, never a wrong consume.
+  const rotationPending = account.requiresHotKeyRotation === true;
   const midenNotes = useMemo(() => {
-    if (!shouldAutoConsume || !claimableNotes) {
+    if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
     return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
+  }, [claimableNotes, midenFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -294,6 +299,8 @@ const Explore: FC = () => {
           className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
+          <NetworkModePill />
+
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}

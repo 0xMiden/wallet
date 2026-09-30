@@ -180,18 +180,6 @@
     "message": "Pão",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Minha posição no $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ em $network$",
     "englishSource": "$asset$ on $network$",
@@ -502,6 +490,10 @@
   "privateKeyInputPlaceholder": {
     "message": "por ex., APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
+  },
+  "privateKeyClipboardNotCleared": {
+    "message": "Sua chave privada não pôde ser removida da área de transferência. Limpe-a manualmente antes de continuar.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
   },
   "settings": {
     "message": "Configurações",
@@ -1816,6 +1808,22 @@
     "message": "Seus fundos estão prontos",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Uma solicitação anterior ainda pode chegar.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Quer repetir o pedido?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Sua solicitação anterior ainda pode chegar. Solicitar novamente poderia creditar sua carteira duas vezes.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Solicite novamente",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Detectada recuperação de conta",
     "englishSource": "Account recovery detected"
@@ -1858,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Verifique sua frase de recuperação",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Faça backup da sua carteira",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Anote sua frase de recuperação e verifique se você se lembra da primeira e da última palavra para poder restaurar essa carteira mais tarde.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Guarde sua frase de recuperação para poder restaurar esta carteira em um novo dispositivo.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Assinatura segura indisponível",
@@ -2170,31 +2178,6 @@
     "message": "Um “Guardian” armazena o estado da sua conta e ajuda você a recuperá-la. Pense nisso como um servidor que faz backup dos seus dados, mas que nunca tem acesso aos seus fundos.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "O operador mais rápido no momento, entre $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "O operador desta rede",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "O Guardian não pode movimentar seus fundos por conta própria",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "O “Guardian” faz o backup do estado da sua conta",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Você pode trocar de Guardian com sua frase de recuperação",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Verificando qual operador responde mais rápido…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2206,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Prefiro criar uma conta totalmente privada",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Escolha um Guardian diferente",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Um operador independente da Guardian no Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "A OpenZeppelin é uma empresa de segurança blockchain responsável por bibliotecas de contratos inteligentes amplamente usadas no Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "A Gateway.fm desenvolve e opera infraestrutura blockchain para redes e rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "A LambdaClass é uma empresa de engenharia que desenvolve criptografia avançada e infraestrutura de \"blockchain\".",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "A Korea Digital Asset (KODA) é uma custódia de ativos digitais regulamentada na Coreia do Sul.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Saiba mais sobre a Guardian",
@@ -2274,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "Seu Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Alterar",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ faz backup da sua conta. Nunca pode movimentar seus fundos, e você pode trocar quando quiser.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
@@ -2398,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "Criando sua carteira…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Restaurando sua carteira…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Configurando sua carteira…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Abra sua carteira para concluir a restauração.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Digite a senha",
@@ -2775,6 +2759,55 @@
     "message": "Tentar novamente",
     "englishSource": "Retry"
   },
+  "hotKeyRotationFundingTitle": {
+    "message": "Adicione MIDEN para ativar sua chave de uso diário",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Ativar sua chave de uso diário é uma transação, e toda transação paga uma pequena taxa de rede em MIDEN. Envie MIDEN para o endereço desta conta abaixo. A carteira recebe o pagamento e conclui a ativação da sua chave automaticamente.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Envie pelo menos um MIDEN d$amount$.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "O endereço da sua conta",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Aguardando a chegada do MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "O MIDEN que você recebeu é insuficiente para pagar a taxa de rede. Envie um pouco mais.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN recebido. Estou reivindicando-o…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Ativando sua chave de uso diário…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "O MIDEN que você recebeu não pôde ser resgatado.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Tente novamente",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Verifique novamente",
+    "englishSource": "Check again"
+  },
   "guardianChangedTitle": {
     "message": "Guardian alterado",
     "englishSource": "Guardian changed"
@@ -2827,6 +2860,10 @@
     "message": "Digite uma URL válida que comece com http:// ou https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "Não há nenhum Guardian respondendo neste URL. Verifique e tente novamente.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Digite sua senha para acessar seu arquivo de carteira criptografado.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2838,6 +2875,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Não vou compartilhar meu arquivo de carteira criptografada com ninguém, nem mesmo com a Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Não foi restaurado a partir deste arquivo: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Contas importadas com chaves privadas não podem ser restauradas a partir de um arquivo de carteira, e uma carteira restaurada a partir desse arquivo não pode adicioná-las. Elas são restauradas como uma carteira separada, configurada com a importação das chaves privadas e suas chaves privadas Miden para uso diário e EVM. Mantenha essas chaves em segurança: revele-as em Configurações → Chaves → Revelar Chave Privada com essa conta selecionada.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Digite uma senha para criptografar o arquivo da sua carteira.",
@@ -4217,6 +4267,10 @@
     "message": "Compartilhar",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Envie seu endereço",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Copiar",
     "englishSource": "Copy"
@@ -4448,6 +4502,14 @@
   "unverified": {
     "message": "não verificado",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "Não verificado",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Este token não consta na lista de tokens verificados da Miden. Qualquer pessoa pode criar um token com qualquer nome; portanto, verifique o ID no faucet antes de confiar nele.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "couldNotVerifyBySimulation": {
     "message": "Não foi possível verificar por meio de simulação. Os valores abaixo são os declarados pelo site.",
@@ -4927,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — sobre esta rede",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Os tokens não têm valor real",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restaurar",
@@ -5247,8 +5313,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Tente novamente.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Alterar a cor do código QR",

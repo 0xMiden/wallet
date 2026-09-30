@@ -12,7 +12,7 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
+import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
@@ -20,6 +20,7 @@ import { tokenQuote } from 'lib/miden/swap/tokens';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
 
 export enum WalletPromptType {
@@ -223,14 +224,13 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
-// The turn is a Web Lock, which the extension's popup, side panel, tabs and service worker
-// share, so a surface cannot put back a field another surface just changed.
+// The turn is a storage turn (`inStorageTurn`): the Web Lock the extension's popup, side panel,
+// tabs and service worker share, so a surface cannot put back a field another surface just
+// changed, or without Web Locks this realm's own chain.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-// (The type argument is what `navigator.locks.request` needs to hand back the record the
-// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
 function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
-  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
+  return inStorageTurn(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
@@ -343,20 +343,30 @@ export type FaucetFundingMarker = {
   // When the token request went out, stored with the flag: a request held back for
   // minutes before sending is judged from here, not from when it was asked for.
   submittedAt?: number;
+  // The arrival window ended with the mint's outcome unknown. The card asks from the derived
+  // state (sent and past its window); what the flag adds is surviving a clock stepped back,
+  // where a stamp in the future hides that state: a flagged record is kept and never read as
+  // live. A sent record the step reaches before it is flagged reads back flagged.
+  unresolved?: true;
 };
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
 
-export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
-  const raw = await fetchFromStorage(faucetFundingMarkerKey(address));
+/** The one reading of a stored funding marker, whatever holds it; null when the value is not one. */
+export function parseFaucetFundingMarker(raw: unknown): FaucetFundingMarker | null {
   if (!raw || typeof raw !== 'object') return null;
   const requestedAt = Reflect.get(raw, 'requestedAt');
   const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
   if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  const storedSubmitted = Reflect.get(raw, 'submitted') !== undefined;
+  const storedUnresolved = Reflect.get(raw, 'unresolved') !== undefined;
   // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
   // a manual change) leaves a stamp in the future, which reads as "always
-  // fresh" and would wedge the wait past its own timeout.
-  if (requestedAt > Date.now()) return null;
+  // fresh" and would wedge the wait past its own timeout. An unsent marker is dropped.
+  // A sent one reads as unresolved, flagged or not: that is never live, so its stamp
+  // wedges nothing, and dropping it would let a second request go out unasked.
+  const stampedAhead = requestedAt > Date.now();
+  if (stampedAhead && !storedSubmitted && !storedUnresolved) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
   const marker: FaucetFundingMarker = {
     requestedAt,
@@ -364,7 +374,13 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   };
   // Any stored value reads as submitted: erring the other way would clear a marker
   // for a mint that could still land.
-  if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
+  if (storedSubmitted) marker.submitted = true;
+  // Any stored value reads as unresolved: erring the other way would resubmit silently. Only
+  // a sent request is left unresolved, so the flag also reads as sent.
+  if (storedUnresolved || stampedAhead) {
+    marker.submitted = true;
+    marker.unresolved = true;
+  }
   // Untrusted like requestedAt; an unusable send time falls back to the request time.
   const submittedAt = Reflect.get(raw, 'submittedAt');
   if (
@@ -378,27 +394,35 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   return marker;
 }
 
-/**
- * Runs `operation` holding the funding-marker lock for `address`. Every read of the marker that
- * decides a write to it runs under this lock: navigator.locks is shared by the extension's popup,
- * side panel, tabs and service worker, so two surfaces can no longer both find no live marker and
- * both send.
- */
-export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
-  return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
+export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
+  return parseFaucetFundingMarker(await fetchFromStorage(faucetFundingMarkerKey(address)));
 }
 
-export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
+/**
+ * Runs `operation` holding the funding-marker lock for `address`, a storage turn (`inStorageTurn`).
+ * Every read of the marker that decides a write to it runs under this lock: navigator.locks is
+ * shared by the extension's popup, side panel, tabs and service worker, so two surfaces can no
+ * longer both find no live marker and both send. Without Web Locks it still returns a promise, so a
+ * caller's `.catch` sees any failure.
+ */
+export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
+  return inStorageTurn(`faucet-funding-marker:${address}`, operation);
+}
+
+export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker): Promise<void> {
   await putToStorage(faucetFundingMarkerKey(address), marker);
+}
+
+// A cleared marker leaves no key behind, rather than a stored null.
+export async function clearFaucetFundingMarker(address: string): Promise<void> {
+  await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch and checked per PoW iteration.
-// (A 429 back-off sleep inside faucetFetch is not itself interrupted, so
-// cancellation of the work can lag the wrapper's rejection by up to that
-// capped wait — the next fetch attempt then aborts immediately.)
+// work: the signal is linked into each fetch, checked per PoW iteration, and
+// cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
  * How long a funding marker not flagged `submitted` may still belong to a live
@@ -419,13 +443,15 @@ export const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
  * it rather than offering Fund. While a request still runs in this realm (`runningHere`:
  * held back, as in a backgrounded app) it has not settled, so its window has not started.
  * Otherwise a marker not flagged submitted is abandoned once its request's timeout has
- * certainly passed, and a flagged one waits out the arrival window from when it went out.
+ * certainly passed, and a flagged one waits out the arrival window from when it went out,
+ * unless a surface already flagged it unresolved when that window ended.
  */
 export function isFaucetFundingMarkerLive(
   marker: FaucetFundingMarker,
   { runningHere, settledAt }: { runningHere: boolean; settledAt: number | null }
 ): boolean {
   if (runningHere) return true;
+  if (marker.unresolved) return false;
   const now = Date.now();
   if (!marker.submitted) return now - marker.requestedAt < FAUCET_UNSUBMITTED_MARKER_MS;
   return now - faucetArrivalWindowStart(marker, settledAt) < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS;
@@ -447,7 +473,21 @@ export class FaucetRequestInProgressError extends Error {
   }
 }
 
-async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): Promise<void> {
+/**
+ * A request refused because the account's stored request is unresolved and the caller did not
+ * name it as the one the user confirmed replacing; `record` is that request. Nothing was sent.
+ */
+export class FaucetRequestUnresolvedError extends Error {
+  readonly record: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>;
+
+  constructor({ requestedAt, baselineNoteIds }: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>) {
+    super('An earlier faucet request for this account is unresolved');
+    this.name = 'FaucetRequestUnresolvedError';
+    this.record = { requestedAt, baselineNoteIds };
+  }
+}
+
+async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, replaces?: number): Promise<void> {
   const controller = new AbortController();
   let submitted = false;
   // Set once the submitted flag is being stored: from then on the flag may land, and every
@@ -485,6 +525,19 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): 
           })
         ) {
           throw new FaucetRequestInProgressError(stored);
+        }
+        // The user is asked before a request replaces an unresolved one, but a surface that read
+        // storage before another surface flagged it never asked: only a confirmed replacement passes.
+        // Every live record of another request was refused above, so another one read as sent (a
+        // flagged one always is) is past its window: unresolved flagged or not, as the mount read
+        // treats it, since the flag is best effort and a surface whose read failed never saw it.
+        if (
+          stored !== null &&
+          stored.requestedAt !== marker.requestedAt &&
+          stored.submitted &&
+          replaces !== stored.requestedAt
+        ) {
+          throw new FaucetRequestUnresolvedError(stored);
         }
         // A request its timeout already ended reported a safe failure and writes nothing: a
         // retry may have stored its own marker by now.
@@ -566,9 +619,15 @@ export function getFaucetRequestSettledAt(address: string, requestedAt: number):
  * Requests test tokens for `address`, or joins the request already running for it.
  * Given a `marker`, the request persists it and flags it submitted before the token
  * request goes out, so a later open can tell a mint that may land from one that
- * never went out.
+ * never went out. A stored unresolved request is replaced only when `replaces` names
+ * its `requestedAt`, the request the user confirmed replacing; any other request is
+ * refused with `FaucetRequestUnresolvedError`.
  */
-export function faucet(address: string, marker?: FaucetFundingMarker): Promise<void> {
+export function faucet(
+  address: string,
+  marker?: FaucetFundingMarker,
+  { replaces }: { replaces?: number } = {}
+): Promise<void> {
   const existing = inFlightFaucetRequests.get(address);
   if (existing) return existing.request;
   const recordSettled = () => {
@@ -577,7 +636,7 @@ export function faucet(address: string, marker?: FaucetFundingMarker): Promise<v
   // Storage reads settle asynchronously, so a reader of the marker always finds
   // this request registered by the `set` below. A joiner's marker is ignored: the
   // request it joins already persists its own.
-  const request: Promise<void> = runFaucetRequest(address, marker)
+  const request: Promise<void> = runFaucetRequest(address, marker, replaces)
     .then(recordSettled, (error: unknown) => {
       if (error instanceof FaucetOutcomeUnknownError) recordSettled();
       throw error;

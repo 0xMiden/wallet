@@ -4,11 +4,20 @@ import { cn } from 'lib/ui/util';
 
 export interface IconCircleProps {
   children: React.ReactNode;
-  /** `md` (default) the 32px disc with a 16px glyph; `sm` a 20px disc whose glyph keeps its own size. */
-  size?: 'md' | 'sm';
+  /**
+   * `md` (default) the 32px disc with a 16px glyph; `lg` a 36px disc with the same glyph (an action
+   * tile's); `sm` a 20px disc whose glyph keeps its own size.
+   */
+  size?: 'lg' | 'md' | 'sm';
   /** Tone and colour: a tint class replaces the disc's default `fill`, a text colour the glyph's. */
   className?: string;
 }
+
+const ICON_CIRCLE_SIZE: Record<NonNullable<IconCircleProps['size']>, string> = {
+  lg: 'h-9 w-9 [&>svg]:h-4 [&>svg]:w-4',
+  md: 'h-8 w-8 [&>svg]:h-4 [&>svg]:w-4',
+  sm: 'size-5'
+};
 
 /**
  * The round `fill` disc holding a leading glyph: a section header's, a fact's or a checklist item's.
@@ -19,11 +28,7 @@ export const IconCircle: React.FC<IconCircleProps> = ({ children, size = 'md', c
   <span
     aria-hidden="true"
     data-slot="icon"
-    className={cn(
-      'flex shrink-0 items-center justify-center rounded-full bg-fill text-ink',
-      size === 'md' ? 'h-8 w-8 [&>svg]:h-4 [&>svg]:w-4' : 'size-5',
-      className
-    )}
+    className={cn('flex shrink-0 items-center justify-center rounded-full bg-fill text-ink', ICON_CIRCLE_SIZE[size], className)}
   >
     {children}
   </span>

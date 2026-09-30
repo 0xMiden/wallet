@@ -13,7 +13,7 @@ import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
-import Unlock from 'app/pages/Unlock';
+import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
@@ -493,6 +493,7 @@ const PageRouter: FC = () => {
   // dApp approvals report from the confirmation store, which cannot import
   // telemetry itself — see the hook.
   useDappApprovalTelemetry();
+  useRetireLockoutOnReady(miden.ready);
 
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 
@@ -512,8 +513,8 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout), not in a banner
-  // above every page; the page takes the full height.
+  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
+  // a banner above every page; the page takes the full height.
   return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };
 

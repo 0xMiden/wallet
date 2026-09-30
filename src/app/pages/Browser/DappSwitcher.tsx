@@ -175,7 +175,10 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
     // entirely from the a11y tree. The tap-to-restore action lives on
     // a child button that fills the card.
     <motion.div
-      layout
+      // Position only: this layout exists for the reflow when a card closes, which only moves the
+      // others (the grid's columns keep their width). A full `layout` would also scale the card, and
+      // draw its class radius, shadow and contents stretched, on any render that changed its size.
+      layout="position"
       initial={{ opacity: 0, y: 24, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 24, scale: 0.96 }}

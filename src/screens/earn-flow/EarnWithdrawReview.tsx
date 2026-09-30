@@ -13,7 +13,7 @@ import { useAccount } from 'lib/miden/front';
 import { goBack, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -82,8 +82,9 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       <SubPageLayout
         data-testid="earn-withdraw-review-page"
         title={found ? earnSubjectTitle(found) : t('withdraw')}
+        subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (

@@ -1,19 +1,6 @@
-import fs from 'fs';
-import path from 'path';
+import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from '../testing/define-parity';
 
-const REPO_ROOT = path.join(__dirname, '../../..');
-// Every read drops whole-line // comments, so a define commented out with // counts as absent.
-const read = (relative: string) =>
-  fs
-    .readFileSync(path.join(REPO_ROOT, relative), 'utf8')
-    .split('\n')
-    .filter(line => !line.trim().startsWith('//'))
-    .join('\n');
-
-const CONFIGS = fs
-  .readdirSync(REPO_ROOT)
-  .filter(file => /^vite\..+\.config\.ts$/.test(file))
-  .sort();
+const CONFIGS = viteConfigs();
 
 const EXPECTED_DEFAULTS: Record<string, string> = {
   'vite.extension.config.ts': "(TARGET_BROWSER === 'chrome' ? 'true' : 'false')",
@@ -30,13 +17,15 @@ describe('update notification build-time flag', () => {
   });
 
   it.each(Object.entries(EXPECTED_DEFAULTS))('%s defines the supported-platform default', (config, defaultValue) => {
-    const source = read(config);
-    expect(source).toContain(`'process.env.MIDEN_UPDATE_NOTIFICATIONS':`);
-    expect(source).toContain(`process.env.MIDEN_UPDATE_NOTIFICATIONS ?? ${defaultValue}`);
+    const defines = defineSource(readSource(config));
+    expect(occurrences(defines, `'process.env.MIDEN_UPDATE_NOTIFICATIONS':`)).toBe(1);
+    expect(defines).toMatch(
+      defineEntry('MIDEN_UPDATE_NOTIFICATIONS', `process.env.MIDEN_UPDATE_NOTIFICATIONS ?? ${defaultValue}`)
+    );
   });
 
   it('declares the flag in ProcessEnv', () => {
-    expect(read('src/react-app.d.ts')).toContain('readonly MIDEN_UPDATE_NOTIFICATIONS?: string;');
+    expect(readSource('src/react-app.d.ts')).toContain('readonly MIDEN_UPDATE_NOTIFICATIONS?: string;');
   });
 
   // Every bundle in which createDefaultAdapter can build the E2E adapter, plus
@@ -45,9 +34,9 @@ describe('update notification build-time flag', () => {
   it.each(Object.keys(EXPECTED_DEFAULTS))(
     'compiles the E2E injection boundary out of production %s bundles',
     config => {
-      const source = read(config);
-      expect(source).toContain(`'process.env.MIDEN_E2E_TEST':`);
-      expect(source).toContain(`process.env.MIDEN_E2E_TEST ?? 'false'`);
+      const defines = defineSource(readSource(config));
+      expect(occurrences(defines, `'process.env.MIDEN_E2E_TEST':`)).toBe(1);
+      expect(defines).toMatch(defineEntry('MIDEN_E2E_TEST', `process.env.MIDEN_E2E_TEST ?? 'false'`));
     }
   );
 });

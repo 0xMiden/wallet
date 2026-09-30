@@ -70,15 +70,28 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
     // Equivalent account ids can be stored with or without a routing suffix.
     // The pure policy performs the canonical filter after this atomic read.
     //
-    // Bounded by the rolling window through the `initiatedAt` index the schema already declares:
-    // an older row is dropped by the policy anyway, so reading the whole table only bought a scan
-    // that grows with total history - on the write path, inside the rw lock, deserializing every
-    // row's request/result blobs. A future-dated row is still at or above this bound, so the
-    // policy's own timestamp handling still sees it.
-    return await Repo.transactions
-      .where('initiatedAt')
-      .aboveOrEqual(now - MAX_WINDOW_SECONDS)
-      .toArray();
+    // One read transaction, so the counts and the read below are one snapshot; on the enforcement
+    // path it nests inside the caller's rw scope.
+    return await Repo.db.transaction('r', Repo.transactions, async () => {
+      // A row the index cannot place (missing, NaN, null) and a negative one both fall outside
+      // `aboveOrEqual(0)`, so one count finds every row the window read below would never hand the
+      // policy's fatal timestamp guard; a non-number key sorts above every number, so it stays in
+      // both the count and the window. When any exist, the whole table is read instead (#1007).
+      const [total, placed] = await Promise.all([
+        Repo.transactions.count(),
+        Repo.transactions.where('initiatedAt').aboveOrEqual(0).count()
+      ]);
+      if (total > placed) return await Repo.transactions.toArray();
+      // Bounded by the rolling window through the `initiatedAt` index the schema already declares:
+      // an older row is dropped by the policy anyway, so reading the whole table only bought a scan
+      // that grows with total history - on the write path, inside the rw lock, deserializing every
+      // row's request/result blobs. A future-dated row is still at or above this bound, so the
+      // policy's own timestamp handling still sees it.
+      return await Repo.transactions
+        .where('initiatedAt')
+        .aboveOrEqual(now - MAX_WINDOW_SECONDS)
+        .toArray();
+    });
   } catch {
     throw unavailable('transaction history read failed');
   }

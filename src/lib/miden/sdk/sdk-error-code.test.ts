@@ -1,8 +1,10 @@
 import {
+  ApplyAfterSubmitError,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
+  isStaleInitialCommitmentError,
   isTransactionDiscardedError
 } from './sdk-error-code';
 
@@ -152,6 +154,19 @@ describe('isApplyAfterSubmitError', () => {
   });
 });
 
+describe('ApplyAfterSubmitError', () => {
+  it('classifies by its code and, with the code gone, by its text', () => {
+    const cause = new Error('store quota');
+    const error = new ApplyAfterSubmitError(cause);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ApplyAfterSubmitError');
+    expect(error.cause).toBe(cause);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+});
+
 describe('isTransactionDiscardedError', () => {
   // Verbatim from both producers of this verdict: the SDK's
   // `TransactionsResource.waitFor` (`throw new Error(\`Transaction rejected: ${hex}\`)`
@@ -192,6 +207,64 @@ describe('isTransactionDiscardedError', () => {
       false
     );
     expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+/**
+ * The two phrases the node's admission refusal carries (quoted in #904 and in
+ * `guardian/account.ts`); the wording around them is illustrative.
+ */
+const STALE_INITIAL_COMMITMENT_REFUSAL =
+  'transaction conflicts with current mempool state: initial account commitment 0x1111 does not match ' +
+  'the current commitment 0x2222 for account 0x3333';
+
+describe('isStaleInitialCommitmentError', () => {
+  it('matches the node refusing a transaction whose initial account commitment was superseded', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`failed to submit proven transaction: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal after the offscreen bus rewraps it', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`Offscreen call 'guardianPipeline' failed: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal on the cause chain', () => {
+    expect(
+      isStaleInitialCommitmentError(new Error('submit failed', { cause: new Error(STALE_INITIAL_COMMITMENT_REFUSAL) }))
+    ).toBe(true);
+  });
+
+  it('does not assemble a match from two errors in one chain', () => {
+    const chain = new Error('initial account commitment 0x1111 was read', {
+      cause: new Error('the note does not match the current commitment of its script')
+    });
+    expect(isStaleInitialCommitmentError(chain)).toBe(false);
+  });
+
+  it('does not match the SDK refusing to import guardian state', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(
+          'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account 0x3333'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('never reads a lock-recovery eviction as a node verdict', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(
+      isStaleInitialCommitmentError(
+        new WasmClientPoisonedError('realm-error', new Error(STALE_INITIAL_COMMITMENT_REFUSAL))
+      )
+    ).toBe(false);
   });
 });
 

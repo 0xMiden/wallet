@@ -15,6 +15,8 @@
  * mid-canonicalization), wait it out instead of failing the transaction.
  */
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
+
 const noop = (): void => {};
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -96,30 +98,46 @@ export function isGuardianRateLimited(err: unknown): boolean {
   return (err as { code?: unknown }).code === 'rate_limit_exceeded';
 }
 
+const isCooldownSecs = (raw: unknown): raw is number => typeof raw === 'number' && Number.isFinite(raw) && raw >= 0;
+
 /**
  * The guardian's requested cooldown for a rate-limited request, in seconds.
- * Reads `meta.retryAfterSecs` (and the snake_case wire spelling), returning
- * `undefined` when absent so callers can apply their own default.
+ * Prefers the error's own `retryAfterSecs()`: GuardianHttpError's reads the
+ * Retry-After header before the envelope, and the header can state the longer
+ * cooldown. Otherwise reads `meta.retryAfterSecs` (and the snake_case wire
+ * spelling), returning `undefined` when neither states one so callers can apply
+ * their own default.
  */
 export function guardianRetryAfterSec(err: unknown): number | undefined {
   if (!err || typeof err !== 'object') return undefined;
+  if ('retryAfterSecs' in err && typeof err.retryAfterSecs === 'function') {
+    const stated: unknown = err.retryAfterSecs();
+    if (isCooldownSecs(stated)) return stated;
+  }
   const meta = (err as { meta?: unknown }).meta;
   if (!meta || typeof meta !== 'object') return undefined;
   const raw =
     (meta as { retryAfterSecs?: unknown }).retryAfterSecs ?? (meta as { retry_after_secs?: unknown }).retry_after_secs;
-  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+  return isCooldownSecs(raw) ? raw : undefined;
 }
 
-// Backoff for re-registering an account on its guardian after a key/guardian
-// rotation (consumed by `registerOnGuardianWithRetry` in ./index). Right after
-// the guardian accepts a rotation delta it can reject `/configure` for a few
-// seconds while it canonicalizes the new state; the capped exponential sequence
-// (1+2+4+8+8+8+8s ≈ 39s over 8 attempts) clears that window while still bounding
-// a genuinely-down guardian. Getting the budget wrong is costly: a re-register
-// that silently exhausts leaves the new hot key unauthorized, so every later
-// request then 401s ("session expired") until a re-register finally lands.
+// Backoff between guardian register attempts: the rotation re-register
+// (`registerOnGuardianWithRetry` in ./index), the direct switch, the 429 waits of
+// `withGuardianRateLimitRetry` below, and Guardian creation's retry of a timed-out
+// registration (./account). Right after the guardian accepts a rotation delta it
+// can reject `/configure` for a few seconds while it canonicalizes the new state;
+// the capped exponential sequence
+// (1+2+4+8+8+8+8s ≈ 39s between GUARDIAN_RETRY_MAX_ATTEMPTS calls) clears that
+// window while still bounding a genuinely-down guardian. Getting the budget wrong
+// is costly: a re-register that silently exhausts leaves the new hot key
+// unauthorized, so every later request then 401s ("session expired") until a
+// re-register finally lands.
 export const GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS = 1000;
 export const GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS = 8000;
+// The call cap for the rotation re-register (./index), the direct switch's
+// registration (./direct-switch) and `withGuardianRateLimitRetry` below. Guardian
+// creation's timed-out registration retry (./account) has its own, smaller cap.
+export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
 // earning another 429, bounded so a rate-limited re-register can't stall a
@@ -172,6 +190,54 @@ export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: C
           'waiting for the prior delta to canonicalize before retrying'
       );
       await wait(delayMs);
+    }
+  }
+}
+
+/**
+ * Run a guardian call, waiting out `429` rate-limit rejections (#906). The
+ * guardian marks them retryable and rejects them before any handler runs, so a
+ * retry can never apply a request twice. Before each retry it waits the
+ * guardian's own `retry_after_secs`, or the capped exponential backoff when the
+ * 429 carries none: retrying under the cooldown only earns another 429. Without
+ * a deadline the wait is clamped to a minute; with one, the deadline bounds it.
+ * Any other error propagates at once; after GUARDIAN_RETRY_MAX_ATTEMPTS calls the
+ * last 429 is rethrown unchanged, so callers still see the guardian's own error.
+ * A caller bounds the waits with `deadlineMs`, an absolute time on
+ * `monotonicNowMs()`, whether or not it holds a lock: a wait that would end past
+ * it is not started, and the 429 is rethrown as at the attempt limit. `afterWait`,
+ * run after each wait and before the next call, is the caller's own liveness
+ * check (Guardian creation's key fetch passes the vault's locked refusal):
+ * whatever it throws ends the retry, unwrapped.
+ */
+export async function withGuardianRateLimitRetry<T>(
+  fn: () => Promise<T>,
+  opts: { deadlineMs?: number; sleepFn?: (ms: number) => Promise<void>; afterWait?: () => void } = {}
+): Promise<T> {
+  const wait = opts.sleepFn ?? sleep;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= GUARDIAN_RETRY_MAX_ATTEMPTS || !isGuardianRateLimited(err)) throw err;
+      const delayMs = guardianRegisterBackoffMs(err, attempt);
+      // Judged against the guardian's stated cooldown, not the wait clamped to a
+      // minute, and not shortened to fit: a retry inside the cooldown only earns
+      // another 429. `!== undefined` because 0 is a valid monotonic stamp.
+      const cooldownMs = Math.max(delayMs, (guardianRetryAfterSec(err) ?? 0) * 1000);
+      if (opts.deadlineMs !== undefined && monotonicNowMs() + cooldownMs > opts.deadlineMs) {
+        console.warn(
+          `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); ` +
+            `the ${cooldownMs} ms cooldown would pass the deadline, giving up`
+        );
+        throw err;
+      }
+      const waitMs = opts.deadlineMs !== undefined ? cooldownMs : delayMs;
+      console.warn(
+        `[guardian] rate limited (429, attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS}); retrying in ${waitMs} ms`
+      );
+      await wait(waitMs);
+      opts.afterWait?.();
     }
   }
 }
