@@ -5471,5 +5471,9 @@
   "hiddenTokensError": {
     "message": "Could not update hidden tokens. Please try again.",
     "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Hidden tokens could not be loaded.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

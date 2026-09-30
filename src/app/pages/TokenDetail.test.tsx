@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 
-import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
@@ -913,15 +913,38 @@ describe('TokenDetail', () => {
       expect(toggle()).toHaveTextContent('hideToken');
     });
 
-    it('keeps the row disabled and says so when the hidden set cannot be read', async () => {
+    it('keeps the row disabled and shows a note, not the alert, when the hidden set cannot be read', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockReadStorage.mockRejectedValue(new Error('Read unavailable'));
       renderPage();
 
-      const error = await screen.findByTestId('token-detail-hidden-error');
-      expect(error).toHaveTextContent('hiddenTokensError');
-      expect(error).toHaveAttribute('role', 'alert');
+      const note = await screen.findByTestId('token-detail-hidden-unreadable');
+      expect(note).toHaveTextContent('hiddenTokensUnreadable');
+      expect(note).toHaveAttribute('role', 'note');
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
       expect(toggle()).toBeDisabled();
+      warn.mockRestore();
+    });
+
+    it('shows no error line for a hide that failed on another page, only for its own', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      await renderReady();
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+
+      // The hook's `failed` covers the whole storage key, so a hide that fails through a
+      // different mount (Home, sharing the same module-level store) must not make this
+      // page's own alert appear.
+      mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+      const outside = renderHook(() => useHiddenTokens('pk-123'));
+      await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+      await act(async () => {
+        await outside.result.current.hide('some-other-token');
+      });
+      expect(outside.result.current.failed).toBe(true);
+      outside.unmount();
+
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
       warn.mockRestore();
     });
 

@@ -1237,5 +1237,6 @@
   "hiddenAssetsCount": "Hidden assets ($count$)",
   "unhide": "Unhide",
   "unhideTokenLabel": "Unhide $name$",
-  "hiddenTokensError": "Could not update hidden tokens. Please try again."
+  "hiddenTokensError": "Could not update hidden tokens. Please try again.",
+  "hiddenTokensUnreadable": "Hidden tokens could not be loaded."
 }

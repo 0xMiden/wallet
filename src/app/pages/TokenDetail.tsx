@@ -329,6 +329,10 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
   // The native token pays every fee, so it is never offered, nor before the wallet knows which one it is.
   const canHide = nativeFaucetId !== null && normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId);
   const hidden = hiddenTokens.isHidden(tokenId);
+  // This page's own last hide/unhide result (as Home's HiddenAssets tracks its own unhideFailed):
+  // the hook's `failed` also covers a save that failed from another mount (another token page,
+  // Home's Unhide), which this row has no business re-announcing.
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const handleViewExplorer = () => {
     if (!explorerUrl) return;
@@ -338,7 +342,8 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
 
   const handleToggleHidden = () => {
     hapticMedium();
-    void (hidden ? hiddenTokens.unhide(tokenId) : hiddenTokens.hide(tokenId));
+    const result = hidden ? hiddenTokens.unhide(tokenId) : hiddenTokens.hide(tokenId);
+    void result.then(succeeded => setSaveFailed(!succeeded));
   };
 
   return (
@@ -407,9 +412,14 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
           {t('tokenHiddenNotice')}
         </Notice>
       )}
-      {canHide && hiddenTokens.failed && (
+      {canHide && saveFailed && (
         <ErrorLine className="mt-2" data-testid="token-detail-hidden-error">
           {t('hiddenTokensError')}
+        </ErrorLine>
+      )}
+      {canHide && !hiddenTokens.loaded && hiddenTokens.failed && (
+        <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
+          {t('hiddenTokensUnreadable')}
         </ErrorLine>
       )}
     </section>
