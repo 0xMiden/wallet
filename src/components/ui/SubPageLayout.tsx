@@ -164,6 +164,8 @@ export interface SubPageSectionProps {
   title?: React.ReactNode;
   /** The label's heading level: `h2` under the page title, `h3` under a hero's own `h2`. */
   titleAs?: 'h2' | 'h3';
+  /** `md` draws the title as the 16px section label instead of the small one. Ignored with `icon`. */
+  titleSize?: 'sm' | 'md';
   /**
    * The section's glyph, which also declares that its group is `plain`: the label then takes the
    * Settings root's treatment (a 20px `ink` title behind the glyph's 32px circle) and lines up
@@ -192,6 +194,7 @@ const noteClass = 'text-muted';
 export const SubPageSection: React.FC<SubPageSectionProps> = ({
   title,
   titleAs,
+  titleSize,
   icon,
   description,
   footnote,
@@ -205,7 +208,7 @@ export const SubPageSection: React.FC<SubPageSectionProps> = ({
   return (
     <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
       {title && (
-        <SectionHeader as={titleAs} size={icon ? 'lg' : undefined} icon={icon} className={inset}>
+        <SectionHeader as={titleAs} size={icon ? 'lg' : titleSize} icon={icon} className={inset}>
           {title}
         </SectionHeader>
       )}

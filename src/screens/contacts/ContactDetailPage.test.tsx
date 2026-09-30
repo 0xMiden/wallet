@@ -46,7 +46,7 @@ jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => b
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/ui/SubPageLayout', () => ({
   SubPageLayout: ({ title, headerActions, onBack, onSubmit, children, footer, ...rest }: any) => (
-    <div data-testid={rest['data-testid']}>
+    <div data-testid={rest['data-testid']} data-body-class={rest.bodyClassName}>
       <button type="button" onClick={onBack} data-testid="page-back" />
       <h1>{title}</h1>
       {headerActions}
@@ -167,6 +167,15 @@ it('renames a contact from edit mode', async () => {
 
   expect(updateContactMock).toHaveBeenCalledWith('0xpaul', { name: 'Paul Graham', network: 'sepolia' });
   expect(screen.getByRole('heading')).toHaveTextContent('Paul G');
+});
+
+it('sets both the detail and the edit view wholly in Nunito, the name labelled with the 16px title', () => {
+  render(<ContactDetailPage address="0xpaul" />);
+  expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-body-class', 'face-heading');
+
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-body-class', 'face-heading');
+  expect(screen.getByText('name')).toHaveClass('text-row-title', 'text-muted');
 });
 
 it('leaves edit mode on back without saving', () => {

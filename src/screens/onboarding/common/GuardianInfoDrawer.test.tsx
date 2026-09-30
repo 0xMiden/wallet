@@ -73,7 +73,12 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
-  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>,
+  DrawerFooter: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div data-testid="drawer-footer" data-class={className}>
+      {children}
+    </div>
+  )
 }));
 
 // ---------------------------------------------------------------------------
