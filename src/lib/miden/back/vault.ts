@@ -70,7 +70,6 @@ import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { normalizeHex } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, makeSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
-import { NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -114,38 +113,17 @@ const getAccountAuthScheme = (account: WalletAccount): AuthScheme => account.aut
 // KEY DERIVATION POLICY
 // ============================================================================
 //
-// The seed of every HD account is derived under one of two SLIP-0010 schemes
-// (see `KeyDerivation` in lib/shared/types and `@miden/hd-key`). `legacy` is
-// the `bls12_377 seed` label the wallet shipped with; `v1` is the Miden label
-// with the Miden coin type and a per-scheme path level (issue #918). A record
-// with no `keyDerivation` predates the field and is `legacy`. Restore paths
-// MUST derive under the stored scheme; mnemonic-only restore probes the
-// schemes in `RESTORE_PROBES` order against the chain.
+// Every HD account seed is derived under the `v1` SLIP-0010 scheme (see
+// `KeyDerivation` in lib/shared/types and `@miden/hd-key`): the Miden label,
+// the Miden coin type and a per-scheme path level (issue #918).
 
-/** Derivation stamped on every NEW HD account this wallet creates. */
+/** Derivation of every HD account seed, stamped on each account this wallet creates. */
 const NEW_ACCOUNT_KEY_DERIVATION: KeyDerivation = 'v1';
 
-/** Records persisted before `keyDerivation` existed derived under this scheme. */
-const LEGACY_KEY_DERIVATION: KeyDerivation = 'legacy';
-
-/** Returns the key derivation for an account, applying the legacy fallback. */
-const getAccountKeyDerivation = (account: WalletAccount): KeyDerivation =>
-  account.keyDerivation ?? LEGACY_KEY_DERIVATION;
-
-/**
- * Mnemonic-only restore probes, in order: the current scheme first so new
- * wallets hit on the first on-chain lookup, then the legacy ECDSA derivation.
- * Legacy Falcon accounts are no longer probed by seed phrase alone (decision
- * in #918); an encrypted-file backup still restores them, since it carries the
- * per-account scheme.
- */
+/** Mnemonic-only restore probes, tried in order against the chain. */
 const RESTORE_PROBES: readonly { keyDerivation: KeyDerivation; authScheme: AuthScheme }[] = [
-  { keyDerivation: 'v1', authScheme: 'ecdsa' },
-  { keyDerivation: 'legacy', authScheme: 'ecdsa' }
+  { keyDerivation: 'v1', authScheme: 'ecdsa' }
 ];
-
-/** Every scheme a hot-key-only Guardian import may have been derived under, current first. */
-const RECOVERY_SEED_KEY_DERIVATIONS: readonly KeyDerivation[] = ['v1', 'legacy'];
 
 /**
  * Derives an `AuthSecretKey` from a mnemonic-derived seed under the given
@@ -498,25 +476,22 @@ export class Vault {
     if (!account || account.type !== WalletType.Guardian) {
       throw new PublicError(getMessage('recoveryActionUnavailable'));
     }
-    // A seed-derived account knows its HD index and its derivation scheme. A
-    // hot-key-only import does not (hdIndex is -1) and stores no cold public
-    // key, so walk the recovery range under every scheme and let the on-chain
-    // cold signer commitment pick the index. Nothing found here is persisted:
-    // the derived key lives in the recovery authorization only.
-    const candidates: { hdIndex: number; keyDerivation: KeyDerivation }[] =
+    // A seed-derived account knows its HD index. A hot-key-only import does not
+    // (hdIndex is -1) and stores no cold public key, so walk the recovery range
+    // and let the on-chain cold signer commitment pick the index. Nothing found
+    // here is persisted: the derived key lives in the recovery authorization only.
+    const hdIndices =
       account.hdIndex >= 0
-        ? [{ hdIndex: account.hdIndex, keyDerivation: getAccountKeyDerivation(account) }]
-        : RECOVERY_SEED_KEY_DERIVATIONS.flatMap(keyDerivation =>
-            Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => ({ hdIndex, keyDerivation }))
-          );
+        ? [account.hdIndex]
+        : Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => hdIndex);
     const deriveColdSeed = makeColdSeedDeriver(phrase, account.type);
     await withWasmClientLock(async () => {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
       const onChainCommitment = normalizeHex(commitment);
-      for (const { hdIndex, keyDerivation } of candidates) {
-        const seed = deriveColdSeed(hdIndex, keyDerivation);
+      for (const hdIndex of hdIndices) {
+        const seed = deriveColdSeed(hdIndex);
         const key = AuthSecretKey.ecdsaWithRNG(seed);
         seed.fill(0); // zero the seed out
         const publicKey = key.publicKey();
@@ -984,54 +959,18 @@ export class Vault {
         // through the realm sink this spawn installed: safe because lock() retires by
         // identity and never re-derives the sink from the store, and because the
         // constructing flows ride the accounts queue, so nothing resyncs under a spawn (#878).
-        // The scan runs under EVERY derivation scheme and merges the results. One
-        // wallet can hold accounts under both: a wallet created before #918 has
-        // legacy accounts, and any account it added after the update is v1. A
-        // scan that stopped at the first scheme with a match would silently drop
-        // the accounts (and balances) under the other one. A scheme with no
-        // accounts is a plain miss; every other failure (network, poison, a
-        // lookup error) aborts as before, and only a miss under both schemes is
-        // reported as "nothing at this endpoint for this seed".
-        const deriveColdSeed = makeColdSeedDeriver(mnemonic!, WalletType.Guardian);
-        const scanUnder = async (keyDerivation: KeyDerivation) => {
-          try {
-            const matches = await (
-              await liveClient()
-            ).recoverGuardianAccountsBySeed(
-              hdIndex => deriveColdSeed(hdIndex, keyDerivation),
-              resolvedGuardianEndpoint
-            );
-            return matches.map(match => ({ ...match, keyDerivation }));
-          } catch (err: unknown) {
-            if (err instanceof NoGuardianAccountsFoundError) {
-              console.log(`[Vault.spawn] Step 7a: no Guardian accounts under the ${keyDerivation} derivation`);
-              return [];
-            }
-            throw err;
-          }
-        };
-        const recovered = await (async () => {
-          const found = [...(await scanUnder(NEW_ACCOUNT_KEY_DERIVATION)), ...(await scanUnder(LEGACY_KEY_DERIVATION))];
-          if (found.length === 0) throw new NoGuardianAccountsFoundError();
-          // The lookup is by signer commitment, so an account that lists a cold
-          // key from each scheme as a signer answers both scans. Keep the first
-          // (current-scheme) match; a record must carry exactly one derivation.
-          const seen = new Set<string>();
-          return found.filter(match => {
-            if (seen.has(match.accountId)) return false;
-            seen.add(match.accountId);
-            return true;
+        const recovered = await (await liveClient())
+          .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
+          .catch((err: unknown) => {
+            if (err instanceof PublicError) throw err;
+            throw new PublicError(err instanceof Error ? err.message : String(err));
           });
-        })().catch((err: unknown) => {
-          if (err instanceof PublicError) throw err;
-          throw new PublicError(err instanceof Error ? err.message : String(err));
-        });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
           hdIndex: r.hdIndex,
           // Guardian accounts are always ECDSA under the 3-key model.
           authScheme: NEW_ACCOUNT_AUTH_SCHEME,
-          keyDerivation: r.keyDerivation,
+          keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
           // Recovery is scoped to a single operator endpoint, so every adopted
           // account is registered with the same endpoint we looked up against.
           guardianEndpoint: resolvedGuardianEndpoint,
@@ -1082,13 +1021,9 @@ export class Vault {
             }
 
             if (ownMnemonic && client.network !== 'mock') {
-              // Non-guardian mnemonic restore. Probe each known derivation and
-              // auth scheme pair — the user's real on-chain account at hdIndex=0
-              // was created under exactly one of them, but we have no metadata to
-              // tell us which. The current scheme first so new wallets hit at
-              // once; the legacy ECDSA derivation second so pre-#918 restorers
-              // work too. If no probe finds an on-chain match the mnemonic is
-              // "fresh" — fall through to a brand-new create.
+              // Non-guardian mnemonic restore: look the account up on chain at
+              // hdIndex=0 under each restore probe. If no probe finds it, the
+              // mnemonic is "fresh" - fall through to a brand-new create.
               for (const probe of RESTORE_PROBES) {
                 const scheme = probe.authScheme;
                 const probeSeed = deriveSpawnSeed({
@@ -1593,12 +1528,11 @@ export class Vault {
               validatedImportedAccountIds.push(walletAccount.publicKey);
               continue;
             }
-            // Each WalletAccount carries the auth scheme and the derivation it
-            // was created under (legacy entries default to Falcon and to the
-            // legacy derivation). Re-derive the matching secret key so the
-            // keystore entry signs correctly.
+            // Each WalletAccount carries the auth scheme it was created under
+            // (legacy entries default to Falcon). Re-derive the matching secret
+            // key so the keystore entry signs correctly.
             const walletSeed = deriveClientSeed(mnemonic, {
-              keyDerivation: getAccountKeyDerivation(walletAccount),
+              keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
               walletType: walletAccount.type,
               authScheme: getAccountAuthScheme(walletAccount),
               hdIndex: walletAccount.hdIndex
@@ -1756,14 +1690,11 @@ export class Vault {
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access.
-      // New accounts are created under NEW_ACCOUNT_AUTH_SCHEME (ECDSA
-      // post-migration) and NEW_ACCOUNT_KEY_DERIVATION. The import-from-seed
-      // path fires for own-mnemonic wallets re-deriving an account this seed
-      // already created at this index — `Vault.spawn` only restores index 0, so
-      // a multi-account wallet reaches its later accounts through here. Those
-      // accounts may predate #918, so every restore probe (each derivation
-      // scheme) is tried at this index before a fresh account is created, and
-      // the probe that finds the account decides the stored derivation.
+      // New accounts are created under NEW_ACCOUNT_AUTH_SCHEME and
+      // NEW_ACCOUNT_KEY_DERIVATION. The import-from-seed path fires for
+      // own-mnemonic wallets re-deriving an account this seed already created at
+      // this index: `Vault.spawn` only restores index 0, so a multi-account wallet
+      // reaches its later accounts through here.
       const newScheme: AuthScheme = NEW_ACCOUNT_AUTH_SCHEME;
       const created = await withWasmClientLock(
         async (
@@ -2755,7 +2686,7 @@ function isValidHex(s: string): boolean {
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
  * at account creation / restore. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
- * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
+ * SLIP-0010 Miden branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment
  * mirrors getMainDerivationPath: hdIndex is allocated per privacy bucket, so
  * without it an OnChain and an OffChain account at the same bucket index would

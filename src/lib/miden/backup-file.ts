@@ -75,7 +75,7 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isAuthScheme = (value: unknown): value is ImportedAccountBackup['authScheme'] =>
   value === 'falcon' || value === 'ecdsa';
 
-const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'legacy' || value === 'v1';
+const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'v1';
 
 const isWalletType = (value: unknown): value is WalletType =>
   value === WalletType.OffChain || value === WalletType.OnChain || value === WalletType.Guardian;

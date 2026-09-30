@@ -14,11 +14,6 @@
  * change to it orphans the account. Do not recompute these literals from the
  * code under test.
  *
- * The `legacy` seed has no auth-scheme level, so one legacy seed gives both an
- * ECDSA key and a Falcon key. Both are pinned. The ECDSA key is the one the
- * seed-phrase restore probes. The Falcon key is the one the oldest accounts
- * used, and only an encrypted-file backup restores it.
- *
  * The unit-test module map replaces `@miden-sdk/miden-sdk` with a mock, and
  * the WASM bundle does not run under Jest. The SDK's Node build is a native
  * addon made from the same Rust code, so this test loads that addon directly.
@@ -93,71 +88,8 @@ interface FalconKeyVector {
   commitment: string;
 }
 
-/** ECDSA keys: every legacy seed, and every `v1` seed on the ecdsa path level. */
+/** ECDSA keys: every `v1` seed on the ecdsa path level. */
 const ECDSA_KEY_VECTORS: EcdsaKeyVector[] = [
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 0,
-    secretKey: '01ed4acae9b89998c7a4ed71a7da44d572d299ecb3807eec917fdc5c7e5423553a',
-    commitment: '0xfb4313b9e352788bc04ff4f28d7c3ff0877f448338f5e07138a6bd10dd9e4377'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 1,
-    secretKey: '01865e2f35a0877d0c15702ad34b3034be61ace9f608f9178da07852289d3c61ca',
-    commitment: '0xb2aae1fbdbe9ced9dd37ff54064fc6cd17cb269a4721b02400a43cf4d763e01d'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 2,
-    secretKey: '01618abe227ef2b2548ac4bb77eadd5ec06a60e7abb1c1b6f26b7059a047af365a',
-    commitment: '0x800f370b30a4e4dd26345b9af448cdbde93a2ce27148fac67c0bb02daf8a2470'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 0,
-    secretKey: '018e2e0b23660074368b025b74fe673e73524d85731439a856da7fe314c1b157df',
-    commitment: '0xc6b98d1b421373eee0e915899c21a3d819693e6eb9eea8ecd4bf928207494061'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 1,
-    secretKey: '0149d972f9dfd89b87003e1267c5087cfc2736ae93c87b9678205a4c4683c6351b',
-    commitment: '0x38b338dab1aa46acb03b8a409d4b9c2a569d7cd65ab1948af883846dc3734ef7'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 2,
-    secretKey: '01a9feee164eab554c383b9935771036e858302b44c3b79ebe7c9f75b228e03956',
-    commitment: '0xeb776c9f68547ae79bcd09055549a42bf2fc49bf42c4d6265398fcec43e36803'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 0,
-    secretKey: '019850db3b39a4364bdd60476a94e30f7c00520edc02ccfcdd3fc447413435a780',
-    commitment: '0x03331bcf85ee6218b7b92796e1b9a42154d639eff98fd8c1752bc64453d1cfdf'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 1,
-    secretKey: '0121c843bc426014fa26be5467a5bfcbeafe1efdacd8083a5af0842d51e0111c3c',
-    commitment: '0xc55ca50a5f6ceed2e12c4551527864fdd12d10b74b2ee387cb6bc523111a8360'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 2,
-    secretKey: '017e7626be3da8a306d21ce7299ad191481f32cb7bcea7820e259a6b29b650b5fd',
-    commitment: '0xe0691c9994ab8f6ad175e3c3a957e9a4066a8e58594ad86cc85e89ac700c844e'
-  },
   {
     keyDerivation: 'v1',
     walletType: WalletType.OnChain,
@@ -223,62 +155,8 @@ const ECDSA_KEY_VECTORS: EcdsaKeyVector[] = [
   }
 ];
 
-/** Falcon keys: every legacy seed, and every `v1` seed on the falcon path level. */
+/** Falcon keys: every `v1` seed on the falcon path level. */
 const FALCON_KEY_VECTORS: FalconKeyVector[] = [
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 0,
-    commitment: '0x03c11dc89dd51cd8442d2d26cff54f3514fb1e54df5a4d5be37f6b2f947cebbb'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 1,
-    commitment: '0x77cf0ce04b85da4aca71ef9e8ddac361bf8722c255eb19c2df1a1f5787fac63a'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OnChain,
-    hdIndex: 2,
-    commitment: '0x976f1305b84cc9dc61caf9757938c5f00091bc455cf2baa810872a9bbd267e11'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 0,
-    commitment: '0xf981a0f25e1624110bfc9d9fba017905e7cf5edb9528e9daa19a5d56832bdc15'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 1,
-    commitment: '0x70abc853aa1d19c1d44f15bc1f72195ab25868c7e846ad0202dda7e428517091'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.OffChain,
-    hdIndex: 2,
-    commitment: '0x6488a9b23a09bd4b947ac7f072e7361dfab9a59cc1046fa1ff0e7f952a4f1b53'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 0,
-    commitment: '0x2585eea303c3934da6f9c8e6ae12b2bb0d8564f06d1a59a91b34b25ccaf0994c'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 1,
-    commitment: '0x2cfcd4bbb8fdeff590ab696b9819f98980e678d0644346516ccff35b4774653c'
-  },
-  {
-    keyDerivation: 'legacy',
-    walletType: WalletType.Guardian,
-    hdIndex: 2,
-    commitment: '0xf05bb85ca59fdafea71ac35cc5312463a04bce52dd4e9ed810b5fe9909b6d375'
-  },
   {
     keyDerivation: 'v1',
     walletType: WalletType.OnChain,
@@ -368,7 +246,7 @@ describeWithNativeSdk('SDK keys from the golden seeds', () => {
 
   it('uses the seed to start an RNG and does not use the seed bytes as the scalar', () => {
     const seed = deriveClientSeed(MNEMONIC, {
-      keyDerivation: 'legacy',
+      keyDerivation: 'v1',
       walletType: WalletType.OnChain,
       authScheme: 'ecdsa',
       hdIndex: 0

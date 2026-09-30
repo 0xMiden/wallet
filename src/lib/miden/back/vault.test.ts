@@ -1796,35 +1796,14 @@ describe('Vault.createHDAccount', () => {
 
   it('falls back to createMidenWallet when every import probe misses (own mnemonic path)', async () => {
     const vault = await seedVault('pw', { ownMnemonic: true });
-    // Both derivation probes at the new index miss, so the account is fresh.
+    // The import probe at the new index misses, so the account is fresh.
     mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('boom'));
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('acc-fallback');
     const accounts = await vault.createHDAccount(WalletType.OnChain);
     expect(accounts[1]!.publicKey).toBe('acc-fallback');
     expect(accounts[1]!.keyDerivation).toBe('v1');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.createMidenWallet).toHaveBeenCalled();
-  });
-
-  it('restores a legacy account at the next index instead of creating an empty one (own mnemonic path)', async () => {
-    // A pre-#918 wallet with several public accounts: `Vault.spawn` restored
-    // index 0 through the legacy probe, and the next account must be found the
-    // same way rather than replaced by a fresh empty v1 account at that index.
-    const vault = await seedVault('pw', { ownMnemonic: true });
-    mockMidenClient.importPublicMidenWalletFromSeed
-      .mockRejectedValueOnce(new Error('no v1 account at this index'))
-      .mockResolvedValueOnce('acc-legacy-1');
-    const accounts = await vault.createHDAccount(WalletType.OnChain);
-    expect(accounts[1]!.publicKey).toBe('acc-legacy-1');
-    expect(accounts[1]!.hdIndex).toBe(1);
-    expect(accounts[1]!.keyDerivation).toBe('legacy');
-    expect(accounts[1]!.authScheme).toBe('ecdsa');
-    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    // The two probes derive different seeds for the same index.
-    const probeCalls: unknown[][] = mockMidenClient.importPublicMidenWalletFromSeed.mock.calls;
-    const seedHex = (value: unknown) =>
-      value instanceof Uint8Array ? Buffer.from(value).toString('hex') : 'not-bytes';
-    expect(seedHex(probeCalls[0]![0])).not.toBe(seedHex(probeCalls[1]![0]));
   });
 
   it('stamps v1 when the first import probe finds the account (own mnemonic path)', async () => {
@@ -1836,7 +1815,7 @@ describe('Vault.createHDAccount', () => {
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
   });
 
-  it('aborts on an unreachable node during the first probe without trying the second (own mnemonic path)', async () => {
+  it('aborts on an unreachable node during the import probe (own mnemonic path)', async () => {
     const vault = await seedVault('pw', { ownMnemonic: true });
     mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(
       new Error('client error: RPC error: Miden node is unavailable; check that the node is running and reachable')
@@ -1897,28 +1876,19 @@ describe('Vault.spawn', () => {
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
   });
 
-  it('falls back to createMidenWallet when both import probes (v1 ecdsa, legacy ecdsa) fail during spawn', async () => {
-    // Vault.spawn probes both key-derivation schemes during mnemonic restore.
-    // Use mockRejectedValue (not Once) so every probe sees a rejection
-    // and the create-fallback branch is reached.
+  it('probes only the v1 ECDSA derivation during spawn, then creates from that seed', async () => {
     mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('boom'));
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
-    expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
-    // Both derivations were probed (v1 first, legacy second), ECDSA only.
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     const probeCalls: unknown[][] = mockMidenClient.importPublicMidenWalletFromSeed.mock.calls;
-    expect(probeCalls.map(call => call[1])).toEqual(['ecdsa', 'ecdsa']);
-    // The two probes derive different seeds: same index, different scheme.
+    expect(probeCalls.map(call => call[1])).toEqual(['ecdsa']);
     const seedHex = (value: unknown) =>
       value instanceof Uint8Array ? Buffer.from(value).toString('hex') : 'not-bytes';
-    const [v1Seed, legacySeed] = probeCalls.map(call => seedHex(call[0]));
-    expect(v1Seed).toHaveLength(64);
-    expect(v1Seed).not.toBe(legacySeed);
-    // The fresh create used the v1 seed.
+    // The v1 on-chain ECDSA golden vector at index 0 (derive-seed.test.ts).
+    expect(seedHex(probeCalls[0]![0])).toBe('694ff992013be7c9f1c8ac4ed266f549df45acc0d9c0abe803a6ef0f22f78464');
     const createCalls: unknown[][] = mockMidenClient.createMidenWallet.mock.calls;
-    expect(seedHex(createCalls[0]![1])).toBe(v1Seed);
+    expect(seedHex(createCalls[0]![1])).toBe(seedHex(probeCalls[0]![0]));
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.keyDerivation).toBe('v1');
   });
@@ -1941,7 +1911,6 @@ describe('Vault.spawn', () => {
     );
     // The whole point: NO wallet was created behind the user's back.
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    // It aborts on the FIRST unreachable probe rather than burning the second.
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
   });
 
@@ -1953,29 +1922,10 @@ describe('Vault.spawn', () => {
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
   });
 
-  it('picks the legacy derivation when the v1 probe has no on-chain account', async () => {
-    // Probe order is [v1 ecdsa, legacy ecdsa]. The v1 probe misses, legacy
-    // succeeds — the resulting account is stamped keyDerivation='legacy' so
-    // every later re-derivation (file restore, recovery seed) uses that path.
-    mockMidenClient.importPublicMidenWalletFromSeed
-      .mockRejectedValueOnce(new Error('no v1 account at this seed'))
-      .mockResolvedValueOnce('legacy-pk-xyz');
-    const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
-    expect(vault).toBeInstanceOf(Vault);
-    expect(await Vault.getCurrentAccountPublicKey()).toBe('legacy-pk-xyz');
-    // create-fallback NOT reached.
-    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    // Stored scheme and derivation reflect the probe that succeeded.
-    const accounts = await vault.fetchAccounts();
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]!.authScheme).toBe('ecdsa');
-    expect(accounts[0]!.keyDerivation).toBe('legacy');
-  });
-
-  it('picks v1 when the first probe finds an account, without probing legacy', async () => {
+  it('stamps v1 when the probe finds an account', async () => {
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('v1-pk-abc');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('v1-pk-abc');
@@ -2834,99 +2784,7 @@ describe('Vault hardware branches', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('Vault.spawn scans the legacy derivation when the v1 scan finds no Guardian accounts', async () => {
-    // A wallet created before #918 derived its cold keys under the legacy
-    // scheme. The v1 scan answers "nothing here" (NoGuardianAccountsFoundError),
-    // the legacy scan adopts, and the account is stamped `legacy` so the
-    // recovery-seed and file-restore paths re-derive the same cold key.
-    (isDesktop as jest.Mock).mockReturnValue(false);
-    (isMobile as jest.Mock).mockReturnValue(false);
-    const { NoGuardianAccountsFoundError } = require('../sdk/guardian-recovery-errors');
-    mockMidenClient.recoverGuardianAccountsBySeed
-      .mockRejectedValueOnce(new NoGuardianAccountsFoundError())
-      .mockResolvedValueOnce([
-        {
-          accountId: 'guardian-legacy-pk',
-          hdIndex: 0,
-          coldPublicKey: 'bb'.repeat(33),
-          coldSecretKeyHex: 'dd'.repeat(32)
-        }
-      ]);
-
-    const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-legacy', VALID_MNEMONIC, true);
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
-    // The two scans hand the lookup different cold seeds for the same index.
-    const [v1Derive, legacyDerive] = mockMidenClient.recoverGuardianAccountsBySeed.mock.calls.map(call => call[0]);
-    expect(Buffer.from(v1Derive(0)).toString('hex')).not.toBe(Buffer.from(legacyDerive(0)).toString('hex'));
-    const accounts = await vault.fetchAccounts();
-    expect(accounts[0]!.publicKey).toBe('guardian-legacy-pk');
-    expect(accounts[0]!.keyDerivation).toBe('legacy');
-    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
-  });
-
-  it('Vault.spawn merges Guardian accounts found under both derivations and stamps each with its own', async () => {
-    // A pre-#918 Guardian wallet that added an account after the update holds a
-    // legacy account at index 0 and a v1 account at index 1. Stopping at the
-    // first scan with a match would drop the legacy account and its balance.
-    (isDesktop as jest.Mock).mockReturnValue(false);
-    (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed
-      .mockResolvedValueOnce([
-        { accountId: 'guardian-v1-pk', hdIndex: 1, coldPublicKey: 'aa'.repeat(33), coldSecretKeyHex: 'cc'.repeat(32) }
-      ])
-      .mockResolvedValueOnce([
-        {
-          accountId: 'guardian-legacy-pk',
-          hdIndex: 0,
-          coldPublicKey: 'bb'.repeat(33),
-          coldSecretKeyHex: 'dd'.repeat(32)
-        }
-      ]);
-
-    const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-mixed', VALID_MNEMONIC, true);
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
-    const accounts = await vault.fetchAccounts();
-    expect(accounts.map(a => [a.publicKey, a.hdIndex, a.keyDerivation])).toEqual([
-      ['guardian-v1-pk', 1, 'v1'],
-      ['guardian-legacy-pk', 0, 'legacy']
-    ]);
-    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
-  });
-
-  it('Vault.spawn keeps one record when both scans answer the same Guardian account', async () => {
-    // The lookup is by signer commitment, so an account listing a cold key from
-    // each scheme answers both scans; the current-scheme match wins.
-    (isDesktop as jest.Mock).mockReturnValue(false);
-    (isMobile as jest.Mock).mockReturnValue(false);
-    const match = {
-      accountId: 'guardian-both-pk',
-      hdIndex: 0,
-      coldPublicKey: 'bb'.repeat(33),
-      coldSecretKeyHex: 'dd'.repeat(32)
-    };
-    mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValue([match]);
-
-    const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-dup', VALID_MNEMONIC, true);
-    const accounts = await vault.fetchAccounts();
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]!.keyDerivation).toBe('v1');
-  });
-
-  it('Vault.spawn aborts the recovery when the legacy scan fails for a reason other than not-found', async () => {
-    (isDesktop as jest.Mock).mockReturnValue(false);
-    (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed
-      .mockResolvedValueOnce([
-        { accountId: 'guardian-v1-pk', hdIndex: 0, coldPublicKey: 'aa'.repeat(33), coldSecretKeyHex: 'cc'.repeat(32) }
-      ])
-      .mockRejectedValueOnce(new Error('guardian lookup failed'));
-
-    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-half', VALID_MNEMONIC, true);
-    await expect(spawning).rejects.toThrow(PublicError);
-    await expect(spawning).rejects.toThrow('guardian lookup failed');
-  });
-
-  it('Vault.spawn surfaces a not-found from BOTH scans as a PublicError with the lookup reason', async () => {
+  it('Vault.spawn scans once, under the v1 cold-key derivation, and surfaces a not-found as a PublicError', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     const { NoGuardianAccountsFoundError } = require('../sdk/guardian-recovery-errors');
@@ -2935,7 +2793,12 @@ describe('Vault hardware branches', () => {
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-none', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
     await expect(spawning).rejects.toThrow('No Guardian accounts found at this guardian endpoint for this seed');
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
+    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(1);
+    // The v1 Guardian ECDSA golden vector at index 0 (derive-seed.test.ts).
+    const [deriveColdSeed] = mockMidenClient.recoverGuardianAccountsBySeed.mock.calls[0]!;
+    expect(Buffer.from(deriveColdSeed(0)).toString('hex')).toBe(
+      'a8ecedd7d91f0355bfa4f914044e00b1395c77db738e91ba7b6d897322ec383c'
+    );
   });
 
   it('Vault.spawn re-throws a PublicError from the recovery lookup unchanged', async () => {
@@ -3278,11 +3141,11 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('Vault.spawn (restore probes): eviction during a probe stops the next probe AND the fresh-create fallback', async () => {
-    // Probe 1 loses the mutex mid-lookup and then reports a definitive miss.
-    // Pre-guard, the loop would carry on: probe 2 re-borrows the client, and a
-    // full miss falls through to mint a fresh EMPTY wallet off an abandoned
-    // restore — the fund-loss shape the per-iteration check exists to stop.
+  it('Vault.spawn (restore probes): eviction during the probe stops the fresh-create fallback', async () => {
+    // The probe loses the mutex mid-lookup and then reports a definitive miss.
+    // Pre-guard, the loop would fall through to mint a fresh EMPTY wallet off
+    // an abandoned restore - the fund-loss shape the per-iteration check
+    // exists to stop.
     mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
       revokeWasmHold();
       throw new Error('account not found on chain');
@@ -3290,7 +3153,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 

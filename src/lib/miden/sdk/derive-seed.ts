@@ -29,7 +29,7 @@ export function walletTypeIndex(walletType: WalletType): number {
 }
 
 // Maps an auth scheme to the `v1` scheme path level, so a Falcon key and an
-// ECDSA key at the same index never share a seed. Unused by `legacy`.
+// ECDSA key at the same index never share a seed.
 export function authSchemeIndex(authScheme: AuthScheme): number {
   switch (authScheme) {
     case 'falcon':
@@ -73,8 +73,8 @@ export function deriveClientSeed(mnemonic: string, spec: ClientSeedSpec): Uint8A
 /**
  * Build a `deriveSeed(spec)` closure that computes the master seed once.
  * `mnemonicToSeed` runs 2048 rounds of PBKDF2-HMAC-SHA512, which is slow on
- * the UI thread. Callers that derive under several schemes or walk a range of
- * HD indices (the restore probes, guardian recovery, the guardian discovery
+ * the UI thread. Callers that derive more than one seed or walk a range of HD
+ * indices (the restore probes, guardian recovery, the guardian discovery
  * probe) pay that cost once instead of once per derivation.
  *
  * The output is equal to {@link deriveClientSeed} for the same spec.
@@ -93,15 +93,14 @@ export function makeSeedDeriver(mnemonic: string): (spec: ClientSeedSpec) => Uin
 const COLD_KEY_AUTH_SCHEME: AuthScheme = 'ecdsa';
 
 /**
- * Build a `deriveColdSeed(hdIndex, keyDerivation)` closure for Guardian cold
- * keys. One closure serves a `v1` scan and a `legacy` scan, and computes the
- * master seed once (see {@link makeSeedDeriver}).
+ * Build a `deriveColdSeed(hdIndex)` closure for Guardian cold keys that
+ * computes the master seed once (see {@link makeSeedDeriver}).
  */
 export function makeColdSeedDeriver(
   mnemonic: string,
   walletType: WalletType = WalletType.Guardian
-): (hdIndex: number, keyDerivation: KeyDerivation) => Uint8Array {
+): (hdIndex: number) => Uint8Array {
   const deriveSeed = makeSeedDeriver(mnemonic);
-  return (hdIndex: number, keyDerivation: KeyDerivation) =>
-    deriveSeed({ keyDerivation, walletType, authScheme: COLD_KEY_AUTH_SCHEME, hdIndex });
+  return (hdIndex: number) =>
+    deriveSeed({ keyDerivation: 'v1', walletType, authScheme: COLD_KEY_AUTH_SCHEME, hdIndex });
 }

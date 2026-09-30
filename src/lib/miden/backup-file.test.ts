@@ -74,14 +74,14 @@ describe('parseDecryptedWalletFile', () => {
     expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
   });
 
-  it.each(['legacy', 'v1', undefined])('accepts a wallet account whose keyDerivation is %p', keyDerivation => {
+  it.each(['v1', undefined])('accepts a wallet account whose keyDerivation is %p', keyDerivation => {
     const parsed = parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [{ ...hdAccount, keyDerivation }] });
     expect(parsed.accounts[0]!.keyDerivation).toBe(keyDerivation);
   });
 
-  it('rejects a wallet account with an unknown keyDerivation', () => {
+  it.each(['legacy', 'v2'])('rejects a wallet account with an unknown keyDerivation %p', keyDerivation => {
     expect(() =>
-      parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [{ ...hdAccount, keyDerivation: 'v2' }] })
+      parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [{ ...hdAccount, keyDerivation }] })
     ).toThrow(MalformedBackupFileError);
   });
 
