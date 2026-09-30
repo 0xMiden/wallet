@@ -1044,24 +1044,25 @@ it.each(aborts)(
 );
 
 it.each(aborts)(
-  'defers %s of a summary decode from an operator the account never used, counted once per session',
+  'defers %s of a summary decode from an operator the account never used without counting it, asked once per session',
   async (_kind, make) => {
     const client = source('https://two', []);
     jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
     failDecodeOf('3', make());
     for (let restart = 0; restart < 2; restart++) {
       expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 1 });
+      expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
     }
     expect(decodesOf('3')).toBe(1);
     expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
     expect(client.getDelta).toHaveBeenCalledTimes(1);
-    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false, deferredFailurePasses: 1 });
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false });
     expect((await twoCheckpoint())?.invalidDataPasses).toBeUndefined();
 
     forgetUnsupportedHistorySources();
     await run();
     expect(decodesOf('3')).toBe(2);
-    expect((await twoCheckpoint())?.deferredFailurePasses).toBe(2);
+    expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
   }
 );
 
@@ -1134,14 +1135,17 @@ it.each(aborts)(
     const first = await run();
     expect(first).toMatchObject({ deferred: false, sourceFailures: 1, deferredSources: 1 });
     expect(commitmentCalls()).toBe(2);
-    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false, deferredFailurePasses: 1 });
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false });
+    expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
     await run();
     expect(commitmentCalls()).toBe(2);
+    expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
     forgetUnsupportedHistorySources();
     await run();
     expect(commitmentCalls()).toBe(4);
+    expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
   }
 );
 
@@ -1204,7 +1208,36 @@ it('defers a commitment abort of an operator the account never used only when it
   const one = await operatorCheckpoint('https://one');
   expect(one).toMatchObject({ completed: true });
   expect(one?.failure).toBeUndefined();
-  expect((await twoCheckpoint())?.deferredFailurePasses).toBe(1);
+  const two = await twoCheckpoint();
+  expect(two).toMatchObject({ failure: 'network', completed: false });
+  expect(two?.deferredFailurePasses).toBeUndefined();
+});
+
+it('leaves an operator the account never used deferred, not completed, after three sessions of local decode aborts', async () => {
+  await addLocalResult();
+  const one = clients.get('https://one');
+  if (!one) throw new Error('Missing test source');
+  jest
+    .spyOn(one, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
+  serveEveryPass('https://two', { entries: [entry(3)] });
+  jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+    throw new OperationAbortedError('op-1', 'deadline');
+  });
+  for (let session = 0; session < 3; session++) {
+    if (session > 0) forgetUnsupportedHistorySources();
+    expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 1 });
+    expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'network' });
+  }
+  expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
+  const two = clients.get('https://two');
+  if (!two) throw new Error('Missing test source');
+  expect(two.getDeltaHistory).toHaveBeenCalledTimes(3);
+
+  forgetUnsupportedHistorySources();
+  await run();
+  expect(two.getDeltaHistory).toHaveBeenCalledTimes(4);
 });
 
 it('asks a source whose decode aborted again in the session a lock started while it ran', async () => {
@@ -1227,11 +1260,11 @@ it('asks an operator the account never used whose decode aborted again in the se
   abortDecodeOf('3', () => new WasmClientPoisonedError('realm-error'), forgetUnsupportedHistorySources);
   const first = await run();
   expect(first).toMatchObject({ deferred: false, sourceFailures: 0, deferredSources: 1 });
-  expect((await twoCheckpoint())?.deferredFailurePasses).toBe(1);
+  expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
   await run();
   expect(decodesOf('3')).toBe(2);
-  expect((await twoCheckpoint())?.deferredFailurePasses).toBe(2);
+  expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 });
 
 it.each(aborts)(

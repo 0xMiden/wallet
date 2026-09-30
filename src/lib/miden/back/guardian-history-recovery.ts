@@ -77,7 +77,7 @@ export const MAX_HISTORY_SEEN_CURSORS = 64;
 /**
  * Sessions a source can answer "no history" before it ends: empty for an operator the account may never have used,
  * and as a terminal failure for one it used. A source whose data fails a check in this many sessions is terminal too,
- * and an operator the account may never have used that cannot be read in this many sessions (its
+ * and an operator the account may never have used whose request cannot be answered in this many sessions (its
  * deferredFailurePasses) completes empty. Each count is spent at most once per session, and a terminal source ends
  * recovery once the pass has read the other operators.
  */
@@ -90,9 +90,10 @@ function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
 }
 
 // Checkpoints answered unsupported, whose data failed a check, whose summary or commitment decode was aborted, or whose
-// operator the account may never have used could not be read (deferredFailurePasses), since the backend started or the
-// wallet last locked. Each is counted once per session, so a deferral restart cannot spend a cap or decode again. An
-// answer to an attempt issued before a lock is left out of the session the lock started.
+// operator the account may never have used was deferred because a request could not be answered or a decode was
+// aborted (whether or not that spent its deferredFailurePasses), since the backend started or the wallet last locked.
+// Each is recorded once per session, so a deferral restart cannot spend a cap or decode again. An answer to an attempt
+// issued before a lock is left out of the session the lock started.
 const unsupportedHistorySources = new Set<string>();
 const invalidDataHistorySources = new Set<string>();
 const abortedDecodeHistorySources = new Set<string>();
@@ -295,7 +296,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       }
       if (
         deferredFailureHistorySources.has(id) &&
-        checkpoint.deferredFailurePasses !== undefined &&
+        checkpoint.failure !== undefined &&
         !ownOperators.includes(operator)
       ) {
         deferredSources++;
@@ -529,14 +530,17 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         }
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
         if (failure !== 'invalid-data' && !ownOperators.includes(operator)) {
-          // Charged once, to the session of the attempt or decode that failed. A failure no attempt carries, such as
-          // a fee lookup on the wallet's own node, defers the source without spending its count.
+          // Charged once, to the session of the attempt that failed. A failure no attempt carries, such as a fee lookup
+          // on the wallet's own node or a decode its own worker did not finish, defers the source without spending its
+          // count; an aborted decode still skips the source for the rest of its session.
           const session =
             thrown instanceof HistoryRequestFailed || thrown instanceof HistoryDecodeAborted
               ? thrown.session
               : undefined;
           const deferredFailurePasses =
-            session === undefined ? checkpoint.deferredFailurePasses : (checkpoint.deferredFailurePasses ?? 0) + 1;
+            thrown instanceof HistoryRequestFailed
+              ? (checkpoint.deferredFailurePasses ?? 0) + 1
+              : checkpoint.deferredFailurePasses;
           const completed = (deferredFailurePasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
           const deferred = { ...checkpoint, failure, deferredFailurePasses, completed };
           if (!(await saveGuardianHistoryCheckpoint(context.generation, deferred))) throw new HistoryInterrupted();

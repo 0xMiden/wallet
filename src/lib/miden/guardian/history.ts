@@ -58,8 +58,8 @@ export interface GuardianHistoryCheckpoint {
   /** Sessions in which the operator's history failed a data check (an 'invalid-data' failure). */
   invalidDataPasses?: number;
   /**
-   * Sessions in which an operator the account is not known to have used could not be read, for any failure but
-   * invalid data or a fee answer; reset by a page it serves.
+   * Sessions in which an operator the account is not known to have used failed to answer a request; never spent by
+   * invalid data, a fee answer, a fee lookup or a decode abort, and reset by a page it serves.
    */
   deferredFailurePasses?: number;
   failure?: GuardianHistoryFailure;
