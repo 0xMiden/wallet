@@ -2659,7 +2659,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     }
   );
 
-  it('send: a canonicalization refusal on a private send completes it with its note undelivered (#1233)', async () => {
+  it('send: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
       new Error(
@@ -2674,14 +2674,14 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       amount: '1000',
       noteType: 'private'
     };
-    arrange('refusal-private-send', row);
+    const { service } = arrange('refusal-private-send', row);
 
     await generateTransaction(buildTx('refusal-private-send', row) as never, signCallback, false, provider as never);
 
     const finalRow = txStore.find(r => r.id === 'refusal-private-send')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Completed);
-    expect(finalRow.noteDelivery).toBe('undelivered');
-    expect(finalRow.displayMessage).toBe('Sent - the private note could not be delivered');
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(finalRow.displayMessage).not.toBe('Sent');
   });
 
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
@@ -2705,7 +2705,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.transactionId).toBe('0xlanded');
   });
 
-  it('execute: a canonicalization refusal on an execute that names a recipient flags its notes undelivered (#1233)', async () => {
+  it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
       new Error(
@@ -2714,7 +2714,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       )
     );
     const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
-    arrange('refusal-execute-recipient', row);
+    const { service } = arrange('refusal-execute-recipient', row);
 
     await generateTransaction(
       buildTx('refusal-execute-recipient', row) as never,
@@ -2723,12 +2723,10 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
       provider as never
     );
 
-    // A refusal carries no count, so the recipient the request named is the only evidence.
     const finalRow = txStore.find(r => r.id === 'refusal-execute-recipient')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Completed);
-    expect(finalRow.noteDelivery).toBe('undelivered');
-    expect(finalRow.displayMessage).toBe('Executed - the private note could not be delivered');
-    expect(finalRow.transactionId).toBeUndefined();
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(finalRow.displayMessage).not.toBe('Sent');
   });
 });
 
@@ -3090,40 +3088,42 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     expect(finalRow.displayMessage).toBe('Account secured');
   });
 
-  it('update-procedure-threshold landed: a canonicalization refusal completes the row with its finalization (#1233)', async () => {
+  it('update-procedure-threshold: an unwrapped refusal from the leaf ends Failed with no finalization (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
       new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
     );
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
-    const { provider: sp } = arrangeStructural('s-refusal-upt', row);
+    const { service, provider: sp } = arrangeStructural('s-refusal-upt', row);
 
     await generateTransaction(buildTx('s-refusal-upt', row) as never, signCallback, false, sp as never);
 
-    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
-    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+    expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    expect(guardianManagerMock.clearGuardianServiceFor).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 's-refusal-upt')!;
-    expect(finalRow.status).toBe(ITransactionStatus.Completed);
-    expect(finalRow.displayMessage).toBe('Account secured');
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
   });
 
-  it('update-procedure-threshold landed: a refusal whose Completed write fails ends Failed, not Completed as a send (#1233)', async () => {
+  it('update-procedure-threshold: the on-chain-commitment refusal ends Failed too, never Completed as a send (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const id = 's-refusal-upt-write-fails';
-    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
-      // Armed at the failure, so the first row read to fail is the reconcile's Completed write.
-      mockFailRowReads = { id, times: 1 };
-      throw new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`);
-    });
+    const id = 's-refusal-upt-onchain';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_ONCHAIN_COMMITMENT}`)
+    );
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
-    const { provider: sp } = arrangeStructural(id, row);
+    const { service, provider: sp } = arrangeStructural(id, row);
 
     await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
 
-    expect(mockFailRowReads?.times).toBe(0);
-    expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
-    // The threshold changed on chain whatever the row says, so the stale cache still goes.
-    expect(guardianManagerMock.clearGuardianServiceFor).toHaveBeenCalledWith('guardian-acc');
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+    expect(mockComplete.updateThreshold).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
   });
 
   it.each([
@@ -3131,19 +3131,17 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       type: 'replace-hot-key',
       row: { type: 'replace-hot-key', extraInputs: {} },
       complete: mockComplete.replaceHotKey,
-      refusal: REFUSAL_EQUAL_NONCE,
-      landedArg: 3
+      refusal: REFUSAL_EQUAL_NONCE
     },
     {
       type: 'switch-guardian',
       row: { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } },
       complete: mockComplete.switchGuardian,
-      refusal: REFUSAL_ONCHAIN_COMMITMENT,
-      landedArg: 5
+      refusal: REFUSAL_ONCHAIN_COMMITMENT
     }
   ])(
-    '$type: a structural refusal reaches the RECONCILE handler, not the Completed-as-a-send arm (#1233)',
-    async ({ type, row, complete, refusal, landedArg }) => {
+    '$type: an unwrapped structural refusal never reaches the reconcile: Failed, abandoned, nothing pushed (#1233)',
+    async ({ type, row, complete, refusal }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       mockDispatchGuardianPipeline.mockRejectedValueOnce(
         new Error(`Offscreen call 'guardianPipeline' failed: ${refusal}`)
@@ -3152,16 +3150,14 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
 
       await generateTransaction(buildTx(`s-refusal-${type}`, row) as never, signCallback, false, sp as never);
 
-      expect(service.abandonCandidate).not.toHaveBeenCalled();
-      expect(complete).toHaveBeenCalledTimes(1);
-      expect(complete.mock.calls[0]![STRUCTURAL_RESULT_ARG]).toBeUndefined();
-      // A refusal carries no id.
-      expect(complete.mock.calls[0]![landedArg]).toEqual({ transactionId: undefined });
-      expect(txStore.find(r => r.id === `s-refusal-${type}`)!.displayMessage).not.toBe('Sent');
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === `s-refusal-${type}`)!.status).toBe(ITransactionStatus.Failed);
     }
   );
 
-  it('switch-guardian: a structural refusal whose reconcile throws ends Failed, not Completed as a send (#1233)', async () => {
+  it('switch-guardian: a structural refusal builds no outgoing service for a reconcile and ends Failed (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const id = 's-refusal-switch-reconcile-throws';
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
@@ -3169,13 +3165,46 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     );
     const row = { type: 'switch-guardian', extraInputs: { newGuardianEndpoint: 'https://guardian.new' } };
     const { service, provider: sp } = arrangeStructural(id, row);
-    // The first build serves the proposal; the reconcile's rebuild of the outgoing service fails.
-    mockGetOrCreateMultisigService.mockResolvedValueOnce(service).mockRejectedValueOnce(new Error('rebuild failed'));
 
     await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
 
+    // One build, the proposal's: no reconcile rebuilt the outgoing service.
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.pushSwitchDelta).not.toHaveBeenCalled();
     expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
     expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it.each(structuralCases())(
+    '$type: a canonicalization refusal before the co-sign returns ends Failed and abandons the candidate (#1233)',
+    async ({ type, row, complete }) => {
+      const id = `s-refusal-precosign-${type}`;
+      const { service, provider: sp } = arrangeStructural(id, row);
+      service.signAndCreateTransactionRequest.mockRejectedValueOnce(new Error(REFUSAL_ONCHAIN_COMMITMENT));
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(service.pushSwitchDelta).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(finalRow.displayMessage).not.toBe('Account secured');
+    }
+  );
+
+  it('update-procedure-threshold: a refusal at proposal creation, before the main try, ends Failed (#1233)', async () => {
+    const id = 's-refusal-upt-proposal';
+    const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
+    const { service, provider: sp } = arrangeStructural(id, row);
+    service.createUpdateProcedureThresholdProposal.mockRejectedValueOnce(new Error(REFUSAL_EQUAL_NONCE));
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.displayMessage).not.toBe('Account secured');
   });
 
   it('earn-deposit: an unwrapped canonicalization refusal marks the row Failed, not Completed (#1233)', async () => {
@@ -3226,14 +3255,6 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       'an apply failure',
       () =>
         Object.assign(new Error('local apply failed after submit'), { errorCode: 'ApplyTransactionAfterSubmitFailed' })
-    ],
-    [
-      'a canonicalization refusal',
-      () =>
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming commitment does " +
-            'not match on-chain commitment for account 0xacc'
-        )
     ]
   ])('pushes the delta after a landed submit reported as %s', async (_label, makeError) => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
@@ -3257,6 +3278,14 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
         new Error(
           "Offscreen call 'guardianPipeline' failed: transaction conflicts with current mempool state: initial " +
             'account commitment 0x1111 does not match the current commitment 0x2222 for account 0x3333'
+        )
+    ],
+    [
+      'a canonicalization refusal',
+      () =>
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming commitment does " +
+            'not match on-chain commitment for account 0xacc'
         )
     ]
   ])(

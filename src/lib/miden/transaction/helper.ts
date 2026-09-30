@@ -41,7 +41,8 @@ export type { SignCallbackReason };
  *   "Refusing to overwrite local state: incoming commitment does not match
  *    on-chain commitment for account X"
  *
- * The transaction is fine; the next sync tick reconciles. See `sdk/sdk-error-code.ts`.
+ * An answer about the guardian's view, never a landed write: a post-submit failure
+ * arrives as the apply-after-submit error (#1233). See `sdk/sdk-error-code.ts`.
  */
 export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 

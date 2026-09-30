@@ -676,8 +676,8 @@ export class MultisigService {
    * The adopt keeps local state quietly when the guardian is behind local. It throws
    * the SDK's "Refusing to overwrite local state" when the guardian's state has local's
    * nonce but another commitment, or does not match the chain. Those two are answers,
-   * not failures, and must not escape: the transaction loop reads that refusal as a
-   * landed write and would mark a rotation that never submitted Completed.
+   * not failures, and must not escape: letting one out would fail a rotation that can
+   * still build on local state.
    */
   private async syncBeforeRotationBuild(): Promise<void> {
     await syncUnderBoundedLock('replace-hot-key-sync');

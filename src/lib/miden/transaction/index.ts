@@ -70,7 +70,6 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
-  isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -225,8 +224,8 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * Both are the Miden half of an Epoch flow: a recallable P2IDE collateral note whose
  * id the caller needs before it can submit the surrounding intent.
  *
- * A post-submit failure (a local apply throw, or a guardian canonicalization race)
- * leaves NO `TransactionResult` to repopulate those fields from. Marking such a row
+ * A post-submit failure (an apply-after-submit error, the one landed shape) leaves
+ * NO `TransactionResult` to repopulate those fields from. Marking such a row
  * Completed would hand the waiter `TransactionResult.deserialize(undefined)`, which
  * throws inside the liveQuery observer AFTER `cleanup()` has already cleared the
  * timeout — the promise then never settles and the Epoch flow hangs forever while the
@@ -912,9 +911,8 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
 
 /**
  * Run the side effects a structural Guardian op needs after its submit landed on
- * chain but a post-submit step failed (an apply-after-submit error, or a
- * canonicalization refusal). Without this the op would be cancelled with the
- * account unreconciled.
+ * chain but its local apply failed (an apply-after-submit error). Without this the
+ * op would be cancelled with the account unreconciled.
  *
  * replace-hot-key → swap the vault hot pointer (idempotent).
  * update-procedure-threshold → evict the cached service, then mark Completed
@@ -992,9 +990,9 @@ async function reconcileStructuralApplyFailure(
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
-  // submit SUCCEEDED (an apply-after-submit error or a canonicalization refusal, neither
-  // of which any pre-submit step produces), which establishes that the node accepted the
-  // transaction, and nothing more. No commit wait ran here and `didDirectSwitchLand` was
+  // submit SUCCEEDED (an apply-after-submit error, which no pre-submit step produces),
+  // which establishes that the node accepted the transaction, and nothing more. No
+  // commit wait ran here and `didDirectSwitchLand` was
   // never called, so this path has strictly LESS evidence of a commit than the direct
   // path's `landed === undefined` case that the flag was introduced for. Defaulting it
   // to false let this exit render the full-confidence receipt.
@@ -1237,24 +1235,18 @@ const generateTransactionWithProvider = async (
       if (isLockedError(error)) {
         throw error;
       }
-      // A structural op whose submit landed and whose post-submit step then failed never ran
-      // its completion handler, so the vault hot pointer, the guardian registration or the
-      // cached threshold map is un-reconciled. Cancelling would strand the account. Run the
+      // A structural op whose submit landed and whose local apply then failed never ran its
+      // completion handler, so the vault hot pointer, the guardian registration or the cached
+      // threshold map is un-reconciled. Cancelling would strand the account. Run the
       // finalization the happy path would, minus a threshold update's re-register (the local
-      // store still holds the pre-update account). A reconcile that throws fails the row HERE:
-      // falling through, a refusal would reach the canonicalization-refusal arm below, which
-      // would mark it Completed with no finalization.
-      if (
-        STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) &&
-        (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
-      ) {
+      // store still holds the pre-update account). The apply-after-submit error is the one
+      // landed shape (#1233): every leaf wraps a post-submit failure in it, so a canonicalization
+      // refusal here was raised before submit and must take the non-landed arms below.
+      if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) && isApplyAfterSubmitError(error)) {
         try {
           await reconcileStructuralApplyFailure(transaction, guardianProvider, landedOf(error));
         } catch (reconcileError) {
-          console.error(
-            'Structural-op landed reconcile failed; cancelling (apply-after-submit or refusal)',
-            reconcileError
-          );
+          console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
           // A switch the node discarded fails on that verdict, as the direct path's discard does (#1233).
           await cancelTransactionAfterPipelineStopped(
             transaction,
@@ -1275,9 +1267,9 @@ const generateTransactionWithProvider = async (
       //
       // The result-awaiting exception among value-moving guardian ops
       // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /
-      // `outputNoteIds` back off the finished row, and a post-submit failure — a
-      // local apply throw OR a canonicalization race — leaves no TransactionResult
-      // to repopulate them from. Marking the row Completed (as the branches below do
+      // `outputNoteIds` back off the finished row, and a post-submit failure (an
+      // apply-after-submit error) leaves no TransactionResult to repopulate them
+      // from. Marking the row Completed (as the branches below do
       // for send/consume/swap/execute/agglayer bridged-send) would hang the awaiting
       // Epoch flow forever; see the `isResultAwaitingRow` doc comment for the full
       // mechanism. Fail the row instead so the caller resolves via its error branch.
@@ -1288,10 +1280,7 @@ const generateTransactionWithProvider = async (
       // (The 409, 429, prover-outage and unreachable arms below DO requeue an
       // earn-deposit, with its bytes, but only on a pre-submit failure; a Failed row
       // is terminal.)
-      if (
-        isResultAwaitingRow(transaction) &&
-        (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
-      ) {
+      if (isResultAwaitingRow(transaction) && isApplyAfterSubmitError(error)) {
         console.warn(
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
@@ -1318,25 +1307,6 @@ const generateTransactionWithProvider = async (
           '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
           error
         );
-        try {
-          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            ...landedRowFields(transaction, error),
-            completedAt: Math.floor(Date.now() / 1000) // seconds
-          });
-        } catch (markErr) {
-          // updateTransactionStatus throws if the tx is already finalized — fine.
-          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
-        }
-        return;
-      }
-      // A canonicalization refusal after submit ("Refusing to overwrite local state: ...", which
-      // the multisig client's syncState throws when the guardian's view has the local nonce with
-      // another commitment, or does not match the chain; a guardian behind local is kept
-      // quietly): the on-chain tx is fine, only the local sync refused. Mark Completed so the
-      // user sees the success state; the next sync tick reconciles. Only value-moving rows get
-      // here: the structural reconcile arm above reconciles or fails every structural row first.
-      if (isGuardianCanonicalizationError(error)) {
-        console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
             ...landedRowFields(transaction, error),
@@ -3226,15 +3196,16 @@ const generateGuardianTransaction = async (
       // pending-conflict path reconcile instead (issue #775).
       throw error;
     }
-    // Either landed shape proves the submit resolved (#1233): the node has the write, so this
+    // The landed shape proves the submit resolved (#1233): the node has the write, so this
     // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
     // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
     // releases the account onto stale state for up to a minute. Only a failure that cannot show
-    // the submit resolved (a kill, a pre-submit error) abandons.
-    const submitResolved = isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error);
+    // the submit resolved (a kill, a pre-submit error, a canonicalization refusal) abandons: both
+    // leaves wrap every post-submit failure as the apply-after-submit error.
+    const submitResolved = isApplyAfterSubmitError(error);
     // The same hand-over as the success path below, for a switch whose submit resolved and whose
-    // local apply or sync then failed (#1233); never after a kill or a pre-submit failure, whose
-    // delta the chain may never see.
+    // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
+    // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
       await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
     }
