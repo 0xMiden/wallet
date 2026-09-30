@@ -1878,7 +1878,7 @@ describe('bridge prompts', () => {
   });
 
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
-    findClaimableDeposit.mockResolvedValue({ deposit: true });
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xAAA1' });
     const claimable = baseBridge({
       id: 'agg-ready',
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
@@ -1894,7 +1894,7 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true }, '0xAAA1');
   });
 
   it('marks ready only the row whose OWN bridge-out produced the claimable deposit', async () => {
@@ -1904,7 +1904,7 @@ describe('bridge prompts', () => {
     // Deposit 41 belongs to row A. An unbound lookup (no origin hash) resolves it
     // too, so dropping the binding flips BOTH rows ready off this one deposit.
     findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
-      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41 }
+      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41, tx_hash: '0xrow-a-origin' }
     );
 
     bridgeRows.push(
@@ -1922,7 +1922,7 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(updateClaimStatus).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true }, '0xrow-a-origin');
   });
 
   // `pollBridgedSend` queries the allocator and writes back onto the row, so a
@@ -2041,6 +2041,155 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(completeVerifiedLanded).not.toHaveBeenCalled();
+  });
+
+  // A Failed row's own outcome can still be unknown (#1250): the rotation gate and
+  // Activity History already call this "not confirmed" via `isUnconfirmedFailure`,
+  // so the background poll settles it by the same bound evidence a Completed row
+  // gets, rather than leaving it stuck until the user reopens the detail page.
+  it('flips a Failed AggLayer bridge to ready once its OWN bound deposit is claimable', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xABC' });
+    const unconfirmed = baseBridge({
+      id: 'agg-failed-unconfirmed',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xabc',
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xabc');
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-failed-unconfirmed', 'ready', { depositReady: true }, '0xABC');
+  });
+
+  // An unbound lookup on a Failed row could claim a sibling deposit for a bridge that
+  // never even landed - the same reason `findClaimableMidenToEvmDeposit` binds by
+  // `originTxHash` in the first place - so a Failed row with no transaction id is left
+  // alone rather than guessed at.
+  it('never looks up a claimable deposit for a Failed AggLayer bridge with no transaction id', async () => {
+    const unconfirmed = baseBridge({
+      id: 'agg-failed-no-txid',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  it('polls the Epoch fill for a Failed row whose outcome is unconfirmed, keyed by its own intent nonce', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 8453 });
+    const unconfirmed = baseBridge({
+      id: 'epoch-failed-unconfirmed',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-unconfirmed',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-unconfirmed' });
+    expect(updateClaimStatus).toHaveBeenCalledWith('epoch-failed-unconfirmed', 'not-applicable', {
+      epochStatus: 'confirmed',
+      fillTxHash: '0xfill',
+      fillChainId: 8453
+    });
+  });
+
+  // `isUnconfirmedFailure` is false with none of its own qualifying evidence - an
+  // ordinary error and no `mayHaveSubmitted` reads as a definite failure, the same
+  // as today, so the row is skipped rather than resurfacing a poll for good.
+  it('never polls a Failed row whose failure is definite', async () => {
+    const definite = baseBridge({
+      id: 'agg-failed-definite',
+      status: ITransactionStatus.Failed,
+      error: 'Some ordinary rejection',
+      transactionId: '0xabc',
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(definite);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  // One row's rejecting promotion must not stop the pass for the others, the same
+  // rule the polling pass already keeps (#1250).
+  it('keeps promoting and polling other rows when one stored-evidence promotion rejects, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    completeVerifiedLanded.mockRejectedValueOnce(new Error('write conflict'));
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const rejectingPromotion = baseBridge({
+      id: 'epoch-landed-rejects',
+      status: ITransactionStatus.Failed,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+    });
+    const stillPolled = baseBridge({
+      id: 'epoch-completed-pending',
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-still-polled',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(rejectingPromotion, stillPolled);
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledWith(
+      '[wallet-prompts] bridged-send landing failed',
+      'epoch-landed-rejects',
+      expect.any(Error)
+    );
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-still-polled' });
+    warn.mockRestore();
+  });
+
+  // The stored-evidence promotion filter reads a Failed row's `extraInputs` the same
+  // defensive way `isBridgeRouteFailedRow` already does - `undefined` is excluded,
+  // never dereferenced - so a row with none never crashes the filter itself, which
+  // runs synchronously ahead of the pass's own per-row catch.
+  it('excludes a Failed bridged-send row with no extraInputs from the promotion filter, and does not reject', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const noExtraInputs = baseBridge({
+      id: 'epoch-no-extra-inputs',
+      status: ITransactionStatus.Failed,
+      extraInputs: undefined
+    });
+    const stillPolled = baseBridge({
+      id: 'epoch-completed-pending-2',
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-still-polled-2',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(noExtraInputs, stillPolled);
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(completeVerifiedLanded).not.toHaveBeenCalled();
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-still-polled-2' });
   });
 });
 

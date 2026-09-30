@@ -18,6 +18,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
 import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
@@ -125,17 +126,33 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
 
+/**
+ * Poll one bridge row against its provider - a Completed row with something left to
+ * settle, or a Failed row whose outcome `isUnconfirmedFailure` still calls unknown,
+ * the same predicate the rotation gate and Activity History already share. Either
+ * way the row is settled by evidence bound to it alone, never a general resweep of
+ * every Failed row (#1250). `isBridgePromptActive` and the prompts built from it are
+ * unaffected: a Failed row shows no Claim affordance until this promotes it.
+ */
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
-  if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
+  if (tx.type !== 'bridged-send') return;
+  const failedUnconfirmed = tx.status === ITransactionStatus.Failed && isUnconfirmedFailure(tx);
+  if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
   const inputs = tx.extraInputs as IBridgedSendExtraInputs;
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
+    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
+    // that never even landed, so a Failed row is looked up only once its own Miden
+    // transaction id is known - that is what binds the lookup to it.
+    if (failedUnconfirmed && !tx.transactionId) return;
     // Bound to this row's own Miden transaction id: several rows can share one
     // destination address, and marking them all ready off ANY claimable deposit
     // points every one of them at the same deposit.
     const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
+    // Passed through unconditionally so a Failed row's write always carries the
+    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
+    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
     return;
   }
 
@@ -183,10 +200,16 @@ export async function reconcileBridgedSends(): Promise<void> {
     active
       .filter(tx => {
         if (tx.status !== ITransactionStatus.Failed) return false;
-        const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+        const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+        if (!inputs) return false;
         return inputs.epochStatus === 'confirmed' && inputs.claimStatus !== 'failed';
       })
-      .map(tx => completeVerifiedLandedTransaction(tx.id, bridgedSendLandedValues()))
+      .map(tx =>
+        // One row's failing write must not reject the pass for the others.
+        completeVerifiedLandedTransaction(tx.id, bridgedSendLandedValues()).catch(error =>
+          console.warn('[wallet-prompts] bridged-send landing failed', tx.id, error)
+        )
+      )
   );
 
   await Promise.all(
