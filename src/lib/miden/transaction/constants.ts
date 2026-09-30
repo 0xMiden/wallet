@@ -136,11 +136,15 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  * copy, its reason (`rawError ?? error`) is a member of {@link UNCONFIRMED_FAILURE_REASONS}, or
  * the reason is a user cancel that reached the write stamp (`processingStartedAt` set) - see
  * {@link WALLET_FAILURE_REASONS} for why an unstamped cancel is final rather than unconfirmed.
+ * False whenever {@link isVaultShortfallRow} holds, even with `mayHaveSubmitted` set: a
+ * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
  */
 export function isUnconfirmedFailure(
-  row: Pick<ITransaction, 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>
 ): boolean {
   if (row.status !== ITransactionStatus.Failed) return false;
+  // A vault shortfall is provable straight from the error, so it stays a definite failure.
+  if (isVaultShortfallRow(row)) return false;
   const reason = row.rawError ?? row.error;
   return (
     row.mayHaveSubmitted === true ||

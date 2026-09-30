@@ -296,11 +296,15 @@ describe('isVaultShortfallRow', () => {
 // The one predicate the rotation gate (HotKeyRotationGate.selectors) and Activity History both
 // read a failed row through (#1250), so the two never disagree on which rows are unconfirmed.
 describe('isUnconfirmedFailure', () => {
-  type Row = Pick<ITransaction, 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>;
-  const failed = (extra: Partial<Row> = {}): Row => ({ status: ITransactionStatus.Failed, ...extra });
+  type Row = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>;
+  const failed = (extra: Partial<Row> = {}): Row => ({ type: 'send', status: ITransactionStatus.Failed, ...extra });
 
   it.each<[string, Row]>([
     ['mayHaveSubmitted', failed({ mayHaveSubmitted: true })],
+    [
+      'a non-rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
     ['the engine-recovered copy as error', failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR })],
     ['the stuck-reaper reason as error', failed({ error: TRANSACTION_STUCK_ERROR })],
     [
@@ -335,7 +339,19 @@ describe('isUnconfirmedFailure', () => {
     ['the expired-in-queue final reason', failed({ error: TRANSACTION_EXPIRED_ERROR })],
     ['the invalid-note final reason', failed({ error: INVALID_NOTE_ERROR })],
     ['an unclassified failure before the submit crossing', failed({ error: 'some other reason' })],
-    ['a row that has not failed', { status: ITransactionStatus.Queued, error: TRANSACTION_STUCK_ERROR }]
+    ['a row that has not failed', { type: 'send', status: ITransactionStatus.Queued, error: TRANSACTION_STUCK_ERROR }],
+    [
+      'a shortfall rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ type: 'replace-hot-key', error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
+    [
+      'a shortfall rotation row with the raw kernel shortfall line as rawError and mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        rawError: 'assertion failed with error code: 644413868907058392',
+        mayHaveSubmitted: true
+      })
+    ]
   ])('is false for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(false);
   });

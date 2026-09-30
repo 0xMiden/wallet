@@ -5,9 +5,10 @@ import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
-// The real string, not mocked (this module is not replaced by any `jest.mock` in this file) -
-// used to plant a bridge-in consume the builder's `isUnconfirmedFailure` call reads (#1250).
-import { TRANSACTION_INTERRUPTED_ERROR } from 'lib/miden/transaction/constants';
+// The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
+// used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
+// call reads (#1250).
+import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 
 // Imported AFTER the mocks are registered.
 import History from './History';
@@ -461,12 +462,25 @@ describe('History', () => {
         completedAt: 600,
         error: TRANSACTION_INTERRUPTED_ERROR,
         extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      },
+      // A rotation the vault shortfall gate names even though it may have submitted: a
+      // definite failure, not an unknown outcome (#1250).
+      {
+        id: 'rotation-shortfall',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'replace-hot-key',
+        completedAt: 700,
+        error: TRANSACTION_VAULT_SHORTFALL_ERROR,
+        mayHaveSubmitted: true
       }
     ]);
     mockGetUncompletedTransactions.mockResolvedValueOnce([]);
 
     await renderHistory();
-    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
 
     const stampedCancel = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-stamped-cancel');
     expect(stampedCancel.isCancelled).toBe(true);
@@ -475,6 +489,9 @@ describe('History', () => {
     const bridgeIn = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-in-failed');
     expect(bridgeIn.isCancelled).toBe(false);
     expect(bridgeIn.isUnconfirmed).toBe(true);
+
+    const rotationShortfall = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-rotation-shortfall');
+    expect(rotationShortfall.isUnconfirmed).toBe(false);
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {

@@ -107,8 +107,8 @@ interface RequestedTokenInfo {
  *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
  *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
  *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
- *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
- *    bridge falls through to this rule and is still outbound.
+ *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
+ *    user-cancelled bridge falls through to this rule and is still outbound.
  */
 const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
@@ -514,8 +514,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
-  // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
+  // may have landed, so it reads through the section's own unconfirmed rule like any
+  // other unconfirmed bridge-out (#1250).
+  const isBridgeOut = entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true);
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -540,10 +542,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // moves collateral OUT of the account and into the Epoch allocator
   // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
   // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
-  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
-  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
-  // stays hidden) and lands here too, still outbound. The message check is kept as a
-  // fallback for rows persisted before `txType` existed.
+  // rendered it exactly backwards in every state. An UNSTAMPED user-cancelled
+  // `bridged-send` falls out of `isBridgeOut` (which excludes only that case, so the
+  // bridge claim UI stays hidden for a cancel that never reached the pipeline) and
+  // lands here too, still outbound. The message check is kept as a fallback for rows
+  // persisted before `txType` existed.
   const isOutboundTransfer =
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut

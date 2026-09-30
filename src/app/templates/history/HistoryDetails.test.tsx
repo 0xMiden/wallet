@@ -2926,6 +2926,34 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
     });
+
+    // A stamped user cancel may have landed, so it keeps the bridge section like any other
+    // unconfirmed bridge-out; an unstamped one never reached the pipeline and falls out of it (#1250).
+    it('keeps the bridge section for a stamped user cancel on an Agglayer bridged-send', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: { ...(bridgedSendTx.extraInputs as Record<string, unknown>), provider: 'agglayer' },
+        status: 3,
+        error: USER_CANCELLED_TRANSACTION_REASON,
+        processingStartedAt: 1_700_000_000
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+    });
+
+    it('drops the bridge section for an unstamped user cancel on a bridged-send', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: { ...(bridgedSendTx.extraInputs as Record<string, unknown>), provider: 'agglayer' },
+        status: 3,
+        error: USER_CANCELLED_TRANSACTION_REASON,
+        processingStartedAt: undefined
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    });
   });
 });
 
