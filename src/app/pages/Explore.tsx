@@ -379,6 +379,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   const { t } = useTranslation();
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
+  const assetsHeadingId = useId();
   return (
     <>
       <Balance>
@@ -424,13 +425,16 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
+        <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
+          {t('assets')}
+        </span>
       </div>
 
       <div
         className="flex flex-col divide-y divide-rule-default"
         data-testid="asset-list"
         aria-busy={balancesLoading}
+        aria-labelledby={assetsHeadingId}
         // Focusable so an unhide that empties the Hidden assets section has somewhere to land.
         ref={assetListRef}
         tabIndex={-1}

@@ -842,6 +842,8 @@ describe('Explore', () => {
       });
       await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
       expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
+      // Named by the Assets heading above it, so a screen reader announces where focus landed.
+      expect(screen.getByTestId('asset-list')).toHaveAccessibleName('assets');
     });
 
     it('starts collapsed with no error line after the section empties, once a later hide fills it again', async () => {
