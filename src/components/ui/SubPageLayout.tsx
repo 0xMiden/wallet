@@ -8,6 +8,8 @@ import { cn } from 'lib/ui/util';
 /** What the header row shows: a routed page's title, its back handler and whether it takes focus. */
 export interface SubPageHeaderConfig {
   title?: React.ReactNode;
+  /** The muted line under the title (`PageHeader`'s `subtitle`). */
+  subtitle?: React.ReactNode;
   onBack?: () => void;
   /** Move focus to the title on mount, so the route change is announced. */
   focusTitleOnMount?: boolean;
@@ -109,6 +111,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 }) => {
   const inherited = useContext(SubPageHeaderContext);
   const title = header.title ?? inherited.title;
+  const subtitle = header.subtitle ?? inherited.subtitle;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
@@ -121,6 +124,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         <PageHeader
           className="px-4"
           title={title}
+          subtitle={subtitle}
           onBack={onBack}
           onClose={onClose}
           actions={headerActions}

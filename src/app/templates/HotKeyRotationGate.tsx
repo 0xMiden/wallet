@@ -2,11 +2,14 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { useAppEnv } from 'app/env';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { Spinner } from 'components/ui/Spinner';
+import { canHandoffToSidePanel, ONBOARDING_HANDOFF_ROUTES } from 'lib/extension/side-panel-handoff';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,
@@ -30,7 +33,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
@@ -61,11 +64,22 @@ import {
  *
  * Only the current account is gated: a flagged non-current account leaves the
  * wallet usable, and switching to it raises the overlay.
+ *
+ * The onboarding tab stays ungated while it finishes onboarding (the finishing
+ * mark, held until the handler navigates on) and on its two side-panel handoff
+ * screens: the panel's own gate starts the rotation, or adopts it if one is in
+ * flight, so blocking the tab here would only hold the one tap that opens the
+ * panel until the rotation lands (#1097).
  */
 export const HotKeyRotationGate: FC = () => {
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const { fullPage } = useAppEnv();
+  const { pathname } = Woozie.useLocation();
+  const finishingOnboarding = useOnboardingFinishing();
 
   if (!currentAccount?.requiresHotKeyRotation) return null;
+  if (fullPage && canHandoffToSidePanel() && (finishingOnboarding || ONBOARDING_HANDOFF_ROUTES.has(pathname)))
+    return null;
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
@@ -276,7 +290,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
 
   if (gate.view === 'recovery-seed' && row) {
-    return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
+    return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
 
   return (

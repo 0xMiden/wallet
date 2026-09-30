@@ -8,9 +8,12 @@
 
 ### Changes
 
+- [FIX][all] A recovered wallet opens in the side panel on its first Open wallet tap, as a new one does: a seed-phrase recovery registers while the confirmation screen shows, and the device-key rotation runs in the panel instead of holding a second "Your wallet is ready!" screen; the recovery confirmation no longer shows the create flow's write-it-down reminders (#1097)
+- [FIX][all] Unlocking on mobile or desktop restarts transactions queued while the wallet was locked, and the startup sweep of interrupted transactions spares any transaction started after the app or browser opened (#1202).
 - [CHANGE][all] The Reown / WalletConnect integration uses the project ID `d18d112eb50cbe764f03e51a90210611` when `WALLETCONNECT_PROJECT_ID` is not set.
 - [FIX][all] An empty or blank `WALLETCONNECT_PROJECT_ID`, or an empty E2E counterparty secret, now falls back to the default Reown project ID instead of a blank one, and that default is defined in one place (#1259).
 - [FIX][extension] A failed storage or extension write in the onboarding flag, the side-panel restore and handoff, or the lock-up checks no longer rejects unhandled, a failed lock-up read or write can no longer stop the popup, side panel or options page from rendering, and a closure time the extension cannot read now locks the wallet instead of skipping the auto-lock (#1212)
+- [CHANGE][ui] More UI polish: Home names the test network in a full-width pill above the balance card (in place of the tab bar's corner ribbon), every sheet takes a tab-root header (title and rule), transaction details and the Receive actions sit on outlined cards in Nunito, the backup prompt says why it matters, the swap token pills are smaller, Earn headers show the vault's asset and network on a line under the protocol, onboarding's Guardian step is one card with the operator, a Change action and one sentence, onboarding text is Nunito throughout, and flipping the swap direction no longer leaves the previous pay and receive fields stacked down the page.
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [FIX][all] The home balance card no longer shows the currency twice (`$0.00 USD`): the amount carries no `$`, since the card already shows `USD` as its unit.
 - [CHANGE][all] Explore's recents are a vertical list on the same rows as its other app lists: each row is the dApp's logo tile and its name, with the chevron, in place of the row of tiles. The search glyph is drawn with a heavier stroke wherever it appears, in the header search actions and the search fields.
@@ -18,7 +21,7 @@
 - [CHANGE][ci] Tests pin the usage-data and crash-reporting key defines in every build config that bundles them, and the dApp-bridge debug flag and update-flag define tests check the same way: deleting a define, commenting it out with // or adding a second entry for the same key fails a test, as does changing a define's default value or dropping the extension config's spread of its shared defines (#1118, #1147, #1157).
 - [CHANGE][ci] The Activity lists' paging tests now fail if a list stops handing the scroller its page loader, its scroll parent, whether more pages remain, or the setting that makes it listen on that parent (#1103).
 - [CHANGE][all] Home's total and token rows follow the account they show, so they can never count from another account's figures (#1107).
-- [CHANGE][ci] The test-network ribbon's popup E2E now runs: it opens the popup's own page at 360x600 and checks the word sits in the tab bar's corner, which the bar clips, in English and German (#1092).
+- [CHANGE][ci] The test-network popup E2E now runs: it opens the popup's own page at 360x600 and checks the network pill and its explanation sheet, in English and German (#1092).
 - [CHANGE][ci] A test pins the usage-data and crash-reporting key defines in every build config that bundles them, so no config can drop them without a failing test (#1118).
 - [CHORE][all] The unused useInfiniteList hook no longer reports loading forever when a fetch fails; it reports the error instead (#1095).
 - [CHANGE][ci] A test fails if the copy confirmation's swap slot stops forwarding its ref to its root, which keeps the leaving and arriving glyph or label in one box while they swap (#1087).
@@ -34,6 +37,7 @@
 - [CHANGE][all] Copy chips (a transaction's hashes, addresses and note ids) take taps across a 44px-tall area while still drawing at 24px; a note-id list of more than one keeps each chip to its own tap target so a tap can never copy the chip above or below it, while a lone note id keeps the taller target (#1046).
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 - [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
+- [CHANGE][ci] The changelog check also fails a pull request that changes or removes a released heading's version (dating it still passes) or moves a released entry under another version, compares the file with the pull request's merge base instead of reading a diff, and reads headings, sections and `---` lines through one parser that the release notes use too (#1190).
 
 ### Fixes
 

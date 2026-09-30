@@ -50,6 +50,8 @@ const UNPUNCTUATED_KEYS = [
   'devnet',
   'localnet',
   'networkModeBanner',
+  'networkModeSheetTitle',
+  'networkModePillNoValue',
   'networkNoticeChip',
   'networkNoticeNoValueTitle',
   'networkNoticeNoRealFundsTitle',

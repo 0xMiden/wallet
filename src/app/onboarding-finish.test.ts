@@ -1,9 +1,18 @@
+import React, { useLayoutEffect } from 'react';
+
+import { createRoot } from 'react-dom/client';
+
+import { Provider, useLocation } from 'lib/woozie';
+
 import {
   ONBOARDING_FINISH_BUDGET_MS,
+  OnboardingFinishMark,
   armHeldOnboardingMark,
   isOnboardingFinishing,
   markOnboardingFinishing,
-  subscribeOnboardingFinishing
+  navigateOnFromOnboarding,
+  subscribeOnboardingFinishing,
+  useOnboardingFinishing
 } from './onboarding-finish';
 
 describe('onboarding finish mark', () => {
@@ -113,5 +122,50 @@ describe('onboarding finish mark', () => {
     mark.release();
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
+  });
+});
+
+describe('navigateOnFromOnboarding', () => {
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Outside act, where each update keeps its own lane as in the app: act would flush the release and the navigation
+  // together whatever their lanes.
+  it('commits the new route before a release in the same task', async () => {
+    const actEnvironment: unknown = Reflect.get(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
+    const commits: Array<{ pathname: string; finishing: boolean }> = [];
+    const Probe = () => {
+      const { pathname } = useLocation();
+      const finishing = useOnboardingFinishing();
+      useLayoutEffect(() => {
+        commits.push({ pathname, finishing });
+      });
+      return null;
+    };
+    const root = createRoot(document.createElement('div'));
+    let mark: OnboardingFinishMark | undefined;
+    try {
+      root.render(React.createElement(Provider, null, React.createElement(Probe)));
+      await wait(0);
+      const held = markOnboardingFinishing();
+      mark = held;
+      await wait(0);
+      const holdBegan = commits.findIndex(commit => commit.finishing);
+      expect(commits[holdBegan]).toEqual({ pathname: '/', finishing: true });
+
+      setTimeout(() => {
+        navigateOnFromOnboarding('/finish-side-panel');
+        held.release();
+      }, 0);
+      await wait(50);
+
+      expect(commits.slice(holdBegan).filter(commit => commit.pathname === '/' && !commit.finishing)).toEqual([]);
+      expect(commits[commits.length - 1]).toEqual({ pathname: '/finish-side-panel', finishing: false });
+    } finally {
+      mark?.release();
+      root.unmount();
+      window.history.replaceState(null, '', '/');
+      Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
+    }
   });
 });

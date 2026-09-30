@@ -180,18 +180,6 @@
     "message": "パン",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "私の$protocol$ • $asset$ position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ にて",
     "englishSource": "$asset$ on $network$",
@@ -1878,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "リカバリーフレーズを確認してください",
-    "englishSource": "Verify your recovery phrase"
+    "message": "ウォレットのバックアップを取る",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "後でこのウォレットを復元できるよう、リカバリーフレーズを書き留め、その最初と最後の単語を正しく覚えているか確認してください。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "新しいデバイスでこのウォレットを復元できるよう、リカバリーフレーズを保管してください。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全な署名機能は利用できません",
@@ -2190,31 +2178,6 @@
     "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$社の中で現在最速のオペレーター",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "このネットワークの運営者",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardianは、単独では資金を移動することはできません",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardianはアカウントの状態をバックアップします",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "リカバリーフレーズを使ってGuardianを切り替えられます",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "それなら、完全に非公開のアカウントを作成したほうがいいと思います",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "別のGuardianを選択してください",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden上の独立したGuardianオペレーター。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムで広く使用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset（KODA）は、韓国で規制対象となっているデジタル資産カストディアンです。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",
@@ -2294,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "あなたのGuardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "変更",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ はあなたのアカウントをバックアップします。資金を動かすことはできず、いつでも切り替えられます。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",
@@ -2418,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "ウォレットの作成中…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "ウォレットの復元…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "ウォレットの設定…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "ウォレットを開いて、復元を完了させてください。",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "パスワードを入力してください",
@@ -4303,6 +4267,10 @@
     "message": "シェア",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "アドレスを送る",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "コピー",
     "englishSource": "Copy"
@@ -5021,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — このネットワークについて",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "トークンに実際の価値はありません",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "復元",

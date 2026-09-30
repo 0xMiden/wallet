@@ -40,7 +40,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
         />
       }
     >
-      {/* The same three facts the network ribbon's sheet shows, so both say the same thing. */}
+      {/* The same three facts the network pill's sheet shows, so both say the same thing. */}
       <NetworkNoticeRows />
     </OnboardingStepLayout>
   );
