@@ -2216,6 +2216,155 @@ describe('bridge prompts', () => {
     expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-completed-old' });
   });
 
+  // F-049: the window's age comes from the row's own failure stamp - `completedAt`
+  // when `cancelTransaction` wrote one, `initiatedAt` otherwise - not from
+  // `initiatedAt` alone, so a row initiated long ago that only just failed is not
+  // excluded before its own 24-hour window has even started.
+  it('looks up a Failed-unconfirmed Agglayer row by its completedAt, not its far-older initiatedAt, and fill-polls the same shape for Epoch', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xrecent' });
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const now = Math.floor(Date.now() / 1000);
+    const aggRecentFailure = baseBridge({
+      id: 'agg-recent-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xrecent',
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochRecentFailure = baseBridge({
+      id: 'epoch-recent-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-recent-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggRecentFailure, epochRecentFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xrecent');
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-recent-failure' });
+  });
+
+  // Same shape, but the failure stamp itself is already 25 hours old, so the window
+  // has elapsed regardless of how long ago the transaction was initiated. Passes
+  // today too, since the far-older initiatedAt already excludes it.
+  it('still excludes a Failed-unconfirmed row whose own completedAt is 25 hours old', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggStaleFailure = baseBridge({
+      id: 'agg-stale-completedat',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xstale2',
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochStaleFailure = baseBridge({
+      id: 'epoch-stale-completedat',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-stale-completedat',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggStaleFailure, epochStaleFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2');
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-stale-completedat'
+    });
+  });
+
+  // F-050: a stamp ahead of the clock (a clock stepped back, or a stamp written while
+  // the clock ran fast) is untrusted, the way the faucet marker's stampedAhead already
+  // is in this file - it pauses the background poll until the clock reaches it, rather
+  // than reading as already elapsed.
+  it('pauses the background poll for a Failed-unconfirmed row whose completedAt is ahead of the clock', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggFutureFailure = baseBridge({
+      id: 'agg-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfuture',
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochFutureFailure = baseBridge({
+      id: 'epoch-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-future-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggFutureFailure, epochFutureFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture');
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-future-failure'
+    });
+  });
+
+  // F-051: the future-stamp check sits inside the failedUnconfirmed expression only,
+  // so a Completed row keeps its unwindowed poll whatever its own completedAt says.
+  it('still polls a Completed row whose completedAt is ahead of the clock', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xstillpolled' });
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const now = Math.floor(Date.now() / 1000);
+    const aggCompletedFuture = baseBridge({
+      id: 'agg-completed-future',
+      status: ITransactionStatus.Completed,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochCompletedFuture = baseBridge({
+      id: 'epoch-completed-future',
+      status: ITransactionStatus.Completed,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-completed-future',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggCompletedFuture, epochCompletedFuture);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', undefined);
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-completed-future'
+    });
+  });
+
   // F-047: `extraInputs` is read defensively, the same way the promotion filter already
   // reads it, so an in-window Failed-unconfirmed row that somehow carries none does not
   // throw out of the per-row catch as a warning.

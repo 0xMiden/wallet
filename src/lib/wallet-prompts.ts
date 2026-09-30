@@ -127,27 +127,38 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
 }
 
 // A background poll of a row whose landing is unknown has a terminal condition - it
-// cannot rely on an answer ever arriving, the way a Completed row can. Longer than an
-// Agglayer L2-to-L1 exit and any Epoch fill, so a bridge that landed is settled in the
-// background, and one that never landed stops costing a fetch every tick; past it, the
-// detail page's own on-demand tracker and fill poll still settle the row (#1250).
+// cannot rely on an answer ever arriving, the way a Completed row can. Windowed from
+// the row's own failure stamp, not from initiatedAt alone: a stamp ahead of the clock
+// pauses the poll until the clock reaches it, rather than reading as already elapsed.
+// Longer than an Agglayer L2-to-L1 exit and any Epoch fill, so a bridge that landed is
+// settled in the background, and one that never landed stops costing a fetch every
+// tick; past it, the detail page's own on-demand tracker and fill poll still settle
+// the row (#1250).
 const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Poll one bridge row against its provider - a Completed row with something left to
  * settle, with no window, or a Failed row whose outcome `isUnconfirmedFailure` still
  * calls unknown AND is still within `FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS` of its
- * own `initiatedAt` (stored in seconds). Either way the row is settled by evidence
- * bound to it alone, never a general resweep of every Failed row (#1250).
- * `isBridgePromptActive` and the prompts built from it are unaffected: a Failed row
- * shows no Claim affordance until this promotes it.
+ * own failure stamp: `completedAt` (written by `cancelTransaction` at the moment of
+ * every failure) when present, `initiatedAt` otherwise - both stored in seconds. A
+ * stamp ahead of the clock (a clock stepped back, or a stamp written while the clock
+ * ran fast) pauses the poll until the clock reaches it, the same way the faucet
+ * marker's `stampedAhead` already distrusts a future `requestedAt` in this file; the
+ * total background polling still stays capped at 24 hours. Either way the row is
+ * settled by evidence bound to it alone, never a general resweep of every Failed row
+ * (#1250). `isBridgePromptActive` and the prompts built from it are unaffected: a
+ * Failed row shows no Claim affordance until this promotes it.
  */
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (tx.type !== 'bridged-send') return;
+  const failedAtSeconds = tx.completedAt ?? tx.initiatedAt;
+  const ageMs = Date.now() - failedAtSeconds * 1000;
   const failedUnconfirmed =
     tx.status === ITransactionStatus.Failed &&
     isUnconfirmedFailure(tx) &&
-    Date.now() - tx.initiatedAt * 1000 < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
+    ageMs >= 0 &&
+    ageMs < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
   if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
   // Read defensively, the same way the promotion filter in `reconcileBridgedSends`
   // already does: a Failed row with no `extraInputs` at all must not crash the pass.
