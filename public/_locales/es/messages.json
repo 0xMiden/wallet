@@ -4695,6 +4695,10 @@
     "message": "Guardar y continuar",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "No se han podido guardar estos puntos finales. Inténtalo de nuevo.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Restablecer los valores predeterminados",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Restablecer la configuración predeterminada y volver a dar de alta",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "El restablecimiento no se ha completado. Inténtalo de nuevo.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminales de red",

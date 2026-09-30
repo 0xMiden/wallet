@@ -4695,6 +4695,10 @@
     "message": "保存并继续",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "无法保存这些端点。请重试。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "恢复默认设置",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "恢复默认设置并重新注册",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "重置未完成。请重试。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "网络端点",
