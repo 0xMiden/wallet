@@ -3625,7 +3625,7 @@ export const safeGenerateTransactionsLoop = async (
   guardianProvider: GuardianAccountProvider
 ): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
-    .request(`generate-transactions-loop`, { ifAvailable: true }, async (lock): Promise<TransactionsLoopOutcome> => {
+    .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
