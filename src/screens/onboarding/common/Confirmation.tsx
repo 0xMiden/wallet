@@ -116,15 +116,18 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         )
       }
     >
-      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center">
+      {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
+          heading face here. */}
+      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center face-heading">
         <Hero
           nameAs="h1"
-          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[220px]" />}
+          nameSize="lg"
+          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
           name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
           subtitle={
             hasFailure ? undefined : (
               // Held to a readable measure and balanced, so the sentence breaks into two even lines.
-              <span className="mx-auto block max-w-[300px] text-balance">
+              <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance">
                 {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
               </span>
             )
@@ -133,7 +136,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         {/* The daily reminder only makes sense for a create: a recovery isn't newly generated, so there's nothing to remind about. */}
         {!hasFailure && !isRecovery && (
           <p
-            className="flex max-w-[300px] items-start justify-center gap-1.5 text-caption text-muted"
+            className="flex max-w-[320px] items-start justify-center gap-1.5 text-explainer font-semibold text-muted"
             data-testid="onboarding-confirmation-reminder"
           >
             <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />

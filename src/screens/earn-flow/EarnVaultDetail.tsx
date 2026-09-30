@@ -10,7 +10,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAssetMark, EarnHero, MetricCard } from './components';
+import { EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle, MetricCard } from './components';
 import { formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnVault } from './types';
@@ -32,13 +32,13 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
     // pinned under it instead of scrolling away at the end of the page.
     <SubPageLayout
       data-testid="earn-vault-detail-page"
-      // Back and the protocol in the title; the asset and its network ride the header as one
-      // compact mark, since a pill wide enough to spell them out took the width a two-word
-      // protocol needed and wrapped the title onto a second line. Until the vault is found the
-      // header names the route, never a placeholder vault.
-      title={found ? found.protocol : t('earnDeposit')}
+      // Named as every earn page names a vault: the protocol over its asset and network, the mark
+      // beside them decorative. Until the vault is found the header names the route, never a
+      // placeholder vault.
+      title={found ? earnSubjectTitle(found) : t('earnDeposit')}
+      subtitle={found && <EarnSubjectSubtitle subject={found} />}
       onBack={goBack}
-      headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+      headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
       footer={
         (loadFailed && !found) || pending ? undefined : (
           <Button

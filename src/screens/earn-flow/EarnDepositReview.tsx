@@ -28,7 +28,7 @@ import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/teleme
 import { CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, useLocation } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
@@ -226,8 +226,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       <SubPageLayout
         data-testid="earn-deposit-review-page"
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
+        subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (

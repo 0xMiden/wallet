@@ -644,7 +644,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   return (
     <PageLayout hideToolbar>
       <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
-      <div className="flex flex-1 flex-col min-h-0 px-4">
+      {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
+          section labels, the ID chips) resolve to the heading face here, and the text that sets no
+          face of its own inherits it. */}
+      <div className="flex flex-1 flex-col min-h-0 px-4 face-heading">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -730,8 +733,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             </div>
 
-            {/* Transfer Details */}
-            <div className="mt-4">
+            {/* Transfer Details: flush under the hero, whose own 20px is the gap above the rule. */}
+            <div>
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>

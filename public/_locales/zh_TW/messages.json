@@ -180,18 +180,6 @@
     "message": "麵包",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "我的 $protocol$ • $asset$ 持倉狀況",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ 網址：$network$",
     "englishSource": "$asset$ on $network$",
@@ -1878,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "驗證您的恢復短語",
-    "englishSource": "Verify your recovery phrase"
+    "message": "備份您的錢包",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "請將您的恢復短語記錄下來，並確認您是否記得該短語的第一個和最後一個詞，以便日後能還原此錢包。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "保存您的恢復短語，以便在新裝置上恢復此錢包。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "無法進行安全簽署",
@@ -2190,31 +2178,6 @@
     "message": "Guardian 會儲存您的帳戶狀態，並協助您恢復帳戶。您可以將其視為為您提供備份的伺服器，但它絕不會接觸您的資金。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$ 家營運商中目前最快的營運商",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "本網路的營運方",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian 無法自行轉移您的資金",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian 會備份您的帳戶狀態",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "您可以使用您的恢復短語來切換 Guardians",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "正在確認哪位客服人員回應最快……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "我寧可建立一個完全私密的帳戶",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "請選擇其他Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "一位在 Miden 上獨立經營的 Guardian 營運商。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin 是一家 blockchain 資安公司，開發了乙太坊上廣泛使用的智慧合約函式庫。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm 為網路和捲積層（rollups）建置並營運 blockchain 基礎架構。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass 是一家專注於開發先進加密技術與 blockchain 基礎架構的工程公司。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) 是南韓一家受監管的數位資產託管機構。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "進一步了解Guardian",
@@ -2294,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "你的 Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "更換",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ 會備份您的帳戶。它永遠無法轉移您的資金，您也可以隨時更換。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
@@ -4315,6 +4267,10 @@
     "message": "分享",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "傳送您的地址",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "複製",
     "englishSource": "Copy"
@@ -5033,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — 關於此網路",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "代幣沒有實際價值",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "還原",
