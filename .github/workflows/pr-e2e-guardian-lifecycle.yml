@@ -322,7 +322,10 @@ jobs:
   # head, against published packages, with no linked-PR injection: the inject
   # actions exit on any event but pull_request. Branch protection accepts
   # that check for a pull request at the same commit, which is the spec's
-  # by-hand escape hatch.
+  # by-hand escape hatch. In this workflow that dispatch runs the full suite,
+  # known-flaky stress specs included, with no path selection
+  # (GUARDIAN_E2E_SUITE is 'full' off pull_request); a push, or a close and
+  # reopen, is the lighter path.
   guardian-lifecycle-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'guardian-lifecycle-e2e-gate' || 'guardian-lifecycle-e2e-gate (stacked)' }}
     needs: [select-guardian-e2e, guardian-lifecycle-e2e]
