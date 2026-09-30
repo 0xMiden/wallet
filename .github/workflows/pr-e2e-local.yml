@@ -12,7 +12,10 @@ jobs:
   # main or next gets the full suite and this required name; a stacked pull
   # request reports a name no branch requires, which can never satisfy a check
   # on that commit, so a retarget with no push simply leaves the required name
-  # missing until the next push or a close/reopen runs it for real.
+  # missing until the next push or a close/reopen runs it for real. A by-hand
+  # workflow_dispatch run, the spec's escape hatch, runs the full suite under
+  # the required name on the branch head (not the merge ref), as does a push
+  # or a close and reopen after a retarget.
   chrome-local:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
