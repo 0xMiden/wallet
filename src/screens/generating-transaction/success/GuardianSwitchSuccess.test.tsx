@@ -378,6 +378,84 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).toHaveTextContent('guardianSwitchSuccessInfo4');
     });
 
+    // Every row the wallet writes with a lost-state flag today also carries commitUnconfirmed, which
+    // shows the warning on its own; these rows pin the receipt's conditions without it.
+    it('warns on a row whose only flag is the unrecoverable state', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
+    it('names the unsaved address beside the unrecoverable state without an unconfirmed commit', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+    });
+
+    it('warns on a row whose only flag is the unsaved state', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+    });
+
+    it('names the unsaved address beside the unsaved state without an unconfirmed commit', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateNotSaved: true,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+    });
+
     it('outranks every other warning and still names an unsaved address', () => {
       render(
         <GuardianSwitchSuccess

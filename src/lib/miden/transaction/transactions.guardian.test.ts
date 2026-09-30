@@ -1063,6 +1063,91 @@ describe('completeSwitchGuardianTransaction', () => {
       });
     });
 
+    // Fails the first Completed write once, at the repo, so the completion's fallback write lands the
+    // row: the registration and the cache eviction each catch their own errors, so the main write is
+    // the one step past the flags that reaches the fallback.
+    const failFirstCompletedWrite = () => {
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      const writes = { failures: 0 };
+      repo.transactions.where.mockImplementation((query: { id: string }) => ({
+        ...realWhere(query),
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          const probe: Record<string, unknown> = { extraInputs: {} };
+          let targetsCompleted = false;
+          try {
+            fn(probe);
+            targetsCompleted = probe.status === ITransactionStatus.Completed;
+          } catch {
+            targetsCompleted = false;
+          }
+          if (targetsCompleted && writes.failures < 1) {
+            writes.failures++;
+            throw new Error('IndexedDB transaction aborted');
+          }
+          return realWhere(query).modify(fn);
+        }
+      }));
+      return { writes, restore: () => repo.transactions.where.mockImplementation(realWhere) };
+    };
+
+    it('a direct switch whose first completion write fails still records it unrecoverable', async () => {
+      const { tx, provider, row } = landedSwitch();
+      tx.extraInputs = { ...tx.extraInputs, switchedDirectly: true };
+      mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { writes, restore } = failFirstCompletedWrite();
+
+      try {
+        await completeSwitchGuardianTransaction(tx, undefined, undefined, provider as never, true, landed);
+      } finally {
+        restore();
+      }
+
+      expect(writes.failures).toBe(1);
+      expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().extraInputs).toMatchObject({
+        localStateUnrecoverable: true,
+        localStateNotSaved: false,
+        registerFailed: false,
+        commitUnconfirmed: true
+      });
+    });
+
+    it('a coordinated switch whose first completion write fails still records it unsaved', async () => {
+      const { tx, multisigService, provider, row } = landedSwitch();
+      tx.extraInputs = { ...tx.extraInputs, switchedDirectly: false };
+      mockAdoptPostSwitchState.mockResolvedValueOnce('pre-switch');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { writes, restore } = failFirstCompletedWrite();
+
+      try {
+        await completeSwitchGuardianTransaction(
+          tx,
+          undefined,
+          multisigService as never,
+          provider as never,
+          true,
+          landed
+        );
+      } finally {
+        restore();
+      }
+
+      expect(writes.failures).toBe(1);
+      expect(multisigService.finalizeGuardianSwitch).not.toHaveBeenCalled();
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().extraInputs).toMatchObject({
+        localStateNotSaved: true,
+        localStateUnrecoverable: false,
+        registerFailed: false,
+        commitUnconfirmed: true
+      });
+    });
+
     it('a direct switch whose unknown copy fails registration keeps registerFailed without localStateNotSaved', async () => {
       const { tx, provider, row } = landedSwitch();
       tx.extraInputs = { ...tx.extraInputs, switchedDirectly: true };
