@@ -44,16 +44,6 @@ export const tabBarMotion = {
  */
 export const tabBarSwap: Transition = { ...reducedMotionTransition };
 
-/**
- * `transition` with only its `layout` channel taking `tabBarSwap`, for a layout-animated element in a
- * retained pane in the commit that shows it again. Only the layout channel: the element's other
- * animations (a `whileTap` press) read the same prop, and nothing re-renders it after that commit, so a
- * whole swap would leave them instant until its next render.
- */
-export function withLayoutSwap(transition: Transition): Transition {
-  return { ...transition, layout: tabBarSwap };
-}
-
 export interface TabBarMotion {
   /** Transition for the sliding highlight and the segments' `layout` resize. */
   highlight: Transition;

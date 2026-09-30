@@ -1,12 +1,11 @@
-import React, { FC, ReactNode, useMemo } from 'react';
+import React, { FC, ReactNode } from 'react';
 
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { useTabShownAgain } from 'app/layouts/page-active';
-import { springs, useMotion, withLayoutSwap } from 'lib/animation';
+import { useSettleLayoutTransition } from 'app/layouts/page-active';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -128,12 +127,8 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // `settle` for the row's layout move: the most damped preset, so a slide
   // comes to rest with no overshoot. Under reduced motion `useMotion`
   // collapses it to an instant tween, so a filter change still swaps the
-  // list, only without the movement. A filter a link changed while the tab was
-  // hidden lands in the commit that shows it again, and a row that survives it
-  // takes its new place at once there (#1198); only the layout channel swaps.
-  const settle = useMotion(springs.settle);
-  const shownAgain = useTabShownAgain();
-  const transition = useMemo(() => (shownAgain ? withLayoutSwap(settle) : settle), [shownAgain, settle]);
+  // list, only without the movement.
+  const transition = useSettleLayoutTransition();
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();

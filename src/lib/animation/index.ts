@@ -17,7 +17,6 @@ export { colorTransitionClass } from './interaction-classes';
 export {
   tabBarMotion,
   tabBarSwap,
-  withLayoutSwap,
   resolveTabBarMotion,
   useTabBarMotion,
   useTabIconPop,
