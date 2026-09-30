@@ -213,7 +213,13 @@ jobs:
 
   # The gate runs only under the same FULL condition that names it and that
   # decides the work (#1071), so on a stacked pull request it is skipped and
-  # reports no required name.
+  # reports no required name; a push, or a close and reopen, is what gets a
+  # retargeted pull request its required names from its own pull_request run.
+  # A by-hand workflow_dispatch run reports the required name on the branch
+  # head, against published packages, with no linked-PR injection: the inject
+  # actions exit on any event but pull_request. Branch protection accepts
+  # that check for a pull request at the same commit, which is the spec's
+  # by-hand escape hatch.
   bridge-guardian-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]
