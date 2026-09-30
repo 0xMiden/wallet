@@ -193,6 +193,16 @@ const fullFromName = (file: string): string => {
   return match[1]!.trim();
 };
 
+/**
+ * The exact condition every stacked-name decision must read. Pinned literally (not just
+ * compared for consistency between two jobs) so a mutation that keeps Local and Bridge
+ * agreeing with EACH OTHER on a wrong or widened condition -- or that only ever touches
+ * one workflow -- still fails: e.g. Guardian's gate accepting any non-empty base.ref, or
+ * dropping `next` from Local's name AND its if: together.
+ */
+const FULL =
+  "github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'";
+
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
   const baseChangeFile = '.github/workflows/pr-e2e-base-change.yml';
 
@@ -221,6 +231,13 @@ describe('a stacked pull request reports its E2E checks under names no branch re
     );
     expect(src).not.toMatch(new RegExp(`\\n\\s+name: ${escaped}\\n`));
   });
+
+  it.each(WORKFLOW_FILES)(
+    'the required-name job in %s computes its name from FULL literally, not just some condition',
+    file => {
+      expect(fullFromName(file)).toBe(FULL);
+    }
+  );
 
   it("chrome-local's if: matches the FULL condition inside its own computed name", () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
