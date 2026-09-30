@@ -4695,6 +4695,10 @@
     "message": "保存して続行",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "これらのエンドポイントを保存できませんでした。もう一度お試しください。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "デフォルト設定に戻す",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "デフォルト設定にリセットして、オンボーディングをやり直す",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "リセットが完了しませんでした。もう一度お試しください。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "ネットワークエンドポイント",

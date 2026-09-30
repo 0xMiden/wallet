@@ -205,18 +205,26 @@ export async function loadEndpointOverrides(): Promise<void> {
     const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
     overrideCache = isEndpointOverride(raw) ? raw : null;
   } catch {
-    overrideCache = null;
+    // Deliberate: see the comment above applyEndpointOverride.
   }
 }
 
+// No rejected storage call moves the cache. Both writes store before they touch it, so a rejected
+// write leaves the session on the endpoints that are actually stored, not ones a restart would drop;
+// a rejected read in loadEndpointOverrides keeps what the realm had loaded (null on its first load).
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
-  overrideCache = override;
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
+  overrideCache = override;
 }
 
+/**
+ * Remove the stored override. Only the tests that reset their fixture with it call it. The destructive
+ * reset must not: the dev reset takes the override with the wipe (`keepEndpointOverride: false`), and a
+ * separate clear after it could fail after the wallet is already gone.
+ */
 export async function clearEndpointOverride(): Promise<void> {
-  overrideCache = null;
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+  overrideCache = null;
 }
 
 export async function isEndpointOverrideActive(): Promise<boolean> {

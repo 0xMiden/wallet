@@ -4695,6 +4695,10 @@
     "message": "Speichern und fortfahren",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Diese Endpunkte konnten nicht gespeichert werden. Versuchen Sie es erneut.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Auf Standardwerte zurücksetzen",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Auf Standardwerte zurücksetzen und erneut einrichten",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Das Zurücksetzen wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Netzwerkendpunkte",

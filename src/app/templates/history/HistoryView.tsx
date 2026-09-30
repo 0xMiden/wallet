@@ -27,6 +27,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   earnDepositSettlementOf,
+  formatMoneyAmount,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
@@ -114,7 +115,9 @@ function buildRowProps(
       amount: d.outAmount
         ? {
             value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
-            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
+            // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
+            preformatted: true
           }
         : undefined,
       status: d.status
@@ -139,7 +142,13 @@ function buildRowProps(
       amount:
         failed || entry.amount === undefined
           ? undefined
-          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+          : {
+              value: `+${entry.amount}`,
+              symbol: entry.token,
+              direction: 'positive' as const,
+              // `earnWithdrawAmountFields` already formatted it; the row must not round it again.
+              preformatted: true
+            },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
     };
@@ -241,7 +250,17 @@ function buildRowProps(
       : undefined;
 
   let amount: ActivityRowProps['amount'];
-  if (swapSide === 'requested' && entry.requestedAmount) {
+  const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
+  if ((entry.txType === 'earn-deposit' || entry.txType === 'bridged-send') && entry.amount !== undefined) {
+    // The amount typed, as its Review showed it: the row's generic 3-decimal pass would cut 10.6555 to 10.655. A
+    // bridge-out reaches here only when cancelled, and its detail hero shows the same typed amount.
+    amount = {
+      value: `${sign}${formatMoneyAmount(entry.amount, 'typed')}`,
+      symbol: entry.token,
+      direction: amountDirection,
+      preformatted: true
+    };
+  } else if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
@@ -252,7 +271,6 @@ function buildRowProps(
     // block over that would drop the asset's NAME too — leaving a row that says
     // nothing about what moved.
   } else if (entry.amount !== undefined || entry.extraAmounts?.length || entry.token !== undefined) {
-    const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     // A batch claim spanning several faucets appends each further asset inline —
     // but only on the unscoped list. On a token page the row is read as a
     // movement of THAT token (same reasoning as `swapSide` above), so show the

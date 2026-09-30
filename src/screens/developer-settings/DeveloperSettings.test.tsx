@@ -1,9 +1,11 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
-import { useConfirm } from 'lib/ui/dialog';
+import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
 
@@ -39,6 +41,8 @@ jest.mock('webextension-polyfill', () => ({
   __esModule: true,
   default: { runtime: { reload: () => runtimeReload() } }
 }));
+// The suite's own mock, kept so a test can count its loads and afterEach can put it back after a test swaps it.
+const polyfill: unknown = jest.requireMock('webextension-polyfill');
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -59,15 +63,19 @@ jest.mock('lib/woozie', () => ({
 // The destructive reset is gated behind the app's standard confirm dialog
 // (same `useConfirm()` hook `options.tsx`'s "Reset Wallet" uses) — mocked the
 // same way `AddressBook.test.tsx`/`DAppSettings.test.tsx` mock it, so the
-// resolved value drives whether the wipe proceeds.
+// resolved value drives whether the wipe proceeds. `useAlert()` is how a wipe
+// that rejected is reported.
 jest.mock('lib/ui/dialog', () => ({
-  useConfirm: jest.fn()
+  useConfirm: jest.fn(),
+  useAlert: jest.fn()
 }));
 const mockUseConfirm = useConfirm as jest.Mock;
 const confirm = jest.fn();
+const mockUseAlert = jest.mocked(useAlert);
+let alert: jest.Mock;
 
-const applyEndpointOverride = jest.fn().mockResolvedValue(undefined);
-const clearEndpointOverride = jest.fn().mockResolvedValue(undefined);
+const applyEndpointOverride = jest.fn();
+const clearEndpointOverride = jest.fn();
 // The override the screen OPENS on. Null is the fresh-install case the rest of the suite wants;
 // opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
 // restore is about, so it has to be settable.
@@ -106,15 +114,15 @@ jest.mock('lib/miden-chain/endpoint-health', () => ({
   useEndpointHealth: () => mockHealthStatus.value
 }));
 
-const resetStorageDestructive = jest.fn().mockResolvedValue(undefined);
+const resetStorageDestructive = jest.fn();
 jest.mock('lib/miden/reset', () => ({
-  resetStorageDestructive: () => resetStorageDestructive()
+  resetStorageDestructive: (...args: unknown[]) => resetStorageDestructive(...args)
 }));
 
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
 // (separate JS realm); handleSave's gating on `isExtension()` is asserted
 // against this spy below.
-const reloadEndpointOverridesInSW = jest.fn().mockResolvedValue(undefined);
+const reloadEndpointOverridesInSW = jest.fn();
 // `useWalletStore(selectIsIdle)` gates the SW nudge to pre-wallet (onboarding) —
 // `/developer-settings` is also reachable read-write from a live wallet (gated on
 // `!locked`, not `!ready`), so the nudge must not fire once a wallet exists. Default
@@ -178,12 +186,32 @@ jest.mock('components/Button', () => ({
 beforeEach(() => {
   mockHistoryPosition = 1;
   activeOverride = null;
+  __resetSyncFuseStateForTests();
   jest.clearAllMocks();
+  // clearAllMocks keeps queued once-values, so one a failing test never used would reach the next.
+  for (const service of [
+    applyEndpointOverride,
+    clearEndpointOverride,
+    resetStorageDestructive,
+    reloadEndpointOverridesInSW
+  ]) {
+    service.mockReset().mockResolvedValue(undefined);
+  }
+  runtimeReload.mockReset();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
+  alert = jest.fn().mockResolvedValue(undefined);
+  mockUseAlert.mockReturnValue(alert);
+});
+
+// Here rather than at the end of a test, so a failing assertion cannot leave a spy in place, or a
+// polyfill factory that throws for the next test.
+afterEach(() => {
+  jest.restoreAllMocks();
+  jest.doMock('webextension-polyfill', () => polyfill);
 });
 
 /** A stored override: testnet's defaults with one endpoint the user authored. `allowNoGuardian`
@@ -200,6 +228,14 @@ const saved = (rpcUrl: string, allowNoGuardian = false) => ({
   networkName: 'testnet'
 });
 
+/** Lights the idle-sync fuse as consecutive watchdog evictions do. Stubs console.warn for the rest
+ * of the test, since both the fuse and the save it is paired with log. */
+const armIdleSyncFuse = () => {
+  jest.spyOn(console, 'warn').mockImplementation();
+  for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
+  expect(isSyncFused('idle-sync')).toBe(true);
+};
+
 describe('DeveloperSettings', () => {
   it('renders the warning banner and the RPC field', () => {
     render(<DeveloperSettings />);
@@ -214,29 +250,61 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {
+    armIdleSyncFuse();
+
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('devEndpointSaveFailed');
+    expect(screen.getByTestId('dev-endpoints-save')).toHaveAttribute('data-loading', 'false');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(isSyncFused('idle-sync')).toBe(true);
+  });
+
+  it('clears the error as soon as a later save starts, and navigates home once it succeeds', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await screen.findByRole('alert');
+
+    let finishRetry!: () => void;
+    applyEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishRetry = resolve)));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('dev-endpoints-save')).toHaveAttribute('data-loading', 'true');
+
+    finishRetry();
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('writes once when Save is pressed again while a save is still running', async () => {
+    let finishSave!: () => void;
+    applyEndpointOverride.mockReturnValueOnce(new Promise<void>(resolve => (finishSave = resolve)));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    expect(applyEndpointOverride).toHaveBeenCalledTimes(1);
+
+    finishSave();
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(applyEndpointOverride).toHaveBeenCalledTimes(1);
+  });
+
   it('discards the sync fuse on save, since every conclusion in it was about the OLD node', async () => {
     // Mobile and desktop own the idle loop, and this is their only repoint affordance. A
     // fused wallet pointed at a working RPC would otherwise probe once per 30 min — the
     // repoint reads as "nothing happened", and the successful sync that puts the fuse out
     // is exactly what the wallet stops giving itself the chance to observe (#777).
-    const {
-      __resetSyncFuseStateForTests,
-      isSyncFused,
-      noteSyncWatchdogEviction
-    } = require('lib/miden/front/sync-fuse');
-    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
-    jest.spyOn(console, 'warn').mockImplementation();
-    __resetSyncFuseStateForTests();
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
-    expect(isSyncFused('idle-sync')).toBe(true);
+    armIdleSyncFuse();
 
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     expect(isSyncFused('idle-sync')).toBe(false);
-    __resetSyncFuseStateForTests();
-    jest.restoreAllMocks();
   });
 
   it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {
@@ -504,13 +572,14 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('confirming the reset clears the override and wipes storage (mobile/desktop reload path)', async () => {
+  it('confirming the reset wipes storage and the override together (mobile/desktop reload path)', async () => {
     render(<DeveloperSettings readOnly />);
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
     expect(hapticMedium).toHaveBeenCalledTimes(1);
-    expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(resetStorageDestructive).toHaveBeenCalledWith({ keepEndpointOverride: false });
+    expect(clearEndpointOverride).not.toHaveBeenCalled();
     // Non-extension reload goes through `window.location.reload`, which jsdom exposes
     // as a non-configurable getter and so can't be spied on directly (see CLAUDE.md).
     // A clean (non-throwing) completion that never took the extension branch, and
@@ -525,9 +594,264 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
-    expect(clearEndpointOverride).toHaveBeenCalledTimes(1);
     expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(resetStorageDestructive).toHaveBeenCalledWith({ keepEndpointOverride: false });
+    expect(clearEndpointOverride).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
+  // this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
+  // no reopen succeeded) and drops in-memory state, so a caller reports a rejected wipe and then reloads, and
+  // reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
+  // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
+  // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+  it('says the reset did not finish, then reloads, when the wipe fails partway', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    // While the alert is open nothing reloads, and the reset stays pending.
+    expect(runtimeReload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    closeAlert();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(alert.mock.invocationCallOrder[0]!).toBeLessThan(runtimeReload.mock.invocationCallOrder[0]!);
+    // The inline error is only for a reload that cannot start.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // A loaded module stays cached, so the load before the wipe fails only in a fresh registry. Every reset's load
+  // fails until afterEach puts the suite's mock back.
+  const failEveryPolyfillLoad = () => {
+    jest.resetModules();
+    jest.doMock('webextension-polyfill', () => {
+      throw new Error('webextension-polyfill failed to load');
+    });
+  };
+
+  // The popup that hosts this page closes when it loses focus, and nothing after the await it is in runs then,
+  // the wipe's or the alert's.
+  it('reloads the extension once when the page closes while the wipe runs', async () => {
+    mockIsExtension.value = true;
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    try {
+      await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(runtimeReload).toHaveBeenCalledTimes(1);
+    } finally {
+      // A finished reset takes its listener off the window, so none is left for a later test's pagehide.
+      finishWipe();
+    }
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the extension once when the page closes while the did-not-finish alert is open', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+
+    closeAlert();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the extension once when the page closes after the did-not-finish alert', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the extension reload when the one the page close started throws', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+    // jsdom treats an exception thrown by an event listener as uncaught unless the page handles 'error'.
+    const handleError = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', handleError);
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    window.removeEventListener('error', handleError);
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+
+    closeAlert();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // A fresh registry, so the factory runs at the first load and its call order says when that was.
+  it('loads the polyfill before the wipe, then reloads through it', async () => {
+    mockIsExtension.value = true;
+    const loadPolyfill = jest.fn(() => polyfill);
+    jest.resetModules();
+    jest.doMock('webextension-polyfill', loadPolyfill);
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    expect(loadPolyfill.mock.invocationCallOrder[0]!).toBeLessThan(
+      resetStorageDestructive.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('refuses to wipe when the polyfill cannot load before the wipe', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    failEveryPolyfillLoad();
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('resetDidNotFinish');
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    // Checked once the reset has ended, since straight after the click no wipe has started either way.
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+  });
+
+  it('says the reset did not finish when the extension reload cannot be started', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('resetDidNotFinish');
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+  });
+
+  it('clears the reset error when a new reset starts', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockIsExtension.value = true;
+    runtimeReload.mockImplementationOnce(() => {
+      throw new Error('reload failed');
+    });
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await screen.findByRole('alert');
+
+    // Held in the wipe, so the error is gone before any of the reset has finished.
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
+
+    finishWipe();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(2));
+  });
+
+  it('ignores a second Reset press while the reset runs', async () => {
+    mockIsExtension.value = true;
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(resetStorageDestructive).toHaveBeenCalledTimes(1));
+
+    // Inside act, so an unguarded press gets as far as its confirm and its wipe before the checks.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(resetStorageDestructive).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    finishWipe();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+  });
+
+  // jsdom's reload never unloads the page, so these end the way a reload that does not unload would.
+  it('stops the reset spinner when the mobile/desktop reload does not unload the page', async () => {
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true'));
+
+    finishWipe();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(clearEndpointOverride).not.toHaveBeenCalled();
+    expect(runtimeReload).not.toHaveBeenCalled();
+  });
+
+  it('says the reset did not finish on mobile and desktop too', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    resetStorageDestructive.mockRejectedValueOnce(new Error('storage write failed'));
+    let closeAlert!: () => void;
+    alert.mockReturnValueOnce(new Promise<void>(resolve => (closeAlert = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+
+    closeAlert();
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
+    expect(runtimeReload).not.toHaveBeenCalled();
+    // The inline error is only for a reload that cannot start.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('stops the reset spinner when the extension reload does not unload the page', async () => {
+    mockIsExtension.value = true;
+    let finishWipe!: () => void;
+    resetStorageDestructive.mockReturnValueOnce(new Promise<void>(resolve => (finishWipe = resolve)));
+    render(<DeveloperSettings readOnly />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true'));
+
+    finishWipe();
+    await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
   });
 
   it('shows a pending health note while a probe is in flight', () => {
@@ -596,6 +920,14 @@ describe('DeveloperSettings', () => {
     expect(optionGroup).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
     expect(optionGroup).not.toHaveClass('bg-fill');
     expect(screen.getByRole('heading', { name: 'options' })).toHaveClass('text-title-section', 'text-ink');
+  });
+
+  // settings-2.svg's path has no fill and its root says `fill="none"`, so without a fill the glyph
+  // draws nothing and the section shows an empty circle.
+  it('draws the Options glyph in the text colour', () => {
+    render(<DeveloperSettings />);
+    const header = screen.getByRole('heading', { name: 'options' }).parentElement!;
+    expect(header.querySelector('[data-slot="icon"] svg')).toHaveAttribute('fill', 'currentColor');
   });
 
   it('makes the read-only reset destructive, since it wipes the wallet', () => {

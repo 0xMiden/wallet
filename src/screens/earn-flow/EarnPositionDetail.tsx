@@ -55,7 +55,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
               title={t('withdraw')}
               variant={ButtonVariant.Primary}
               accent="earn"
-              disabled={!position.id || Number(position.withdrawable) <= 0}
+              disabled={!position.id || position.stale || Number(position.withdrawable) <= 0}
               onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
               className="flex-1 max-w-none"
             />

@@ -86,6 +86,7 @@ describe('earn-flow/data', () => {
         'protocol',
         'rewards',
         'route',
+        'stale',
         'started',
         'underlyingAddress',
         'vaultId',
@@ -103,9 +104,10 @@ describe('earn-flow/data', () => {
         // `chartData` is a series, `decimals` is numeric, and the raw Epoch
         // passthrough fields (`owner`/`marketUid`/`underlyingAddress`) are
         // intentionally blank placeholders in the demo fixture.
-        const { chartData, decimals, owner, marketUid, underlyingAddress, ...displayFields } = position;
+        const { chartData, decimals, stale, owner, marketUid, underlyingAddress, ...displayFields } = position;
         void chartData;
         expect(typeof decimals).toBe('number');
+        expect(stale).toBe(false);
         [owner, marketUid, underlyingAddress].forEach(value => {
           expect(typeof value).toBe('string');
         });
