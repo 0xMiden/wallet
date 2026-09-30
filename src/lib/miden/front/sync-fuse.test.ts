@@ -1,12 +1,14 @@
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import {
+  guardianAdoptFuseKey,
   guardianSyncFuseKey,
   grantManualSyncProbe,
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
   noteNonEvictionSyncFailure,
+  noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
   syncFuseUntilMs
@@ -258,5 +260,32 @@ describe('sync fuse (#777)', () => {
   it('says nothing when an endpoint change finds no conclusions to discard', () => {
     clearSyncFuseForEndpointChange();
     expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("noteSyncParked lights a key on its first park, only that key's success puts it out, and an endpoint change discards it", () => {
+    const adoptA = guardianAdoptFuseKey('0xguardian-a', 'HTTPS://Old.Guardian.test');
+    const adoptB = guardianAdoptFuseKey('0xguardian-b', 'https://old.guardian.test');
+    expect(adoptA).toBe('guardian-adopt:0xguardian-a@https://old.guardian.test/');
+
+    noteSyncParked(adoptA);
+    expect(isSyncFused(adoptA)).toBe(true);
+    expect(syncFuseUntilMs(adoptA)).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    expect(isSyncFused(adoptB)).toBe(false);
+
+    // Re-armed by a later park, and warned about once.
+    fakeNow += 1_000;
+    noteSyncParked(adoptA);
+    expect(syncFuseUntilMs(adoptA)).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    expect((console.warn as jest.Mock).mock.calls.length).toBe(1);
+
+    noteSyncSuccess(adoptB);
+    noteSyncSuccess(GUARDIAN_A);
+    expect(isSyncFused(adoptA)).toBe(true);
+    noteSyncSuccess(adoptA);
+    expect(isSyncFused(adoptA)).toBe(false);
+
+    noteSyncParked(adoptA);
+    clearSyncFuseForEndpointChange();
+    expect(isSyncFused(adoptA)).toBe(false);
   });
 });

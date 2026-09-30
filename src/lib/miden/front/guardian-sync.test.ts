@@ -31,7 +31,14 @@ import {
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
-import { guardianSyncFuseKey, __resetSyncFuseStateForTests, isSyncFused, syncFuseUntilMs } from './sync-fuse';
+import {
+  clearSyncFuseForEndpointChange,
+  guardianAdoptFuseKey,
+  guardianSyncFuseKey,
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  syncFuseUntilMs
+} from './sync-fuse';
 
 const storeState: {
   accounts: Array<{
@@ -2418,6 +2425,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     beforeEach(() => {
       adopted = false;
+      __resetSyncFuseStateForTests();
       mockFindUnsavedSwitchRow.mockResolvedValue({
         id: 'switch-row',
         previousGuardianEndpoint: previousEndpoint,
@@ -2503,6 +2511,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
       await runUntilPersistent();
       expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
 
       // The heal is due again and runs (a second key check), but does not reach that operator.
       dateSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS);
@@ -2524,14 +2533,14 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     });
 
     // A gateway that turns the silence into a 504 before the watchdog (stock HAProxy: 50 s) holds the
-    // lock that long; the refusal window is measured from before the adopt, so unpaused it would hold
-    // the lock 50 s of every 60 s.
+    // adopt's lock that long; the refusal window is measured from before the adopt, so unpaused it would
+    // hold the lock 50 s of every 60 s.
     it('stops contacting a previous guardian whose adopt failed slowly', async () => {
       const t0 = 1_000_000;
       let now = t0;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
-      mockMultisigInit.mockImplementation(async () => {
+      mockAdoptGuardianState.mockImplementation(async () => {
         now += 50_000;
         throw new Error('504 Gateway Timeout');
       });
@@ -2552,7 +2561,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       let now = 1_000_000;
       const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
       const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
-      mockMultisigInit.mockImplementation(async () => {
+      mockAdoptGuardianState.mockImplementation(async () => {
         now += 9_000;
         throw new Error('Failed to fetch');
       });
@@ -2563,6 +2572,56 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       now += MISSING_REGISTRATION_BACKOFF_MS;
       await syncGuardianAccounts();
       expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    it('an endpoint change lifts the pause on a previous guardian', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = performance.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      clearSyncFuseForEndpointChange();
+      dateSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // The pause is one-shot, as it was before the ledger kept it: a lap whose adopt holds the lock
+    // briefly is booked a success whatever the copy reads, so the next due lap reaches the operator.
+    it('pauses a previous guardian once, and a quick adopt after the pause lifts it while the copy stays pre-switch', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = performance.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+      // Never canonicalized: the adopt imports nothing, so the copy keeps naming the old guardian.
+      mockAdoptGuardianState.mockImplementation(async () => {});
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + 2 * MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(3);
 
       dateSpy.mockRestore();
       perfSpy.mockRestore();

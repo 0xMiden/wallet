@@ -18,7 +18,7 @@ import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
-import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { clearLocalStateNotSaved, findUnsavedSwitchRow } from 'lib/miden/transaction/switch-guardian-residual';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -35,11 +35,14 @@ import {
   type SelfHealOutcome
 } from './guardian-selfheal';
 import {
+  guardianAdoptFuseKey,
   guardianSyncFuseKey,
   isSyncFused,
   noteNonEvictionSyncFailure,
+  noteSyncParked,
   noteSyncSuccess,
-  noteSyncWatchdogEviction
+  noteSyncWatchdogEviction,
+  PARKED_SYNC_FAILURE_MS
 } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
@@ -120,13 +123,6 @@ const selfHealState = new Map<string, SelfHealAttemptState>();
 // inheriting an exhausted one from the first.
 const consecutiveUnknownAccount = new Map<string, number>();
 const missingRegistrationState = new Map<string, SelfHealAttemptState>();
-
-// Monotonic deadline per previous guardian (canonical endpoint) before which the heal's adopt does not
-// contact it again: an adopt that failed by a watchdog eviction, or slowly, held the realm's WASM lock
-// that long, and the next lap would pay it again. The #777 fuse's interval, lit by one such failure.
-const previousGuardianAdoptPausedUntil = new Map<string, number>();
-// A slower failure pauses: the worst unpaused lock share stays near 17% while quick errors retry every 60 s.
-const PREVIOUS_GUARDIAN_ADOPT_SLOW_MS = 10_000;
 
 /**
  * Consecutive unknown-account verdicts required before the first registration
@@ -465,7 +461,6 @@ export function __resetGuardianSyncOutageForTest(): void {
   rateLimitedUntil.clear();
   hardeningChecked.clear();
   missingRegistrationState.clear();
-  previousGuardianAdoptPausedUntil.clear();
   lastGuardianSyncAt.clear();
   syncedGuardianEndpoint.clear();
   // Retire any pass still in flight. Clearing `syncInFlight` alone let a running
@@ -518,15 +513,11 @@ async function adoptFromPreviousGuardian(
   // A direct switch fled that operator, so it never received the switch delta, and it may take the
   // connection and go silent until the watchdog.
   if (!unsaved || unsaved.switchedDirectly) return false;
-  const previousKey = canonicalGuardianEndpoint(unsaved.previousGuardianEndpoint);
-  const pausedUntil = previousGuardianAdoptPausedUntil.get(previousKey);
-  if (pausedUntil !== undefined) {
-    if (monotonicNowMs() < pausedUntil) return false;
-    previousGuardianAdoptPausedUntil.delete(previousKey);
-  }
-  const startedAt = monotonicNowMs();
+  // An adopt that parked the realm's WASM lock would park it again on the next lap.
+  const fuseKey = guardianAdoptFuseKey(account.publicKey, unsaved.previousGuardianEndpoint);
+  if (isSyncFused(fuseKey)) return false;
   let postSwitch = false;
-  let evicted = false;
+  let parked = false;
   try {
     const sdkAccount = await withWasmClientLock(
       async () => midenClientProxy.getAccount(account.publicKey),
@@ -540,23 +531,28 @@ async function adoptFromPreviousGuardian(
         zustandProvider.signWord,
         unsaved.previousGuardianEndpoint
       );
-      await previous.adoptGuardianStateOnce();
+      const adoptStartedAt = monotonicNowMs();
+      try {
+        await previous.adoptGuardianStateOnce();
+      } finally {
+        parked = monotonicNowMs() - adoptStartedAt > PARKED_SYNC_FAILURE_MS;
+      }
       // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
       postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
     }
   } catch (error) {
-    evicted = isSyncWatchdogEviction(error);
+    if (isSyncWatchdogEviction(error)) parked = true;
     console.warn(
       `[Guardian Sync] could not adopt ${account.publicKey}'s post-switch state from ${unsaved.previousGuardianEndpoint}:`,
       error
     );
   }
-  // The refusal window is measured from before this ran, so an unpaused failure lasting T holds the lock
+  // Booked by how long the adopt held the lock, never by what the copy reads, so the pause is one-shot.
+  // The refusal window is measured from before this ran, so an unpaused adopt lasting T holds the lock
   // T of every 60 s: a gateway answering a silent operator with a 504 before the watchdog (stock HAProxy
-  // at 50 s) would hold it most of the time. A quick failure keeps the refusal cadence.
-  if (!postSwitch && (evicted || monotonicNowMs() - startedAt > PREVIOUS_GUARDIAN_ADOPT_SLOW_MS)) {
-    previousGuardianAdoptPausedUntil.set(previousKey, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
-  }
+  // at 50 s) would hold it most of the time.
+  if (parked) noteSyncParked(fuseKey);
+  else noteSyncSuccess(fuseKey);
   return postSwitch;
 }
 

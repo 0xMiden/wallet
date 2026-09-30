@@ -29,7 +29,8 @@ export type SyncFuseKey =
   | 'balances'
   | 'note-import'
   | 'swap-order-tracking'
-  | `guardian-sync:${string}`;
+  | `guardian-sync:${string}`
+  | `guardian-adopt:${string}`;
 
 /**
  * The fuse key for one guardian account's sync probe.
@@ -43,6 +44,20 @@ export type SyncFuseKey =
  */
 export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
   `guardian-sync:${accountPublicKey}@${canonicalGuardianEndpoint(guardianEndpoint)}`;
+
+/**
+ * The fuse key for the self-heal's adopt from the guardian a landed switch left behind (#1233): the
+ * hold label that adopt passes, and account plus endpoint because the heal loops the accounts in
+ * sequence and each names its own previous guardian.
+ */
+export const guardianAdoptFuseKey = (accountPublicKey: string, previousGuardianEndpoint: string): SyncFuseKey =>
+  `guardian-adopt:${accountPublicKey}@${canonicalGuardianEndpoint(previousGuardianEndpoint)}`;
+
+/**
+ * A failure slower than this held the realm's WASM lock long enough to count as a park: the worst
+ * unpaused lock share stays near 17% while quick errors retry on their usual cadence.
+ */
+export const PARKED_SYNC_FAILURE_MS = 10_000;
 
 interface FuseEntry {
   evictions: number;
@@ -144,6 +159,24 @@ export function noteSyncWatchdogEviction(key: SyncFuseKey): void {
   // tick the guards skip must serve out the wait, not restart it. As a per-run delay,
   // every skipped tick re-armed the full cadence, so a user who opened the send flow
   // while fused pushed their next probe out by another half hour each time.
+  entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+}
+
+/**
+ * A hold taken by this probe parked the realm's lock: a watchdog eviction, or a failure slower than
+ * {@link PARKED_SYNC_FAILURE_MS}. Lights the fuse on the first one, for a probe that holds the lock
+ * for another node's answer, so one park is already the cost the next lap would pay again. Otherwise
+ * the rules of {@link noteSyncWatchdogEviction}: the same deadline, re-armed on every park, warned once.
+ */
+export function noteSyncParked(key: SyncFuseKey): void {
+  const entry = entryFor(key);
+  entry.evictions++;
+  if (entry.fusedUntilMs === null) {
+    console.warn(
+      `[sync-fuse] '${key}' parked the realm's WASM lock; dropping it to one probe per ` +
+        `${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one succeeds (#1233)`
+    );
+  }
   entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
 }
 
