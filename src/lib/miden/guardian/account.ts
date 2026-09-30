@@ -431,6 +431,9 @@ export async function createGuardianAccount(
 
     if (!skipRegistration) {
       assertLive('before guardian registration');
+      // The timeout rejects out of the caller's hold, safe only because the abandoned tail borrows no
+      // shared WASM: serialize and the first request signature run before the first await, and an
+      // authentication_replay answer re-signs only on this creation's own cold key, never the WebClient.
       await withGuardianRateLimitRetry(
         () =>
           withTimeout(

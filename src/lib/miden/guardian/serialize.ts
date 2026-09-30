@@ -163,7 +163,9 @@ export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
  * It bounds each attempt inside the 429 retry (`withGuardianRateLimitRetry`), so
  * that stage's worst case is GUARDIAN_CREATE_RATE_LIMIT_BUDGET_MS (./account) plus
  * one ceiling. A timed-out attempt is not a 429, so it is not retried: creation
- * fails as on any other registration error, before the sync and the cold key insert.
+ * fails before the sync and the cold key insert. The abandoned `/configure` may
+ * still land and leave the guardian an orphan record; a retried creation uses a
+ * fresh hot key, so its account id never collides with it.
  */
 export const NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS = 30_000;
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
