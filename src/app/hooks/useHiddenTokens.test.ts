@@ -249,6 +249,19 @@ it('reads and writes each network and each account under its own key', async () 
   expect(other.result.current.ids.size).toBe(0);
 });
 
+it("reads the new network's set on a rerender, the real path for a network switch with no reload", async () => {
+  const { result, rerender } = await renderLoaded('account');
+  expect(result.current.isHidden('mtst1old')).toBe(true);
+
+  read.mockResolvedValueOnce([SPAM]);
+  mockNetwork = 'devnet';
+  rerender();
+
+  await waitFor(() => expect(read).toHaveBeenCalledWith('hidden-tokens:v1:devnet:account'));
+  await waitFor(() => expect(result.current.isHidden(SPAM)).toBe(true));
+  expect(result.current.isHidden('mtst1old')).toBe(false);
+});
+
 it('shows one consumer a token another consumer just hid', async () => {
   // The token page hides; the Home that TabLayout keeps mounted has to drop the row at once.
   const page = renderHook(() => useHiddenTokens('account'));
