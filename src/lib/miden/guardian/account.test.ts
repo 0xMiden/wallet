@@ -8,6 +8,7 @@
  */
 
 import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
   assertGuardianKeyCommitment,
@@ -412,9 +413,10 @@ describe('guardianProviderFromEndpoint', () => {
 });
 
 describe('createGuardianAccount', () => {
+  const ACCOUNT_STATE = new Uint8Array([7, 8, 9]);
   const makeMultisig = () => ({
-    account: { id: () => ({ toString: () => 'guardian-acc-id' }) },
-    registerOnGuardian: jest.fn(async () => {})
+    account: { id: () => ({ toString: () => 'guardian-acc-id' }), serialize: () => ACCOUNT_STATE },
+    registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
 
   const makeWebClient = () => ({
@@ -433,6 +435,15 @@ describe('createGuardianAccount', () => {
       publicKeyHex: 'hot-pubkey-hex',
       commitmentHex: '0xhot-commit'
     });
+  });
+
+  it('registers the account state serialized under the hold', async () => {
+    const multisig = makeMultisig();
+    multisigClientConfig.create.mockResolvedValueOnce(multisig);
+
+    await createGuardianAccount(makeWebClient() as never, new Uint8Array([1, 2, 3, 4]));
+
+    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(u8ToB64(ACCOUNT_STATE));
   });
 
   it('creates a 2-of-N multisig with [hot, cold] commitments, registers, syncs, persists cold to keystore', async () => {

@@ -132,8 +132,10 @@ export class GuardianProbeTimeoutError extends Error {
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
  * `timeoutMs`. The underlying request keeps running (the guardian client has no
- * abort) and its result is dropped. Inside a WASM lock hold, use it only when that
- * abandoned tail touches no WASM object another flow can borrow.
+ * abort) and its result is dropped. Inside a WASM lock hold, use it only when the
+ * abandoned tail makes no WASM call after its first suspension except on objects the
+ * flow built itself from plain inputs (such as a signer key from a seed), never the
+ * client or any object a client call returned.
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {

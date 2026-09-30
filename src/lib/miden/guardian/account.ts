@@ -9,6 +9,7 @@ import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
 
 import { withTimeout } from './discover';
@@ -431,13 +432,14 @@ export async function createGuardianAccount(
 
     if (!skipRegistration) {
       assertLive('before guardian registration');
-      // The timeout rejects out of the caller's hold, safe only because the abandoned tail borrows no
-      // shared WASM: serialize and the first request signature run before the first await, and an
-      // authentication_replay answer re-signs only on this creation's own cold key, never the WebClient.
+      // Serialized here, under the hold, so the timeout below may reject out of it: the abandoned tail
+      // then holds only this string and the creation's cold-key signer, which an authentication_replay
+      // answer re-signs with. It never touches the client or an object the client returned.
+      const stateBase64 = u8ToB64(multisig.account.serialize());
       await withGuardianRateLimitRetry(
         () =>
           withTimeout(
-            multisig.registerOnGuardian(),
+            multisig.registerOnGuardian(stateBase64),
             NEW_GUARDIAN_REGISTRATION_TIMEOUT_MS,
             `Guardian ${guardianEndpoint} registration`
           ),

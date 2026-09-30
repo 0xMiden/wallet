@@ -92,8 +92,9 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
  * timeout that rejects out of a `withWasmClientLock` callback RELEASES the mutex
  * while the underlying call keeps running; that is harmless when the WASM lives in
  * another realm behind its own mutex, or when the abandoned tail makes no WASM call
- * after its first suspension except on objects only that flow owns. Otherwise it is
- * a double borrow of the single-threaded client.
+ * after its first suspension except on objects the flow built itself from plain
+ * inputs (such as a signer key from a seed), never the client or any object a
+ * client call returned. Otherwise it is a double borrow of the single-threaded client.
  */
 export function runsWasmInThisRealm(): boolean {
   return !USE_OFFSCREEN_CLIENT || !isOffscreenAvailable();
