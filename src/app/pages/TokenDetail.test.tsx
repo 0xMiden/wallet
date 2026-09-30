@@ -1,8 +1,10 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
@@ -96,9 +98,11 @@ jest.mock('lib/woozie', () => ({
 
 const mockHapticSelection = jest.fn();
 const mockHapticLight = jest.fn();
+const mockHapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: (...args: unknown[]) => mockHapticSelection(...args),
-  hapticLight: (...args: unknown[]) => mockHapticLight(...args)
+  hapticLight: (...args: unknown[]) => mockHapticLight(...args),
+  hapticMedium: (...args: unknown[]) => mockHapticMedium(...args)
 }));
 
 jest.mock('components/PageHeader', () => ({
@@ -231,6 +235,14 @@ jest.mock('lib/token-list/useTokenVerification', () => ({
   useTokenVerification: (id: string) => mockVerifyToken(id)
 }));
 
+let mockNativeFaucetId: string | null = 'mtst1native';
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+
+// The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
+jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
+const mockReadStorage = jest.mocked(fetchFromStorage);
+const mockWriteStorage = jest.mocked(putToStorage);
+
 const mockOpenExternalUrl = jest.fn();
 jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
@@ -292,6 +304,14 @@ const renderPage = (o?: Overrides) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockTokenPrices = {};
+  mockNativeFaucetId = 'mtst1native';
+  resetHiddenTokens();
+  mockReadStorage.mockReset();
+  // Unread by default: most cases never look at the row, and a read settling after a synchronous
+  // case ends would update the page outside act().
+  mockReadStorage.mockImplementation(() => new Promise(() => {}));
+  mockWriteStorage.mockReset();
+  mockWriteStorage.mockResolvedValue(undefined);
 });
 
 describe('TokenDetail', () => {
@@ -818,6 +838,107 @@ describe('TokenDetail', () => {
       expect(Array.from(mark.children)).toEqual([pill, notice]);
 
       expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    });
+  });
+
+  describe('hiding the token', () => {
+    const KEY = 'hidden-tokens:v1:testnet:pk-123';
+    const toggle = () => screen.getByTestId('token-detail-hide-toggle');
+    const renderReady = async (stored: string[] = []) => {
+      mockReadStorage.mockResolvedValue(stored);
+      renderPage();
+      await waitFor(() => expect(toggle()).toBeEnabled());
+    };
+
+    it("offers Hide token with the eye-off glyph, in the explorer row's text-action style", async () => {
+      await renderReady();
+
+      expect(within(screen.getByTestId('token-detail-info')).getByTestId('token-detail-hide-toggle')).toBe(toggle());
+      expect(toggle()).toHaveTextContent('hideToken');
+      expect(toggle()).toHaveClass('text-action', 'text-accent-tint-ink');
+      const glyph = toggle().querySelector('svg');
+      expect(glyph).toHaveAttribute('name', 'eye-off');
+      expect(glyph).toHaveAttribute('aria-hidden', 'true');
+      expect(screen.queryByTestId('token-detail-hidden-notice')).toBeNull();
+    });
+
+    it('hides the token on tap, stays on the page, and flips the row to Unhide with a note', async () => {
+      await renderReady();
+
+      fireEvent.click(toggle());
+
+      await waitFor(() => expect(toggle()).toHaveTextContent('unhideToken'));
+      expect(mockWriteStorage).toHaveBeenCalledWith(KEY, [normalizedFaucetId(TOKEN_ID)]);
+      expect(mockHapticMedium).toHaveBeenCalledTimes(1);
+      expect(toggle().querySelector('svg')).toHaveAttribute('name', 'eye');
+      const notice = screen.getByTestId('token-detail-hidden-notice');
+      expect(notice).toHaveTextContent('tokenHiddenNotice');
+      expect(notice).toHaveAttribute('data-variant', 'inline');
+      expect(notice).toHaveAttribute('role', 'status');
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
+
+    it('unhides a hidden token from the same row and drops the note', async () => {
+      await renderReady([TOKEN_ID]);
+      expect(toggle()).toHaveTextContent('unhideToken');
+      expect(screen.getByTestId('token-detail-hidden-notice')).toBeInTheDocument();
+
+      fireEvent.click(toggle());
+
+      await waitFor(() => expect(toggle()).toHaveTextContent('hideToken'));
+      expect(mockWriteStorage).toHaveBeenCalledWith(KEY, []);
+      expect(screen.queryByTestId('token-detail-hidden-notice')).toBeNull();
+    });
+
+    it('offers no row for the native token', () => {
+      mockNativeFaucetId = TOKEN_ID;
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+      expect(screen.getByTestId('token-detail-explorer')).toBeInTheDocument();
+    });
+
+    it('offers no row before the native token is known', () => {
+      mockNativeFaucetId = null;
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+    });
+
+    it('keeps the row disabled while the hidden set is being read', () => {
+      renderPage();
+
+      expect(toggle()).toBeDisabled();
+      expect(toggle()).toHaveTextContent('hideToken');
+    });
+
+    it('keeps the row disabled and says so when the hidden set cannot be read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockReadStorage.mockRejectedValue(new Error('Read unavailable'));
+      renderPage();
+
+      const error = await screen.findByTestId('token-detail-hidden-error');
+      expect(error).toHaveTextContent('hiddenTokensError');
+      expect(error).toHaveAttribute('role', 'alert');
+      expect(toggle()).toBeDisabled();
+      warn.mockRestore();
+    });
+
+    it('keeps the row usable after a failed save, so a retry stores it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+      await renderReady();
+
+      fireEvent.click(toggle());
+      expect(await screen.findByTestId('token-detail-hidden-error')).toHaveTextContent('hiddenTokensError');
+      expect(toggle()).toHaveTextContent('hideToken');
+      expect(toggle()).toBeEnabled();
+
+      fireEvent.click(toggle());
+      await waitFor(() => expect(toggle()).toHaveTextContent('unhideToken'));
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      warn.mockRestore();
     });
   });
 });
