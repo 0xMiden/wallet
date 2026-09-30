@@ -6944,6 +6944,7 @@ describe('generateTransaction — Guardian routing', () => {
         swapHotKey
       };
       mockIsGuardianAccount.mockResolvedValue(true);
+      mockDidDirectSwitchLand.mockResolvedValueOnce(true);
 
       // The submit lands on chain but the LOCAL apply throws - the rotation is real.
       mockGetMidenClient.mockResolvedValue({
@@ -6973,7 +6974,12 @@ describe('generateTransaction — Guardian routing', () => {
         provider as never
       );
 
-      // The reconcile swapped the hot pointer; the tx is Completed, not cancelled/Failed.
+      // The reconcile swapped the hot pointer only once the node confirmed the landed id; the tx is
+      // Completed, not cancelled/Failed.
+      expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
+      expect(mockDidDirectSwitchLand.mock.invocationCallOrder[0]!).toBeLessThan(
+        swapHotKey.mock.invocationCallOrder[0]!
+      );
       expect(swapHotKey).toHaveBeenCalledWith('guardian-acc', 'new-hot-pub');
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
@@ -6989,7 +6995,9 @@ describe('generateTransaction — Guardian routing', () => {
     }
   );
 
-  it('replace-hot-key landed: swaps the key on the stored composite account the bare row names (#1233)', async () => {
+  // #1233: a rotation whose submit lands and whose local apply then fails, queued under the bare id
+  // while the vault stores the composite one.
+  const arrangeLandedRotation = () => {
     const txId = 'replace-apply-fail-suffix';
     const coldService = {
       createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
@@ -6997,11 +7005,12 @@ describe('generateTransaction — Guardian routing', () => {
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
       })),
-      abandonCandidate: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async (_nonce: number) => {}),
       reRegisterCurrentStateOnGuardian: jest.fn(async () => {})
     };
     mockBuildColdMultisigService.mockResolvedValue(coldService);
-    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const hotService = { getProcedureThreshold: () => 2, abandonCandidate: jest.fn(async (_nonce: number) => {}) };
+    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
     const swapHotKey = jest.fn(async () => {});
     const provider = {
       ...makeSuffixGuardianProvider(),
@@ -7020,19 +7029,28 @@ describe('generateTransaction — Guardian routing', () => {
       )
     });
     txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'acc-1', status: ITransactionStatus.Queued });
+    const run = () =>
+      generateTransaction(
+        { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false, extraInputs: {} } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+    const row = () => txStore.find(r => r.id === txId);
+    return { run, row, coldService, hotService, swapHotKey };
+  };
 
-    await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false, extraInputs: {} } as never,
-      jest.fn(async () => new Uint8Array([1])),
-      false,
-      provider as never
-    );
+  it('replace-hot-key landed: swaps the key on the stored composite account the bare row names (#1233)', async () => {
+    const { run, row, coldService, swapHotKey } = arrangeLandedRotation();
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
+
+    await run();
 
     // The vault record is keyed by the stored composite id, which the re-register loop used to
     // resolve and the landed path now resolves on its own.
     expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
     expect(coldService.reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
-    expect((txStore.find(r => r.id === txId) as Record<string, unknown>).status).toBe(ITransactionStatus.Completed);
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
   });
 
   // #619 gap (1): a failed best-effort re-register is recorded (observable-only)
@@ -7561,6 +7579,7 @@ describe('generateTransaction — Guardian routing', () => {
       sync: jest.fn(async () => {}),
       reRegisterCurrentStateOnGuardian
     });
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
 
     await generateTransaction(
       tx,
@@ -7569,6 +7588,7 @@ describe('generateTransaction — Guardian routing', () => {
       provider
     );
 
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
     expect(row()?.status).toBe(ITransactionStatus.Completed);
     expect(row()?.displayMessage).toBe('Account secured');
     expect(row()?.transactionId).toBe('exec-tx-hash');
@@ -7642,6 +7662,7 @@ describe('generateTransaction — Guardian routing', () => {
       sync: jest.fn(async () => {}),
       reRegisterCurrentStateOnGuardian
     });
+    mockDidDirectSwitchLand.mockResolvedValueOnce(true);
 
     await generateTransaction(
       tx,
@@ -7650,12 +7671,108 @@ describe('generateTransaction — Guardian routing', () => {
       provider
     );
 
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
     expect(row()?.status).toBe(ITransactionStatus.Completed);
     expect(row()?.displayMessage).toBe('Account secured');
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(reRegisterCurrentStateOnGuardian).not.toHaveBeenCalled();
     expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // A resolved submit is not a commit: the rotation's completion deletes the old hot key, so both
+  // types complete only on the node's committed verdict (#1233).
+  type LandedArrangement = {
+    run: () => Promise<unknown>;
+    row: () => Record<string, unknown> | undefined;
+    coldService: { abandonCandidate: jest.Mock };
+    hotService: { abandonCandidate: jest.Mock };
+    swapHotKey: jest.Mock;
+  };
+  const landedStructuralArrangements: { type: string; nonce: number; arrange: () => LandedArrangement }[] = [
+    { type: 'replace-hot-key', nonce: 3, arrange: arrangeLandedRotation },
+    {
+      type: 'update-procedure-threshold',
+      nonce: 9,
+      arrange: () => {
+        const { tx, row, coldService, provider } = arrangeLandedThreshold(
+          jest.fn(async () => {
+            throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+          })
+        );
+        const hotService = { sync: jest.fn(async () => {}), abandonCandidate: jest.fn(async (_nonce: number) => {}) };
+        mockGetOrCreateMultisigService.mockResolvedValue(hotService);
+        // Nothing on a threshold update swaps a key; the spy makes that visible.
+        const swapHotKey = jest.fn(async () => {});
+        const run = () =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            { ...provider, swapHotKey }
+          );
+        return { run, row, coldService, hotService, swapHotKey };
+      }
+    }
+  ];
+
+  it.each(landedStructuralArrangements)(
+    '$type landed: fails without completing when the node has no verdict (#1233)',
+    async ({ arrange }) => {
+      const { run, row, coldService, hotService, swapHotKey } = arrange();
+      // Scripted, not left to the default: earlier cases in this describe set a persistent verdict.
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+
+      await run();
+
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.error).toMatch(/has not confirmed it/);
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.displayMessage).not.toBe('Account secured');
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      expect(hotService.abandonCandidate).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(landedStructuralArrangements)(
+    '$type landed: abandons its candidate before the row fails when the node discarded it (#1233)',
+    async ({ arrange, nonce }) => {
+      const { run, row, coldService, swapHotKey } = arrange();
+      mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+      let statusAtAbandon: unknown;
+      coldService.abandonCandidate.mockImplementation(async () => {
+        statusAtAbandon = row()?.status;
+      });
+
+      await run();
+
+      expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(coldService.abandonCandidate).toHaveBeenCalledWith(nonce);
+      // The proposal's build, then the abandon's: both writes were proposed on a cold service.
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(2);
+      expect(statusAtAbandon).toBeDefined();
+      expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.error).toMatch(/did not land: the node discarded it/);
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.displayMessage).not.toBe('Account secured');
+    }
+  );
+
+  it('replace-hot-key landed: abandons on the cold service when the hot build cannot run (#1233)', async () => {
+    const { run, row, coldService, swapHotKey } = arrangeLandedRotation();
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    mockGetOrCreateMultisigService.mockRejectedValue(
+      new Error('Guardian account guardian-acc is missing hotPublicKey - re-create the wallet')
+    );
+
+    await run();
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(3);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expect(row()?.error).toMatch(/did not land: the node discarded it/);
+    expect(swapHotKey).not.toHaveBeenCalled();
   });
 
   it('Guardian consume apply-after-submit-failure marks Completed (sync reconciles) instead of cancelling', async () => {

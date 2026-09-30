@@ -148,7 +148,8 @@ export interface ISwitchGuardianExtraInputs {
   switchDeltaPushed?: boolean;
   // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
   // abandons this nonce's candidate on the outgoing guardian before the row fails, through
-  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233).
+  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
+  // a rotation or a threshold update is `proposalNonce`.
   switchProposalNonce?: number;
 }
 
@@ -1318,7 +1319,13 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: {
+    newHotPublicKey?: string;
+    reRegisterFailed?: boolean;
+    guardianEndpoint?: string;
+    proposalNonce?: number;
+  };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1354,7 +1361,8 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { procedure: string; threshold: number };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: { procedure: string; threshold: number; proposalNonce?: number };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {

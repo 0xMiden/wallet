@@ -3058,6 +3058,8 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
       applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
       applyErr.landed = { transactionId: '0xlanded' };
       mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+      // A rotation completes only on the node's committed verdict (#1233).
+      if (type === 'replace-hot-key') mockProxyGetCommitState.mockResolvedValueOnce('committed');
       const { service, provider: sp } = arrangeStructural(`s-apply-${type}`, row);
 
       await generateTransaction(buildTx(`s-apply-${type}`, row) as never, signCallback, false, sp as never);
@@ -3084,6 +3086,7 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
     applyErr.landed = { transactionId: '0xlanded' };
     mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    mockProxyGetCommitState.mockResolvedValueOnce('committed');
     const row = { type: 'update-procedure-threshold', extraInputs: { procedure: '0xproc', threshold: 2 } };
     const { service, provider: sp } = arrangeStructural('s-apply-upt', row);
 
@@ -3100,6 +3103,23 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
     expect(finalRow.transactionId).toBe('0xlanded');
     expect(finalRow.displayMessage).toBe('Account secured');
+  });
+
+  it('replace-hot-key: a round-tripped apply-after-submit failure with no transaction id fails without completing (#1233)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const applyErr: Error & { errorCode?: string } = new Error('local apply failed after submit');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    const { provider: sp } = arrangeStructural('s-apply-no-id', row);
+
+    await generateTransaction(buildTx('s-apply-no-id', row) as never, signCallback, false, sp as never);
+
+    expect(mockComplete.replaceHotKey).not.toHaveBeenCalled();
+    expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 's-apply-no-id')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toMatch(/transaction id could not be read/);
   });
 
   it('update-procedure-threshold: an unwrapped refusal from the leaf ends Failed with no finalization (#1233)', async () => {

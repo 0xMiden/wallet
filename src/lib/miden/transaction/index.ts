@@ -914,6 +914,10 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   store still holds the pre-update account, and pushing it would put the
  *   guardian behind the chain. The guardian learns the update when the
  *   co-signed candidate canonicalizes.
+ * Both complete only on the node's committed verdict (`requireLandedCommit`): a resolved
+ *   submit is not a commit, and the rotation's swap deletes the old hot key. No verdict or no
+ *   id fails the row with nothing completed, and the cold heal finishes a rotation that lands
+ *   later; a discard abandons the co-signed candidate first.
  * switch-guardian → rebuild the outgoing service, which completion uses to adopt
  *   the post-switch state before `finalizeGuardianSwitch` registers the LOCAL
  *   account (after a failed apply that is the pre-switch state, #1233) + persist
@@ -932,13 +936,15 @@ async function reconcileStructuralApplyFailure(
   landed: LandedWithoutResult
 ): Promise<void> {
   if (tx.type === 'replace-hot-key') {
+    await requireLandedCommit(tx, guardianProvider, landed);
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider, landed);
     return;
   }
   if (tx.type === 'update-procedure-threshold') {
-    // Evict first: the threshold changed on chain whatever the row write below does, and the
-    // cached hot service still holds the pre-update threshold map.
+    // Evict first: evicting a cache is harmless whether or not the update landed, and the
+    // cached hot service may hold the pre-update threshold map.
     clearGuardianServiceFor(tx.accountId);
+    await requireLandedCommit(tx, guardianProvider, landed);
     // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
     // carries, and minus its re-register: the local store still holds the pre-update account.
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
@@ -1257,10 +1263,13 @@ const generateTransactionWithProvider = async (
           await reconcileStructuralApplyFailure(transaction, guardianProvider, extractLanded(error));
         } catch (reconcileError) {
           console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
-          // A switch the node discarded fails on that verdict, as the direct path's discard does (#1233).
+          // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
+          // node's discard, as the direct path's discard does (#1233).
           await cancelTransactionAfterPipelineStopped(
             transaction,
-            isGuardianSwitchDiscardedError(reconcileError) ? reconcileError : error
+            transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+              ? reconcileError
+              : error
           );
         }
         return;
@@ -2264,6 +2273,48 @@ const abandonDiscardedCandidate = async (service: MultisigService, nonce: number
 };
 
 /**
+ * Hold a landed rotation or threshold update to the node's committed verdict before the reconcile
+ * completes it (#1233). One read, not a commit wait: the failed apply usually took the transaction
+ * record with it, so a wait inside the FIFO loop's Web Lock would time out without an answer.
+ * Returns only on committed. No id or no verdict throws with nothing abandoned, since the write may
+ * still land. A discard abandons the candidate on a cold service, the kind both writes were proposed
+ * on, which needs no hot key; a discarded write never lands, so the guardian still accepts the old one.
+ */
+const requireLandedCommit = async (
+  tx: ITransaction,
+  guardianProvider: GuardianAccountProvider,
+  landed: LandedWithoutResult
+): Promise<void> => {
+  const id = landed.transactionId;
+  if (id === undefined) {
+    throw new Error(
+      `Guardian ${tx.type} was submitted, but its transaction id could not be read, so the node cannot confirm it; not completing it.`
+    );
+  }
+  const verdict = await didDirectSwitchLand(id);
+  if (verdict === true) return;
+  if (verdict === undefined) {
+    throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
+  }
+  const nonce = tx.extraInputs?.proposalNonce;
+  if (typeof nonce === 'number') {
+    try {
+      const service = await withOutgoingGuardianDeadline(
+        () => buildColdServiceForAccount(tx.accountId, guardianProvider),
+        'loading the cold service to abandon a discarded candidate'
+      );
+      await abandonDiscardedCandidate(service, nonce);
+    } catch (buildError) {
+      console.warn(
+        `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
+        buildError
+      );
+    }
+  }
+  throw new Error(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
+};
+
+/**
  * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
  * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
  * rotation or a threshold update.
@@ -3258,6 +3309,14 @@ const generateGuardianTransaction = async (
         switchProposalId: proposalResult.id,
         switchProposalNonce: proposalResult.nonce
       };
+    }
+    // In memory too: the landed reconcile runs in this call stack and abandons this nonce's candidate
+    // when the node discards the write.
+    if (
+      submitResolved &&
+      (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
+    ) {
+      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
     if (!submitResolved) {
       try {
