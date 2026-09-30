@@ -35,6 +35,17 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
+// An eviction or an offscreen abort of a summary decode the pass was not interrupted for. It says the decode did not
+// finish, not that the bytes failed a check, so the source is filed 'network' and never spends the invalid-data cap.
+class HistoryDecodeAborted extends Error {
+  constructor(
+    readonly session: number,
+    cause: Error
+  ) {
+    super('Guardian summary decode was aborted', { cause });
+  }
+}
+
 type HistoryPageOutcome =
   | { kind: 'page'; page: HistoryPage; session: number }
   | { kind: 'unsupported'; session: number };
@@ -66,17 +77,19 @@ function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
   return checkpoint.failure === 'invalid-data' && (checkpoint.invalidDataPasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
 }
 
-// Checkpoints answered unsupported, or whose data failed a check, since the backend started or the wallet last
-// locked. Each is counted once per session, so a deferral restart cannot spend the cap. An answer to an attempt
-// issued before a lock is left out of the session the lock started.
+// Checkpoints answered unsupported, whose data failed a check, or whose summary decode was aborted, since the backend
+// started or the wallet last locked. Each is counted once per session, so a deferral restart cannot spend the cap or
+// decode again. An answer to an attempt issued before a lock is left out of the session the lock started.
 const unsupportedHistorySources = new Set<string>();
 const invalidDataHistorySources = new Set<string>();
+const abortedDecodeHistorySources = new Set<string>();
 let unsupportedHistorySession = 0;
 
 export function forgetUnsupportedHistorySources(): void {
   unsupportedHistorySession++;
   unsupportedHistorySources.clear();
   invalidDataHistorySources.clear();
+  abortedDecodeHistorySources.clear();
 }
 
 export interface GuardianHistoryRecoveryContext {
@@ -249,6 +262,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         sourceFailures++;
         continue;
       }
+      if (abortedDecodeHistorySources.has(id) && checkpoint.failure === 'network') {
+        sourceFailures++;
+        continue;
+      }
       currentOperator = operator;
       // A data failure belongs to the session of the request that returned the data: the page's for the page
       // checks, the entry's getDelta for that entry.
@@ -330,7 +347,12 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             if (typeof encoded !== 'string' || encoded.length === 0)
               throw new GuardianHistoryDataError('Guardian history delta carries no summary');
             await check();
-            const summary = await midenClientProxy.decodeGuardianHistory(encoded);
+            const decodeSession = unsupportedHistorySession;
+            const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
+              if (!(error instanceof WasmClientPoisonedError || error instanceof OperationAbortedError)) throw error;
+              if (await interrupted()) throw error;
+              throw new HistoryDecodeAborted(decodeSession, error);
+            });
             const record = recoveredHistoryRecord(
               account.publicKey,
               canonicalAccountId,
@@ -460,6 +482,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         const saved = { ...checkpoint, failure, invalidDataPasses: invalidDataPasses ?? checkpoint.invalidDataPasses };
         await saveGuardianHistoryCheckpoint(context.generation, saved);
         if (failure === 'invalid-data' && dataSession === unsupportedHistorySession) invalidDataHistorySources.add(id);
+        if (error instanceof HistoryDecodeAborted && error.session === unsupportedHistorySession)
+          abortedDecodeHistorySources.add(id);
         console.warn(`[GuardianHistory] Source failed (${failure}): ${operator}`, error);
         if (invalidDataPasses !== undefined && invalidDataPasses >= MAX_UNSUPPORTED_HISTORY_PASSES)
           terminal.push(saved);

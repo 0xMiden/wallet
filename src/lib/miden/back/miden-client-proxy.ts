@@ -1436,7 +1436,7 @@ export const midenClientProxy = {
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
   async decodeGuardianHistory(encoded: string) {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).decodeGuardianHistory(encoded));
+      return withWasmClientLock(async hold => (await getMidenClient()).decodeGuardianHistory(encoded, hold));
     }
     const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
     if (!result) throw new Error('Missing Guardian summary response');
@@ -1450,7 +1450,7 @@ export const midenClientProxy = {
 
   async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).getGuardianResultCommitment(bytes));
+      return withWasmClientLock(async hold => (await getMidenClient()).getGuardianResultCommitment(bytes, hold));
     }
     const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
     if (!result) throw new Error('Missing Guardian commitment response');

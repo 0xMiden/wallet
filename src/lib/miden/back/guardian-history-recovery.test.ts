@@ -31,7 +31,9 @@ import {
   terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
+import { OperationAbortedError } from './offscreen-codec';
 import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -935,15 +937,37 @@ it('records invalid data from a retry issued after a lock in the session the loc
   expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
 });
 
-/** Makes the summary of one entry fail its decode as invalid data, while the others decode as before. */
-const failDecodeOf = (encoded: string) => {
+/** Makes the summary of one entry fail its decode with `error`, while the others decode as before. */
+const failDecodeOf = (
+  encoded: string,
+  error: Error = new GuardianHistoryDataError('Guardian summary does not deserialize')
+) => {
   const decode = jest.mocked(midenClientProxy.decodeGuardianHistory).getMockImplementation();
   if (!decode) throw new Error('Missing decode implementation');
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async value => {
-    if (value === encoded) throw new GuardianHistoryDataError('Guardian summary does not deserialize');
+    if (value === encoded) throw error;
     return decode(value);
   });
 };
+
+/** As failDecodeOf, but every decode of that entry rejects with a fresh `make()`, after running `first` on the first. */
+const abortDecodeOf = (encoded: string, make: () => Error, first: () => void) => {
+  const decode = jest.mocked(midenClientProxy.decodeGuardianHistory).getMockImplementation();
+  if (!decode) throw new Error('Missing decode implementation');
+  let calls = 0;
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async value => {
+    if (value !== encoded) return decode(value);
+    if (calls++ === 0) first();
+    throw make();
+  });
+};
+
+const aborts: Array<[string, () => Error]> = [
+  ['an eviction', () => new WasmClientPoisonedError('realm-error')],
+  ['an offscreen abort', () => new OperationAbortedError('op-1', 'deadline')]
+];
+const decodesOf = (value: string) =>
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mock.calls.filter(([encoded]) => encoded === value).length;
 
 it('counts a summary that fails its decode as invalid data once per session, up to the cap', async () => {
   const client = source('https://two', []);
@@ -963,6 +987,57 @@ it('counts a summary that fails its decode as invalid data once per session, up 
   forgetUnsupportedHistorySources();
   expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, failed: true, deferredSources: 0 });
   expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
+});
+
+it.each(aborts)(
+  'charges %s of a summary decode to its source as a network failure, asked once per session',
+  async (_kind, make) => {
+    const client = source('https://two', []);
+    jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+    failDecodeOf('3', make());
+    expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, deferredSources: 0 });
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false });
+    expect((await twoCheckpoint())?.invalidDataPasses).toBeUndefined();
+
+    expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, deferredSources: 0 });
+    expect(decodesOf('3')).toBe(1);
+    expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+    expect(client.getDelta).toHaveBeenCalledTimes(1);
+
+    forgetUnsupportedHistorySources();
+    const third = await run();
+    expect(decodesOf('3')).toBe(2);
+    expect(third.sourceFailures).toBe(1);
+    expect(third.failed).toBeUndefined();
+    expect((await twoCheckpoint())?.invalidDataPasses).toBeUndefined();
+  }
+);
+
+it.each(aborts)('defers %s of a summary decode that lands after the pass was interrupted', async (_kind, make) => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  abortDecodeOf('3', make, () => shouldYield.mockResolvedValue('wallet locked'));
+  const first = await run();
+  expect(first.deferred).toBe(true);
+  expect(first.sourceFailures).toBe(0);
+  expect((await twoCheckpoint())?.failure).toBeUndefined();
+
+  shouldYield.mockResolvedValue(null);
+  await run();
+  expect(decodesOf('3')).toBe(2);
+});
+
+it('asks a source whose decode aborted again in the session a lock started while it ran', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  abortDecodeOf('3', () => new WasmClientPoisonedError('realm-error'), forgetUnsupportedHistorySources);
+  const first = await run();
+  expect(first.deferred).toBe(false);
+  expect(first.sourceFailures).toBe(1);
+
+  const second = await run();
+  expect(decodesOf('3')).toBe(2);
+  expect(second.sourceFailures).toBe(1);
 });
 
 it.each<[string, DeltaObject]>([

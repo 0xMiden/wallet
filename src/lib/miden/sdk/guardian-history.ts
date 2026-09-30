@@ -17,6 +17,7 @@ import {
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { getBech32AddressFromAccountId } from './helpers';
+import { retireWasmClientForCaughtTrap, type WasmLockHold } from './miden-client';
 import { isWasmClientPoisonedError } from './wasm-client-poison';
 import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
@@ -108,9 +109,18 @@ function swapDetails(note: Note): GuardianHistoryNote['swap'] {
   return undefined;
 }
 
-// An eviction or a trap is a fault of the module, not a verdict on the operator's bytes, so it passes through.
-function summaryDataError(message: string, cause: unknown): unknown {
-  if (isWasmClientPoisonedError(cause) || cause instanceof WebAssembly.RuntimeError) return cause;
+function retiredOnTrap(cause: unknown, hold: WasmLockHold): boolean {
+  const trapped = cause instanceof WebAssembly.RuntimeError;
+  if (trapped) retireWasmClientForCaughtTrap(hold, cause);
+  return trapped;
+}
+
+// An eviction is a fault of the module, not a verdict on the operator's bytes, so it passes through. A trap on those
+// bytes is the operator's: the decoding hold caught it, so no realm listener sees it and the hold retires the client
+// the trap aborted before the bytes are charged like any other failure.
+function summaryDataError(message: string, cause: unknown, hold: WasmLockHold): unknown {
+  if (isWasmClientPoisonedError(cause)) return cause;
+  retiredOnTrap(cause, hold);
   return new GuardianHistoryDataError(message, { cause });
 }
 
@@ -132,7 +142,7 @@ function fullNote(note: Note): GuardianHistoryNote {
 }
 
 // Call only while the SDK lock is held in the client realm.
-export async function decodeGuardianSummary(encoded: string): Promise<GuardianSummary> {
+export async function decodeGuardianSummary(encoded: string, hold: WasmLockHold): Promise<GuardianSummary> {
   // Every realm's dispatch reaches this with whatever it was handed, so the contract does not rest on the caller's check.
   if (typeof encoded !== 'string' || encoded.length === 0)
     throw new GuardianHistoryDataError('Guardian summary is missing');
@@ -148,8 +158,10 @@ export async function decodeGuardianSummary(encoded: string): Promise<GuardianSu
   try {
     summary = TransactionSummary.deserialize(b64ToU8(encoded));
   } catch (cause) {
-    throw summaryDataError('Guardian summary does not deserialize', cause);
+    throw summaryDataError('Guardian summary does not deserialize', cause, hold);
   }
+  // The summary lives in the instance a trap aborted, so a trapped walk does not free it.
+  let trapped = false;
   try {
     const { feeNote, userNotes } = splitExecutedOutputNotes(summary);
     const feeAsset = feeNote?.assets()?.fungibleAssets()[0];
@@ -180,17 +192,29 @@ export async function decodeGuardianSummary(encoded: string): Promise<GuardianSu
         : undefined
     };
   } catch (cause) {
-    throw summaryDataError('Guardian summary notes do not decode', cause);
+    trapped = cause instanceof WebAssembly.RuntimeError;
+    throw summaryDataError('Guardian summary notes do not decode', cause, hold);
   } finally {
-    summary.free();
+    if (!trapped) summary.free();
   }
 }
 
-export function guardianResultCommitment(bytes: Uint8Array): string {
-  const result = TransactionResult.deserialize(bytes);
+// Every failure passes through for the pass to file; a trap retires the client first.
+export function guardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold): string {
+  let result: TransactionResult;
+  try {
+    result = TransactionResult.deserialize(bytes);
+  } catch (cause) {
+    retiredOnTrap(cause, hold);
+    throw cause;
+  }
+  let trapped = false;
   try {
     return result.executedTransaction().finalAccountHeader().to_commitment().toHex();
+  } catch (cause) {
+    trapped = retiredOnTrap(cause, hold);
+    throw cause;
   } finally {
-    result.free();
+    if (!trapped) result.free();
   }
 }

@@ -1202,14 +1202,17 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('names a history data error on the ok:false reply, so the SW rebuilds its class', async () => {
     await loadModule();
+    let liveHold: unknown;
     G.__off.clientDecodeGuardianHistory = jest.fn(async () => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
       throw new GuardianHistoryDataError('Guardian summary is too large');
     });
     const sendResponse = jest.fn();
     capturedListener!(callReq({ method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.clientDecodeGuardianHistory).toHaveBeenCalledWith('summary');
+    expect(liveHold).toBeDefined();
+    expect(G.__off.clientDecodeGuardianHistory).toHaveBeenCalledWith('summary', liveHold);
     expect(sendResponse.mock.calls[0][0]).toMatchObject({
       ok: false,
       op_id: 'op-abc',
@@ -4169,6 +4172,47 @@ describe('offscreen/main — WASM lock recovery hook', () => {
       { txResult: new Uint8Array([9]) }
     ]);
     expect(G.__off.webClientCtorCount).toBe(0);
+  });
+
+  it('a decode that retires its trapped client replies with the data error and the next call rebuilds', async () => {
+    await loadModule();
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    let passedHold: unknown;
+    let liveHold: unknown;
+    G.__off.clientDecodeGuardianHistory = jest.fn(async (_encoded: string, hold: unknown) => {
+      passedHold = hold;
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      firePoisoned();
+      throw new GuardianHistoryDataError('Guardian summary does not deserialize', {
+        cause: new WebAssembly.RuntimeError('unreachable')
+      });
+    });
+    const r2 = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-2', method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }),
+      {},
+      r2
+    );
+    await flush();
+    expect(r2.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary does not deserialize'
+    });
+    expect(liveHold).toBeDefined();
+    expect(passedHold).toBe(liveHold);
+    expect(G.__off.clientMarkPoisoned).toHaveBeenCalledTimes(1);
+
+    const r3 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-3' }), {}, r3);
+    await flush();
+    expect(r3.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
+    expect(G.__off.createOptions[1].useWorker).toBe(false);
   });
 
   it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {

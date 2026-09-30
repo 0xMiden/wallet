@@ -700,11 +700,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  decodeGuardianHistory: async (_context, client, encoded: string) => {
-    return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded)));
+  decodeGuardianHistory: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
   },
-  getGuardianResultCommitment: async (_context, client, encoded: string) => {
-    return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded)));
+  getGuardianResultCommitment: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));
   },
   importRecoveryNoteBytes: async (_context, client, encodedProposalNotes: string[]) => {
     const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));

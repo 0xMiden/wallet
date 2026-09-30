@@ -587,6 +587,35 @@ function recoverFromTrap(cause: unknown): void {
 }
 
 /**
+ * Retire the client for a trap the mutex owner caught itself, which never reaches
+ * `onRealmError` or `onRealmRejection`: without this the aborted module stays in the
+ * slot and every later caller is handed it.
+ *
+ * The same detach-in-place `recoverFromTrap` takes for a trap while a holder is
+ * mid-yield, with the catching holder counted among the retainers as an eviction
+ * counts the holder it evicts: the client is marked (its `isDisposed` guards fire),
+ * the generation bumps, realms keeping their own client drop it, and the instance is
+ * freed only once this hold and every holder suspended mid-yield have settled (it
+ * stays marked when one of them is unobservable). The hold is neither killed nor
+ * aborted and its watchdog is untouched; it releases the mutex through
+ * `withWasmClientLock`'s own `finally`. The recovery cooldown is neither consulted,
+ * since the owner check already proves the trap is this holder's own and not a
+ * corpse's, nor stamped: no hold is evicted, so there is no corpse, and a stamp would
+ * make a genuine trap under the next holder wait out the watchdog.
+ *
+ * A hold that no longer owns the mutex was evicted, and that eviction already replaced
+ * the client, so it does nothing.
+ */
+export function retireWasmClientForCaughtTrap(hold: WasmLockHold, cause: unknown): void {
+  if (currentHolder === null || hold !== currentHolder) return;
+  console.error('[miden-client] WASM trap caught by its own lock holder - poisoning client singletons in place:', {
+    hold: currentHolder.label ?? 'unlabelled',
+    cause
+  });
+  replaceClientSingletons(true, reclaimWhenIdle([currentHolder, ...yieldedHolders]));
+}
+
+/**
  * Register the trap listeners on this realm (issue #775). The abandoned-future
  * case surfaces as an uncaught `error`, since its promise never settles; a trap
  * that does reject its call surfaces as an `unhandledrejection` whenever the

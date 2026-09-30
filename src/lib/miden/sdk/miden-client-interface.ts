@@ -66,7 +66,12 @@ import {
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
-import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
+import {
+  getCurrentWasmLockHold,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock,
+  type WasmLockHold
+} from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
 import { ApplyAfterSubmitError, isApplyAfterSubmitError } from './sdk-error-code';
@@ -932,12 +937,12 @@ export class MidenClientInterface {
    * from pending Guardian `consume_notes` proposals, attaching a node-fetched
    * inclusion proof when one exists.
    */
-  async decodeGuardianHistory(encoded: string) {
-    return decodeGuardianSummary(encoded);
+  async decodeGuardianHistory(encoded: string, hold: WasmLockHold) {
+    return decodeGuardianSummary(encoded, hold);
   }
 
-  async getGuardianResultCommitment(bytes: Uint8Array) {
-    return guardianResultCommitment(bytes);
+  async getGuardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold) {
+    return guardianResultCommitment(bytes, hold);
   }
 
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {

@@ -163,9 +163,10 @@ function resetControl() {
     inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
     inlineDecodeGuardianHistory: jest.fn(async () => ({ __inlineSummary: true })),
     inlineGetGuardianResultCommitment: jest.fn(async () => '0xinlinecommitment'),
+    inlineHold: { mock: 'inline-hold' },
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
-    withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
+    withWasmClientLock: jest.fn(async (fn: (hold: unknown) => Promise<unknown>) => fn(G.__px.inlineHold)),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
@@ -1460,24 +1461,24 @@ describe('MidenClientProxy - Guardian history ops', () => {
       name: 'decodeGuardianHistory',
       invoke: (proxy: any) => proxy.decodeGuardianHistory('summary'),
       inline: () => G.__px.inlineDecodeGuardianHistory,
-      arg: 'summary',
+      args: () => ['summary', G.__px.inlineHold],
       expected: { __inlineSummary: true }
     },
     {
       name: 'getGuardianResultCommitment',
       invoke: (proxy: any) => proxy.getGuardianResultCommitment(new Uint8Array([4, 2])),
       inline: () => G.__px.inlineGetGuardianResultCommitment,
-      arg: new Uint8Array([4, 2]),
+      args: () => [new Uint8Array([4, 2]), G.__px.inlineHold],
       expected: '0xinlinecommitment'
     }
   ])(
-    'flag ON but no chrome.offscreen API → $name runs inline under withWasmClientLock',
-    async ({ invoke, inline, arg, expected }) => {
+    'flag ON but no chrome.offscreen API → $name runs inline under withWasmClientLock, with the hold it took',
+    async ({ invoke, inline, args, expected }) => {
       installChromeMock({ withOffscreen: false });
       const { midenClientProxy } = await loadProxy(true);
       await expect(invoke(midenClientProxy)).resolves.toEqual(expected);
       expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
-      expect(inline()).toHaveBeenCalledWith(arg);
+      expect(inline()).toHaveBeenCalledWith(...args());
       expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
     }
   );
