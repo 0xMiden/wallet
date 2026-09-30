@@ -1043,7 +1043,7 @@ describe('HistoryDetails', () => {
     it('prices a send at the amount its hero shows', async () => {
       const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
-      setMockRow({ ...baseSendTx, amount: 1_234_567_891n }); // 1234.567891 at the mocked faucet's 6 decimals.
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n }); // 1234.567891 at 6 decimals.
       await renderAndLoad();
 
       expect(screen.getByText('1234.567 MID')).toBeInTheDocument();
@@ -1507,9 +1507,11 @@ describe('HistoryDetails', () => {
       const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
       act(() =>
-        mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Mid', symbol: 'MID', decimals: 6 } } })
+        mockWalletStore.setState({
+          assetsMetadata: { [MIDEN_USDC_FAUCET]: { name: 'Mid', symbol: 'MID', decimals: 6 } }
+        })
       );
-      setMockRow(consumeTx({ amount: 1_234_567_891n })); // 1234.567891 at 6 decimals.
+      setMockRow(consumeTx({ faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n })); // 1234.567891 at 6 decimals.
       await renderAndLoad();
 
       expect(screen.getByText('1234.567891 MID')).toBeInTheDocument();
@@ -1569,6 +1571,7 @@ describe('HistoryDetails', () => {
       jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
       setMockRow({
         ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', ...requested }),
+        faucetId: MIDEN_USDC_FAUCET,
         amount: 1_234_567_891n // 1234.567891 at the mocked faucet's 6 decimals.
       });
       await renderAndLoad();
@@ -2785,6 +2788,7 @@ describe('HistoryDetails', () => {
       mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
       setMockRow({
         ...bridgedSendTx,
+        faucetId: MIDEN_USDC_FAUCET,
         amount: 1_234_567n, // 1.234567 at 6 decimals.
         status: 3,
         displayMessage: 'Failed',
@@ -2957,6 +2961,7 @@ describe('HistoryDetails', () => {
       mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
       setMockRow({
         ...bridgedReceiveTx,
+        faucetId: MIDEN_USDC_FAUCET,
         amount: 10_000_000n, // 10 USDC, the quote's tokenOut.
         extraInputs: { ...bridgedReceiveInputs, outputAmount: '1.505' }
       });
@@ -2974,6 +2979,7 @@ describe('HistoryDetails', () => {
       mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
       setMockRow({
         ...bridgedReceiveTx,
+        faucetId: MIDEN_USDC_FAUCET,
         amount: 150_126_456n, // 150.126456 at the mocked faucet's 6 decimals.
         extraInputs: {
           ...bridgedReceiveInputs,
