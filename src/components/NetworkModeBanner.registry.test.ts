@@ -4,12 +4,13 @@ import { join } from 'path';
 /**
  * Before #875's follow-up, `<NetworkModeBanner />` sat in one slot in `PageRouter` under the
  * comment "sits above EVERY routed page ... so no screen can forget it". That slot was removed in
- * favour of a marker on the tab pages only (today Home's network pill) - so every screen that
- * commits value silently stopped naming the network, with no test failing.
+ * favour of a marker on the tab pages only (today the banner above Home's action bar) - so every
+ * screen that commits value silently stopped naming the network, with no test failing.
  *
  * These are the screens on which the user commits value. They span three shells and share no
- * wrapper: five full-screen routes render the banner themselves, two render inside `TabLayout`
- * through `ReviewLayout` - which draws no pill, since the pill lives on Home - and the connected
+ * wrapper: five full-screen routes render the banner themselves, two render through `ReviewLayout`
+ * - inside a Home pane its banner stands down, since `TabLayout`'s home banner names the network
+ * above it (`NetworkNamedByShell`) - and the connected
  * EVM bridge flow renders it once in its own shell
  * over every step, review included (the shell wraps its steps in `NetworkNamedByShell`, so
  * `ReviewLayout`'s own banner stands down there).

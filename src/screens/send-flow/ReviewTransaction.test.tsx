@@ -66,6 +66,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+jest.mock('components/MainnetAccessSheet', () => ({ MainnetAccessSheet: () => null }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();

@@ -140,4 +140,6 @@ export type { TextActionProps } from './TextAction';
 export { SubPageLayout } from './SubPageLayout';
 export type { SubPageLayoutProps } from './SubPageLayout';
 export { ErrorLine } from './ErrorLine';
+export { CodeInput } from './CodeInput';
+export type { CodeInputProps } from './CodeInput';
 export { SeedPhraseGrid } from './SeedPhraseGrid';

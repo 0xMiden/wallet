@@ -12,7 +12,6 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { NetworkModePill } from 'components/NetworkModePill';
 import {
   AccountsDrawer,
   AnimatedNumber,
@@ -319,8 +318,6 @@ const Explore: FC = () => {
           className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
-          <NetworkModePill />
-
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
