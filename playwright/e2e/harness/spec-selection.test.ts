@@ -255,9 +255,8 @@ const readMapping = (lines: string[], indent: number): MappingEntry[] => {
       continue;
     }
     const match = new RegExp(`^ {${indent}}([A-Za-z0-9_-]+):(?:\\s+(.*))?$`).exec(line);
-    if (!match || entries.some(entry => entry.key === match[1])) {
-      throw new Error(`unreadable line at indent ${indent}: ${JSON.stringify(line)}`);
-    }
+    if (!match) throw new Error(`unreadable line at indent ${indent}: ${JSON.stringify(line)}`);
+    if (entries.some(entry => entry.key === match[1])) throw new Error(`repeated key ${match[1]} at indent ${indent}`);
     entries.push({ key: match[1]!, value: (match[2] ?? '').trim(), block: [] });
   }
   return entries;
@@ -265,23 +264,40 @@ const readMapping = (lines: string[], indent: number): MappingEntry[] => {
 
 type ParsedJob = { jobId: string; rawName: string | null; matrix: { combos: string[] | null } | null };
 
-/** A job's matrix: none, `combos: null` when it has an include, an exclude, any `${{ }}` or inline content, else every combination of its axes. */
+/**
+ * An axis's values when it is a bare one-line `[...]` list or a block sequence of one-line
+ * scalars, else null: a trailing comment, anchor, tag or alias on its line, a flow list
+ * continued on the next line, no items, or an item that is a mapping, spans lines or is no
+ * readable scalar.
+ */
+const axisValues = ({ value, block }: MappingEntry): string[] | null => {
+  const flow = /^\[([^\]]*)\]$/.exec(value);
+  let items: Array<string | undefined> = [];
+  if (flow && block.length === 0) items = flow[1]!.split(',');
+  else if (value === '') items = block.map(line => /^\s+- (.*)$/.exec(line)?.[1]);
+  if (items.length === 0 || items.includes(undefined)) return null;
+  try {
+    return items.map(item => readScalar(item!));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * A job's matrix: none, or `combos: null` for one it cannot enumerate (inline strategy content,
+ * an include, an exclude, any `${{ }}`, or an axis axisValues cannot read), which a job's name
+ * then takes as any suffix, else every combination of its axes. Only a strategy or matrix block
+ * line readMapping cannot read throws.
+ */
 const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
-  if (strategy.value !== '') throw new Error(`strategy with inline content ${JSON.stringify(strategy.value)}`);
+  if (strategy.value !== '') return { combos: null };
   const matrix = readMapping(strategy.block, 6).find(entry => entry.key === 'matrix');
   if (!matrix) return null;
   if (matrix.value !== '' || matrix.block.some(line => line.includes('${{'))) return { combos: null };
   const axes = readMapping(matrix.block, 8);
   if (axes.some(axis => axis.key === 'include' || axis.key === 'exclude')) return { combos: null };
-  const values = axes.map(({ key, value, block }) => {
-    const flow = /^\[([^\]]*)\]$/.exec(value);
-    if (flow && block.length === 0) return flow[1]!.split(',').map(readScalar);
-    const items = block.map(line => /^\s+- (.*)$/.exec(line)?.[1]);
-    if (value !== '' || items.length === 0 || items.includes(undefined)) {
-      throw new Error(`unreadable matrix axis ${key}`);
-    }
-    return items.map(item => readScalar(item!));
-  });
+  const values = axes.map(axisValues);
+  if (!values.every((axis): axis is string[] => axis !== null)) return { combos: null };
   return {
     combos: values.reduce<string[]>(
       (combos, axis) => combos.flatMap(c => axis.map(v => (c === '' ? v : `${c}, ${v}`))),
@@ -293,9 +309,10 @@ const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
 /**
  * Every job under a workflow's `jobs:` key, read from its text. Only the plain shape every
  * workflow here uses is read: one bare `jobs:` line, each job id alone on its indent-2 line,
- * job keys at indent 4, a one-line `name:` scalar, and a matrix of flow or block-sequence
- * axes under `strategy:`. Anything else throws, since a shape this cannot read could hide a
- * required name. No YAML parser is a direct dependency, so this reads text.
+ * job keys at indent 4, a one-line `name:` scalar, and a `strategy:` whose matrix it reads as
+ * any suffix where it cannot enumerate it (readMatrix). Anything else throws, since a shape
+ * this cannot read could hide a required name. No YAML parser is a direct dependency, so this
+ * reads text.
  */
 const parseJobs = (text: string): ParsedJob[] => {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -351,7 +368,7 @@ const REMEDY = {
   jobName:
     'a job would report a required E2E check name outside the designated FULL-ternary form, so rename the job or use the FULL ternary on its designated job',
   plainShape:
-    'so write the job in the plain shape: one bare jobs: line, 2-space job ids, 4-space keys, a one-line name: scalar',
+    'so write the job in the plain shape: one bare jobs: line, 2-space job ids, 4-space keys, sequence items indented deeper than their key (for example `steps:` items at 6 spaces), each key plain, unquoted and written once, with no merge key or anchor, and a one-line name: scalar',
   requiredName:
     "a required E2E check name outside its designated job's `name:` line, gate id line or `needs:` entry, so remove it, or in a YAML or shell file move it to a `#` comment line",
   lineBreakCr:
@@ -359,7 +376,8 @@ const REMEDY = {
   lineBreakInvisible:
     'an invisible line break character, which YAML reads as a line break and these rules do not, so delete the invisible character on that line',
   defaultToken: 'so add a top-level `permissions:` block, for example `contents: read`',
-  apiWrite: 'the line writes or grants the Checks or Statuses API, which only an API_WRITER_ALLOWLIST file may do',
+  apiWrite:
+    'the line writes or grants the Checks or Statuses API, which only an API_WRITER_ALLOWLIST file may do, so remove the call or grant, or have a person confirm the file never reports a required name and pin it in API_WRITER_ALLOWLIST',
   quotedKey:
     'a quoted mapping key, which these rules do not read, so write the key unquoted, and put script content in a `run: |` or `script: |` block',
   permissionsWord:
@@ -707,6 +725,15 @@ const checkerOutcome = (file: string, text: string): 'flags' | 'throws' | 'passe
 
 const fullNameOf = (name: string): string => `\${{ (${FULL}) && '${name}' || '${name} (stacked)' }}`;
 
+const MERGE_KEY: [file: string, text: string] = [
+  'synthetic-merge-key.yml',
+  'jobs:\n  base:\n    runs-on: ubuntu-latest\n    env: &gate\n      name: bridge-guardian-e2e-gate\n  some-job:\n    <<: *gate\n    runs-on: ubuntu-latest\n'
+];
+const TWO_NAMES: [file: string, text: string] = [
+  'synthetic-two-names.yml',
+  'jobs:\n  some-job:\n    name: some-job\n    name: bridge-guardian-e2e-gate\n    runs-on: ubuntu-latest\n'
+];
+
 /**
  * Each case is a title, what the checker must do, a workflow file name and its full text.
  * A case under one of the three E2E workflows' names exercises the one exemption, which
@@ -887,18 +914,8 @@ const nameViolationCases: Array<[string, 'flags' | 'throws', string, string]> = 
     'synthetic-six-space-keys.yml',
     'jobs:\n  some-job:\n      name: bridge-guardian-e2e-gate\n      runs-on: ubuntu-latest\n'
   ],
-  [
-    'a job-level <<: merge key',
-    'throws',
-    'synthetic-merge-key.yml',
-    'jobs:\n  base:\n    runs-on: ubuntu-latest\n    env: &gate\n      name: bridge-guardian-e2e-gate\n  some-job:\n    <<: *gate\n    runs-on: ubuntu-latest\n'
-  ],
-  [
-    'a job with two name: keys',
-    'throws',
-    'synthetic-two-names.yml',
-    'jobs:\n  some-job:\n    name: some-job\n    name: bridge-guardian-e2e-gate\n    runs-on: ubuntu-latest\n'
-  ],
+  ['a job-level <<: merge key', 'throws', ...MERGE_KEY],
+  ['a job with two name: keys', 'throws', ...TWO_NAMES],
   [
     "a name: value 'bridge-guardian-e2e-gate' on the next line",
     'throws',
@@ -925,16 +942,58 @@ const nameViolationCases: Array<[string, 'flags' | 'throws', string, string]> = 
   ],
   [
     'a strategy: with inline content',
-    'throws',
+    'flags',
     'synthetic-inline-strategy.yml',
     'jobs:\n  local-e2e:\n    strategy: { matrix: { browser: [chrome] } }\n    runs-on: ubuntu-latest\n'
   ],
   [
     'a matrix axis value it cannot read',
-    'throws',
+    'flags',
     'synthetic-tagged-axis.yml',
     'jobs:\n  local-e2e:\n    strategy:\n      matrix:\n        browser: [!!str chrome]\n    runs-on: ubuntu-latest\n'
+  ],
+  [
+    'a quoted matrix axis key',
+    'throws',
+    'synthetic-quoted-axis.yml',
+    'jobs:\n  some-job:\n    strategy:\n      matrix:\n        "browser": [chrome]\n    runs-on: ubuntu-latest\n'
   ]
+];
+
+/** A workflow whose one job, `jobId`, has `strategy`, written at indent 0, among its keys. */
+const jobWithStrategy = (jobId: string, strategy: string): string =>
+  `jobs:\n  ${jobId}:\n${strategy.replace(/^/gm, '    ')}\n    runs-on: ubuntu-latest\n`;
+
+/** Matrices the checker cannot enumerate, each a `strategy:` entry written at indent 0. */
+const UNENUMERABLE_MATRICES: Array<[title: string, strategy: string]> = [
+  ['an axis whose block item is - { os: a }', 'strategy:\n  matrix:\n    config:\n      - { os: a }'],
+  ['an axis of block mappings', 'strategy:\n  matrix:\n    config:\n      - os: a\n        arch: x'],
+  ['strategy: { matrix: { os: [a] } }', 'strategy: { matrix: { os: [a] } }'],
+  ['browser: [chrome] # x', 'strategy:\n  matrix:\n    browser: [chrome] # x'],
+  ['browser: # x over a - chrome item', 'strategy:\n  matrix:\n    browser: # x\n      - chrome']
+];
+
+/**
+ * Each unenumerable matrix, read as any combination suffix: it passes on some-job, which no
+ * suffix makes a required name, and flags on local-e2e, which a suffix makes local-e2e (chrome).
+ */
+const matrixWildcardCases = UNENUMERABLE_MATRICES.flatMap(
+  ([title, strategy]): Array<[string, 'passes' | 'flags', string]> => [
+    [`a some-job with ${title}`, 'passes', jobWithStrategy('some-job', strategy)],
+    [`a local-e2e job with ${title}`, 'flags', jobWithStrategy('local-e2e', strategy)]
+  ]
+);
+
+/** Workflows parseJobs refuses, each with text its error must hold. */
+const refusalMessageCases: Array<[title: string, message: string, file: string, text: string]> = [
+  [
+    'a job whose steps: items sit level with the key',
+    'sequence items indented deeper than their key (for example `steps:` items at 6 spaces)',
+    'synthetic-level-steps.yml',
+    'jobs:\n  some-job:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo hi\n'
+  ],
+  ['a job with two name: keys', 'repeated key name at indent 4', ...TWO_NAMES],
+  ['a job-level <<: merge key', 'with no merge key or anchor', ...MERGE_KEY]
 ];
 
 const READ_ONLY = 'permissions:\n  contents: read\n';
@@ -1346,6 +1405,14 @@ describe('no workflow can report a required E2E check name except through the co
     expect(checkerOutcome(file, text)).toBe(expected);
   });
 
+  it.each(matrixWildcardCases)('%s -> the checker %s', (_title, expected, text) => {
+    expect(checkerOutcome('synthetic-unenumerable-matrix.yml', text)).toBe(expected);
+  });
+
+  it.each(refusalMessageCases)('%s -> its refusal holds %j', (_title, message, file, text) => {
+    expect(() => workflowViolations(file, text)).toThrow(message);
+  });
+
   it.each(requiredNameLiteralCases)('%s -> the literal rule flags it', (_title, file, text, flagged) => {
     const violations = requiredNameLiteralViolations(file, sourceText(text));
     expect(violations.map(violation => ('name' in violation ? violation.name : 'the whole file'))).toContain(flagged);
@@ -1437,6 +1504,15 @@ describe('no workflow can report a required E2E check name except through the co
   it('A1 names no required name literally, so only the API rule catches it', () => {
     const [, file, text] = A1;
     expect(requiredNameLiteralViolations(file, sourceText(text))).toEqual([]);
+  });
+
+  it("A1's check-run step is one violation whose text says how to clear it", () => {
+    const [, file, text] = A1;
+    expect(apiWriterViolations(file, sourceText(text)).map(violation => violation.text)).toEqual([
+      expect.stringContaining(
+        'so remove the call or grant, or have a person confirm the file never reports a required name and pin it in API_WRITER_ALLOWLIST'
+      )
+    ]);
   });
 
   it('a comment line naming a required name passes the literal rule', () => {
