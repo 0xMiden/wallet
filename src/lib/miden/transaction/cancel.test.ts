@@ -9,10 +9,23 @@ import { ITransactionStatus, Transaction } from '../db/types';
 
 // A table of rows keyed by id, enough for cancelTransaction's read and its guarded modify.
 const mockRows = new Map<string, Record<string, unknown>>();
+// Set by the race test only: swaps in a brand-new row object the first time first() is
+// called for that id, simulating a write that commits between the read and the modify
+// below. A new object, never a mutation of the one first() already returned - mutating in
+// place would change what that earlier read sees too, since first() returns the stored
+// object itself.
+let mockRaceRow: { id: string; row: Record<string, unknown> } | undefined;
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: ({ id }: { id: string }) => ({
-      first: async () => mockRows.get(id),
+      first: async () => {
+        const row = mockRows.get(id);
+        if (mockRaceRow?.id === id) {
+          mockRows.set(id, mockRaceRow.row);
+          mockRaceRow = undefined;
+        }
+        return row;
+      },
       modify: async (fn: (row: Record<string, unknown>) => unknown) => {
         const row = mockRows.get(id);
         if (!row) return;
@@ -85,6 +98,18 @@ describe('cancelTransaction background notification', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRows.clear();
+    mockRaceRow = undefined;
+  });
+
+  it('announces a row whose write races the read - a submit stamp landing between them - as not confirmed', async () => {
+    const tx = inFlight('tx-1'); // no mayHaveSubmitted, stage 'proving'
+    mockRaceRow = { id: 'tx-1', row: { ...mockRows.get('tx-1'), mayHaveSubmitted: true } };
+
+    await expect(cancelTransaction(tx, new Error('prover returned 503'))).resolves.toBe(true);
+
+    expect(mockRows.get('tx-1')?.status).toBe(ITransactionStatus.Failed);
+    expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
   });
 
   it.each([
