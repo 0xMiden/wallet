@@ -649,7 +649,7 @@ describe('Welcome — hash → step routing', () => {
       await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
       expect(mockFlowProps.current.seedPhrase).not.toBeNull();
       // Back from the flow's first step cancels it and returns to Welcome.
-      await setHash('#network-notice');
+      await setHash('#mainnet-access');
       await dispatch({ id: 'back' });
       expect(mockNavigate).toHaveBeenCalledWith('/');
       mockNavigate.mockClear();
@@ -1011,11 +1011,16 @@ describe('Welcome — hash → step routing', () => {
 // onAction — forward navigation branches
 // ===========================================================================
 
-describe('Welcome - network notice (#875)', () => {
-  it('parks the create flow behind the notice and starts it on acknowledge', async () => {
+describe('Welcome - mainnet access and the network notice (#875)', () => {
+  it('parks the create flow behind the mainnet access step, then the notice, and starts it on acknowledge', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#mainnet-access');
+    expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+
+    await dispatch({ id: 'mainnet-access-skip' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
     await setHash('#network-notice');
     expect(currentStep()).toBe(OnboardingStep.NetworkNotice);
@@ -1026,15 +1031,51 @@ describe('Welcome - network notice (#875)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
   });
 
-  it('parks the import flow behind the notice and starts it on acknowledge', async () => {
+  it('parks the import flow the same way', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+
+    await dispatch({ id: 'mainnet-access-skip' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
 
     mockNavigate.mockClear();
     await dispatch({ id: 'network-notice-acknowledge' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
     expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+  });
+
+  it('starts the chosen flow at once on an accepted code, with no notice', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'mainnet-access-granted' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+
+    await dispatch({ id: 'select-import-type' });
+    mockNavigate.mockClear();
+    await dispatch({ id: 'mainnet-access-granted' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+  });
+
+  it('bounces #mainnet-access to Welcome when the chosen flow was lost (reload)', async () => {
+    await renderWelcome();
+    await setHash('#mainnet-access');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.MainnetAccess);
+  });
+
+  it('back from the mainnet access step returns to Welcome', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#mainnet-access');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('skips the notice on mainnet', async () => {
@@ -1048,6 +1089,7 @@ describe('Welcome - network notice (#875)', () => {
     await dispatch({ id: 'select-import-type' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#mainnet-access');
   });
 
   it('bounces #network-notice to Welcome when the chosen flow was lost (reload)', async () => {
@@ -1067,13 +1109,14 @@ describe('Welcome - network notice (#875)', () => {
     expect(currentStep()).not.toBe(OnboardingStep.NetworkNotice);
   });
 
-  it('back from the notice returns to Welcome', async () => {
+  it('back from the notice returns to the mainnet access step, inside the flow', async () => {
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     await setHash('#network-notice');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).toHaveBeenCalledWith('/#mainnet-access');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 });
 
@@ -1128,11 +1171,13 @@ describe('Welcome - the finishing mark around a tapped confirmation', () => {
 });
 
 describe('Welcome — onAction forward navigation', () => {
-  it('choose-protection routes through the notice to the protection step', async () => {
+  it('choose-protection routes through the mainnet access step and the notice to the protection step', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await dispatch({ id: 'mainnet-access-skip' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
     await dispatch({ id: 'network-notice-acknowledge' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#choose-protection');
@@ -1142,7 +1187,8 @@ describe('Welcome — onAction forward navigation', () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
-    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await dispatch({ id: 'mainnet-access-skip' });
     await dispatch({ id: 'network-notice-acknowledge' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#create-password');
   });
@@ -1180,10 +1226,12 @@ describe('Welcome — onAction forward navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-guardian');
   });
 
-  it('select-import-type goes through the notice to the import choice screen', async () => {
+  it('select-import-type goes through the mainnet access step and the notice to the import choice screen', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await dispatch({ id: 'mainnet-access-skip' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
     await dispatch({ id: 'network-notice-acknowledge' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
