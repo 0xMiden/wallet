@@ -194,9 +194,8 @@ const Welcome: FC = () => {
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   // The guardian operator endpoint the user picked (choose-guardian) or that the
   // import recovery-method screen resolved. Threaded explicitly into
-  // registerWallet (stage 1 of #408) so a new Guardian account binds to it,
-  // replacing the former write to the global GUARDIAN_URL_STORAGE_KEY. Undefined
-  // for non-guardian (public) wallets.
+  // registerWallet so a new Guardian account binds to it. Undefined for
+  // non-guardian (public) wallets.
   const [guardianEndpoint, setGuardianEndpoint] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
@@ -363,8 +362,7 @@ const Welcome: FC = () => {
     // thread it from the `guardianUrl` param the E2E helper passes. register()
     // forwards it as the guardianEndpoint override, exactly like the real picker,
     // so createGuardianAccount (create) and Vault.spawn's recovery scan (import)
-    // bind to it rather than the retired global GUARDIAN_URL_STORAGE_KEY read
-    // (#408 stage 3). Only meaningful for a Guardian wallet.
+    // bind to it. Only meaningful for a Guardian wallet.
     const bypassGuardianUrl = params.get('guardianUrl') || undefined;
     // Optional `seed` param: a space- or comma-separated mnemonic. When present,
     // import that exact seed (onboardingType=Import drives registerWallet's

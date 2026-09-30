@@ -153,9 +153,8 @@ export async function getOrCreateMultisigService(
       throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
     }
     const hotPublicKey = account.hotPublicKey;
-    // Per-account guardian endpoint (falls back to the legacy global key for
-    // records created before the field existed). Resolved once and reused for
-    // both the cache drift-check and the init binding below.
+    // Per-account guardian endpoint, resolved once and reused for both the cache
+    // drift-check and the init binding below.
     const currentEndpoint = await resolveGuardianEndpoint(account);
 
     // Return cached instance if its endpoint AND bound hot pubkey still match.

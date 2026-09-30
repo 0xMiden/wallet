@@ -84,7 +84,7 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-// The legacy global guardian key is read through storage; drive it per test (undefined by default).
+// Storage reads answer undefined unless a test drives them.
 const mockFetchFromStorage = jest.fn(async (_key: string): Promise<unknown> => undefined);
 jest.mock('lib/miden/front/storage', () => ({
   ...jest.requireActual('lib/miden/front/storage'),
@@ -522,7 +522,7 @@ describe('completeSwitchGuardianTransaction', () => {
     await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
 
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
-    // Per-account endpoint write, NOT the legacy global key.
+    // Per-account endpoint write.
     expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1', 'https://new.guardian');
     expect(putToStorage).not.toHaveBeenCalled();
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
@@ -6371,9 +6371,8 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
   });
 
-  it('records the guardian a legacy account resolves to when it names none of its own', async () => {
-    // An account from before per-account endpoints has no field; every guardian operation resolves it
-    // through the legacy key and then the network default, so the rotation ran under that one.
+  it('records the network default for an account that names no guardian of its own', async () => {
+    // Every guardian operation resolves such an account to the network default, so the rotation ran under that one.
     const provider = {
       ...makeGuardianProvider(true),
       getAccounts: async () => [
@@ -6384,48 +6383,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
       guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
     });
-  });
-
-  it("records a legacy account's global guardian key when it names none of its own", async () => {
-    mockFetchFromStorage.mockImplementation(async key =>
-      key === 'guardian_url_setting' ? 'https://custom.guardian' : undefined
-    );
-    const provider = {
-      ...makeGuardianProvider(true),
-      getAccounts: async () => [
-        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
-      ]
-    };
-    try {
-      await initiateReplaceHotKeyTransaction('acc-1', false, provider);
-      expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
-        guardianEndpoint: 'https://custom.guardian'
-      });
-    } finally {
-      mockFetchFromStorage.mockImplementation(async () => undefined);
-    }
-  });
-
-  it('queues the rotation unstamped when the guardian read fails: the stamp is display only', async () => {
-    mockFetchFromStorage.mockImplementation(async () => {
-      throw new Error('storage unavailable');
-    });
-    const provider = {
-      ...makeGuardianProvider(true),
-      getAccounts: async () => [
-        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
-      ]
-    };
-    try {
-      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
-      expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
-      expect(txStore).toHaveLength(1);
-      expect(
-        (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
-      ).toBeUndefined();
-    } finally {
-      mockFetchFromStorage.mockImplementation(async () => undefined);
-    }
   });
 
   it('queues the row under the stored account id when the caller spells it differently', async () => {

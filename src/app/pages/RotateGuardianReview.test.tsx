@@ -44,7 +44,7 @@ let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
-  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
+  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({

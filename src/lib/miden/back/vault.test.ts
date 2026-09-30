@@ -205,8 +205,7 @@ jest.mock('lib/secure-hot-key', () => ({
 const mockGetSignerDetailsFromAccount = jest.fn();
 // createHDAccount resolves a second Guardian account's endpoint from the sibling
 // account's per-account field via resolveGuardianEndpoint. Default: echo the
-// account's guardianEndpoint (the real function's first-preference), then a
-// stand-in default.
+// account's guardianEndpoint, then a stand-in default.
 const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
@@ -2820,8 +2819,7 @@ describe('Vault hardware branches', () => {
   });
 
   it('Vault.spawn threads the picked guardianEndpoint into createGuardianMidenWallet (create path)', async () => {
-    // Stage 1 of #408: the endpoint the user picked at choose-guardian is passed
-    // explicitly through spawn instead of round-tripping the global storage key.
+    // The endpoint the user picked at choose-guardian is passed explicitly through spawn.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     await Vault.spawn(
@@ -2838,7 +2836,7 @@ describe('Vault hardware branches', () => {
   });
 
   it('Vault.spawn threads the probed guardianEndpoint into recoverGuardianAccountsBySeed (recovery path)', async () => {
-    // Stage 1 of #408: the probed endpoint reaches the recovery lookup explicitly.
+    // The probed endpoint reaches the recovery lookup explicitly.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     await Vault.spawn(
@@ -2869,9 +2867,8 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
   });
 
-  it('createHDAccount sources a second Guardian account endpoint from the existing account (not the global key)', async () => {
-    // #408 stage 1: onboarding no longer writes the global GUARDIAN_URL_STORAGE_KEY,
-    // so an added Guardian account must take its endpoint from a sibling account's
+  it('createHDAccount sources a second Guardian account endpoint from the existing account', async () => {
+    // An added Guardian account takes its endpoint from a sibling account's
     // per-account field. Spawn a wallet whose first Guardian account is on a
     // non-default operator, then add a second Guardian account.
     (isDesktop as jest.Mock).mockReturnValue(false);
@@ -2905,9 +2902,7 @@ describe('Vault hardware branches', () => {
     expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ publicKey: 'guardian-acc-1', guardianEndpoint: 'https://first-guardian.example' })
     );
-    // …and threaded into the second account's creation. Previously this 2nd arg
-    // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
-    // global key — the regression stage 1 would otherwise introduce.
+    // ...and threaded into the second account's creation.
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       'https://resolved-from-sibling.example'

@@ -1140,29 +1140,20 @@ async function runPendingRotationRecheck(
  * The caller supplies persistence (the verdict has repeated); this function
  * supplies the bounded/backed-off budget and the three refusals below.
  *
- * The endpoint is the pointer the account CHOSE, which is neither the raw field
- * nor the fully-resolved one. The raw field was wrong: a pre-per-account-endpoint
- * account on a custom operator has the legacy global key as its only pointer,
- * since the unlock backfill leaves that account's field empty rather than
- * stamping a guess — so this refused the repair for exactly the population it
- * serves, and refused it BEFORE `markGuardianUnrepairable` below, leaving the
- * account not merely unrepaired but unnameable (no outage flag, since the
- * operator answered; no sync stamp; no unrepairable flag) which Guardian Settings
- * renders as "Checking" forever. The fully-resolved value would be wrong the
- * other way and far worse: its last arm is the network DEFAULT, and this function
- * POSTs the device's serialized private account state as that operator's
- * authoritative `initialState`. An account with no pointer at all must still
- * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
- * sync loop and the drift reconciler; this was the last one.
+ * The endpoint is the pointer the account CHOSE (`resolveChosenGuardianEndpoint`),
+ * never the fully-resolved one: its last arm is the network DEFAULT, and this
+ * function POSTs the device's serialized private account state as that
+ * operator's authoritative `initialState`. An account with no pointer at all must
+ * refuse.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<boolean> {
-  // A pointer we could not READ gets the same refusal as no pointer at all, and
-  // for the stronger of the two reasons: this function POSTs the device's
-  // serialized private account state, so the one thing it must never do is
-  // proceed on a guess about which operator is entitled to it. Returning without
-  // stamping the attempt budget also keeps a storage hiccup from consuming one of
-  // the account's few self-heal attempts — the next tick retries from where it
-  // left off rather than a step further along.
+  // A pointer the resolver could not produce gets the same refusal as no pointer
+  // at all, and for the stronger of the two reasons: this function POSTs the
+  // device's serialized private account state, so the one thing it must never do
+  // is proceed on a guess about which operator is entitled to it. Returning
+  // without stamping the attempt budget also keeps a resolver failure from
+  // consuming one of the account's few self-heal attempts: the next tick retries
+  // from where it left off rather than a step further along.
   let endpoint: string | undefined;
   try {
     endpoint = await resolveChosenGuardianEndpoint(account);
@@ -1849,24 +1840,16 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     //
     // RESOLVED, not `account.guardianEndpoint`. The operator the sync actually
     // talks to is whatever `resolveGuardianEndpoint` returns, which falls back to
-    // the legacy global key and then to the effective network default — so the raw
-    // field is a different value from the operator identity this is tracking, and
-    // it was wrong in both directions. The false POSITIVE is the easy one to hit:
-    // the unlock-time backfill stamps the per-account endpoint an account was
-    // already resolving to, and `'' !== 'https://…'` then fired a "rotation" that
-    // threw away a valid sync stamp, the 401 streak and the self-heal budget for
-    // an operator that never changed. The false NEGATIVE is the F-137 defect
-    // itself, one door further along: an account resolving through the default
-    // sees its operator change under a dev-settings endpoint override while the
-    // raw field stays `undefined`, so no reset fires at all.
+    // the effective network default, so the raw field is a different value from
+    // the operator identity this is tracking: an account resolving through the
+    // default sees its operator change under a dev-settings endpoint override
+    // while the raw field stays `undefined`, and keying on the field no reset
+    // fired at all (F-137).
     // Per-account, because a rejection here would otherwise escape the `for` and
-    // reject the whole pass — and the pass's only caller discards it
+    // reject the whole pass, and the pass's only caller discards it
     // (`syncGuardianAccounts().catch(() => {})` in `useSyncTrigger`), so one
-    // account's storage hiccup would silently cost EVERY later account its tick,
-    // with nothing in the console to say so. The resolver propagates read
-    // failures by design (that is what lets the drift reconciler tell "named no
-    // operator" from "could not find out"), so the degradation has to be chosen
-    // here.
+    // account's resolver failure would silently cost EVERY later account its tick,
+    // with nothing in the console to say so.
     let endpoint: string;
     try {
       endpoint = await resolveGuardianEndpoint(account);

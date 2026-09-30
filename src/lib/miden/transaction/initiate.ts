@@ -746,14 +746,9 @@ export const initiateReplaceHotKeyTransaction = async (
   const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
   // Record the guardian now: the account's endpoint moves with any later switch, and the history row
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
-  // resolves (the account's own, else the legacy key, else the network default), as the switch
-  // records its previous one.
-  try {
-    const guardianEndpoint = await resolveGuardianEndpoint(account);
-    if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
-  } catch {
-    // Display only: a failed endpoint read leaves the row unstamped rather than refusing the rotation.
-  }
+  // resolves (the account's own, else the network default), as the switch records its previous one.
+  const guardianEndpoint = await resolveGuardianEndpoint(account);
+  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
   return queueRecoveryChange(dbTransaction);
 };
 

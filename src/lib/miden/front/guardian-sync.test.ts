@@ -164,15 +164,15 @@ jest.mock('lib/miden/guardian', () => {
 const mockGetSignerDetails = jest.fn();
 const mockGetGuardianCommitmentFromAccount = jest.fn();
 // The operator the sync actually binds: the per-account field when set, otherwise
-// the legacy global key and then the network default. The rotation detector keys
-// on THIS rather than on the raw field, so the default has to be a stable value
-// here — a per-call one would look like a rotation on every tick.
+// the network default. The rotation detector keys on THIS rather than on the raw
+// field, so the default has to be a stable value here, a per-call one would look
+// like a rotation on every tick.
 const resolveEndpointDefault = async (account: { guardianEndpoint?: string }) =>
   account.guardianEndpoint ?? 'https://guardian.test';
 const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
-// The pointer the account CHOSE: field, then the legacy global key, and NEVER the
-// network default. The self-heal writes this device's private account state to it,
-// so an account with no pointer must resolve to `undefined` and be refused.
+// The pointer the account CHOSE: its own field, and NEVER the network default.
+// The self-heal writes this device's private account state to it, so an account
+// with no pointer must resolve to `undefined` and be refused.
 const resolveChosenDefault = async (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
@@ -1980,31 +1980,6 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-  });
-
-  // The pointer the account CHOSE, which is neither the raw field nor the fully
-  // resolved value. A pre-per-account-endpoint account on a custom operator has an
-  // EMPTY field and the legacy global key as its only pointer — the unlock backfill
-  // leaves the field empty rather than stamping a guess — so reading the field
-  // refused the repair for exactly the population this arm serves, and refused it
-  // BEFORE the unrepairable mark, leaving the account in the "Checking forever"
-  // state that mark exists to name.
-  it('repairs a legacy account that points at its operator through the global key', async () => {
-    storeState.accounts = [{ ...account, guardianEndpoint: undefined }] as never;
-    mockResolveChosenGuardianEndpoint.mockResolvedValue(endpoint);
-
-    await runUntilPersistent();
-    await syncGuardianAccounts();
-
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-    // Against the operator that answered, not `undefined`.
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
-      account.publicKey,
-      endpoint,
-      expect.anything(),
-      PREFLIGHT_LOCK_OPTIONS,
-      expect.any(Function)
-    );
   });
 
   // An unreadable pointer gets the SAME refusal as no pointer at all. This call

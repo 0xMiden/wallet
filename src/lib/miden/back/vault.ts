@@ -36,7 +36,6 @@ import { clearStorage } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
@@ -65,7 +64,6 @@ import {
   getRecoveryAction,
   isRecoveryTransaction
 } from './recovery-authorization';
-import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { normalizeHex } from '../guardian/operator-map';
@@ -815,19 +813,10 @@ export class Vault {
       }
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
-      // The picked/probed guardian endpoint now arrives explicitly via the
+      // The picked/probed guardian endpoint arrives explicitly via the
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
       // the create/recovery branches below.
-      //
-      // The global `GUARDIAN_URL_STORAGE_KEY` is now frozen and never written
-      // anywhere (#408 stage 3), so we no longer restore it across the wipe. We
-      // DO still snapshot its pre-wipe value into this local so the Guardian-
-      // recovery branch below can fall back to it when the operator probe
-      // detected nothing — a legacy custom/self-hosted guardian whose only
-      // pointer is this key. That fallback is now purely in-memory: the value is
-      // read once here and passed forward; it is never written back to storage.
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
       console.log('[Vault.spawn] Step 4: storage cleared');
 
@@ -915,12 +904,8 @@ export class Vault {
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
         // Prefer the endpoint the caller probed/picked for this recovery (stage 1
-        // of #408). Fall back to the legacy global key (snapshotted before the
-        // storage wipe above; it is frozen and no longer restored — #408 stage 3),
-        // then the network default, so a recovery that detected nothing still
-        // resolves exactly as before.
-        const resolvedGuardianEndpoint =
-          guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
+        // of #408), else the network default.
+        const resolvedGuardianEndpoint = guardianEndpoint ?? getEffectiveDefaultGuardianEndpoint();
         // makeColdSeedDeriver pays the 2048-round PBKDF2 once across the whole
         // 20-index scan; a per-index deriveClientSeed closure would re-run it
         // for every index.
@@ -988,8 +973,7 @@ export class Vault {
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
               // Pass the caller's picked endpoint (stage 1 of #408) as the
               // override; createGuardianAccount falls back to the network default
-              // when it is undefined (it no longer consults the frozen global key
-              // for NEW accounts — #408 stage 3).
+              // when it is undefined.
               const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint);
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
@@ -1220,8 +1204,7 @@ export class Vault {
         }
       });
 
-      // Same pre-wipe snapshot + wipe as `spawn` (see the comments there).
-      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+      // Same wipe as `spawn` (see the comments there).
       await clearStorage();
 
       // Same security-model branch as `spawn`: hardware-only when the user
@@ -1250,8 +1233,7 @@ export class Vault {
         return midenClient;
       };
 
-      const resolvedGuardianEndpoint =
-        guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
+      const resolvedGuardianEndpoint = guardianEndpoint ?? getEffectiveDefaultGuardianEndpoint();
       // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
       // per op, and its lookup reasons ("no account for this key", "this is the
       // recovery key") are the only actionable strings the user has left after
@@ -1651,17 +1633,10 @@ export class Vault {
       });
 
       // A second Guardian account must bind to the SAME operator endpoint as the
-      // wallet's existing Guardian account(s). Source it from a sibling's
-      // per-account `guardianEndpoint` via resolveGuardianEndpoint (which then
-      // falls back to the legacy global key, then the network default). This is
-      // identical to the former raw global-key read for default-endpoint wallets,
-      // but stays correct for non-default ones now that onboarding threads the
-      // endpoint per-account instead of writing the global key (#408 stage 1).
-      // undefined when there is no existing Guardian account, in which case
-      // createGuardianAccount binds to the network default — the frozen global
-      // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
-      // unreachable: a custom global key is only ever written by pre-stage-1
-      // Guardian onboarding, which always creates a sibling Guardian account.)
+      // wallet's existing Guardian account(s): source it from a sibling's
+      // per-account `guardianEndpoint` via resolveGuardianEndpoint. undefined when
+      // there is no existing Guardian account, in which case createGuardianAccount
+      // binds to the network default.
       const existingGuardianAccount =
         walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
       const guardianEndpoint = existingGuardianAccount

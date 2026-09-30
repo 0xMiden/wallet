@@ -459,14 +459,10 @@ export interface WalletAccount {
    */
   guardianNoteRecoveryPending?: boolean;
   /**
-   * Guardian operator endpoint this account is registered with — the
+   * Guardian operator endpoint this account is registered with: the
    * authoritative source of truth for endpoint resolution (#408). Set at create /
-   * recovery time, stamped onto legacy accounts by the unlock-time on-chain
-   * backfill, and updated when the user switches guardians. Per-account so
-   * multiple Guardian accounts can live on different operators. When absent (a
-   * legacy record the backfill couldn't resolve on-chain), consumers fall back
-   * to the frozen, read-only, never-written legacy global
-   * `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`). Non-Guardian
+   * recovery time and updated when the user switches guardians. Per-account so
+   * multiple Guardian accounts can live on different operators. Non-Guardian
    * accounts leave this undefined.
    */
   guardianEndpoint?: string;
@@ -553,9 +549,8 @@ export interface NewWalletRequest extends WalletMessageBase {
   ownMnemonic?: boolean;
   walletType: WalletType;
   // Guardian operator endpoint the onboarding flow picked (choose-guardian) or
-  // probed (import / recovery). Threaded explicitly so a new Guardian account
-  // binds to the caller's chosen endpoint without round-tripping through the
-  // legacy global GUARDIAN_URL_STORAGE_KEY. Undefined for non-guardian wallets.
+  // probed (import / recovery), threaded explicitly so a new Guardian account
+  // binds to the caller's chosen endpoint. Undefined for non-guardian wallets.
   guardianEndpoint?: string;
 }
 

@@ -5,68 +5,38 @@ import { Buffer } from 'buffer';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianProvider } from 'lib/shared/types';
 import { WalletAccount } from 'lib/shared/types';
 
 import { registerGuardianOrigin } from './native-http';
-import { fetchFromStorage } from '../front/storage';
 
 /**
- * Resolve the guardian operator endpoint for a Guardian account.
- *
- * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
- * on switch-guardian) so accounts on different operators don't collide. Falls
- * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
- * network's default guardian.
- *
- * The global-key fallback is retained BY DESIGN as a frozen, read-only,
- * never-written last resort (#408 stage 3). The unlock-time backfill stamps a
- * per-account endpoint on every legacy account it can resolve on-chain, but a
- * legacy account on a custom/self-hosted/rotated guardian that the backfill
- * cannot identify has this key as its only pointer — removing the fallback
- * would strand it. Do NOT delete this read; full removal of the key needs a
- * "re-enter your guardian URL" user flow (out of scope). The key is no longer
- * written anywhere in the codebase — grep for writers to confirm.
+ * Resolve the guardian operator endpoint for a Guardian account: its own
+ * `guardianEndpoint` (set at create/recovery time and on switch-guardian), so
+ * accounts on different operators don't collide, else the effective network's
+ * default guardian.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
-  return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
+  return account.guardianEndpoint || getEffectiveDefaultGuardianEndpoint();
 }
 
 /**
- * The guardian pointer this account actually CHOSE — the per-account field, then
- * the legacy global key — with the network default deliberately excluded, so an
- * account with no pointer at all answers `undefined` rather than a guess.
+ * The guardian pointer this account actually CHOSE (its own field), with the
+ * network default deliberately excluded, so an account with no pointer answers
+ * `undefined` rather than a guess.
  *
- * Split out because the two halves are not interchangeable for every caller, and
- * conflating them has now been a defect in both directions. Callers that merely
- * need somewhere to talk to want the default (`resolveGuardianEndpoint`). Callers
- * about to make an ACCUSATION or a WRITE must not have it: the drift reconciler
- * treats a denial from the default as no evidence, and the missing-registration
- * self-heal POSTs this device's serialized private account state as an operator's
- * authoritative `initialState` — which must never go to an endpoint the wallet
- * guessed rather than one the account named.
- *
- * Reading the raw field alone is the opposite error, and the one this exists to
- * stop repeating: a pre-per-account-endpoint account on a custom operator has the
- * global key as its ONLY pointer, because the unlock backfill leaves that
- * account's field empty rather than stamping a guess.
- *
- * A failed storage read PROPAGATES, deliberately. Swallowing it here reads as
- * tidiness and is a lie in two directions at once: `undefined` would then mean
- * both "this account named no operator" and "we could not find out", and the two
- * demand opposite handling — the first is a verdict a caller may act on, the
- * second is a caller that must do nothing this window. It would also silently
- * change `resolveGuardianEndpoint` for every one of its other callers, turning a
- * read failure into the network default: a guess, returned as though it were the
- * account's own pointer. Callers that want best-effort must say so at their own
- * call site, where they can choose the right degradation.
+ * Callers that merely need somewhere to talk to want the default
+ * (`resolveGuardianEndpoint`). Callers about to make an ACCUSATION or a WRITE
+ * must not have it: the drift reconciler treats a denial from the default as no
+ * evidence, and the missing-registration self-heal POSTs this device's
+ * serialized private account state as an operator's authoritative
+ * `initialState`, which must never go to an endpoint the wallet guessed rather
+ * than one the account named.
  */
 export async function resolveChosenGuardianEndpoint(account: {
   guardianEndpoint?: string;
 }): Promise<string | undefined> {
-  if (account.guardianEndpoint) return account.guardianEndpoint;
-  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || undefined;
+  return account.guardianEndpoint || undefined;
 }
 
 /**
@@ -313,9 +283,7 @@ export async function createGuardianAccount(
 
     // Get Guardian endpoint and initialize client. Onboarding always threads the
     // picked endpoint as the override (stage 1 of #408); with no override we use
-    // the effective network default. The frozen global GUARDIAN_URL_STORAGE_KEY
-    // is intentionally NOT consulted here (#408 stage 3) — a NEW account must
-    // never inherit a stale global pointer.
+    // the effective network default.
     const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
 
     registerGuardianOrigin(guardianEndpoint);
