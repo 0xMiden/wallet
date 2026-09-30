@@ -2826,6 +2826,25 @@ describe('Vault hardware branches', () => {
     );
   });
 
+  it('promotes a liveClient() rejection during the recovery scan to a PublicError with its own message', async () => {
+    // The client spawn resolved at step 5 can be disposed by lock recovery
+    // before the scan starts (#775); liveClient() then re-resolves a fresh one.
+    // That re-resolve must fail through the same promotion as the lookup
+    // itself, not bubble up raw and get flattened to 'Failed to create wallet'.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const disposed = { isDisposed: true, network: 'devnet' };
+    mockGetMidenClient
+      .mockImplementationOnce(async () => disposed as never)
+      .mockImplementationOnce(async () => {
+        throw new Error('client gone');
+      });
+
+    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-client-gone', VALID_MNEMONIC, true);
+    await expect(spawning).rejects.toThrow(PublicError);
+    await expect(spawning).rejects.toThrow('client gone');
+  });
+
   it('Vault.spawn threads the picked guardianEndpoint into createGuardianMidenWallet (create path)', async () => {
     // Stage 1 of #408: the endpoint the user picked at choose-guardian is passed
     // explicitly through spawn instead of round-tripping the global storage key.
@@ -3142,10 +3161,11 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
   });
 
   it('Vault.spawn (restore probes): eviction during the probe stops the fresh-create fallback', async () => {
-    // The probe loses the mutex mid-lookup and then reports a definitive miss.
-    // Pre-guard, the loop would fall through to mint a fresh EMPTY wallet off
-    // an abandoned restore - the fund-loss shape the per-iteration check
-    // exists to stop.
+    // The probe loses the mutex mid-lookup and then reports a definitive miss,
+    // so the loop runs out (one probe) and falls through. Pre-guard, that would
+    // mint a fresh EMPTY wallet off an abandoned restore - it's the guard
+    // `'in Vault.spawn before the pre-create sync'`, after the loop, that
+    // catches the revoked hold and stops it.
     mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
       revokeWasmHold();
       throw new Error('account not found on chain');

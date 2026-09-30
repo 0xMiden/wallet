@@ -94,8 +94,8 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // Miden accounts cannot rotate auth, so a created account's scheme is
 // fixed for life. Restore paths MUST therefore pass the stored scheme
 // (or the legacy default) through to the SDK; mnemonic-only restore
-// (no per-account metadata) probes both schemes against the chain to
-// find the user's actual on-chain identity.
+// (no per-account metadata) probes the chain under the current scheme
+// to find the user's actual on-chain identity.
 
 /** Scheme stamped on every NEW account this wallet creates. */
 const NEW_ACCOUNT_AUTH_SCHEME: AuthScheme = 'ecdsa';
@@ -959,12 +959,16 @@ export class Vault {
         // through the realm sink this spawn installed: safe because lock() retires by
         // identity and never re-derives the sink from the store, and because the
         // constructing flows ride the accounts queue, so nothing resyncs under a spawn (#878).
-        const recovered = await (await liveClient())
-          .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
-          .catch((err: unknown) => {
-            if (err instanceof PublicError) throw err;
-            throw new PublicError(err instanceof Error ? err.message : String(err));
-          });
+        const recovered = await (async () => {
+          const client = await liveClient();
+          return client.recoverGuardianAccountsBySeed(
+            makeColdSeedDeriver(mnemonic!, WalletType.Guardian),
+            resolvedGuardianEndpoint
+          );
+        })().catch((err: unknown) => {
+          if (err instanceof PublicError) throw err;
+          throw new PublicError(err instanceof Error ? err.message : String(err));
+        });
         createdAccounts = recovered.map(r => ({
           accountId: r.accountId,
           hdIndex: r.hdIndex,

@@ -5,7 +5,7 @@
 /**
  * Pins the keys the SDK makes from the golden seeds.
  *
- * `derive-seed.test.ts` freezes the 32-byte seed that each scheme derives. A
+ * `derive-seed.test.ts` freezes the 32-byte seed the `v1` scheme derives. A
  * seed is not a key. The wallet gives it to `AuthSecretKey.ecdsaWithRNG` or
  * `AuthSecretKey.rpoFalconWithRNG`, and the SDK makes the key from it. This
  * test freezes that second step. For each golden seed it pins the public key
