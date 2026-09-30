@@ -900,7 +900,7 @@ describe('MultisigService', () => {
       }
     );
 
-    it('registers on the new Guardian while the old operator never answers the history read', async () => {
+    it('registers on the new Guardian while the old operator never answers, and returns once the history read times out', async () => {
       const { multisig, service } = await setUpSignedSwitch();
       guardianConfig.getDeltaProposal.mockReset();
       guardianConfig.getDeltaProposal.mockImplementationOnce(() => new Promise(() => {}));
@@ -913,15 +913,44 @@ describe('MultisigService', () => {
           settled = true;
         });
         await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS - 1);
-
-        expect(settled).toBe(true);
         expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+        expect(settled).toBe(false);
+
+        await jest.advanceTimersByTimeAsync(2);
+        expect(settled).toBe(true);
       } finally {
         jest.useRealTimers();
         // A finalize left waiting on the push would leave its queued results to the next test.
         mockGetAccount.mockReset();
         guardianConfig.getPubkey.mockReset();
       }
+    });
+
+    it('returns only after the history push, so the push signs inside the switch', async () => {
+      const { multisig, service, delta } = await setUpSignedSwitch();
+      let answerHistory: (value: typeof delta) => void = () => {};
+      guardianConfig.getDeltaProposal.mockReset();
+      guardianConfig.getDeltaProposal.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            answerHistory = resolve;
+          })
+      );
+      queueFinalize();
+
+      let settled = false;
+      const finalized = service.finalizeGuardianSwitch('https://new').then(() => {
+        settled = true;
+      });
+      // A macrotask at a time: finalize would resolve a few microtasks after registration if it did not wait.
+      while (!multisig.registerOnGuardian.mock.calls.length) await flushPush();
+      await flushPush();
+      expect(settled).toBe(false);
+      expect(guardianConfig.pushDelta).not.toHaveBeenCalled();
+
+      answerHistory(delta);
+      await finalized;
+      expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
     });
 
     it("pushes a switch's history at most once, even after a failed push", async () => {

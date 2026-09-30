@@ -678,8 +678,9 @@ export class MultisigService {
    * guardians.
    */
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
-    // Beside the registration, never ahead of it: the old operator is often why the switch was made.
-    void this.recordCommittedGuardianSwitch();
+    // Beside the registration, never ahead of it: the old operator is often why the switch was made. Awaited before
+    // returning all the same: a cold signer's authority ends with the pipeline that awaits this.
+    const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
       const updatedStateBase64 = await withWasmClientLock(async hold => {
@@ -722,6 +723,8 @@ export class MultisigService {
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
       throw error;
+    } finally {
+      await recorded;
     }
   }
 
