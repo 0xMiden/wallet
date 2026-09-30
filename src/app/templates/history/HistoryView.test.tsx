@@ -759,6 +759,72 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     }
   });
 
+  it('renders a not-confirmed row in the pending tone, even for a bridge, leaving cancelled and failed rows alone', () => {
+    render(
+      <HistoryView
+        entries={[
+          makeEntry({
+            key: 'unconfirmed-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'unconfirmed-bridge',
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed-bridge',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-cancelled',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-still-cancelled',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-failed',
+            transactionIcon: 'FAILED',
+            message: 'Transaction failed',
+            txId: 'tx-still-failed',
+            timestamp: DAY_A
+          })
+        ]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+
+    const unconfirmedRows = screen
+      .getAllByTestId('activity-row')
+      .filter(el => el.getAttribute('data-title') === 'notConfirmed');
+    expect(unconfirmedRows).toHaveLength(2);
+    for (const row of unconfirmedRows) {
+      // Not the grey cancelled or red failed look (#1250): the pending tone, on both the
+      // plain row and the bridge, which drops its own layout entirely.
+      expect(row).toHaveAttribute('data-iconbg', 'bg-status-pending');
+      expect(row).toHaveAttribute('data-status', 'unconfirmed');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
+    // The bridge layout (bridgeRowDisplay) never ran for the unconfirmed bridge row.
+    expect(mockBridgeRowDisplay).not.toHaveBeenCalled();
+
+    expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
+    const failedRow = screen
+      .getAllByTestId('activity-row')
+      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+    expect(failedRow).toHaveAttribute('data-status', 'failed');
+    expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
+  });
+
   // A cancelled bridge-out falls through to the plain row, whose generic pass would round the typed amount again.
   it.each([
     ['the unscoped list', undefined],

@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import { FlowSpinner } from 'components/flow/FlowSpinner';
 import { easings, springs, useMotion } from 'lib/animation';
@@ -39,7 +40,8 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state,
             'absolute inset-0 flex items-center justify-center rounded-full',
             state === 'processing' && ACCENT_CLASSES[accent].tint,
             state === 'success' && 'bg-status-positive',
-            state === 'failed' && 'bg-status-negative'
+            state === 'failed' && 'bg-status-negative',
+            state === 'unconfirmed' && 'bg-status-pending'
           )}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -67,6 +69,15 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state,
             <svg width={glyphSize} height={glyphSize} viewBox="0 0 44 44" fill="none" aria-hidden="true">
               <path d="M15 15L29 29M29 15L15 29" stroke="white" strokeWidth="5" strokeLinecap="round" />
             </svg>
+          )}
+          {/* Activity's glyph for a not-confirmed row, not spinning: the outcome is unknown, not in progress. */}
+          {state === 'unconfirmed' && (
+            <PendingIcon
+              width={glyphSize}
+              height={glyphSize}
+              aria-hidden="true"
+              className="text-pure-white [&_path]:fill-pure-white"
+            />
           )}
         </motion.div>
       </AnimatePresence>

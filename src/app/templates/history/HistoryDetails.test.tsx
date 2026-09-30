@@ -115,7 +115,10 @@ jest.mock('lib/miden/activity', () => ({
   isUnverifiableSendRetryError: (...args: unknown[]) => mockIsUnverifiableSendRetryError(...args),
   retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
-  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
+  // The REAL predicate, same reasoning as isCancellableTransaction above: which rows read as
+  // not-confirmed (#1250) is exactly what the failed-transaction tests below assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -269,16 +272,19 @@ jest.mock('./TransactionStatus', () => ({
   StatusPill: ({
     status,
     isCancelled,
+    isUnconfirmed,
     swapSettlement
   }: {
     status?: number;
     isCancelled?: boolean;
+    isUnconfirmed?: boolean;
     swapSettlement?: string;
   }) => (
     <div
       data-testid="status-pill"
       data-status={String(status)}
       data-cancelled={String(!!isCancelled)}
+      data-unconfirmed={String(!!isUnconfirmed)}
       data-swap-settlement={String(swapSettlement)}
     />
   )
@@ -2571,6 +2577,27 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
     });
 
+    // A row the reaper failed is unconfirmed, not a plain failure (#1250): its pipeline may
+    // still land, and the gate reads the identical row the same way (HotKeyRotationGate.selectors).
+    it('renders the unconfirmed pill and the not-confirmed failure card for a row the reaper failed', async () => {
+      // `rawError` is cleared: `failedSendTx`'s default value is a classifier-rewrite raw cause
+      // (an ordinary timeout), and `isUnconfirmedFailure` reads rawError ahead of error.
+      setMockRow(failedSendTx({ error: TRANSACTION_STUCK_ERROR, rawError: undefined }));
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+
+      const card = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+        el => el.getAttribute('data-title') === 'notConfirmed'
+      )!;
+      expect(card).toBeTruthy();
+      expect(screen.getByTestId('history-unconfirmed-hint')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-failure-reason')).toBeNull();
+      expect(card.textContent).not.toContain(TRANSACTION_STUCK_ERROR);
+      fireEvent.click(within(card as HTMLElement).getByText('showFullError'));
+      expect(card.textContent).toContain(TRANSACTION_STUCK_ERROR);
+    });
+
     it('withholds Retry for a row the user cancelled by hand', async () => {
       setMockRow(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
       await renderAndLoad();
@@ -3110,6 +3137,43 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
+    });
+
+    // The bridge header pill's own arm checks isUnconfirmed ahead of bridgeStatusOf (#1250
+    // F-024), so this row reads "notConfirmed" rather than the route's own failed status.
+    it('renders the unconfirmed header pill for a bridged-send row the reaper failed', async () => {
+      setMockRow({ ...bridgedSendTx, status: 3, error: TRANSACTION_STUCK_ERROR });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
+    });
+
+    // A stamped user cancel may have landed, so it keeps the bridge section like any other
+    // unconfirmed bridge-out; an unstamped one never reached the pipeline and falls out of it (#1250).
+    it('keeps the bridge section for a stamped user cancel on an Agglayer bridged-send', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: { ...(bridgedSendTx.extraInputs as Record<string, unknown>), provider: 'agglayer' },
+        status: 3,
+        error: USER_CANCELLED_TRANSACTION_REASON,
+        processingStartedAt: 1_700_000_000
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+    });
+
+    it('drops the bridge section for an unstamped user cancel on a bridged-send', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: { ...(bridgedSendTx.extraInputs as Record<string, unknown>), provider: 'agglayer' },
+        status: 3,
+        error: USER_CANCELLED_TRANSACTION_REASON,
+        processingStartedAt: undefined
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
     });
   });
 });

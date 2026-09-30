@@ -187,7 +187,9 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
     // BEFORE the allocator rejected the intent here. Demote that false success to
     // Failed so the user isn't told the bridge succeeded while their funds sit in
-    // an unconsumed, recallable note.
+    // an unconsumed, recallable note. A row the note pipeline already failed for
+    // its own reason keeps that failure instead - markBridgedSendFailed leaves an
+    // already-Failed row untouched (#1250).
     if (bridgeTxId) {
       await markBridgedSendFailed(bridgeTxId, intent.error, params.midenReclaimHeight);
     }

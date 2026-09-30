@@ -198,6 +198,32 @@ describe('TransactionIcon', () => {
     });
   });
 
+  describe('unconfirmed branch (#1250)', () => {
+    it('renders the pending-tone square ahead of cancelled, failed, bridge and earn', () => {
+      const { container } = render(
+        <TransactionIcon
+          entry={makeEntry({
+            isUnconfirmed: true,
+            isCancelled: true,
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED'
+          })}
+        />
+      );
+
+      expect(root(container)).toHaveClass('bg-status-pending', 'rounded-10');
+      expect(root(container)).not.toHaveClass('bg-gray-400');
+      expect(mockBridgeStatusOf).not.toHaveBeenCalled();
+      expect(root(container).querySelector('svg')).toHaveClass('text-pure-white', '[&_path]:fill-pure-white');
+    });
+
+    it('does not animate: the row is settled, not literally in flight, unlike the pending spinner', () => {
+      const { container } = render(<TransactionIcon entry={makeEntry({ isUnconfirmed: true })} />);
+
+      expect(root(container).querySelector('svg')).not.toHaveClass('animate-spin');
+    });
+  });
+
   // The accent feeds both the glyph and the detail-page section dividers, so it
   // has to agree with the glyph branch above for every row shape.
   describe('getTransactionIconBackgroundColor', () => {
@@ -205,6 +231,14 @@ describe('TransactionIcon', () => {
       expect(getTransactionIconBackgroundColor(makeEntry({ isCancelled: true, transactionIcon: 'FAILED' }))).toBe(
         '#9E9E9E'
       );
+    });
+
+    it('gives the pending tone to an unconfirmed row ahead of cancelled, failed and bridge', () => {
+      expect(
+        getTransactionIconBackgroundColor(
+          makeEntry({ isUnconfirmed: true, isCancelled: true, txType: 'bridged-send', transactionIcon: 'FAILED' })
+        )
+      ).toBe('var(--status-pending)');
     });
 
     it('reddens a hard failure', () => {
