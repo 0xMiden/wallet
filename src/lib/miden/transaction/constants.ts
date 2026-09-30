@@ -129,6 +129,28 @@ export const UNCONFIRMED_FAILURE_REASONS: ReadonlySet<string> = new Set([
 export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED_FAILURE_REASONS.has(text);
 
 /**
+ * True for a Failed row whose outcome cannot be told apart from "may still land" - the one
+ * predicate both readers of a failed row share (the rotation gate's `describeRotationFailure`
+ * and Activity History), so a row never reads confirmed-failed in one and not-confirmed in the
+ * other (#1250). True when `mayHaveSubmitted` is set, the row's `error` is the engine-recovered
+ * copy, its reason (`rawError ?? error`) is a member of {@link UNCONFIRMED_FAILURE_REASONS}, or
+ * the reason is a user cancel that reached the write stamp (`processingStartedAt` set) - see
+ * {@link WALLET_FAILURE_REASONS} for why an unstamped cancel is final rather than unconfirmed.
+ */
+export function isUnconfirmedFailure(
+  row: Pick<ITransaction, 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed) return false;
+  const reason = row.rawError ?? row.error;
+  return (
+    row.mayHaveSubmitted === true ||
+    row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
+    (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
+    (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
+  );
+}
+
+/**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
  * by the two retry footers (they render `error.message`).
  */

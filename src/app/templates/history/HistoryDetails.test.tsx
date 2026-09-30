@@ -114,7 +114,10 @@ jest.mock('lib/miden/activity', () => ({
   isUnverifiableSendRetryError: (...args: unknown[]) => mockIsUnverifiableSendRetryError(...args),
   retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
-  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
+  // The REAL predicate, same reasoning as isCancellableTransaction above: which rows read as
+  // not-confirmed (#1250) is exactly what the failed-transaction tests below assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -268,16 +271,19 @@ jest.mock('./TransactionStatus', () => ({
   StatusPill: ({
     status,
     isCancelled,
+    isUnconfirmed,
     swapSettlement
   }: {
     status?: number;
     isCancelled?: boolean;
+    isUnconfirmed?: boolean;
     swapSettlement?: string;
   }) => (
     <div
       data-testid="status-pill"
       data-status={String(status)}
       data-cancelled={String(!!isCancelled)}
+      data-unconfirmed={String(!!isUnconfirmed)}
       data-swap-settlement={String(swapSettlement)}
     />
   )
@@ -2516,6 +2522,24 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
     });
 
+    // A row the reaper failed is unconfirmed, not a plain failure (#1250): its pipeline may
+    // still land, and the gate reads the identical row the same way (HotKeyRotationGate.selectors).
+    it('renders the unconfirmed pill and the not-confirmed failure card for a row the reaper failed', async () => {
+      // `rawError` is cleared: `failedSendTx`'s default value is a classifier-rewrite raw cause
+      // (an ordinary timeout), and `isUnconfirmedFailure` reads rawError ahead of error.
+      setMockRow(failedSendTx({ error: TRANSACTION_STUCK_ERROR, rawError: undefined }));
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+
+      const card = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+        el => el.getAttribute('data-title') === 'notConfirmed'
+      )!;
+      expect(card).toBeTruthy();
+      expect(card.textContent).toContain(TRANSACTION_STUCK_ERROR);
+      expect(screen.getByTestId('history-unconfirmed-hint')).toBeInTheDocument();
+    });
+
     it('withholds Retry for a row the user cancelled by hand', async () => {
       setMockRow(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
       await renderAndLoad();
@@ -2892,6 +2916,15 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
+    });
+
+    // The bridge header pill's own arm checks isUnconfirmed ahead of bridgeStatusOf (#1250
+    // F-024), so this row reads "notConfirmed" rather than the route's own failed status.
+    it('renders the unconfirmed header pill for a bridged-send row the reaper failed', async () => {
+      setMockRow({ ...bridgedSendTx, status: 3, error: TRANSACTION_STUCK_ERROR });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
     });
   });
 });

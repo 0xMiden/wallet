@@ -5,6 +5,9 @@ import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+// The real string, not mocked (this module is not replaced by any `jest.mock` in this file) -
+// used to plant a bridge-in consume the builder's `isUnconfirmedFailure` call reads (#1250).
+import { TRANSACTION_INTERRUPTED_ERROR } from 'lib/miden/transaction/constants';
 
 // Imported AFTER the mocks are registered.
 import History from './History';
@@ -106,7 +109,10 @@ jest.mock('lib/miden/activity', () => ({
   // Real (pure) implementations so the cancelled-row mapping is exercised
   // against the production sentinel string.
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
-  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
+  // The REAL predicate, same reasoning as isCancellableTransaction above: which rows the
+  // builder marks not-confirmed (#1250) is exactly what the isUnconfirmed tests assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
 }));
 
 jest.mock('lib/miden/db/types', () => ({
@@ -427,6 +433,48 @@ describe('History', () => {
     );
     expect(pending.previousGuardianEndpoint).toBeUndefined();
     expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
+  });
+
+  it('sets isUnconfirmed (and keeps isCancelled) for a stamped user cancel, and for a failed bridge-in consume', async () => {
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      // A user cancel the pipeline had already picked up (processingStartedAt set): the row is
+      // both isCancelled (Retry stays hidden) and isUnconfirmed (its pipeline may still land).
+      {
+        id: 'stamped-cancel',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'send',
+        completedAt: 500,
+        error: 'Transaction was cancelled by user',
+        processingStartedAt: 1_600_000_000
+      },
+      // A bridge-in consume the cold-start sweep failed: unconfirmed, not cancelled.
+      {
+        id: 'bridge-in-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'consume',
+        completedAt: 600,
+        error: TRANSACTION_INTERRUPTED_ERROR,
+        extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    const stampedCancel = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-stamped-cancel');
+    expect(stampedCancel.isCancelled).toBe(true);
+    expect(stampedCancel.isUnconfirmed).toBe(true);
+
+    const bridgeIn = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-in-failed');
+    expect(bridgeIn.isCancelled).toBe(false);
+    expect(bridgeIn.isUnconfirmed).toBe(true);
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {

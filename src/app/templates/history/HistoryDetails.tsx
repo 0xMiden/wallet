@@ -17,7 +17,7 @@ import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isUserCancelledTransaction } from 'lib/miden/activity';
+import { isUnconfirmedFailure, isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -409,6 +409,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
+          isUnconfirmed: isUnconfirmedFailure(tx),
           noteDelivery: tx.noteDelivery,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
@@ -688,11 +689,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               <div className="mt-2">
                 {isBridge ? (
-                  // Pending/Confirmed/Failed, derived from the route's own lifecycle.
-                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
+                  // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeStatusOf(entry)}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnWithdraw && earnWithdraw ? (
-                  // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
-                  <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the withdraw phase for the same reason (#1250 F-024).
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : earnWithdraw.phase}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
@@ -703,7 +715,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     data-testid="history-status-pill"
                   />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
+                  <StatusPill
+                    status={entry.status}
+                    isCancelled={entry.isCancelled}
+                    isUnconfirmed={entry.isUnconfirmed}
+                    testId="history-status-pill"
+                  />
                 )}
               </div>
             </div>
@@ -995,6 +1012,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       errorMessage={entry.errorMessage}
                       rawErrorMessage={entry.rawErrorMessage}
                       isCancelled={entry.isCancelled}
+                      isUnconfirmed={entry.isUnconfirmed}
                     />
                   </div>
                 </div>

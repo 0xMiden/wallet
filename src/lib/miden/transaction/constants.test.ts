@@ -3,8 +3,10 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
   GUARDIAN_UNREACHABLE_ERROR,
+  INVALID_NOTE_ERROR,
   isGuardianOutage,
   isProverProcedureMismatch,
+  isUnconfirmedFailure,
   isVaultShortfallError,
   isVaultShortfallRow,
   resolveTransactionErrorMessage,
@@ -13,6 +15,9 @@ import {
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
@@ -20,7 +25,8 @@ import {
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_EXPIRED_ERROR,
-  TRANSACTION_STUCK_ERROR
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -284,6 +290,54 @@ describe('isVaultShortfallRow', () => {
         error: TRANSACTION_VAULT_SHORTFALL_ERROR
       })
     ).toBe(false);
+  });
+});
+
+// The one predicate the rotation gate (HotKeyRotationGate.selectors) and Activity History both
+// read a failed row through (#1250), so the two never disagree on which rows are unconfirmed.
+describe('isUnconfirmedFailure', () => {
+  type Row = Pick<ITransaction, 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'>;
+  const failed = (extra: Partial<Row> = {}): Row => ({ status: ITransactionStatus.Failed, ...extra });
+
+  it.each<[string, Row]>([
+    ['mayHaveSubmitted', failed({ mayHaveSubmitted: true })],
+    ['the engine-recovered copy as error', failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR })],
+    ['the stuck-reaper reason as error', failed({ error: TRANSACTION_STUCK_ERROR })],
+    [
+      'the stuck-reaper reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_STUCK_ERROR })
+    ],
+    ['the cold-start-sweep reason as error', failed({ error: TRANSACTION_INTERRUPTED_ON_STARTUP })],
+    [
+      'the cold-start-sweep reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ON_STARTUP })
+    ],
+    ['the not-landed-consume reason as error', failed({ error: TRANSACTION_INTERRUPTED_ERROR })],
+    [
+      'the not-landed-consume reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ERROR })
+    ],
+    ['the debug force-cancel reason as error', failed({ error: TRANSACTION_FORCE_CANCELLED_ERROR })],
+    [
+      'the debug force-cancel reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_FORCE_CANCELLED_ERROR })
+    ],
+    [
+      'a user cancel the write stamp reached',
+      failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 })
+    ]
+  ])('is true for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(true);
+  });
+
+  it.each<[string, Row]>([
+    ['a user cancel the write stamp never reached', failed({ error: USER_CANCELLED_TRANSACTION_REASON })],
+    ['the expired-in-queue final reason', failed({ error: TRANSACTION_EXPIRED_ERROR })],
+    ['the invalid-note final reason', failed({ error: INVALID_NOTE_ERROR })],
+    ['an unclassified failure before the submit crossing', failed({ error: 'some other reason' })],
+    ['a row that has not failed', { status: ITransactionStatus.Queued, error: TRANSACTION_STUCK_ERROR }]
+  ])('is false for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(false);
   });
 });
 

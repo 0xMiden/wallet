@@ -57,4 +57,22 @@ describe('TransactionFailureCard', () => {
     expect(screen.getByText('error')).toBeInTheDocument();
     expect(screen.getByText('Prover timed out')).toHaveClass('text-status-negative');
   });
+
+  it('titles the card "notConfirmed", mutes the reason and adds the hint when the row is unconfirmed', () => {
+    render(
+      <TransactionFailureCard errorMessage="Transaction took too long to process and was cancelled" isUnconfirmed />
+    );
+
+    expect(screen.getByText('notConfirmed')).toBeInTheDocument();
+    expect(screen.getByText('Transaction took too long to process and was cancelled')).toHaveClass('text-gray-500');
+    expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionNotConfirmedHint');
+  });
+
+  it('lets isUnconfirmed outrank isCancelled: a stamped user cancel is both', () => {
+    render(<TransactionFailureCard errorMessage="Transaction was cancelled by user" isUnconfirmed isCancelled />);
+
+    expect(screen.getByText('notConfirmed')).toBeInTheDocument();
+    expect(screen.queryByText('cancelled')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-unconfirmed-hint')).toBeInTheDocument();
+  });
 });

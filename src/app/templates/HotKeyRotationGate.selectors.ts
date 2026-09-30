@@ -4,11 +4,9 @@ import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import {
-  isUnconfirmedFailureReason,
-  isUserCancelledTransaction,
+  isUnconfirmedFailure,
   isVaultShortfallRow,
   isWalletFailureReason,
-  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
 
@@ -172,18 +170,9 @@ export const describeRotationFailure = (
   // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
   // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
   // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
-  // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself. An
-  // unconfirmed reason (the stuck reaper, the cold-start sweep, a not-landed consume, the debug force-cancel) is a
-  // writer that failed the row without proving the pipeline stopped before its submit. A user cancel joins them
-  // once `processingStartedAt` is set: it goes through cancelWhilePipelineMayStillRun, which stops no pipeline,
-  // so it is final only for a row the write stamp never reached (Queued, or Queued-again after a requeue clears
-  // the stamp) rather than for a row the FIFO merely picked up.
-  if (
-    row.mayHaveSubmitted === true ||
-    row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
-    (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
-    (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
-  ) {
+  // prover failure (`PROVING_STAGES`). `isUnconfirmedFailure` is the one predicate both this gate and Activity
+  // History read a failed row through, so the two never disagree on which rows are unconfirmed (#1250).
+  if (isUnconfirmedFailure(row)) {
     return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
   }
   // A final wallet reason is copy the wallet wrote itself, verbatim, whatever the row's stage: user cancel on a

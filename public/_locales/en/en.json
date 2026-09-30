@@ -116,6 +116,8 @@
   "analytics": "Analytics",
   "cancel": "Cancel",
   "cancelled": "Cancelled",
+  "notConfirmed": "Not confirmed",
+  "transactionNotConfirmedHint": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again.",
   "showFullError": "Show full error",
   "hideFullError": "Hide full error",
   "noteDeliveryPendingTitle": "Delivery unconfirmed",
