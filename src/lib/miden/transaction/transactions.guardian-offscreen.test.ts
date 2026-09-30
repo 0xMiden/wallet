@@ -2741,19 +2741,29 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 // buildColdMultisigService (the cold co-sign / the cold-bound service that
 // replace-hot-key + update-procedure-threshold build on), so a structural run has a
 // single service object to assert on.
-const makeStructuralService = () => ({
-  createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
-  createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
-  createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
-  signProposal: jest.fn(async () => {}),
-  signAndCreateTransactionRequest: jest.fn(async () => ({
-    serialize: () => new Uint8Array(TR_BYTES),
-    authArg: () => undefined
-  })),
-  abandonCandidate: jest.fn(async () => {}),
-  pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
-  sync: jest.fn(async () => {})
-});
+const makeStructuralService = () => {
+  const pushSwitchDelta = jest.fn(async (_proposalId: string) => {});
+  return {
+    createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+    createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+    createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+    signProposal: jest.fn(async () => {}),
+    signAndCreateTransactionRequest: jest.fn(async () => ({
+      serialize: () => new Uint8Array(TR_BYTES),
+      authArg: () => undefined
+    })),
+    abandonCandidate: jest.fn(async () => {}),
+    pushSwitchDelta,
+    // The service's bounded push over this mock's own `pushSwitchDelta`: resolving is 'pushed', a rejection 'refused'.
+    pushSwitchDeltaBounded: jest.fn((proposalId: string) =>
+      pushSwitchDelta(proposalId).then(
+        () => 'pushed' as const,
+        () => 'refused' as const
+      )
+    ),
+    sync: jest.fn(async () => {})
+  };
+};
 
 // The guardian provider a structural run needs: it resolves a wallet account by
 // publicKey (in-sync, so the sync guard is a no-op) and — for replace-hot-key —
@@ -3265,6 +3275,26 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
     expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
     expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
     expect(mockComplete.switchGuardian).toHaveBeenCalledTimes(1);
+    // What the self-heal needs to re-push a delta that did not arrive, persisted by completion.
+    expect(mockComplete.switchGuardian.mock.calls[0]![0]).toMatchObject({
+      extraInputs: { switchProposalId: 'prop', switchDeltaPushed: true }
+    });
+  });
+
+  it('records a landed switch whose delta the outgoing guardian did not take as not pushed', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      Object.assign(new Error('local apply failed after submit'), { errorCode: 'ApplyTransactionAfterSubmitFailed' })
+    );
+    const { service, provider: sp } = arrangeStructural('push-landed-refused', switchRow);
+    service.pushSwitchDelta.mockRejectedValueOnce(new Error('409 a pending delta exists'));
+
+    await generateTransaction(buildTx('push-landed-refused', switchRow) as never, signCallback, false, sp as never);
+
+    expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
+    expect(mockComplete.switchGuardian.mock.calls[0]![0]).toMatchObject({
+      extraInputs: { switchProposalId: 'prop', switchDeltaPushed: false }
+    });
   });
 
   // Review Focus 5: a delta the chain may never see must not reach the outgoing guardian, and the

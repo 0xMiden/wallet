@@ -1,4 +1,5 @@
 import { adoptPostSwitchState, readPostSwitchLocalState } from './post-switch-state';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const mockGetAccount = jest.fn();
 jest.mock('../back/miden-client-proxy', () => ({
@@ -56,6 +57,9 @@ const localNamesNewKeyWhen = (adopted: () => boolean) => {
     key === 'newkey' ? 'match' : 'mismatch'
   );
 };
+
+/** An outgoing guardian that answers the probe at once. */
+const adopterOf = (adoptOnce: () => Promise<void>) => ({ probe: jest.fn(async (_timeoutMs: number) => {}), adoptOnce });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -115,7 +119,7 @@ describe('adoptPostSwitchState (#1233)', () => {
     localNamesNewKeyWhen(() => adopted);
     const { now, sleep } = fakeClock();
 
-    await expect(adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep })).resolves.toBe('post-switch');
+    await expect(adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep })).resolves.toBe('post-switch');
     expect(adoptOnce).toHaveBeenCalledTimes(1);
     expect(sleep).toHaveBeenCalledTimes(1);
   });
@@ -128,7 +132,7 @@ describe('adoptPostSwitchState (#1233)', () => {
     localNamesNewKeyWhen(() => adopted);
     const { now, sleep } = fakeClock();
 
-    await adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep });
+    await adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep });
     expect(mockCheckEndpointCommitment.mock.calls).toEqual([
       [NEW, 'oldkey', 20_000],
       [NEW, 'newkey', 20_000]
@@ -141,7 +145,7 @@ describe('adoptPostSwitchState (#1233)', () => {
     const { now, sleep } = fakeClock();
 
     await expect(
-      adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep, deadlineMs: 20_000, pollMs: 5_000 })
+      adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep, deadlineMs: 20_000, pollMs: 5_000 })
     ).resolves.toBe('pre-switch');
     // One adopt per poll inside the bound, none after it.
     expect(adoptOnce).toHaveBeenCalledTimes(4);
@@ -160,7 +164,7 @@ describe('adoptPostSwitchState (#1233)', () => {
     localNamesNewKeyWhen(() => calls >= 2);
     const { now, sleep } = fakeClock();
 
-    await expect(adoptPostSwitchState(adoptOnce, 'acc', NEW, { now, sleep })).resolves.toBe('post-switch');
+    await expect(adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep })).resolves.toBe('post-switch');
     expect(adoptOnce).toHaveBeenCalledTimes(2);
   });
 
@@ -177,7 +181,58 @@ describe('adoptPostSwitchState (#1233)', () => {
     mockGetGuardianCommitmentFromAccount.mockReturnValue('oldkey');
     mockCheckEndpointCommitment.mockResolvedValue('unreachable');
 
-    await expect(adoptPostSwitchState(adoptOnce, 'acc', NEW)).resolves.toBe('unknown');
+    await expect(adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW)).resolves.toBe('unknown');
     expect(adoptOnce).not.toHaveBeenCalled();
+  });
+
+  it('stops without adopting when the outgoing guardian does not answer the probe', async () => {
+    jest.useFakeTimers();
+    try {
+      localNamesNewKeyWhen(() => false);
+      const adoptOnce = jest.fn(async () => {});
+      const sleep = jest.fn(async (_ms: number) => {});
+      const probe = jest.fn((_timeoutMs: number) => new Promise<void>(() => {}));
+      const settled = jest.fn();
+
+      const run = adoptPostSwitchState({ probe, adoptOnce }, 'acc', NEW, { now: Date.now, sleep }).then(settled);
+      await jest.advanceTimersByTimeAsync(29_999);
+      expect(settled).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await run;
+
+      expect(settled).toHaveBeenCalledWith('pre-switch');
+      expect(probe).toHaveBeenCalledWith(30_000);
+      expect(adoptOnce).not.toHaveBeenCalled();
+      expect(sleep).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops after an adopt the watchdog evicted', async () => {
+    localNamesNewKeyWhen(() => false);
+    const adoptOnce = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    const { now, sleep } = fakeClock();
+
+    await expect(adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep })).resolves.toBe('pre-switch');
+    expect(adoptOnce).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('never sleeps past the deadline', async () => {
+    localNamesNewKeyWhen(() => false);
+    const { now, sleep } = fakeClock();
+
+    await expect(
+      adoptPostSwitchState(adopterOf(jest.fn(async () => {})), 'acc', NEW, {
+        now,
+        sleep,
+        deadlineMs: 12_000,
+        pollMs: 5_000
+      })
+    ).resolves.toBe('pre-switch');
+    expect(sleep.mock.calls).toEqual([[5_000], [5_000], [2_000]]);
   });
 });

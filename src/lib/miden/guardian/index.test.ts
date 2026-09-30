@@ -13,6 +13,7 @@
 
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 
+import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
@@ -496,6 +497,70 @@ describe('MultisigService', () => {
 
       await expect(service.pushSwitchDelta('0xprop')).rejects.toThrow('proposal not found');
       expect(pushDelta).not.toHaveBeenCalled();
+    });
+
+    const boundedPush = (pushDelta: () => Promise<unknown>) =>
+      new MultisigService(
+        makeMultisig() as never,
+        {
+          guardianClient: {
+            getDeltaProposal: jest.fn(async () => ({ deltaPayload: { txSummary: {} } })),
+            pushDelta: jest.fn(pushDelta)
+          }
+        } as never,
+        'https://old.guardian'
+      );
+
+    it('pushSwitchDeltaBounded reads a push that lands in time as pushed, outside the WASM lock', async () => {
+      wasmLockOptionsSeen.length = 0;
+
+      await expect(boundedPush(async () => ({})).pushSwitchDeltaBounded('0xprop')).resolves.toBe('pushed');
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+    });
+
+    it('pushSwitchDeltaBounded reads an outgoing guardian that stays silent past the budget as silent', async () => {
+      jest.useFakeTimers();
+      try {
+        const outcome = boundedPush(() => new Promise(() => {})).pushSwitchDeltaBounded('0xprop');
+        await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+        await expect(outcome).resolves.toBe('silent');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('pushSwitchDeltaBounded reads an unreachable guardian as silent and any other answer as refused', async () => {
+      const unreachable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+      const conflict = Object.assign(new Error('a pending delta exists'), { status: 409 });
+
+      await expect(
+        boundedPush(async () => {
+          throw unreachable;
+        }).pushSwitchDeltaBounded('0xprop')
+      ).resolves.toBe('silent');
+      await expect(
+        boundedPush(async () => {
+          throw conflict;
+        }).pushSwitchDeltaBounded('0xprop')
+      ).resolves.toBe('refused');
+    });
+  });
+
+  describe('probeGuardianState (#1233)', () => {
+    it('probeGuardianState reads the state over guardian HTTP and never takes the WASM lock', async () => {
+      wasmLockOptionsSeen.length = 0;
+      const getState = jest.fn(async () => ({ accountId: 'acc-id' }));
+      const service = new MultisigService(
+        makeMultisig() as never,
+        { guardianClient: { getState } } as never,
+        'https://old.guardian'
+      );
+
+      await service.probeGuardianState();
+
+      expect(getState).toHaveBeenCalledTimes(1);
+      expect(getState).toHaveBeenCalledWith('acc-id');
+      expect(wasmLockOptionsSeen).toHaveLength(0);
     });
   });
 

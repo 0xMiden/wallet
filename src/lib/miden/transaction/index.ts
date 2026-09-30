@@ -22,6 +22,7 @@ import {
   isGuardianSwitchDiscardedError,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
+import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -2160,18 +2161,6 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
 /**
- * Wall-clock ceiling on one round-trip to the OUTGOING guardian during a
- * switch-guardian, after which the wallet stops waiting and treats the operator
- * as unreachable.
- *
- * Generous — this is a backstop against an operator that has stopped answering,
- * not a latency target. It has to sit above an honestly slow guardian on a cold
- * start, because expiring early costs the user a coordinated switch they could
- * have had.
- */
-const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
-
-/**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
  * guardian answering, with a message the unreachability classifier recognizes.
  *
@@ -2237,21 +2226,10 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
  * releases the account and serves the post-switch state, which the landed reconcile and the
  * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
  * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
+ * True only when the push landed inside its deadline.
  */
-const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<void> => {
-  try {
-    await withOutgoingGuardianDeadline(
-      () => service.pushSwitchDelta(proposalId),
-      'pushing the executed switch delta to the outgoing guardian'
-    );
-  } catch (error) {
-    console.warn(
-      '[Guardian] the outgoing guardian did not take the executed switch delta; it keeps the pre-switch ' +
-        'state until it reconciles (non-fatal):',
-      error
-    );
-  }
-};
+const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<boolean> =>
+  (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
 
 /**
  * One-line description of a classified guardian failure, for the audit field on
@@ -3200,7 +3178,11 @@ const generateGuardianTransaction = async (
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
-      await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+      const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+      // In memory, as the direct path marks `switchedDirectly`: completion persists both with the row's
+      // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
+      // re-pushes one that did not.
+      transaction.extraInputs = { ...transaction.extraInputs, switchDeltaPushed, switchProposalId: proposalResult.id };
     }
     if (!submitResolved) {
       try {

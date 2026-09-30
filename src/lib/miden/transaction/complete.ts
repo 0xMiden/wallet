@@ -16,7 +16,11 @@ import {
   isGuardianSwitchDiscardedError
 } from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
-import { adoptPostSwitchState, type PostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
+import {
+  adoptPostSwitchState,
+  type PostSwitchAdopter,
+  type PostSwitchLocalState
+} from 'lib/miden/guardian/post-switch-state';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -780,17 +784,19 @@ export const completeSwitchGuardianTransaction = async (
     // account, whose guardian slot names the outgoing operator, and the new one refuses to register
     // that. Adopt the post-switch state from the outgoing guardian first (it holds it once it
     // canonicalizes the delta pushed after submit), and skip a registration that can only be refused.
-    // A read that throws counts as unknown: nothing here may select the Failed path.
-    const outgoing = multisigService;
+    // A read that throws counts as unknown: nothing here may select the Failed path. A guardian the delta
+    // did not reach in time is not polled: the background self-heal re-pushes it and adopts then.
+    const outgoing = tx.extraInputs.switchDeltaPushed === true ? multisigService : undefined;
+    const adopter: PostSwitchAdopter | undefined = outgoing
+      ? { probe: () => outgoing.probeGuardianState(), adoptOnce: () => outgoing.adoptGuardianStateOnce() }
+      : undefined;
     const localState: PostSwitchLocalState = landed
-      ? await adoptPostSwitchState(
-          outgoing ? () => outgoing.adoptGuardianStateOnce() : undefined,
-          storedAccountId,
-          newGuardianEndpoint
-        ).catch((adoptError: unknown): PostSwitchLocalState => {
-          console.warn('Could not read the post-switch local state; registering as before:', adoptError);
-          return 'unknown';
-        })
+      ? await adoptPostSwitchState(adopter, storedAccountId, newGuardianEndpoint).catch(
+          (adoptError: unknown): PostSwitchLocalState => {
+            console.warn('Could not read the post-switch local state; registering as before:', adoptError);
+            return 'unknown';
+          }
+        )
       : 'post-switch';
     // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
     // guardian then never holds a post-switch state, and an unknown copy may be either. Ask the node

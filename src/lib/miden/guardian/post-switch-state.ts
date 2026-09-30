@@ -7,10 +7,11 @@
 // serving reads after it releases the account, so the reconcile adopts from it.
 
 import { getGuardianCommitmentFromAccount } from './account';
+import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from './discover';
 import { checkEndpointCommitment } from './operator-map';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
  * `'post-switch'`: the local copy names the new guardian's key. `'pre-switch'`: it names another.
@@ -27,6 +28,12 @@ export const POST_SWITCH_ADOPT_POLL_MS = 5_000;
  * one-shot budget `USER_ENDPOINT_CHECK_TIMEOUT_MS` has, not the tick's 5 s.
  */
 export const POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS = 20_000;
+
+/** The outgoing guardian the reconcile adopts from: a lock-free read of its answer, and one adopt of its state. */
+export interface PostSwitchAdopter {
+  probe(timeoutMs: number): Promise<void>;
+  adoptOnce(): Promise<void>;
+}
 
 /** `timeoutMs` omitted keeps `checkEndpointCommitment`'s tick default, which only a repeating caller can afford. */
 export async function readPostSwitchLocalState(
@@ -55,7 +62,7 @@ export async function readPostSwitchLocalState(
  * then either lands or books its own failure.
  */
 export async function adoptPostSwitchState(
-  adoptOnce: (() => Promise<void>) | undefined,
+  adopter: PostSwitchAdopter | undefined,
   accountPublicKey: string,
   newGuardianEndpoint: string,
   options: { deadlineMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {}
@@ -69,12 +76,27 @@ export async function adoptPostSwitchState(
       newGuardianEndpoint,
       POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS
     );
-    if (state !== 'pre-switch' || !adoptOnce || now() >= deadline) return state;
-    // Until it canonicalizes, the outgoing guardian holds the pre-switch state, which imports nothing;
-    // a refusal or a failed read is the same "not yet".
-    await adoptOnce().catch((error: unknown) => {
+    if (state !== 'pre-switch' || !adopter || now() >= deadline) return state;
+    // The adopt holds the WASM lock on the sync ceiling, so a silent guardian there ends in a watchdog
+    // eviction that poisons the realm's client. Ask it first, outside any lock; the flagged row's
+    // self-heal is the retry.
+    const probeMs = Math.min(deadline - now(), OUTGOING_GUARDIAN_DEADLINE_MS);
+    try {
+      await withTimeout(adopter.probe(probeMs), probeMs, 'probing the outgoing guardian');
+    } catch (probeError) {
+      console.warn('[Guardian] the outgoing guardian did not answer; leaving the copy to the self-heal:', probeError);
+      return state;
+    }
+    try {
+      await adopter.adoptOnce();
+    } catch (error) {
+      // The service is bound to the client the eviction poisoned, so every later adopt fails too.
+      if (isWasmClientPoisonedError(error)) return state;
+      // Until it canonicalizes, the outgoing guardian holds the pre-switch state, which imports nothing;
+      // a refusal or a failed read is the same "not yet".
       console.warn('[Guardian] the outgoing guardian does not hold the post-switch state yet:', error);
-    });
-    await sleep(options.pollMs ?? POST_SWITCH_ADOPT_POLL_MS);
+    }
+    const waitMs = Math.min(options.pollMs ?? POST_SWITCH_ADOPT_POLL_MS, deadline - now());
+    if (waitMs > 0) await sleep(waitMs);
   }
 }

@@ -22,7 +22,13 @@ import {
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
-import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
+import { isGuardianUnreachableError } from './direct-switch';
+import {
+  GuardianProbeTimeoutError,
+  isGuardianAccountAlreadyRegistered,
+  OUTGOING_GUARDIAN_DEADLINE_MS,
+  withTimeout
+} from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -383,6 +389,35 @@ export class MultisigService {
     const guardian = this.client.guardianClient;
     const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
     await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
+  }
+
+  /**
+   * `pushSwitchDelta` on the one outgoing-guardian budget, outside any lock, and never rejecting:
+   * `'pushed'` when it landed in time, `'silent'` when the guardian timed out or is unreachable, and
+   * `'refused'` for any other answer, which says the guardian is there (#1233).
+   */
+  async pushSwitchDeltaBounded(proposalId: string): Promise<'pushed' | 'silent' | 'refused'> {
+    try {
+      await withTimeout(
+        this.pushSwitchDelta(proposalId),
+        OUTGOING_GUARDIAN_DEADLINE_MS,
+        'pushing the executed switch delta to the outgoing guardian'
+      );
+      return 'pushed';
+    } catch (error) {
+      const outcome =
+        error instanceof GuardianProbeTimeoutError || isGuardianUnreachableError(error) ? 'silent' : 'refused';
+      console.warn(`[Guardian] the outgoing guardian did not take the executed switch delta (${outcome}):`, error);
+      return outcome;
+    }
+  }
+
+  /**
+   * Read this guardian's state for the account over HTTP only, never under the WASM lock (#1233): a
+   * caller asks before an adopt, whose hold a silent guardian would park until the watchdog evicts it.
+   */
+  async probeGuardianState(): Promise<void> {
+    await this.client.guardianClient.getState(this.accountId);
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {

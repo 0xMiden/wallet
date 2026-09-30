@@ -135,6 +135,11 @@ export interface ISwitchGuardianExtraInputs {
   // background self-heal adopts that state from `previousGuardianEndpoint`, registers it and clears
   // this. `registerFailed` is not set on its own for this case: its self-heal cannot repair it.
   localStateNotSaved?: boolean;
+  // `switchProposalId` / `switchDeltaPushed`: a landed coordinated switch's proposal, and whether the
+  // outgoing guardian took its executed delta inside the deadline (#1233). The reconcile adopts only
+  // from a guardian that did, and the self-heal re-pushes the delta by this id to one that did not.
+  switchProposalId?: string;
+  switchDeltaPushed?: boolean;
 }
 
 /**

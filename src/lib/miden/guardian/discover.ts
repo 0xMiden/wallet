@@ -122,6 +122,14 @@ export const GUARDIAN_PROBE_CONCURRENCY = 6;
  */
 export const GUARDIAN_PROBE_REQUEST_ATTEMPTS = 2;
 
+/**
+ * Wall-clock ceiling on one round trip to the OUTGOING guardian of a switch, after which the wallet
+ * stops waiting and treats the operator as unreachable. Generous: this is a backstop against an
+ * operator that has stopped answering, not a latency target, and expiring early costs the user a
+ * coordinated switch they could have had. Every outgoing-guardian wait shares it (#1233).
+ */
+export const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
+
 export class GuardianProbeTimeoutError extends Error {
   constructor(message: string) {
     super(message);

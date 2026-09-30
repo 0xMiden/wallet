@@ -178,9 +178,9 @@ jest.mock('lib/miden/guardian/direct-switch', () => ({
 
 // The landed switch reconcile's adopt (#1233), covered on its own in
 // guardian/post-switch-state.test.ts. Default: the local copy already names the new guardian.
+type MockAdopter = { probe(timeoutMs: number): Promise<void>; adoptOnce(): Promise<void> };
 const mockAdoptPostSwitchState = jest.fn(
-  async (_adoptOnce?: () => Promise<void>, _accountPublicKey?: string, _endpoint?: string): Promise<string> =>
-    'post-switch'
+  async (_adopter?: MockAdopter, _accountPublicKey?: string, _endpoint?: string): Promise<string> => 'post-switch'
 );
 jest.mock('lib/miden/guardian/post-switch-state', () => ({
   adoptPostSwitchState: (...a: unknown[]) => mockAdoptPostSwitchState(...(a as []))
@@ -1012,17 +1012,36 @@ describe('completeSwitchGuardianTransaction', () => {
 
     it('adopts the post-switch state from the outgoing guardian, then registers it', async () => {
       const { tx, multisigService, provider, row } = landedSwitch();
-      mockAdoptPostSwitchState.mockImplementationOnce(async (adoptOnce?: () => Promise<void>) => {
-        await adoptOnce?.();
+      tx.extraInputs = { ...tx.extraInputs, switchDeltaPushed: true };
+      mockAdoptPostSwitchState.mockImplementationOnce(async (adopter?: MockAdopter) => {
+        await adopter?.adoptOnce();
         return 'post-switch';
       });
 
       await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
 
-      expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(expect.any(Function), 'acc-1', 'https://new.guardian');
+      expect(mockAdoptPostSwitchState).toHaveBeenCalledWith(
+        { probe: expect.any(Function), adoptOnce: expect.any(Function) },
+        'acc-1',
+        'https://new.guardian'
+      );
       expect(multisigService.adoptGuardianStateOnce).toHaveBeenCalledTimes(1);
       expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
       expect(row().extraInputs).toMatchObject({ localStateNotSaved: false, registerFailed: false });
+    });
+
+    it('builds no adopter when the switch delta never reached the outgoing guardian', async () => {
+      const { tx, multisigService, provider } = landedSwitch();
+      tx.extraInputs = { ...tx.extraInputs, switchDeltaPushed: false };
+      mockAdoptPostSwitchState.mockImplementationOnce(async (adopter?: MockAdopter) => {
+        await adopter?.adoptOnce();
+        return 'post-switch';
+      });
+
+      await completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed);
+
+      expect(mockAdoptPostSwitchState.mock.calls[0]![0]).toBeUndefined();
+      expect(multisigService.adoptGuardianStateOnce).not.toHaveBeenCalled();
     });
 
     it('skips a registration the new guardian can only refuse and flags the row, keeping both endpoints', async () => {
@@ -5525,6 +5544,7 @@ describe('generateTransaction — Guardian routing', () => {
         authArg: () => undefined
       })),
       finalizeGuardianSwitch: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -6557,6 +6577,7 @@ describe('generateTransaction — Guardian routing', () => {
           authArg: () => undefined
         })),
         finalizeGuardianSwitch: jest.fn(async () => {}),
+        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
         sync: jest.fn(async () => {})
       });
       const coldService = { signProposal: jest.fn(async () => {}) };
@@ -6858,7 +6879,7 @@ describe('generateTransaction — Guardian routing', () => {
         })),
         finalizeGuardianSwitch,
         abandonCandidate: jest.fn(async () => {}),
-        pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
+        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
         sync: jest.fn(async () => {})
       };
       // Used for both the main proposal AND rebuilt in the reconcile for completion.
@@ -6910,7 +6931,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       // The reconcile re-registered on the new guardian and persisted the per-account endpoint.
       expect(finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
-      expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop-switch');
+      expect(service.pushSwitchDeltaBounded).toHaveBeenCalledWith('prop-switch');
       expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
       const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
       expect(row.status).toBe(ITransactionStatus.Completed);
@@ -6964,7 +6985,7 @@ describe('generateTransaction — Guardian routing', () => {
         })),
         finalizeGuardianSwitch,
         abandonCandidate: jest.fn(async () => {}),
-        pushSwitchDelta: jest.fn(async (_proposalId: string) => {}),
+        pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
         adoptGuardianStateOnce: jest.fn(async () => {}),
         sync: jest.fn(async () => {})
       };
@@ -7124,6 +7145,7 @@ describe('generateTransaction — Guardian routing', () => {
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
       })),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
       sync: jest.fn(async () => {})
     };
     // First call serves the main proposal; the reconcile's rebuild rejects.
@@ -7860,6 +7882,7 @@ describe('generateTransaction — Guardian routing', () => {
         authArg: () => undefined
       })),
       finalizeGuardianSwitch: jest.fn(async () => {}),
+      pushSwitchDeltaBounded: jest.fn(async (_proposalId: string) => 'pushed' as const),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
