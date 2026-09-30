@@ -271,6 +271,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       // A data failure belongs to the session of the request that returned the data: the page's for the page
       // checks, the entry's getDelta for that entry.
       let dataSession = unsupportedHistorySession;
+      // The node a fee-unavailable answer came from: read before the decode that answered.
+      let decodeScope: string | undefined;
       try {
         if (checkpoint.cursor && checkpoint.cursor.length > MAX_HISTORY_CURSOR_LENGTH)
           throw new GuardianHistoryDataError('Saved Guardian history cursor exceeds the length limit');
@@ -356,6 +358,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               throw new GuardianHistoryDataError('Guardian history delta carries no summary');
             await check();
             const decodeSession = unsupportedHistorySession;
+            decodeScope = cacheScope();
             const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
               if (!(error instanceof WasmClientPoisonedError || error instanceof OperationAbortedError)) throw error;
               if (await interrupted()) throw error;
@@ -480,11 +483,13 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         )
           throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
-          await saveGuardianHistoryCheckpoint(context.generation, {
+          if (await interrupted()) throw new HistoryInterrupted();
+          const stopped = await saveGuardianHistoryCheckpoint(context.generation, {
             ...checkpoint,
             failure: 'fee-metadata',
-            feeScope: cacheScope()
+            feeScope: decodeScope ?? cacheScope()
           });
+          if (!stopped) throw new HistoryInterrupted();
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
         sourceFailures++;
@@ -493,7 +498,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         // cap. The count is spent at most once per session, so a deferral restart does not ask the source again.
         const invalidDataPasses = failure === 'invalid-data' ? (checkpoint.invalidDataPasses ?? 0) + 1 : undefined;
         const saved = { ...checkpoint, failure, invalidDataPasses: invalidDataPasses ?? checkpoint.invalidDataPasses };
-        await saveGuardianHistoryCheckpoint(context.generation, saved);
+        if (!(await saveGuardianHistoryCheckpoint(context.generation, saved))) throw new HistoryInterrupted();
         if (failure === 'invalid-data' && dataSession === unsupportedHistorySession) invalidDataHistorySources.add(id);
         if (error instanceof HistoryDecodeAborted && error.session === unsupportedHistorySession)
           abortedDecodeHistorySources.add(id);

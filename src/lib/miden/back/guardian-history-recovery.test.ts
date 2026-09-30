@@ -69,6 +69,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkNam
 // The node a terminal fee answer came from: the effective RPC URL and network name.
 let mockFeeScope = 'rpc-a|testnet';
 jest.mock('lib/miden-chain/native-asset', () => ({ cacheScope: () => mockFeeScope }));
+jest.mock('../guardian/history-storage', () => {
+  const actual = jest.requireActual('../guardian/history-storage');
+  return { ...actual, saveGuardianHistoryCheckpoint: jest.fn(actual.saveGuardianHistoryCheckpoint) };
+});
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: async () => 'https://one' }));
 jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
 jest.mock('./miden-client-proxy', () => ({
@@ -1120,6 +1124,27 @@ it('asks a source whose decode aborted again in the session a lock started while
   expect(second.sourceFailures).toBe(1);
 });
 
+it.each(aborts)(
+  'asks a source whose commitment decode aborted again in the session a lock started while it ran (%s)',
+  async (_kind, make) => {
+    await addLocalResult();
+    serveEveryPass('https://one', { entries: [entry(2)] });
+    serveEveryPass('https://two', { entries: [entry(2), entry(3)] });
+    let calls = 0;
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+      if (calls++ === 0) forgetUnsupportedHistorySources();
+      throw make();
+    });
+    const first = await run();
+    expect(first.deferred).toBe(false);
+    expect(first.sourceFailures).toBeGreaterThanOrEqual(1);
+
+    const before = commitmentCalls();
+    await run();
+    expect(commitmentCalls()).toBeGreaterThan(before);
+  }
+);
+
 it.each<[string, DeltaObject]>([
   ['no summary', { ...delta(3), deltaPayload: {} } as unknown as DeltaObject],
   [
@@ -1564,6 +1589,59 @@ it('stops recovery and retains the failure when fee metadata is unavailable', as
   expect((await run()).failed).toBe(true);
   expect(createClient).not.toHaveBeenCalled();
   expect(await transactions.count()).toBe(0);
+});
+
+it('defers a fee-unavailable stop whose decode was interrupted', async () => {
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementationOnce(async () => {
+    shouldYield.mockResolvedValue('wallet locked');
+    throw new GuardianHistoryFeeUnavailableError();
+  });
+  expect((await run()).deferred).toBe(true);
+  expect((await operatorCheckpoint('https://one'))?.failure).not.toBe('fee-metadata');
+});
+
+it('files a fee-unavailable stop against the node read before its decode', async () => {
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementationOnce(async () => {
+    mockFeeScope = 'rpc-b|testnet';
+    throw new GuardianHistoryFeeUnavailableError();
+  });
+  expect((await run()).failed).toBe(true);
+  expect((await operatorCheckpoint('https://one'))?.feeScope).toBe('rpc-a|testnet');
+});
+
+// A save the storage layer refuses (the generation moved under it) must not leave a terminal or failed source behind.
+const actualSave =
+  jest.requireActual<typeof import('../guardian/history-storage')>(
+    '../guardian/history-storage'
+  ).saveGuardianHistoryCheckpoint;
+const refuseSavesOf = (failure: GuardianHistoryCheckpoint['failure']) => {
+  const save = jest.mocked(saveGuardianHistoryCheckpoint);
+  save.mockImplementation(async (generation, checkpoint) =>
+    checkpoint.failure === failure ? false : actualSave(generation, checkpoint)
+  );
+  return { mockRestore: () => save.mockImplementation(actualSave) };
+};
+
+it('defers a fee-unavailable stop whose checkpoint save is refused', async () => {
+  const save = refuseSavesOf('fee-metadata');
+  try {
+    jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
+    expect((await run()).deferred).toBe(true);
+  } finally {
+    save.mockRestore();
+  }
+});
+
+it('defers a source failure whose checkpoint save is refused', async () => {
+  const save = refuseSavesOf('network');
+  try {
+    const client = clients.get('https://two');
+    if (!client) throw new Error('Missing test source');
+    jest.spyOn(client, 'getDeltaHistory').mockReset().mockRejectedValue(new Error('offline'));
+    expect((await run()).deferred).toBe(true);
+  } finally {
+    save.mockRestore();
+  }
 });
 
 it('asks for the fee again once the wallet points at another node', async () => {

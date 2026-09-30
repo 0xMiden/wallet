@@ -1272,6 +1272,35 @@ describe('release on lock', () => {
     expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
   });
 
+  it('writes no history-failed record for a wallet replaced while the pass ran', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockImplementationOnce(async () => {
+      mockReadGeneration.mockResolvedValue('gen-2');
+      return { deferred: false, sourceFailures: 1, restored: 0, failed: true, deferredSources: 0 };
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockReportProgress).not.toHaveBeenCalledWith(expect.objectContaining({ step: 'history-failed' }));
+    expect(setPendingFlag).not.toHaveBeenCalled();
+  });
+
+  it('writes no history-partial record and keeps no reservation for a wallet replaced while the pass ran', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockImplementationOnce(async () => {
+      mockReadGeneration.mockResolvedValue('gen-2');
+      return { deferred: false, sourceFailures: 1, restored: 2, deferredSources: 0 };
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockReportProgress).not.toHaveBeenCalledWith(expect.objectContaining({ step: 'history-partial' }));
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
   it('retries a notes pass that fails a source and finishes after the lock', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     const sync = pending();

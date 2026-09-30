@@ -841,6 +841,14 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       startedRecoveries.delete(account.publicKey);
       return;
     }
+    // A wallet replaced while the pass ran owns the record from here: no report, and no reservation held for it.
+    if (
+      (history.failed || history.sourceFailures > 0 || history.deferredSources > 0) &&
+      (await readGuardianHistoryGeneration()) !== generation
+    ) {
+      startedRecoveries.delete(account.publicKey);
+      return;
+    }
     if (history.failed) {
       // Written before the flag so the home card finds it, and kept: it is that card's record. A pass that
       // can never finish must not hold the flag, which also gates seed-phrase removal, so the cleared flag
