@@ -26,7 +26,7 @@ interface OrderView {
   prepare: Preparation | null;
 }
 
-function orderView(order: Order, prepare: Preparation | null): OrderView {
+function orderView(order: Order, prepare: Preparation | null, relayTxHash: string | null): OrderView {
   return {
     id: order.id,
     state: order.state,
@@ -34,7 +34,7 @@ function orderView(order: Order, prepare: Preparation | null): OrderView {
     tokenAddress: ONRAMP_TOKEN.address,
     tokenDecimals: ONRAMP_TOKEN.decimals,
     tokenAmount: order.tokenAmount,
-    relayTxHash: order.relayTxHash,
+    relayTxHash,
     error: order.error,
     prepare
   };
@@ -69,7 +69,9 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
         logEvent('warn', 'prepare_failed', { orderId: order.id, error: errorText(error) });
       }
     }
-    res.json(orderView(order, prepare));
+    const relay = orders.relays.get(order.id);
+    const showRelay = order.state === 'relay_sent' || order.state === 'deposited' || order.state === 'failed';
+    res.json(orderView(order, prepare, showRelay ? (relay?.txHash ?? null) : null));
   });
 
   router.post('/:id/signature', rateLimit(), async (req, res) => {

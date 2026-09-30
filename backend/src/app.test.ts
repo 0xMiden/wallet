@@ -120,6 +120,9 @@ before(async () => {
     // The tests call over loopback. Map it to a fixed public IP, as the real resolver does.
     resolveUserIp: async () => '203.0.113.7',
     orders: {
+      get relays() {
+        return orders.relays;
+      },
       get: id => orders.get(id),
       createCheckout: input => orders.createCheckout(input),
       transition: (id, from, to, patch, reason, amount) => orders.transition(id, from, to, patch, reason, amount)
@@ -424,6 +427,26 @@ describe('GET /orders/:id', () => {
       error: null,
       prepare: null
     });
+  });
+
+  it('returns the relay hash without exposing signed bytes', async () => {
+    const id = await openCheckout(privateKeyToAccount(generatePrivateKey()));
+    orders.transition(id, 'checkout', 'signed', { tokenAmount: '100' }, 'test');
+    const txHash = '0x1234';
+    assert.ok(
+      orders.reserveRelay(id, '100', {
+        txHash,
+        rawTransaction: '0xabcd',
+        sender: EXECUTOR,
+        nonce: 7
+      })
+    );
+    const response = await get(`/orders/${id}`);
+    assert.equal(response.status, 200);
+    assert.equal(orderResponseSchema.parse(response.body).relayTxHash, txHash);
+    assert.doesNotMatch(JSON.stringify(response.body), /rawTransaction|raw_transaction|0xabcd/);
+    assert.ok(orders.completeRelay(id, txHash, 'reverted', 'awaiting_signature', {}));
+    assert.equal(orderResponseSchema.parse((await get(`/orders/${id}`)).body).relayTxHash, null);
   });
 
   it('returns fresh prepare values in awaiting_signature', async () => {

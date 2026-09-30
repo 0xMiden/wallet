@@ -36,6 +36,11 @@ with 6 decimals. The current Sepolia backend uses the Transak staging token (TRN
 The order API reads these values from the map; orders do not store them.
 This schema requires a new database file. Startup does not migrate an old database.
 
+The `orders` table stores payment data and purchase state. The `relays` table stores the latest relay
+for each `order_id`: transaction hash, signed bytes, sender, nonce, attempt count, and receipt status.
+Relay reservation and receipt handling update both tables in one transaction. The relay row is created
+before the first broadcast and updated on retry; it does not store a history of all attempts.
+
 The orders are in SQLite (`node:sqlite`, Node 22). Node prints an `ExperimentalWarning` for it at start. This is
 expected.
 

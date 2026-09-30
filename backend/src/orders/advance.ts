@@ -227,25 +227,15 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
       data: encodeBuyExecution(input, synced.signature),
       authorization
     },
-    deps.store.nextRelayNonce(deps.chain.executor)
+    deps.store.relays.nextNonce(deps.chain.executor)
   );
-  const attempts = synced.relayAttempts + 1;
   // Store the signed bytes before broadcast. A cancelled order cannot reserve this relay.
-  const reserved = deps.store.transition(
-    synced.id,
-    'signed',
-    'relay_sent',
-    {
-      relayTxHash: sent.hash,
-      relayRawTransaction: sent.serializedTransaction,
-      relayNonce: sent.nonce,
-      relaySender: deps.chain.executor,
-      relayAttempts: attempts,
-      error: null
-    },
-    'relay reserved',
-    synced.tokenAmount
-  );
+  const reserved = deps.store.reserveRelay(synced.id, synced.tokenAmount, {
+    txHash: sent.hash,
+    rawTransaction: sent.serializedTransaction,
+    nonce: sent.nonce,
+    sender: deps.chain.executor
+  });
   if (!reserved) {
     return;
   }
@@ -255,70 +245,54 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
     hash: sent.hash,
     relayerNonce: sent.nonce,
     type4: sent.type4,
-    attempt: attempts
+    attempt: deps.store.relays.get(synced.id)?.attempts
   });
 }
 
 async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
-  if (order.relayTxHash === null) {
-    deps.store.transition(order.id, 'relay_sent', 'awaiting_signature', CLEAR_SIGNATURE, 'relay hash missing');
-    return;
+  const relay = deps.store.relays.get(order.id);
+  if (relay === null || relay.status !== 'pending') {
+    throw new Error(`Order ${order.id} has no pending relay`);
   }
-  const status = await deps.chain.getReceiptStatus(order.relayTxHash);
+  const status = await deps.chain.getReceiptStatus(relay.txHash);
   if (status !== null) {
     logEvent(status === 'success' ? 'info' : 'warn', 'relay_receipt', {
       orderId: order.id,
-      hash: order.relayTxHash,
+      hash: relay.txHash,
       status
     });
-    deps.receiptWarnings.delete(order.relayTxHash);
+    deps.receiptWarnings.delete(relay.txHash);
   }
   switch (status) {
     case 'success':
-      // The deposit is on Sepolia now. The job of the backend stops here: the wallet reads the Agglayer indexer.
-      deps.store.transition(
-        order.id,
-        'relay_sent',
-        'deposited',
-        { signature: null, authorization: null, relayRawTransaction: null },
-        'relay succeeded'
-      );
+      // The wallet tracks the Miden claim after this deposit.
+      deps.store.completeRelay(order.id, relay.txHash, status, 'deposited', {
+        signature: null,
+        authorization: null
+      });
       return;
     case 'reverted':
-      if (order.relayAttempts >= MAX_RELAY_ATTEMPTS) {
-        deps.store.transition(
-          order.id,
-          'relay_sent',
-          'failed',
-          { ...CLEAR_SIGNATURE, relayRawTransaction: null, error: `Relay reverted ${order.relayAttempts} times` },
-          'relay reverted'
-        );
+      if (relay.attempts >= MAX_RELAY_ATTEMPTS) {
+        deps.store.completeRelay(order.id, relay.txHash, status, 'failed', {
+          ...CLEAR_SIGNATURE,
+          error: `Relay reverted ${relay.attempts} times`
+        });
         return;
       }
-      // A reverted batch does not use its Calibur nonce, so the wallet signs again.
-      deps.store.transition(
-        order.id,
-        'relay_sent',
-        'awaiting_signature',
-        {
-          ...CLEAR_SIGNATURE,
-          relayTxHash: null,
-          relayRawTransaction: null,
-          relayNonce: null,
-          relaySender: null,
-          error: 'Relay reverted'
-        },
-        'relay reverted'
-      );
+      // A reverted batch does not use its Calibur nonce. The wallet must sign again.
+      deps.store.completeRelay(order.id, relay.txHash, status, 'awaiting_signature', {
+        ...CLEAR_SIGNATURE,
+        error: 'Relay reverted'
+      });
       return;
     case null:
-      if (deps.now() - order.stateChangedAt > RECEIPT_WARNING_MS && !deps.receiptWarnings.has(order.relayTxHash)) {
-        deps.receiptWarnings.add(order.relayTxHash);
-        logEvent('warn', 'relay_receipt_missing', { orderId: order.id, hash: order.relayTxHash });
+      if (deps.now() - order.stateChangedAt > RECEIPT_WARNING_MS && !deps.receiptWarnings.has(relay.txHash)) {
+        deps.receiptWarnings.add(relay.txHash);
+        logEvent('warn', 'relay_receipt_missing', { orderId: order.id, hash: relay.txHash });
       }
-      // Repeat the same transaction after a crash or a lost RPC response. Its hash cannot change.
-      if (order.relayRawTransaction !== null) {
-        await deps.chain.broadcastRelay(order.relayRawTransaction);
+      // Repeat the same transaction after a crash or a lost RPC response.
+      if (relay.rawTransaction !== null) {
+        await deps.chain.broadcastRelay(relay.rawTransaction);
       }
       return;
   }

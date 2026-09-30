@@ -15,7 +15,7 @@ export interface AppDeps {
   transak: TransakClient;
   /** Maps the caller IP to the IP that Transak pins the session to. */
   resolveUserIp: UserIpResolver;
-  orders: Pick<OrderStore, 'get' | 'createCheckout' | 'transition'>;
+  orders: Pick<OrderStore, 'get' | 'createCheckout' | 'transition' | 'relays'>;
   chain: Chain;
   /** Returns the time in milliseconds. */
   now: () => number;

@@ -97,6 +97,12 @@ function current(id: string): Order {
   return order;
 }
 
+function relayOf(id: string) {
+  const relay = store.relays.get(id);
+  assert.ok(relay);
+  return relay;
+}
+
 async function step(id: string): Promise<Order> {
   await advanceOrder(current(id), deps);
   return current(id);
@@ -145,8 +151,8 @@ async function relaySent(): Promise<{ id: string; hash: Hex }> {
   chain.account.balance = 10n * ONE;
   const order = await step(id);
   assert.equal(order.state, 'relay_sent');
-  assert.ok(order.relayTxHash);
-  return { id, hash: order.relayTxHash };
+  assert.ok(relayOf(order.id).txHash);
+  return { id, hash: relayOf(order.id).txHash };
 }
 
 function assertState(order: Order, state: OrderState): void {
@@ -292,7 +298,7 @@ describe('signed', () => {
     chain.account.balance = 10n * ONE;
     const order = await step(id);
     assertState(order, 'relay_sent');
-    assert.equal(order.relayAttempts, 1);
+    assert.equal(relayOf(order.id).attempts, 1);
     const sent = chain.sent[0];
     assert.ok(sent);
     assert.equal(sent.to, BUYER);
@@ -375,7 +381,7 @@ describe('relay_sent', () => {
     assertState(order, 'deposited');
     assert.equal(order.signature, null);
     assert.equal(order.authorization, null);
-    assert.equal(order.relayTxHash, hash);
+    assert.equal(relayOf(order.id).txHash, hash);
     assert.equal(
       store.listForWorker().some(active => active.id === id),
       false
@@ -410,9 +416,9 @@ describe('relay_sent', () => {
       );
       order = await step(id);
       assertState(order, 'relay_sent');
-      assert.equal(order.relayAttempts, attempt);
-      assert.ok(order.relayTxHash);
-      chain.receipts.set(order.relayTxHash, 'reverted');
+      assert.equal(relayOf(order.id).attempts, attempt);
+      assert.ok(relayOf(order.id).txHash);
+      chain.receipts.set(relayOf(order.id).txHash, 'reverted');
       order = await step(id);
     }
     assertState(order, 'failed');
@@ -534,7 +540,7 @@ describe('worker', () => {
       await broadcasting;
       const stored = current(id);
       assertState(stored, 'relay_sent');
-      assert.ok(stored.relayRawTransaction);
+      assert.ok(relayOf(stored.id).rawTransaction);
       let stopped = false;
       const stopping = worker.stop().then(() => {
         stopped = true;
@@ -544,7 +550,7 @@ describe('worker', () => {
       release();
       await Promise.all([ticking, stopping]);
       assert.equal(stopped, true);
-      assert.deepEqual(chain.broadcasts, [stored.relayRawTransaction]);
+      assert.deepEqual(chain.broadcasts, [relayOf(stored.id).rawTransaction]);
     } finally {
       release();
       await worker.stop();
@@ -740,10 +746,10 @@ describe('relay reservation and recovery', () => {
     await assert.rejects(step(id), /RPC response lost/);
     const reserved = current(id);
     assertState(reserved, 'relay_sent');
-    assert.ok(reserved.relayRawTransaction);
-    assert.ok(reserved.relayTxHash);
+    assert.ok(relayOf(reserved.id).rawTransaction);
+    assert.ok(relayOf(reserved.id).txHash);
     assert.throws(() => checkout(), OrderConflictError);
-    assert.equal(store.nextRelayNonce(chain.executor), (reserved.relayNonce ?? 0) + 1);
+    assert.equal(store.relays.nextNonce(chain.executor), (relayOf(reserved.id).nonce ?? 0) + 1);
     chain.failBroadcast = false;
     const worker = createWorker(workerOptions());
     try {
@@ -751,12 +757,12 @@ describe('relay reservation and recovery', () => {
     } finally {
       await worker.stop();
     }
-    assert.deepEqual(chain.broadcasts, [reserved.relayRawTransaction, reserved.relayRawTransaction]);
+    assert.deepEqual(chain.broadcasts, [relayOf(reserved.id).rawTransaction, relayOf(reserved.id).rawTransaction]);
     assert.equal(chain.prepared.size, 1);
-    assert.equal(current(id).relayAttempts, 1);
-    chain.receipts.set(reserved.relayTxHash, 'success');
+    assert.equal(relayOf(id).attempts, 1);
+    chain.receipts.set(relayOf(reserved.id).txHash, 'success');
     assertState(await step(id), 'deposited');
-    assert.equal(current(id).relayRawTransaction, null);
+    assert.equal(relayOf(id).rawTransaction, null);
   });
 
   it('finds a mined relay after the RPC response was lost without checking the balance', async () => {
@@ -764,7 +770,7 @@ describe('relay reservation and recovery', () => {
     chain.account.balance = 10n * ONE;
     chain.failBroadcast = true;
     await assert.rejects(step(id));
-    const hash = current(id).relayTxHash;
+    const hash = relayOf(id).txHash;
     assert.ok(hash);
     chain.receipts.set(hash, 'success');
     chain.account.balance = 0n;
@@ -841,23 +847,21 @@ describe('reserved relay nonces', () => {
     chain.failBroadcast = true;
     await assert.rejects(step(id));
     const first = current(id);
-    assert.ok(first.relayNonce !== null);
+    assert.ok(relayOf(first.id).nonce !== null);
     const other = checkout('0x3333333333333333333333333333333333333333');
+    store.transition(other, 'checkout', 'signed', { tokenAmount: '100' }, 'test');
     assert.throws(
       () =>
-        store.transition(
-          other,
-          'checkout',
-          'relay_sent',
-          {
-            relayNonce: first.relayNonce,
-            relaySender: chain.executor
-          },
-          'test'
-        ),
+        store.reserveRelay(other, '100', {
+          txHash: relayOf(first.id).txHash,
+          rawTransaction: '0x1234',
+          nonce: relayOf(first.id).nonce,
+          sender: chain.executor
+        }),
       /UNIQUE constraint/
     );
-    assertState(current(other), 'checkout');
-    assert.equal(store.nextRelayNonce(chain.executor), first.relayNonce + 1);
+    assertState(current(other), 'signed');
+    assert.equal(store.relays.get(other), null);
+    assert.equal(store.relays.nextNonce(chain.executor), relayOf(first.id).nonce + 1);
   });
 });

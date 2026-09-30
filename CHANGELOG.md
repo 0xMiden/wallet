@@ -9,6 +9,8 @@
 
 ### Changes
 
+- [CHANGE][backend] Separate relay records from orders and save relay results and order states in one database transaction. Recreate the backend database for the new schema.
+
 - [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
 
 - [CHANGE][backend] Add Docker Compose with persistent storage, prevent two servers from using the same database, and wait for active work during shutdown.

@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { NONCE_STATES, ORDER_STATES, WORKER_STATES, type OrderState } from './states.js';
 import { logEvent } from '../log.js';
+import { RELAY_SCHEMA, RelayStore, type NewRelay } from '../relays/store.js';
 
 export interface Order {
   /** The Transak `partnerOrderId`, which is the challenge nonce. */
@@ -26,14 +27,8 @@ export interface Order {
   signature: Hex | null;
   /** The signed EIP-7702 authorization as JSON. */
   authorization: string | null;
-  relayTxHash: Hex | null;
-  /** Signed relay bytes kept until a receipt is stored. Never send these to the frontend. */
-  relayRawTransaction: Hex | null;
-  relayNonce: number | null;
-  relaySender: Address | null;
   /** Last completed amount from Transak, before any balance adjustment. */
   settledTokenAmount: string | null;
-  relayAttempts: number;
   state: OrderState;
   error: string | null;
   /** Unix ms. */
@@ -53,12 +48,7 @@ export interface OrderPatch {
   deadline?: number | null;
   signature?: Hex | null;
   authorization?: string | null;
-  relayTxHash?: Hex | null;
-  relayRawTransaction?: Hex | null;
-  relayNonce?: number | null;
-  relaySender?: Address | null;
   settledTokenAmount?: string | null;
-  relayAttempts?: number;
   error?: string | null;
 }
 
@@ -72,12 +62,7 @@ const PATCH_COLUMNS: { [K in keyof OrderPatch]-?: string } = {
   deadline: 'deadline',
   signature: 'signature',
   authorization: 'authorization',
-  relayTxHash: 'relay_tx_hash',
-  relayRawTransaction: 'relay_raw_transaction',
-  relayNonce: 'relay_nonce',
-  relaySender: 'relay_sender',
   settledTokenAmount: 'settled_token_amount',
-  relayAttempts: 'relay_attempts',
   error: 'error'
 };
 
@@ -100,12 +85,7 @@ CREATE TABLE IF NOT EXISTS orders (
   deadline INTEGER,
   signature TEXT,
   authorization TEXT,
-  relay_tx_hash TEXT,
-  relay_raw_transaction TEXT,
-  relay_nonce INTEGER,
-  relay_sender TEXT,
   settled_token_amount TEXT,
-  relay_attempts INTEGER NOT NULL DEFAULT 0,
   state TEXT NOT NULL,
   error TEXT,
   created_at INTEGER NOT NULL,
@@ -115,8 +95,6 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE UNIQUE INDEX IF NOT EXISTS orders_one_nonce_order_per_address
   ON orders (evm_address) WHERE state IN (${NONCE_STATES.map(state => `'${state}'`).join(', ')});
 CREATE INDEX IF NOT EXISTS orders_by_state ON orders (state);
-CREATE UNIQUE INDEX IF NOT EXISTS orders_relay_nonce
-  ON orders (relay_sender, relay_nonce) WHERE state = 'relay_sent';
 `;
 
 const hexSchema = z.custom<Hex>(value => typeof value === 'string' && /^0x[0-9a-fA-F]*$/.test(value));
@@ -138,12 +116,7 @@ const rowSchema = z
     deadline: integer.nullable(),
     signature: hexSchema.nullable(),
     authorization: z.string().nullable(),
-    relay_tx_hash: hexSchema.nullable(),
-    relay_raw_transaction: hexSchema.nullable(),
-    relay_nonce: integer.nullable(),
-    relay_sender: addressSchema.nullable(),
     settled_token_amount: z.string().nullable(),
-    relay_attempts: integer,
     state: z.enum(ORDER_STATES),
     error: z.string().nullable(),
     created_at: integer,
@@ -165,12 +138,7 @@ const rowSchema = z
       deadline: row.deadline,
       signature: row.signature,
       authorization: row.authorization,
-      relayTxHash: row.relay_tx_hash,
-      relayRawTransaction: row.relay_raw_transaction,
-      relayNonce: row.relay_nonce,
-      relaySender: row.relay_sender,
       settledTokenAmount: row.settled_token_amount,
-      relayAttempts: row.relay_attempts,
       state: row.state,
       error: row.error,
       createdAt: row.created_at,
@@ -185,8 +153,9 @@ export function openDatabase(path: string): DatabaseSync {
     mkdirSync(dirname(path), { recursive: true });
   }
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  db.exec(RELAY_SCHEMA);
   return db;
 }
 
@@ -209,11 +178,14 @@ export class OrderConflictError extends Error {
 const CANCELLABLE_STATES: readonly OrderState[] = ['checkout', 'awaiting_signature', 'signed'];
 
 export class OrderStore {
+  readonly relays: RelayStore;
   /** `now` returns the time in milliseconds. */
   constructor(
     private readonly db: DatabaseSync,
     private readonly now: () => number
-  ) {}
+  ) {
+    this.relays = new RelayStore(db);
+  }
 
   get(id: string): Order | null {
     const row = this.db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
@@ -270,13 +242,46 @@ export class OrderStore {
     return created;
   }
 
-  /** Reserve nonces that the RPC may not have received yet. */
-  nextRelayNonce(sender: Address): number {
-    const row = this.db
-      .prepare("SELECT MAX(relay_nonce) AS nonce FROM orders WHERE state = 'relay_sent' AND relay_sender = ?")
-      .get(sender);
-    const { nonce } = z.object({ nonce: integer.nullable() }).parse(row);
-    return nonce === null ? 0 : nonce + 1;
+  /** Save the relay before broadcast and change the order state in one transaction. */
+  reserveRelay(id: string, expectedTokenAmount: string, relay: NewRelay): boolean {
+    const changed = this.atomic(() => {
+      if (!this.write(id, 'signed', 'relay_sent', { error: null }, expectedTokenAmount)) return false;
+      this.relays.reserve(id, relay);
+      return true;
+    });
+    this.logTransition(changed, id, 'signed', 'relay_sent', 'relay reserved');
+    return changed;
+  }
+
+  /** Store the receipt and the order result together. Ignore receipts for an older attempt. */
+  completeRelay(
+    id: string,
+    txHash: Hex,
+    status: 'success' | 'reverted',
+    to: 'deposited' | 'awaiting_signature' | 'failed',
+    patch: OrderPatch
+  ): boolean {
+    const changed = this.atomic(() => {
+      const relay = this.relays.get(id);
+      if (relay === null || relay.txHash !== txHash || relay.status !== 'pending') return false;
+      if (!this.write(id, 'relay_sent', to, patch)) return false;
+      if (!this.relays.complete(id, txHash, status)) throw new Error('Relay changed during receipt update');
+      return true;
+    });
+    this.logTransition(changed, id, 'relay_sent', to, `relay ${status}`);
+    return changed;
+  }
+
+  private atomic(action: () => boolean): boolean {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const changed = action();
+      this.db.exec('COMMIT');
+      return changed;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   /** Change fields but not the state. Return false when the order is not in `state` any more. */
@@ -297,12 +302,16 @@ export class OrderStore {
     expectedTokenAmount?: string
   ): boolean {
     const changed = this.write(id, from, to, patch, expectedTokenAmount);
+    this.logTransition(changed, id, from, to, reason);
+    return changed;
+  }
+
+  private logTransition(changed: boolean, id: string, from: OrderState, to: OrderState, reason: string): void {
     if (changed) {
       logEvent(to === 'failed' ? 'warn' : 'info', 'order_transition', { orderId: id, from, to, reason });
     } else {
       logEvent('warn', 'order_transition_skipped', { orderId: id, from, to, reason });
     }
-    return changed;
   }
 
   private write(
