@@ -8,6 +8,7 @@
   "guardianHistoryAccountSecured": "Account secured",
   "guardianHistoryExecuted": "Executed",
   "guardianHistoryProgress": "Recovering history from $operator$. $count$ transactions restored.",
+  "guardianHistoryFailed": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically.",
   "guardianHistoryPartial": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
   "payload": "Payload",
   "bridgeDepositTitle": "Miden Bridge",

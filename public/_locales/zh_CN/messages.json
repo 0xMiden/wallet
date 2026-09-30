@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "由于无法获取网络手续费信息，交易记录恢复失败。系统不会自动重试恢复操作。",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "交易记录恢复已停止，因为网络或 Guardian 运营商无法提供该数据。恢复操作不会自动重试。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ 交易已恢复。部分 Guardian 数据源无法读取。下次解锁钱包时，恢复功能将自动重试。",

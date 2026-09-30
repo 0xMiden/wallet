@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "Die Wiederherstellung des Transaktionsverlaufs ist fehlgeschlagen, da keine Informationen zu den Netzwerkgebühren verfügbar sind. Die Wiederherstellung wird nicht automatisch erneut versucht.",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "Die Wiederherstellung des Transaktionsverlaufs wurde unterbrochen, da das Netzwerk oder ein „Guardian“-Betreiber diese nicht bereitstellen kann. Die Wiederherstellung wird nicht automatisch erneut versucht.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ Transaktionen wurden wiederhergestellt. Einige „Guardian“-Quellen konnten nicht gelesen werden. Die Wiederherstellung wird beim nächsten Entsperren der Wallet erneut versucht.",

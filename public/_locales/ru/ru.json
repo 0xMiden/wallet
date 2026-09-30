@@ -8,6 +8,7 @@
   "guardianHistoryAccountSecured": "Счёт защищён",
   "guardianHistoryExecuted": "Выполнено",
   "guardianHistoryProgress": "Восстановление истории с сайта $operator$. Транзакции $count$ восстановлены.",
+  "guardianHistoryFailed": "Восстановление истории транзакций было остановлено, поскольку сеть или оператор Guardian не может её предоставить. Повторная попытка восстановления не будет производиться автоматически.",
   "guardianHistoryPartial": "$count$ Транзакции восстановлены. Некоторые источники Guardian не удалось прочитать. Восстановление будет повторено при следующей разблокировке кошелька.",
   "payload": "Полезная нагрузка",
   "bridgeDepositTitle": "Miden Bridge",

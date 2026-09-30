@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "ネットワーク手数料情報が利用できないため、取引履歴の復元に失敗しました。復元は自動的に再試行されません。",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "ネットワークまたはGuardianのオペレーターが提供できないため、取引履歴の復元が停止しました。復元は自動的に再試行されません。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ トランザクションが復元されました。一部のGuardianソースを読み取ることができませんでした。次回ウォレットのロックを解除した際に、復元処理が再試行されます。",

@@ -8,6 +8,7 @@
   "guardianHistoryAccountSecured": "Cuenta protegida",
   "guardianHistoryExecuted": "Ejecutado",
   "guardianHistoryProgress": "Se ha recuperado el historial de $operator$. Se han restaurado las transacciones de $count$.",
+  "guardianHistoryFailed": "La recuperación del historial de transacciones se ha detenido porque la red o un operador Guardian no pueden proporcionarlo. La recuperación no se volverá a intentar automáticamente.",
   "guardianHistoryPartial": "$count$ Transacciones restauradas. No se han podido leer algunas fuentes de Guardian. La recuperación se volverá a intentar la próxima vez que desbloquees la cartera.",
   "payload": "Carga útil",
   "bridgeDepositTitle": "Miden Bridge",

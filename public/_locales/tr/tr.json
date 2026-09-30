@@ -8,6 +8,7 @@
   "guardianHistoryAccountSecured": "Hesap güvence altında",
   "guardianHistoryExecuted": "Yürütüldü",
   "guardianHistoryProgress": "$operator$ adresinden geçmiş veriler geri yüklendi. $count$ adresindeki işlemler geri yüklendi.",
+  "guardianHistoryFailed": "İşlem geçmişinin kurtarılması, ağın veya bir Guardian operatörünün bunu sağlayamaması nedeniyle durduruldu. Kurtarma işlemi otomatik olarak yeniden denenmeyecektir.",
   "guardianHistoryPartial": "$count$ İşlemler geri yüklendi. Bazı Guardian kaynakları okunamadı. Cüzdanın kilidini bir sonraki sefer açtığınızda kurtarma işlemi yeniden denenecektir.",
   "payload": "Yük",
   "bridgeDepositTitle": "Miden Bridge",

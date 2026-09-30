@@ -8,6 +8,7 @@
   "guardianHistoryAccountSecured": "Konto zabezpieczone",
   "guardianHistoryExecuted": "Wykonano",
   "guardianHistoryProgress": "Przywracanie historii z $operator$. Transakcje z $count$ zostały przywrócone.",
+  "guardianHistoryFailed": "Odzyskiwanie historii transakcji zostało wstrzymane, ponieważ sieć lub operator Guardian nie jest w stanie jej udostępnić. Odzyskiwanie nie zostanie automatycznie wznowione.",
   "guardianHistoryPartial": "$count$ Transakcje zostały przywrócone. Nie udało się odczytać niektórych źródeł z pliku Guardian. Odzyskiwanie zostanie ponowione przy następnym odblokowaniu portfela.",
   "payload": "Ładunek",
   "bridgeDepositTitle": "Miden Bridge",

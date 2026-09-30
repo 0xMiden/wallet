@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "A recuperação do histórico de transações falhou porque as informações sobre taxas de rede não estão disponíveis. A recuperação não será repetida automaticamente.",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "A recuperação do histórico de transações foi interrompida porque a rede ou um operador Guardian não pode fornecê-lo. A recuperação não será repetida automaticamente.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ Transações restauradas. Algumas fontes Guardian não puderam ser lidas. A recuperação tentará novamente quando você desbloquear a carteira pela próxima vez.",

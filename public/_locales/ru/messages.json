@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "Восстановление истории транзакций не удалось, поскольку информация о сетевых комиссиях недоступна. Повторная попытка восстановления не будет производиться автоматически.",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "Восстановление истории транзакций было остановлено, поскольку сеть или оператор Guardian не может её предоставить. Повторная попытка восстановления не будет производиться автоматически.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ Транзакции восстановлены. Некоторые источники Guardian не удалось прочитать. Восстановление будет повторено при следующей разблокировке кошелька.",

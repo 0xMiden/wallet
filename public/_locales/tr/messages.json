@@ -44,8 +44,8 @@
     }
   },
   "guardianHistoryFailed": {
-    "message": "Ağ ücreti bilgileri mevcut olmadığından işlem geçmişi kurtarma işlemi başarısız oldu. Kurtarma işlemi otomatik olarak yeniden denenmeyecektir.",
-    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+    "message": "İşlem geçmişinin kurtarılması, ağın veya bir Guardian operatörünün bunu sağlayamaması nedeniyle durduruldu. Kurtarma işlemi otomatik olarak yeniden denenmeyecektir.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
   },
   "guardianHistoryPartial": {
     "message": "$count$ İşlemler geri yüklendi. Bazı Guardian kaynakları okunamadı. Cüzdanın kilidini bir sonraki sefer açtığınızda kurtarma işlemi yeniden denenecektir.",
