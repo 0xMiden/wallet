@@ -345,6 +345,15 @@ describe('describeRotationFailure', () => {
     expect(describeRotationFailure(failed({ error: reason }), null)).toEqual({ unconfirmed: false, message: reason });
   });
 
+  it('reads a user cancel as not confirmed on a row the pipeline had already stamped', () => {
+    expect(
+      describeRotationFailure(
+        failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 }),
+        null
+      )
+    ).toEqual({ unconfirmed: true, message: null, details: USER_CANCELLED_TRANSACTION_REASON });
+  });
+
   it('keeps an unclassified copy that is not a wallet reason behind the generic message', () => {
     expect(describeRotationFailure(failed({ error: GUARDIAN_UNREACHABLE_ERROR }), null)).toEqual({
       unconfirmed: false,

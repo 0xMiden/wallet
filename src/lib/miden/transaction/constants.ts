@@ -97,8 +97,11 @@ export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled fo
 /**
  * Final reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
  * `rawError`, whatever the row's stage: the wallet has proved the row can never land, so the reason is shown
- * as a completed failure. User cancel, a Queued row that expired before it ever started, and a note that can
- * never be consumed.
+ * as a completed failure. A Queued row that expired before it ever started, and a note that can never be
+ * consumed, both qualify unconditionally. User cancel does not: it goes through
+ * `cancelWhilePipelineMayStillRun`, which stops no pipeline, so it is final only while the row's write stamp
+ * (`processingStartedAt`) is unset. A reader that keeps that field must gate this one member on it rather than
+ * treat membership here as sufficient by itself (see `describeRotationFailure`).
  */
 export const WALLET_FAILURE_REASONS: ReadonlySet<string> = new Set([
   USER_CANCELLED_TRANSACTION_REASON,

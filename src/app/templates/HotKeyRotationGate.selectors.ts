@@ -5,6 +5,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import {
   isUnconfirmedFailureReason,
+  isUserCancelledTransaction,
   isVaultShortfallRow,
   isWalletFailureReason,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -29,6 +30,7 @@ export type GateRow = Pick<
   | 'queuedSeq'
   | 'completedAt'
   | 'noteIds'
+  | 'processingStartedAt'
 >;
 
 export interface RotationGateViewInput {
@@ -127,7 +129,10 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
 }
 
 /** The parts of a failed gate row its failure message reads. */
-export type RotationFailureRow = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted'>;
+export type RotationFailureRow = Pick<
+  ITransaction,
+  'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
+>;
 
 export interface RotationFailure {
   /** The row may have reached the network, so its outcome is unknown rather than failed. */
@@ -169,16 +174,21 @@ export const describeRotationFailure = (
   // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
   // prover failure (`PROVING_STAGES`). The engine-recovered copy says "left in an unknown state" itself. An
   // unconfirmed reason (the stuck reaper, the cold-start sweep, a not-landed consume, the debug force-cancel) is a
-  // writer that failed the row without proving the pipeline stopped before its submit.
+  // writer that failed the row without proving the pipeline stopped before its submit. A user cancel joins them
+  // once `processingStartedAt` is set: it goes through cancelWhilePipelineMayStillRun, which stops no pipeline,
+  // so it is final only for a row the write stamp never reached (Queued, or Queued-again after a requeue clears
+  // the stamp) rather than for a row the FIFO merely picked up.
   if (
     row.mayHaveSubmitted === true ||
     row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
-    (reason !== undefined && isUnconfirmedFailureReason(reason))
+    (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
+    (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
   ) {
     return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
   }
-  // A final wallet reason is copy the wallet wrote itself, verbatim, whatever the row's stage: user cancel, a
-  // Queued row that expired, or a note that can never be consumed. Shown as the message itself, with no details.
+  // A final wallet reason is copy the wallet wrote itself, verbatim, whatever the row's stage: user cancel on a
+  // row the write stamp never reached, a Queued row that expired, or a note that can never be consumed. Shown as
+  // the message itself, with no details.
   if (reason !== undefined && isWalletFailureReason(reason)) return { unconfirmed: false, message: reason };
   // `cancelTransaction` keeps `rawError` only when a classifier rewrote a THROWN error for the user.
   if (row.rawError !== undefined) {
