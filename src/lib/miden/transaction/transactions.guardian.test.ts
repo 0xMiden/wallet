@@ -6592,6 +6592,37 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
   });
 
+  it('stops the post-rotation account read when the state sync loses the hold (F-053)', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // After an eviction the proxy's getAccount would resolve the successor's client.
+    const getAccount = jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) }));
+    mockGetMidenClient.mockResolvedValue({
+      syncState: async () => {
+        revokeHold();
+      },
+      getAccount
+    });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
+  });
+
   it('recovers a transient re-register failure instead of leaving the new hot key unauthorized', async () => {
     // The regression this guards: a guardian recovery run rotated the key, the
     // single re-register attempt failed, and every consume afterwards died with

@@ -47,7 +47,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -461,8 +461,9 @@ export const completeReplaceHotKeyTransaction = async (
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
         storedAccountId = walletAccount.publicKey;
-        const sdkAccount = await withWasmClientLock(async () => {
+        const sdkAccount = await withWasmClientLock(async hold => {
           await midenClientProxy.syncState();
+          assertWasmHoldCurrent(hold, 'post-rotation re-register: after the state sync');
           return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
