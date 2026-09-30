@@ -4695,6 +4695,10 @@
     "message": "Зберегти та продовжити",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Ці кінцеві точки не вдалося зберегти. Спробуйте ще раз.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Скинути до заводських налаштувань",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Скинути налаштування до заводських та пройти реєстрацію заново",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Скидання не завершилося. Спробуйте ще раз.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Кінцеві точки мережі",
