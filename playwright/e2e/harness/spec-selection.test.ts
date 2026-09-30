@@ -367,6 +367,8 @@ const TERNARY_NAME = /^\$\{\{\s*\(([\s\S]+?)\)\s*&&\s*'([^']*)'\s*\|\|\s*'([^']*
 const REMEDY = {
   jobName:
     'a job would report a required E2E check name outside the designated FULL-ternary form, so rename the job or use the FULL ternary on its designated job',
+  designatedStrategy:
+    'the designated job carries a strategy the checker reads as a matrix, whose combination suffix would change its reported name, so remove the matrix, or write `strategy:` as block lines with no `matrix:` key',
   plainShape:
     'so write the job in the plain shape: one bare jobs: line, 2-space job ids, 4-space keys, sequence items indented deeper than their key (for example `steps:` items at 6 spaces), each key plain, unquoted and written once, with no merge key or anchor, and a one-line name: scalar',
   requiredName:
@@ -388,27 +390,37 @@ const REMEDY = {
 
 type NameViolation = { file: string; jobId: string; name: string; text: string };
 
-/** Whether `job` is its workflow's designated job, named exactly the FULL ternary of its own required name, with no matrix. */
-const isDesignatedFullName = (file: string, job: ParsedJob): boolean => {
+/** The FULL_NAME_JOBS entry for `job`'s file and job id when its name is exactly that entry's FULL ternary, whatever its strategy. */
+const designatedEntryOf = (file: string, job: ParsedJob): (typeof FULL_NAME_JOBS)[number] | undefined => {
   const designated = FULL_NAME_JOBS.find(entry => entry.file === file && entry.jobId === job.jobId);
   const ternary = TERNARY_NAME.exec(job.rawName ?? '');
-  return (
+  const matches =
     designated !== undefined &&
     ternary !== null &&
-    job.matrix === null &&
     ternary[1]!.trim() === FULL &&
     ternary[2] === designated.name &&
-    ternary[3] === `${designated.name} (stacked)`
-  );
+    ternary[3] === `${designated.name} (stacked)`;
+  return matches ? designated : undefined;
 };
+
+/** Whether `job` is its workflow's designated job, named exactly the FULL ternary of its own required name, with no matrix. */
+const isDesignatedFullName = (file: string, job: ParsedJob): boolean =>
+  job.matrix === null && designatedEntryOf(file, job) !== undefined;
 
 /**
  * Every required name one job could report other than as its designated FULL name. A
- * matrix job's name counts with and without its combination suffix: GitHub leaves the
- * suffix off a name that references the matrix, which an expression may or may not do.
+ * designated job whose only defect is its strategy is one violation under its own required
+ * name with REMEDY.designatedStrategy. Every other job is checked against every required
+ * name its name, with or without the suffix, could render: GitHub leaves a matrix job's
+ * combination suffix off a name that references the matrix, which an expression may or may
+ * not do.
  */
 const jobViolations = (file: string, job: ParsedJob, required: string[]): NameViolation[] => {
   if (isDesignatedFullName(file, job)) return [];
+  const designated = designatedEntryOf(file, job);
+  if (designated) {
+    return [{ file, jobId: job.jobId, name: designated.name, text: `${REMEDY.designatedStrategy}: jobs.${job.jobId}` }];
+  }
   const combos = job.matrix?.combos?.map(escapeRegExp).join('|') ?? '.*';
   const suffix = job.matrix ? `(?: \\((?:${combos})\\))?` : '';
   const pattern = new RegExp(`^${wildcardFromName(job.rawName ?? job.jobId)}${suffix}$`);
@@ -1475,6 +1487,30 @@ describe('no workflow can report a required E2E check name except through the co
     expect(
       workflowViolations(file, "jobs:\n  some-job:\n    name: 'local-e2e (chrome)'\n    runs-on: ubuntu-latest\n")
     ).toEqual([{ file, jobId: 'some-job', name: 'local-e2e (chrome)', text: `${REMEDY.jobName}: jobs.some-job` }]);
+  });
+
+  const designatedLocalWith = (strategy: string): string =>
+    jobWithStrategy('chrome-local', `name: ${fullNameOf('local-e2e (chrome)')}\n${strategy}`);
+
+  it.each([
+    ['a block matrix', 'strategy:\n  matrix:\n    browser: [chrome]'],
+    ['an inline strategy', 'strategy: { fail-fast: false }']
+  ])(
+    'the designated Local job with %s is one violation under its own required name, told to drop the matrix',
+    (_title, strategy) => {
+      expect(workflowViolations(LOCAL, designatedLocalWith(strategy))).toEqual([
+        {
+          file: LOCAL,
+          jobId: 'chrome-local',
+          name: 'local-e2e (chrome)',
+          text: `${REMEDY.designatedStrategy}: jobs.chrome-local`
+        }
+      ]);
+    }
+  );
+
+  it('the designated Local job with a block strategy and no matrix has no violations', () => {
+    expect(workflowViolations(LOCAL, designatedLocalWith('strategy:\n  fail-fast: false'))).toEqual([]);
   });
 
   it('a four-space-indented workflow is refused with an error naming its file and the plain shape', () => {
