@@ -379,8 +379,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       </motion.div>
 
       {/* Bottom nav — overlays content as a floating pill on every platform.
-          The data attribute lets
-          the dApp bubble host measure footer height for corner snap math.
+          The data attribute lets the dApp peek tray read the footer's top
+          edge, so hiding never moves this box: only the pill inside it slides.
           Forced `display:flex !important` + `z-[60]` guard against legacy
           CSS or stale compiled bundles that try to hide `[data-tabbar-footer]`
           or stack a higher z-index over it. */}

@@ -33,8 +33,7 @@ export interface BottomNavProps {
 // of the capsule and its distance from the screen edge (TabLayout).
 //
 // The surface is glass, in five parts:
-// - the fill: white at 2% over a 6px blur of the content under the bar. The build adds no
-//   `-webkit-` prefix, and iOS before 18 knows only the prefixed property, so it is set here too.
+// - the fill: white at 2% over a 6px blur of the content under the bar.
 // - the edge: a 1px white border at 30%.
 // - the shadow: a soft drop, a lit line inside the top edge, a faint line inside the bottom edge,
 //   and a thin white glow from the edge inward. The glow stays thin (12px blur, 2px spread, 12%):
@@ -46,7 +45,7 @@ export interface BottomNavProps {
 // on the dark page.
 const BAR_GLASS_CLASS_NAME = [
   'overflow-hidden border border-pure-white/30 bg-pure-white/2 dark:border-pure-white/10',
-  'backdrop-blur-[6px] [-webkit-backdrop-filter:blur(6px)]',
+  'backdrop-blur-[6px]',
   'shadow-[0_8px_32px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(255,255,255,0.1),inset_0_0_12px_2px_rgba(255,255,255,0.12)]',
   'dark:shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(255,255,255,0.04),inset_0_0_12px_2px_rgba(255,255,255,0.02)]',
   "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:content-['']",

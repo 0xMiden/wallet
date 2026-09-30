@@ -44,7 +44,7 @@ import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store
 
 import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
-import { FOOTER_HEIGHT_FALLBACK, resolveFooterClearance } from './peek-footer';
+import { FOOTER_CLEARANCE_FALLBACK, subscribeFooterClearance } from './peek-footer';
 import { resolveTargetRect } from './peek-target-rect';
 
 const MAX_VISIBLE_CARDS = 3;
@@ -89,7 +89,7 @@ const RESTORE_TRIGGER_DELAY_MS = 215;
 export const DappPeekTray: FC = () => {
   const { session: foregroundSession, parkedSessions, restore, close, openSwitcher, slotRect } = useDappBrowser();
   const [snapshotTick, setSnapshotTick] = useState(0);
-  const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
+  const [footerClearance, setFooterClearance] = useState(FOOTER_CLEARANCE_FALLBACK);
   // The currently-morphing session (either expanding-to-restore or
   // shrinking-to-minimize). Cleared once the animation completes.
   const [morphing, setMorphing] = useState<MorphingState | null>(null);
@@ -147,17 +147,9 @@ export const DappPeekTray: FC = () => {
   // snapshots swap in without unmounting their card.
   useEffect(() => subscribeSnapshots(() => setSnapshotTick(tick => tick + 1)), []);
 
-  // Measure the footer overlay so the tray sits just above BottomNav (see peek-footer).
-  useEffect(() => {
-    const measure = () => {
-      setFooterHeight(
-        resolveFooterClearance(document.querySelector<HTMLElement>('[data-tabbar-footer="true"]')?.offsetHeight)
-      );
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
+  // Measure the footer's top edge while the bar is at rest so the tray sits just above BottomNav
+  // (see peek-footer).
+  useEffect(() => subscribeFooterClearance(setFooterClearance), []);
 
   // Clean up any running morph timers on unmount so the setState
   // calls below don't fire against a stale component.
@@ -307,7 +299,7 @@ export const DappPeekTray: FC = () => {
     const viewportW = document.body.clientWidth || window.innerWidth;
     const viewportH = document.body.clientHeight || window.innerHeight;
     const cardLeft = viewportW - EDGE_PADDING - CARD_WIDTH;
-    const cardTop = viewportH - (footerHeight + 4) - CARD_HEIGHT;
+    const cardTop = viewportH - (footerClearance + 4) - CARD_HEIGHT;
     setMorphing({
       mode: 'shrink',
       session: nowParked.session,
@@ -321,7 +313,7 @@ export const DappPeekTray: FC = () => {
       setMorphing(null);
       morphClearTimerRef.current = null;
     }, EXPAND_TOTAL_DURATION_MS + 50);
-  }, [foregroundSession, parkedSessions, footerHeight, morphing]);
+  }, [foregroundSession, parkedSessions, footerClearance, morphing]);
 
   // Portal the tray into `document.body` rather than letting it render
   // inside the wallet's React tree. The app's global layout CSS in
@@ -343,7 +335,7 @@ export const DappPeekTray: FC = () => {
         // Position the tray so its bottom edge sits 4pt above the top
         // of the footer — a clean visible gap without overlapping the
         // navbar pill.
-        bottom: footerHeight + 4,
+        bottom: footerClearance + 4,
         right: EDGE_PADDING,
         width: stackWidth,
         height: CARD_HEIGHT,

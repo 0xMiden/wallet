@@ -641,8 +641,9 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
  * keyboard inset moved the layout underneath read as a jolt. `visibility`
  * flips only after the fade so the nav stays out of the tab order and
  * assistive tech while hidden, and comes back at once on show. The footer
- * keeps its inline `display: flex`, so it still measures its real height
- * for the dApp peek tray. */
+ * keeps its inline `display: flex` and hiding never moves its box, so the
+ * dApp peek tray, which reads the footer's top edge the moment this flag
+ * clears, gets the bar's resting edge without waiting for the fade. */
 [data-tabbar-footer='true'] {
   transition: opacity 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
 }
@@ -669,8 +670,8 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
 /* The room a flow CTA's cushion reserves for the tab bar (footer-cushion.ts reads it, 1rem when unset).
  * Declared on TabLayout's root, so only a page inside the layout that draws the bar inherits it: a slide
  * page is a sibling of the covered tab layer, has no bar over it, and keeps 1rem while it slides (#1109).
- * The bar is a floating capsule on every platform: 58px tall and 8px above the layout's bottom edge, so 5rem
- * keeps the CTA 14px above it. */
+ * The bar is a floating capsule on every platform, 58px tall. Off iOS it sits 8px above the layout's bottom
+ * edge, so 5rem keeps the CTA 14px above it; on iOS it sits on that edge, so the CTA keeps 22px. */
 [data-tab-layout='floating'] {
   --navbar-cushion: 5rem;
 }
