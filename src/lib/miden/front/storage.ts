@@ -5,6 +5,7 @@ import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { onStorageCleared } from 'lib/storage-cleared';
 import { useRetryableSWR } from 'lib/swr';
 
 /** The setter rejects when the write fails, so a caller that does not await it must catch. */
@@ -61,15 +62,22 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
 /**
  * Ends an `onStorageChanged` subscription. On the extension `attached` settles once the listener is attached, or once
  * attaching has failed (logged), so a read issued after it hears every change committed after that read; off the
- * extension there is no listener and no `attached`.
+ * extension the key is re-read on this document's own wipes and there is no `attached`.
  */
 export type StorageChangeSubscription = (() => void) & { attached?: Promise<void> };
 
 export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void): StorageChangeSubscription {
-  // On mobile/desktop, storage change events are not available
-  // Return a no-op cleanup function
+  // Off the extension, no storage-change event fires in this document: reset.ts announces its own
+  // wipes of the platform store through onStorageCleared instead. On each announcement, re-read
+  // this key and take it the same way the extension branch below takes a removal - a missing key
+  // becomes undefined, not null. A failed re-read is logged and calls nothing back.
   if (!isExtension()) {
-    return () => {};
+    return onStorageCleared(() => {
+      void fetchFromStorage<T>(key).then(
+        value => callback((value ?? undefined) as T),
+        error => console.warn(`onStorageChanged: failed to re-read "${key}" after a storage clear`, error)
+      );
+    });
   }
 
   // Lazy load browser for extension. The import resolves after this function

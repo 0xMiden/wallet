@@ -35,6 +35,7 @@ export const EARN_DATA: {
       yearlyEstimate: '+$53.68 / yr',
       withdrawTime: '~30 sec · no lockup',
       route: 'Miden -> Aave (Ethereum)',
+      stale: false,
       chartData: [
         { label: 'Mar 18', value: 1000 },
         { label: 'Mar 24', value: 1003 },
@@ -79,6 +80,7 @@ export const EARN_DATA: {
       yearlyEstimate: '+$53.68 / yr',
       withdrawTime: '~30 sec · no lockup',
       route: 'Miden -> Aave (Ethereum)',
+      stale: false,
       chartData: [
         { label: 'Mar 18', value: 1000 },
         { label: 'Mar 24', value: 1004 },

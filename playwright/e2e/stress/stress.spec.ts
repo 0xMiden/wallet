@@ -36,7 +36,7 @@ function floatEnv(key: string, dflt: number): number {
   return v;
 }
 
-function parseOptions(): StressOptions {
+function parseOptions(claimBudgetMs: number): StressOptions {
   return {
     numNotes: intEnv('STRESS_NUM_NOTES', 20),
     delayMinMs: intEnv('STRESS_DELAY_MIN_MS', 3_000),
@@ -49,6 +49,7 @@ function parseOptions(): StressOptions {
     sendAmountMin: intEnv('STRESS_AMOUNT_MIN', 1),
     sendAmountMax: intEnv('STRESS_AMOUNT_MAX', 10),
     claimAfterSendProb: floatEnv('STRESS_CLAIM_AFTER_SEND_PROB', 0.5),
+    claimBudgetMs,
     idleEvery: intEnv('STRESS_IDLE_EVERY', 10),
     idleMinMs: intEnv('STRESS_IDLE_MIN_MS', 30_000),
     idleMaxMs: intEnv('STRESS_IDLE_MAX_MS', 60_000),
@@ -76,7 +77,6 @@ test.describe('Stress - random send/claim', () => {
   test.setTimeout(0);
 
   test('random send/claim between two wallets', async ({ walletA, walletB, midenCli, steps, timeline }) => {
-    const opts = parseOptions();
     const initialMintsPerWallet = intEnv('STRESS_INITIAL_MINTS', 3);
     const conservationStrict = (process.env.STRESS_CONSERVATION_STRICT ?? 'true') === 'true';
 
@@ -89,6 +89,8 @@ test.describe('Stress - random send/claim', () => {
     // Guardian co-signing adds HTTP round-trips, so syncs/claims need a wider
     // window than standard accounts.
     const guardianSyncMs = useGuardian ? 300_000 : 180_000;
+
+    const opts = parseOptions(guardianSyncMs);
 
     console.log('\n=== STRESS RUN PARAMETERS ===');
     console.log(
@@ -184,10 +186,11 @@ test.describe('Stress - random send/claim', () => {
     // an id the wallet does not key balances by, and the conservation check downstream would then
     // be comparing against nothing.
     //
-    // The EXACT minted amount, not `> 0`: a zero threshold passes for the wrong token, a partial
-    // claim, or a balance that was already there, which is the shape this suite exists to stop
-    // trusting. Fees cannot erode it because they burn the native asset, never the deployed faucet.
-    const expectedPerWallet = INITIAL_MINT_AMOUNT / 10 ** FAUCET_DECIMALS;
+    // The EXACT minted amount, every one of the `initialMintsPerWallet` mints, not `> 0`: a zero
+    // threshold passes for the wrong token, a partial claim, or a balance that was already there,
+    // which is the shape this suite exists to stop trusting. Fees cannot erode it because they burn
+    // the native asset, never the deployed faucet.
+    const expectedPerWallet = (initialMintsPerWallet * INITIAL_MINT_AMOUNT) / 10 ** FAUCET_DECIMALS;
     expect(initialA, `exact-faucet baseline wrong for wallet A (faucetId=${faucetId})`).toBe(expectedPerWallet);
     expect(initialB, `exact-faucet baseline wrong for wallet B (faucetId=${faucetId})`).toBe(expectedPerWallet);
     const initialTotal = initialA + initialB;

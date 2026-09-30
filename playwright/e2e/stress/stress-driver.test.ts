@@ -56,6 +56,7 @@ describe('runStressDriver balance scope', () => {
         sendAmountMin: 1,
         sendAmountMax: 1,
         claimAfterSendProb: 0,
+        claimBudgetMs: 240_000,
         idleEvery: 0,
         idleMinMs: 0,
         idleMaxMs: 0,
@@ -86,4 +87,58 @@ describe('runStressDriver balance scope', () => {
       expect(snapshotScopes).toEqual(snapshotScopes.map(() => ({ faucetId: TRACKED_FAUCET })));
     }
   );
+});
+
+describe('runStressDriver per-op claim budget (#1266)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('claims after a send with the budget its options carry', async () => {
+    jest.useFakeTimers();
+    const claimBudgets: number[] = [];
+    const makeWallet = (): ChromeWalletPageApi =>
+      ({
+        page: {},
+        quickBalanceSnapshot: async () => snapshot(10),
+        sendTokens: async () => undefined,
+        claimAllNotes: async (budgetMs: number) => {
+          claimBudgets.push(budgetMs);
+        }
+      }) as unknown as ChromeWalletPageApi;
+    const opts: StressOptions = {
+      numNotes: 1,
+      delayMinMs: 0,
+      delayMaxMs: 0,
+      privateRatio: 0,
+      sendAmountMin: 1,
+      sendAmountMax: 1,
+      claimAfterSendProb: 1,
+      claimBudgetMs: 123_456,
+      idleEvery: 0,
+      idleMinMs: 0,
+      idleMaxMs: 0,
+      lockEvery: 0,
+      reloadEvery: 0,
+      concurrentProb: 0,
+      perTurnSendTimeoutMs: 30_000,
+      transportFailProb: 0,
+      seed: 1
+    };
+    const inputs: Parameters<typeof runStressDriver>[0] = {
+      walletA: makeWallet(),
+      walletB: makeWallet(),
+      addressA: 'account-a',
+      addressB: 'account-b',
+      faucetId: TRACKED_FAUCET
+    };
+    const timeline = { emit: jest.fn() } as unknown as TimelineRecorder;
+
+    const resultPromise = runStressDriver(inputs, timeline, opts);
+    await jest.runAllTimersAsync();
+    await resultPromise;
+
+    // The per-op claim comes first; the final drain's ten claims keep their own 5-minute budget.
+    expect(claimBudgets).toEqual([123_456, ...Array.from({ length: 10 }, () => 300_000)]);
+  });
 });

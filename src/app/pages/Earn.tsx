@@ -18,8 +18,8 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 const Earn: FC = () => {
   const { t } = useTranslation();
   const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
-  // SWR keeps the error until a load succeeds, and a first load has none: a retry (which SWR reports
-  // as isLoading) must not lift the failure and flash the empty state back.
+  // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
+  // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
 
   return (
