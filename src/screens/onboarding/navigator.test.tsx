@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
@@ -106,6 +106,7 @@ jest.mock('./common/ChooseProtection', () => ({
 }));
 jest.mock('./common/Confirmation', () => ({ ConfirmationScreen: (p: any) => mockScreen('confirmation')(p) }));
 jest.mock('./common/NetworkNotice', () => ({ NetworkNoticeScreen: (p: any) => mockScreen('network-notice')(p) }));
+jest.mock('./common/MainnetAccess', () => ({ MainnetAccessScreen: (p: any) => mockScreen('mainnet-access')(p) }));
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
@@ -176,6 +177,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
   // Every step after Welcome carries the header's back button: steps whose own footer used to hold
   // a Back button and steps (protection, passcode, guardian) that had no way back at all.
   const headerWithBack: Array<[OnboardingStep, string]> = [
+    [OnboardingStep.MainnetAccess, 'screen-mainnet-access'],
     [OnboardingStep.NetworkNotice, 'screen-network-notice'],
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
@@ -200,6 +202,15 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(progress()).toBeInTheDocument();
     const back = screen.getByTestId('onboarding-back');
     expect(back).toHaveAccessibleName('back');
+  });
+
+  it('names the mainnet access step in its header, and no other step', () => {
+    renderFlow({ step: OnboardingStep.MainnetAccess, onboardingType: OnboardingType.Import });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('mainnetAccessHeader');
+
+    cleanup();
+    renderFlow({ step: OnboardingStep.NetworkNotice, onboardingType: OnboardingType.Import });
+    expect(screen.queryByText('mainnetAccessHeader')).not.toBeInTheDocument();
   });
 
   it('hides the back button where the host says the step cannot be left (a wallet being created)', () => {
@@ -233,6 +244,15 @@ describe('OnboardingFlow — action wiring per screen', () => {
     onAction.mockClear();
     act(() => mockCaptured.welcome.onSubmit('nonsense'));
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('MainnetAccess: an accepted code dispatches mainnet-access-granted, and no code dispatches the skip', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.MainnetAccess, onAction });
+    act(() => mockCaptured['mainnet-access'].onSubmit());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-granted' });
+    act(() => mockCaptured['mainnet-access'].onSkip());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-skip' });
   });
 
   it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
