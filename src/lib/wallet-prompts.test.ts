@@ -2054,6 +2054,7 @@ describe('bridge prompts', () => {
       status: ITransactionStatus.Failed,
       mayHaveSubmitted: true,
       transactionId: '0xabc',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
 
@@ -2073,6 +2074,7 @@ describe('bridge prompts', () => {
       id: 'agg-failed-no-txid',
       status: ITransactionStatus.Failed,
       mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
 
@@ -2089,6 +2091,7 @@ describe('bridge prompts', () => {
       id: 'epoch-failed-unconfirmed',
       status: ITransactionStatus.Failed,
       mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
       extraInputs: {
         provider: 'epoch',
         epochStatus: 'pending',
@@ -2117,6 +2120,7 @@ describe('bridge prompts', () => {
       status: ITransactionStatus.Failed,
       error: 'Some ordinary rejection',
       transactionId: '0xabc',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
 
@@ -2125,6 +2129,115 @@ describe('bridge prompts', () => {
 
     expect(findClaimableDeposit).not.toHaveBeenCalled();
     expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  // A background poll of a row whose landing is unknown cannot rely on an answer ever
+  // arriving, the way a Completed row can - so it has a terminal condition. Past it, the
+  // row is left to the detail page's own on-demand tracker and fill poll (#1250).
+  it('excludes a Failed AggLayer bridge whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xABC' });
+    const stale = baseBridge({
+      id: 'agg-failed-stale',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xstale',
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const fresh = baseBridge({
+      id: 'agg-failed-fresh',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfresh',
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(stale, fresh);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale');
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xfresh');
+  });
+
+  it('does not fill-poll a Failed Epoch row whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const stale = baseBridge({
+      id: 'epoch-failed-stale',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-stale',
+        destinationAddress: '0xdest'
+      }
+    });
+    const fresh = baseBridge({
+      id: 'epoch-failed-fresh',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-fresh',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(stale, fresh);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-stale' });
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-fresh' });
+  });
+
+  // A Completed row is polled as today, with no window - only an unconfirmed Failed
+  // row's outcome can be left unresolved forever the way a landed one cannot.
+  it('still polls a Completed row 25 hours old, since the window applies only to an unconfirmed Failed row', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const oldCompleted = baseBridge({
+      id: 'epoch-completed-old',
+      status: ITransactionStatus.Completed,
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-completed-old',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(oldCompleted);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-completed-old' });
+  });
+
+  // F-047: `extraInputs` is read defensively, the same way the promotion filter already
+  // reads it, so an in-window Failed-unconfirmed row that somehow carries none does not
+  // throw out of the per-row catch as a warning.
+  it('does not warn when an in-window Failed-unconfirmed bridged-send has no extraInputs', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const noExtraInputs = baseBridge({
+      id: 'agg-failed-no-extra-inputs',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: undefined
+    });
+
+    bridgeRows.push(noExtraInputs);
+    await reconcileBridgedSends();
+
+    expect(warn).not.toHaveBeenCalledWith(
+      '[wallet-prompts] bridged-send poll failed',
+      'agg-failed-no-extra-inputs',
+      expect.any(Error)
+    );
+    warn.mockRestore();
   });
 
   // One row's rejecting promotion must not stop the pass for the others, the same

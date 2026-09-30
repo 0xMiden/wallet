@@ -126,19 +126,33 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
 
+// A background poll of a row whose landing is unknown has a terminal condition - it
+// cannot rely on an answer ever arriving, the way a Completed row can. Longer than an
+// Agglayer L2-to-L1 exit and any Epoch fill, so a bridge that landed is settled in the
+// background, and one that never landed stops costing a fetch every tick; past it, the
+// detail page's own on-demand tracker and fill poll still settle the row (#1250).
+const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Poll one bridge row against its provider - a Completed row with something left to
- * settle, or a Failed row whose outcome `isUnconfirmedFailure` still calls unknown,
- * the same predicate the rotation gate and Activity History already share. Either
- * way the row is settled by evidence bound to it alone, never a general resweep of
- * every Failed row (#1250). `isBridgePromptActive` and the prompts built from it are
- * unaffected: a Failed row shows no Claim affordance until this promotes it.
+ * settle, with no window, or a Failed row whose outcome `isUnconfirmedFailure` still
+ * calls unknown AND is still within `FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS` of its
+ * own `initiatedAt` (stored in seconds). Either way the row is settled by evidence
+ * bound to it alone, never a general resweep of every Failed row (#1250).
+ * `isBridgePromptActive` and the prompts built from it are unaffected: a Failed row
+ * shows no Claim affordance until this promotes it.
  */
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (tx.type !== 'bridged-send') return;
-  const failedUnconfirmed = tx.status === ITransactionStatus.Failed && isUnconfirmedFailure(tx);
+  const failedUnconfirmed =
+    tx.status === ITransactionStatus.Failed &&
+    isUnconfirmedFailure(tx) &&
+    Date.now() - tx.initiatedAt * 1000 < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
   if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
-  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  // Read defensively, the same way the promotion filter in `reconcileBridgedSends`
+  // already does: a Failed row with no `extraInputs` at all must not crash the pass.
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+  if (!inputs) return;
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
