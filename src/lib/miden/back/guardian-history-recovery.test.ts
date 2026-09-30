@@ -1044,13 +1044,14 @@ it.each(aborts)(
 );
 
 it.each(aborts)(
-  'defers %s of a summary decode from an operator the account never used without counting it, asked once per session',
+  'counts %s of a summary decode from an operator the account never used once per session',
   async (_kind, make) => {
     const client = source('https://two', []);
     jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
     failDecodeOf('3', make());
     for (let restart = 0; restart < 2; restart++) {
       expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 1 });
+      expect((await twoCheckpoint())?.abortedDecodePasses).toBe(1);
       expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
     }
     expect(decodesOf('3')).toBe(1);
@@ -1062,6 +1063,7 @@ it.each(aborts)(
     forgetUnsupportedHistorySources();
     await run();
     expect(decodesOf('3')).toBe(2);
+    expect((await twoCheckpoint())?.abortedDecodePasses).toBe(2);
     expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
   }
 );
@@ -1135,16 +1137,18 @@ it.each(aborts)(
     const first = await run();
     expect(first).toMatchObject({ deferred: false, sourceFailures: 1, deferredSources: 1 });
     expect(commitmentCalls()).toBe(2);
-    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false });
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'network', completed: false, abortedDecodePasses: 1 });
     expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
     await run();
     expect(commitmentCalls()).toBe(2);
+    expect((await twoCheckpoint())?.abortedDecodePasses).toBe(1);
     expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
     forgetUnsupportedHistorySources();
     await run();
     expect(commitmentCalls()).toBe(4);
+    expect((await twoCheckpoint())?.abortedDecodePasses).toBe(2);
     expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
   }
 );
@@ -1209,11 +1213,11 @@ it('defers a commitment abort of an operator the account never used only when it
   expect(one).toMatchObject({ completed: true });
   expect(one?.failure).toBeUndefined();
   const two = await twoCheckpoint();
-  expect(two).toMatchObject({ failure: 'network', completed: false });
+  expect(two).toMatchObject({ failure: 'network', completed: false, abortedDecodePasses: 1 });
   expect(two?.deferredFailurePasses).toBeUndefined();
 });
 
-it('leaves an operator the account never used deferred, not completed, after three sessions of local decode aborts', async () => {
+it('completes an operator the account never used empty after MAX_ABORTED_DECODE_PASSES sessions of local decode aborts', async () => {
   await addLocalResult();
   const one = clients.get('https://one');
   if (!one) throw new Error('Missing test source');
@@ -1225,19 +1229,103 @@ it('leaves an operator the account never used deferred, not completed, after thr
   jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
     throw new OperationAbortedError('op-1', 'deadline');
   });
-  for (let session = 0; session < 3; session++) {
-    if (session > 0) forgetUnsupportedHistorySources();
+  for (let session = 1; session <= 5; session++) {
+    if (session > 1) forgetUnsupportedHistorySources();
     expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 1 });
-    expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'network' });
+    const checkpoint = await twoCheckpoint();
+    expect(checkpoint).toMatchObject({ completed: false, failure: 'network', abortedDecodePasses: session });
+    expect(checkpoint?.deferredFailurePasses).toBeUndefined();
   }
-  expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
+  forgetUnsupportedHistorySources();
+  expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 0 });
+  expect(await twoCheckpoint()).toMatchObject({ completed: true, abortedDecodePasses: 6 });
   const two = clients.get('https://two');
   if (!two) throw new Error('Missing test source');
-  expect(two.getDeltaHistory).toHaveBeenCalledTimes(3);
+  expect(two.getDeltaHistory).toHaveBeenCalledTimes(6);
 
   forgetUnsupportedHistorySources();
   await run();
-  expect(two.getDeltaHistory).toHaveBeenCalledTimes(4);
+  expect(two.getDeltaHistory).toHaveBeenCalledTimes(6);
+});
+
+// Operator one serves nothing, so only two's page has records and reaches the commitment decode.
+const decodeOnlyTwo = async () => {
+  await addLocalResult();
+  const one = clients.get('https://one');
+  if (!one) throw new Error('Missing test source');
+  jest
+    .spyOn(one, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
+};
+
+it('does not charge a decode abort that settles after a lock to the new session', async () => {
+  await decodeOnlyTwo();
+  serveEveryPass('https://two', { entries: [entry(3)] });
+  let calls = 0;
+  jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+    if (calls++ === 0) forgetUnsupportedHistorySources();
+    throw new WasmClientPoisonedError('realm-error');
+  });
+  expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 1 });
+  expect(await twoCheckpoint()).toMatchObject({ completed: false, failure: 'network' });
+  expect((await twoCheckpoint())?.abortedDecodePasses).toBeUndefined();
+
+  await run();
+  expect(commitmentCalls()).toBe(2);
+  expect((await twoCheckpoint())?.abortedDecodePasses).toBe(1);
+});
+
+// Two's request fails on both attempts in the first session and is answered with entry 3 from then on.
+const failTwoOnceThenServe = () => {
+  const client = clients.get('https://two');
+  if (!client) throw new Error('Missing test source');
+  let requests = 0;
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockImplementation(async () => {
+      if (requests++ < 2) throw new Error('offline');
+      return { entries: [entry(3)] };
+    });
+};
+
+it('keeps the two counts apart', async () => {
+  await decodeOnlyTwo();
+  failTwoOnceThenServe();
+  jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+    throw new OperationAbortedError('op-1', 'deadline');
+  });
+  expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 1 });
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'network', deferredFailurePasses: 1 });
+  expect((await twoCheckpoint())?.abortedDecodePasses).toBeUndefined();
+
+  forgetUnsupportedHistorySources();
+  expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 1 });
+  expect(commitmentCalls()).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'network', deferredFailurePasses: 1, abortedDecodePasses: 1 });
+});
+
+it('resets both counts after a served page', async () => {
+  await decodeOnlyTwo();
+  failTwoOnceThenServe();
+  let calls = 0;
+  jest.mocked(midenClientProxy.getGuardianResultCommitment).mockImplementation(async () => {
+    if (calls++ === 0) throw new OperationAbortedError('op-1', 'deadline');
+    return 'commitment-3';
+  });
+  await run();
+  forgetUnsupportedHistorySources();
+  await run();
+  expect(await twoCheckpoint()).toMatchObject({ deferredFailurePasses: 1, abortedDecodePasses: 1 });
+
+  forgetUnsupportedHistorySources();
+  expect(await run()).toMatchObject({ sourceFailures: 0, deferredSources: 0 });
+  const two = await twoCheckpoint();
+  expect(two).toMatchObject({ completed: true });
+  expect(two?.failure).toBeUndefined();
+  expect(two?.deferredFailurePasses).toBeUndefined();
+  expect(two?.abortedDecodePasses).toBeUndefined();
 });
 
 it('asks a source whose decode aborted again in the session a lock started while it ran', async () => {
@@ -1260,10 +1348,12 @@ it('asks an operator the account never used whose decode aborted again in the se
   abortDecodeOf('3', () => new WasmClientPoisonedError('realm-error'), forgetUnsupportedHistorySources);
   const first = await run();
   expect(first).toMatchObject({ deferred: false, sourceFailures: 0, deferredSources: 1 });
+  expect((await twoCheckpoint())?.abortedDecodePasses).toBeUndefined();
   expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 
   await run();
   expect(decodesOf('3')).toBe(2);
+  expect((await twoCheckpoint())?.abortedDecodePasses).toBe(1);
   expect((await twoCheckpoint())?.deferredFailurePasses).toBeUndefined();
 });
 

@@ -78,10 +78,22 @@ export const MAX_HISTORY_SEEN_CURSORS = 64;
  * Sessions a source can answer "no history" before it ends: empty for an operator the account may never have used,
  * and as a terminal failure for one it used. A source whose data fails a check in this many sessions is terminal too,
  * and an operator the account may never have used whose request cannot be answered in this many sessions (its
- * deferredFailurePasses) completes empty. Each count is spent at most once per session, and a terminal source ends
- * recovery once the pass has read the other operators.
+ * deferredFailurePasses) completes empty, as one whose decode does not finish in MAX_ABORTED_DECODE_PASSES sessions
+ * does. Each count is spent at most once per session, and a terminal source ends recovery once the pass has read the
+ * other operators. A failure that no request or decode carries (a fee lookup that fails with an error, a client that
+ * cannot be built, a local write) spends no count and has no cap: it is the wallet's own and meets every operator.
  */
 export const MAX_UNSUPPORTED_HISTORY_PASSES = 3;
+
+/**
+ * Sessions in which a summary or local result-commitment decode for an operator the account may never have used can
+ * fail to finish (its abortedDecodePasses) before the operator completes empty. The decode did not finish when its
+ * wait for the WASM lock, a fee lookup inside it or its walk ran past the offscreen deadline, or an eviction took it;
+ * a trap on the operator's bytes is invalid data instead. An abort in every session is a decode this device cannot
+ * finish in time, while the higher cap lets a transient stall behind the post-unlock sync pass. An abort is charged
+ * only in the session it began in.
+ */
+export const MAX_ABORTED_DECODE_PASSES = 2 * MAX_UNSUPPORTED_HISTORY_PASSES;
 
 function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
   if (checkpoint.failure === 'unsupported')
@@ -90,10 +102,10 @@ function atHistoryCap(checkpoint: GuardianHistoryCheckpoint): boolean {
 }
 
 // Checkpoints answered unsupported, whose data failed a check, whose summary or commitment decode was aborted, or whose
-// operator the account may never have used was deferred because a request could not be answered or a decode was
-// aborted (whether or not that spent its deferredFailurePasses), since the backend started or the wallet last locked.
-// Each is recorded once per session, so a deferral restart cannot spend a cap or decode again. An answer to an attempt
-// issued before a lock is left out of the session the lock started.
+// operator the account may never have used was deferred because a request could not be answered (deferredFailurePasses)
+// or a decode was aborted (abortedDecodePasses), since the backend started or the wallet last locked. Each is recorded
+// once per session, so a deferral restart cannot spend a cap or decode again. An answer to an attempt or a decode
+// begun before a lock is left out of the session the lock started.
 const unsupportedHistorySources = new Set<string>();
 const invalidDataHistorySources = new Set<string>();
 const abortedDecodeHistorySources = new Set<string>();
@@ -506,7 +518,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             entryCount,
             failure: undefined,
             feeScope: undefined,
-            deferredFailurePasses: undefined
+            deferredFailurePasses: undefined,
+            abortedDecodePasses: undefined
           };
           if (!(await saveGuardianHistoryCheckpoint(context.generation, checkpoint))) throw new HistoryInterrupted();
         }
@@ -530,9 +543,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         }
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
         if (failure !== 'invalid-data' && !ownOperators.includes(operator)) {
-          // Charged once, to the session of the attempt that failed. A failure no attempt carries, such as a fee lookup
-          // on the wallet's own node or a decode its own worker did not finish, defers the source without spending its
-          // count; an aborted decode still skips the source for the rest of its session.
+          // Each class spends only its own count, once: a failed request its deferredFailurePasses, in the session its
+          // attempt was issued in, and an aborted decode its abortedDecodePasses, only if it began in this session. A
+          // failure neither carries, such as a failed fee lookup on the wallet's own node, defers the source uncounted.
           const session =
             thrown instanceof HistoryRequestFailed || thrown instanceof HistoryDecodeAborted
               ? thrown.session
@@ -541,8 +554,14 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             thrown instanceof HistoryRequestFailed
               ? (checkpoint.deferredFailurePasses ?? 0) + 1
               : checkpoint.deferredFailurePasses;
-          const completed = (deferredFailurePasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES;
-          const deferred = { ...checkpoint, failure, deferredFailurePasses, completed };
+          const abortedDecodePasses =
+            thrown instanceof HistoryDecodeAborted && thrown.session === unsupportedHistorySession
+              ? (checkpoint.abortedDecodePasses ?? 0) + 1
+              : checkpoint.abortedDecodePasses;
+          const completed =
+            (deferredFailurePasses ?? 0) >= MAX_UNSUPPORTED_HISTORY_PASSES ||
+            (abortedDecodePasses ?? 0) >= MAX_ABORTED_DECODE_PASSES;
+          const deferred = { ...checkpoint, failure, deferredFailurePasses, abortedDecodePasses, completed };
           if (!(await saveGuardianHistoryCheckpoint(context.generation, deferred))) throw new HistoryInterrupted();
           if (!completed) {
             deferredSources++;

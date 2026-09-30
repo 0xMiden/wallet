@@ -59,9 +59,16 @@ export interface GuardianHistoryCheckpoint {
   invalidDataPasses?: number;
   /**
    * Sessions in which an operator the account is not known to have used failed to answer a request; never spent by
-   * invalid data, a fee answer, a fee lookup or a decode abort, and reset by a page it serves.
+   * invalid data, a fee answer, a fee lookup or a decode abort (which spends abortedDecodePasses), and reset by a page
+   * it serves.
    */
   deferredFailurePasses?: number;
+  /**
+   * Sessions in which a summary or local result-commitment decode for an operator the account is not known to have
+   * used did not finish (an eviction, or the decode operation's deadline, a fee lookup inside it included); never spent
+   * by a failed request, invalid data or a fee lookup that fails with an error, and reset by a page it serves.
+   */
+  abortedDecodePasses?: number;
   failure?: GuardianHistoryFailure;
   /** The node (`cacheScope`) whose answer made a `fee-metadata` failure terminal; it holds only for that node. */
   feeScope?: string;

@@ -57,6 +57,13 @@ it('retains the deferred failure count across reads', async () => {
   expect((await readGuardianHistoryState()).checkpoints.test).toEqual(deferred);
 });
 
+it('retains the aborted decode count across reads', async () => {
+  const state = await readGuardianHistoryState();
+  const aborted = { ...checkpoint, failure: 'network' as const, abortedDecodePasses: 4 };
+  expect(await saveGuardianHistoryCheckpoint(state.generation, aborted)).toBe(true);
+  expect((await readGuardianHistoryState()).checkpoints.test).toEqual(aborted);
+});
+
 it('rejects a checkpoint from a pass that predates an import', async () => {
   const state = await readGuardianHistoryState();
   await clearGuardianHistoryCheckpoints();

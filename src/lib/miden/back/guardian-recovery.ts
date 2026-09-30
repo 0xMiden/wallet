@@ -702,8 +702,11 @@ let lockEpoch = 0;
  * provider offers it again after the next unlock, as the partial-history card
  * promises, and starts a new session for the history sources that answered
  * unsupported, whose data failed a check, or whose operator the account may
- * never have used could not be read (deferredFailurePasses), so that pass asks
- * them again unless they are at MAX_UNSUPPORTED_HISTORY_PASSES.
+ * never have used could not be read (deferredFailurePasses) or decoded
+ * (abortedDecodePasses), so that pass asks them again unless they are at
+ * MAX_UNSUPPORTED_HISTORY_PASSES or, for a decode, MAX_ABORTED_DECODE_PASSES.
+ * A wallet-side failure that spends neither count, such as a failed fee
+ * lookup, has no cap.
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;
@@ -864,7 +867,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       return;
     }
     // A deferred source (an operator the account may never have used that serves no history yet or cannot be read,
-    // until its count reaches MAX_UNSUPPORTED_HISTORY_PASSES) keeps the flag and retries here too.
+    // until its count reaches MAX_UNSUPPORTED_HISTORY_PASSES, or cannot be decoded, until MAX_ABORTED_DECODE_PASSES;
+    // a wallet-side failure such as a failed fee lookup has no cap) keeps the flag and retries here too.
     if (history.sourceFailures > 0 || history.deferredSources > 0) {
       failed = true;
       await reportGuardianNoteRecoveryProgress({
