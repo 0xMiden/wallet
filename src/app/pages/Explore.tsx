@@ -502,6 +502,15 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ address, tokens, tokenPrices, onU
     }
   }, [tokens, assetListRef]);
 
+  // The section stays mounted (returning null) while `tokens` is empty, so a hidden token
+  // reappearing later would otherwise come back open with a stale error: collapse and drop it now.
+  useEffect(() => {
+    if (tokens.length === 0) {
+      setOpen(false);
+      setUnhideFailed(false);
+    }
+  }, [tokens.length]);
+
   if (tokens.length === 0) return null;
 
   return (

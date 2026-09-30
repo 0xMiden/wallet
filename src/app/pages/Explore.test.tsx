@@ -843,6 +843,28 @@ describe('Explore', () => {
       await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
       expect(document.activeElement).toBe(screen.getByTestId('asset-list'));
     });
+
+    it('starts collapsed with no error line after the section empties, once a later hide fills it again', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      await renderExplore();
+      await openSection();
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+      await unhideSpam();
+      await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+
+      // A hide from outside this page (the same module-level store) fills the section back up.
+      const outside = renderHook(() => useHiddenTokens('mtst1account'));
+      await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+      await act(async () => {
+        await outside.result.current.hide('t-btc');
+      });
+      outside.unmount();
+
+      const toggle = await screen.findByTestId('hidden-assets-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+    });
   });
 
   describe('HomeOverview interactions', () => {
