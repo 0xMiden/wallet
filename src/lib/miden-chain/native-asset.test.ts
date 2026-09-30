@@ -330,49 +330,46 @@ describe('native-asset module', () => {
     expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
-  // The fee cooldown survives resetNativeAssetCache; moving to a node of the test's own drops one an earlier test stamped.
+  // A trap here is in the RpcClient discover() builds for its one read, never in the client in the slot, so it is
+  // a failed read like any other. The fee cooldown survives resetNativeAssetCache; a node of the test's own drops
+  // one an earlier test stamped.
   const onFreshNode = (rpcUrl: string) => {
     isVerificationBaseFeeKnownAbsent();
     _g.__nativeAssetTest.rpcUrl = rpcUrl;
-    _g.__nativeAssetTest.storage[`native_asset_id:v4:${rpcUrl}|testnet`] = 'pre-cached-id';
   };
 
-  it('rethrows a trap from the fee accessor with no cooldown, for the lock to retire', async () => {
-    const trap = new WebAssembly.RuntimeError('unreachable');
+  it('a trap from the fee accessor still lets the faucet id be discovered, and the fee retries behind the cooldown', async () => {
     onFreshNode('rpc-accessor-trap');
     _g.__nativeAssetTest.rpcHeader = {
       feeFaucetId: () => ({ _id: 'native-acc' }),
       verificationBaseFee: () => {
-        throw trap;
+        throw new WebAssembly.RuntimeError('unreachable');
       }
     };
 
-    const first = await getVerificationBaseFee().catch((error: unknown) => error);
-    const afterFirst = _g.__nativeAssetTest.rpcCalls;
-    const second = await getVerificationBaseFee().catch((error: unknown) => error);
-    expect(afterFirst).toBe(1);
-    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
-    expect(first).toBe(trap);
-    expect(second).toBe(trap);
+    await expect(getNativeAssetId()).resolves.toBe('bech32-native-acc');
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
     expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
-  it('rethrows a trap from the fee discovery with no cooldown, for the lock to retire', async () => {
-    const trap = new WebAssembly.RuntimeError('unreachable');
+  it('a trap in the fee discovery resolves null behind the cooldown', async () => {
     onFreshNode('rpc-discovery-trap');
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-discovery-trap|testnet'] = 'pre-cached-id';
     _g.__nativeAssetTest.rpcHeader = {
       feeFaucetId: () => {
-        throw trap;
+        throw new WebAssembly.RuntimeError('unreachable');
       }
     };
 
-    const first = await getVerificationBaseFee().catch((error: unknown) => error);
-    const afterFirst = _g.__nativeAssetTest.rpcCalls;
-    const second = await getVerificationBaseFee().catch((error: unknown) => error);
-    expect(afterFirst).toBe(1);
-    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
-    expect(first).toBe(trap);
-    expect(second).toBe(trap);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
   });
 
   it('drops a discovered base fee when the endpoint changes', async () => {
