@@ -4695,6 +4695,10 @@
     "message": "Enregistrer et continuer",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Ces points de terminaison n’ont pas pu être enregistrés. Réessayez.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Rétablir les paramètres par défaut",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Réinitialisation aux paramètres par défaut et nouvelle configuration",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "La réinitialisation n’a pas abouti. Réessayez.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminaisons réseau",

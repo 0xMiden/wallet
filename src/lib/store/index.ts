@@ -866,7 +866,8 @@ const RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS = 4000;
  *
  * Bounded to `RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS`: `IntercomClient.request`
  * never rejects if the SW port disconnects mid-request, so an un-bounded await
- * here could hang forever and wedge a caller's UI (e.g. leave `saving` stuck).
+ * here could hang forever and wedge a caller's UI (e.g. leave Developer
+ * Settings' `pending` stuck).
  * The underlying request keeps running and its own `.catch` still swallows a
  * late failure — this just stops the caller from waiting on it past the timeout.
  */

@@ -4695,6 +4695,10 @@
     "message": "Сохранить и продолжить",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Эти конечные точки не удалось сохранить. Попытайтесь ещё раз.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Сброс настроек до значений по умолчанию",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Сброс настроек до значений по умолчанию и повторная регистрация",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Сброс не завершился. Попытайтесь ещё раз.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Сетевые конечные точки",
