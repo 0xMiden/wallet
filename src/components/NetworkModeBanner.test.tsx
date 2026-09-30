@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -50,6 +50,12 @@ jest.mock('components/MainnetAccessSheet', () => ({
         <button type="button" data-testid="mainnet-access-close" onClick={() => onOpenChange(false)} />
       </div>
     ) : null
+}));
+
+// The welcome has its own suite. Here it shows that an accepted code opened it, and a way to leave.
+jest.mock('components/mainnet-welcome/MainnetWelcome', () => ({
+  MainnetWelcome: ({ open, onContinue }: { open: boolean; onContinue: () => void }) =>
+    open ? <button type="button" data-testid="mainnet-welcome" onClick={onContinue} /> : null
 }));
 
 const openSheet = () => fireEvent.click(screen.getByTestId('network-mode-banner'));
@@ -109,13 +115,33 @@ describe('NetworkModeBanner (the home variant)', () => {
     expect(action).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('checks a submitted code with the access-code service', () => {
+  it('checks a submitted code with the access-code service, and a refused code opens no welcome', async () => {
+    mockRedeem.mockResolvedValue('rejected');
     render(<NetworkModeBanner variant="home" />);
     fireEvent.click(screen.getByTestId('network-mode-banner-switch'));
 
-    fireEvent.click(screen.getByTestId('mainnet-access-submit'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-access-submit'));
+    });
 
     expect(mockRedeem).toHaveBeenCalledWith('47291835');
+    expect(screen.queryByTestId('mainnet-welcome')).not.toBeInTheDocument();
+  });
+
+  it('opens the welcome when the code is accepted, and closes it on Continue', async () => {
+    mockRedeem.mockResolvedValue('granted');
+    render(<NetworkModeBanner variant="home" />);
+    fireEvent.click(screen.getByTestId('network-mode-banner-switch'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-access-submit'));
+    });
+
+    expect(screen.getByTestId('mainnet-welcome')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('mainnet-welcome'));
+
+    expect(screen.queryByTestId('mainnet-welcome')).not.toBeInTheDocument();
   });
 
   it('stands down under a shell that already names the network', () => {
