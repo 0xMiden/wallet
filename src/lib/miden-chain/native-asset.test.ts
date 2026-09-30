@@ -330,6 +330,51 @@ describe('native-asset module', () => {
     expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
+  // The fee cooldown survives resetNativeAssetCache; moving to a node of the test's own drops one an earlier test stamped.
+  const onFreshNode = (rpcUrl: string) => {
+    isVerificationBaseFeeKnownAbsent();
+    _g.__nativeAssetTest.rpcUrl = rpcUrl;
+    _g.__nativeAssetTest.storage[`native_asset_id:v4:${rpcUrl}|testnet`] = 'pre-cached-id';
+  };
+
+  it('rethrows a trap from the fee accessor with no cooldown, for the lock to retire', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    onFreshNode('rpc-accessor-trap');
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => {
+        throw trap;
+      }
+    };
+
+    const first = await getVerificationBaseFee().catch((error: unknown) => error);
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    const second = await getVerificationBaseFee().catch((error: unknown) => error);
+    expect(afterFirst).toBe(1);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(first).toBe(trap);
+    expect(second).toBe(trap);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  it('rethrows a trap from the fee discovery with no cooldown, for the lock to retire', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    onFreshNode('rpc-discovery-trap');
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => {
+        throw trap;
+      }
+    };
+
+    const first = await getVerificationBaseFee().catch((error: unknown) => error);
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    const second = await getVerificationBaseFee().catch((error: unknown) => error);
+    expect(afterFirst).toBe(1);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(first).toBe(trap);
+    expect(second).toBe(trap);
+  });
+
   it('drops a discovered base fee when the endpoint changes', async () => {
     // The fee belongs to the node that quoted it. Left behind, the sync getter serves
     // the previous chain's value while the faucet id has already gone null -- so a

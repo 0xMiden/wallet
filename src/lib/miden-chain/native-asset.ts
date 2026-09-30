@@ -201,6 +201,8 @@ async function discover(): Promise<string> {
       console.warn('native-asset verification base fee out of plausible range, ignoring', read);
     }
   } catch (err) {
+    // A trap is not a throwing accessor: it leaves for the lock of the hold this runs under, with no cooldown.
+    if (err instanceof WebAssembly.RuntimeError) throw err;
     console.warn('native-asset verification base fee read failed', err);
     feeReadThrew = true;
   }
@@ -351,6 +353,8 @@ export async function getVerificationBaseFee(): Promise<number | null> {
       await discover();
       return feeMemCache;
     } catch (err) {
+      // A trap is no failed discovery: turned into null it would leave the trapped client in the slot.
+      if (err instanceof WebAssembly.RuntimeError) throw err;
       // Left unlatched so a transient RPC failure is retried, unlike a header that
       // simply carried no fee — but behind a cooldown, so the retry is not one
       // block-header fetch per caller until the node comes back.
