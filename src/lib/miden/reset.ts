@@ -5,6 +5,7 @@ import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/nativ
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX, getStorageProvider } from 'lib/platform/storage-adapter';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { storageCleared } from 'lib/storage-cleared';
 
 // Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
@@ -38,6 +39,9 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
     // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
     // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
     await rereadStorageCache();
+    // No storage event fires in the document that wipes, so off the extension this announces it to every
+    // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
+    if (isMobile() || isDesktop()) storageCleared();
   }
 }
 
@@ -144,5 +148,7 @@ export async function clearClientStorage(): Promise<void> {
     sessionStorage.clear();
   } finally {
     await rereadStorageCache();
+    // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
+    storageCleared();
   }
 }

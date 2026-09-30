@@ -70,6 +70,8 @@ jest.mock(
 
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
+import { onStorageCleared } from 'lib/storage-cleared';
 
 import {
   clearClientStorage,
@@ -281,6 +283,16 @@ describe('clearStorage', () => {
   });
 });
 
+/** Runs `clear` over a stored read state and returns, per announcement, whether the key was gone. */
+async function announcementsSeeingTheKeyGone(clear: () => unknown): Promise<boolean[]> {
+  localStorage.setItem(ACTIVITY_READ_STORAGE_KEY, JSON.stringify({ seenBefore: 1, ids: {} }));
+  const seen: boolean[] = [];
+  const unsubscribe = onStorageCleared(() => seen.push(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY) === null));
+  await clear();
+  unsubscribe();
+  return seen;
+}
+
 describe('resetStorageDestructive', () => {
   it('drops and reopens the IndexedDB and keeps only the endpoint override, not the legacy guardian URL', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
@@ -455,6 +467,11 @@ describe('dropLegacyGuardianUrl', () => {
       removeSpy.mockRestore();
     }
   });
+
+  it('announces the desktop clear only once localStorage is empty', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    expect(await announcementsSeeingTheKeyGone(() => resetStorageDestructive())).toEqual([true]);
+  });
 });
 
 describe('clearClientStorage', () => {
@@ -504,5 +521,82 @@ describe('clearClientStorage', () => {
     } finally {
       removeItem.mockRestore();
     }
+  });
+
+  it('announces the clear only once localStorage is empty', async () => {
+    expect(await announcementsSeeingTheKeyGone(() => clearClientStorage())).toEqual([true]);
+  });
+});
+
+describe('announcing a storage clear', () => {
+  const cleared = jest.fn();
+  let unsubscribe: () => void;
+  beforeEach(() => {
+    unsubscribe = onStorageCleared(cleared);
+  });
+  afterEach(() => unsubscribe());
+
+  it('announces clearClientStorage once, after its cache re-read', async () => {
+    await clearClientStorage();
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('announces the desktop clear on clearStorage once', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    await clearStorage();
+    expect(cleared).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces the desktop clear on resetStorageDestructive once', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    await resetStorageDestructive();
+    expect(cleared).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('announcing the platform wipe, once fully settled', () => {
+  it('on mobile, announces once, after the keys are removed and the cache re-read', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockResolvedValueOnce({ keys: ['doomed', 'endpoint_overrides'] });
+    _g.__resetTest.prefStub.remove.mockResolvedValue(undefined);
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(_g.__resetTest.prefStub.remove.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      cleared.mock.invocationCallOrder[0]!
+    );
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('on desktop, announces once, after the keys are removed and the cache re-read', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    localStorage.setItem('doomed', '1');
+    const removeSpy = jest.spyOn(Storage.prototype, 'removeItem');
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(removeSpy.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    expect(mockReread.mock.invocationCallOrder.at(-1)!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+    removeSpy.mockRestore();
+  });
+
+  it('on the extension, announces nothing: browser.storage.onChanged reports the removals', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    const cleared = jest.fn();
+    const unsubscribe = onStorageCleared(cleared);
+
+    await clearStorage();
+    unsubscribe();
+
+    expect(cleared).not.toHaveBeenCalled();
   });
 });
