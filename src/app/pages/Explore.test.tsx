@@ -817,19 +817,53 @@ describe('Explore', () => {
       expect(mockHapticLight).toHaveBeenCalledTimes(2);
     });
 
-    it('closes the disclosure on an account switch, even if it was left open', async () => {
-      mockStoredHiddenTokens = ['t-spam'];
-      const { rerender } = await renderExplore();
-      await openSection();
-      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
-
-      mockAccount = { publicKey: 'mtst1other' };
+    // Both accounts' sets are read before the switch that matters, so no empty render can reset the section: only
+    // the key on HiddenAssets does.
+    const switchTo = async (rerender: (ui: React.ReactElement) => void, publicKey: string) => {
+      mockAccount = { publicKey };
       await act(async () => {
         rerender(<Explore />);
       });
+      await screen.findByTestId('hidden-assets-toggle');
+    };
 
-      await waitFor(() => expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false'));
+    it('closes the disclosure on an account switch, even if it was left open', async () => {
+      mockStoredHiddenTokens = ['t-spam'];
+      const { rerender } = await renderExplore();
+      const first = mockAccount.publicKey;
+      await switchTo(rerender, 'mtst1other');
+      await switchTo(rerender, first);
+      await openSection();
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+      await switchTo(rerender, 'mtst1other');
+
+      expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it("carries no Unhide error to another account's section", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        const { rerender } = await renderExplore();
+        const first = mockAccount.publicKey;
+        await switchTo(rerender, 'mtst1other');
+        await openSection();
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await unhideSpam();
+        expect(await screen.findByTestId('hidden-assets-error')).toBeInTheDocument();
+
+        await switchTo(rerender, first);
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
+        // The error line renders only while the section is open, so the check for a stale one is made open.
+        await openSection();
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('moves focus to the remaining Unhide action, then to the asset list once the section empties', async () => {
