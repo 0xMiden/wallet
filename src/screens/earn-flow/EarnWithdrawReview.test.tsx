@@ -51,7 +51,10 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  // The hero's formatter lives in the history helpers, whose `lib/i18n` import calls
+  // `isExtension` at module load; without it the whole suite fails to load.
+  isExtension: jest.fn(() => false)
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -163,6 +166,21 @@ describe('EarnWithdrawReview', () => {
     expect(goBack).toHaveBeenCalledTimes(1);
   });
 
+  // The withdrawable is what arrives at most, so it rounds down, and from the API's own string: a
+  // Number() of it loses digits past double precision.
+  it('rounds the withdrawable down from its exact string', () => {
+    mockPositions = [{ ...position, withdrawable: '10.6555' }];
+    const { unmount } = render(<EarnWithdrawReview positionId="position-1" />);
+    expect(within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('10.65')).toBeInTheDocument();
+    unmount();
+
+    mockPositions = [{ ...position, withdrawable: '12345678901234567.899' }];
+    render(<EarnWithdrawReview positionId="position-1" />);
+    expect(
+      within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('12345678901234567.89')
+    ).toBeInTheDocument();
+  });
+
   it('gives the withdraw confirm the earn flow colour', () => {
     render(<EarnWithdrawReview positionId="position-1" />);
 
@@ -172,7 +190,7 @@ describe('EarnWithdrawReview', () => {
   it('falls back to an empty position and disables withdrawal for an unknown id', () => {
     render(<EarnWithdrawReview positionId="unknown" />);
 
-    expect(screen.getByText('0.00')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'earnWithdrawAmount' })).getByText('0')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 
