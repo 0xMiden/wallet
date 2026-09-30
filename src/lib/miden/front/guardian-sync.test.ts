@@ -34,9 +34,11 @@ import {
 import {
   clearSyncFuseForEndpointChange,
   guardianAdoptFuseKey,
+  guardianSelfHealFuseKey,
   guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
   isSyncFused,
+  noteSyncParked,
   syncFuseUntilMs
 } from './sync-fuse';
 
@@ -197,6 +199,17 @@ jest.mock('lib/miden/transaction/switch-guardian-residual', () => ({
   clearLocalStateNotSaved: (accountPublicKey: string, endpoint: string) =>
     mockClearLocalStateNotSaved(accountPublicKey, endpoint),
   markSwitchDeltaPushed: (rowId: string) => mockMarkSwitchDeltaPushed(rowId)
+}));
+
+// This device's Failed rotations (#1233), covered on their own in
+// transaction/hot-key-rotation-residual.test.ts. Default: none.
+const mockFindFailedHotKeyRotations = jest.fn(
+  async (_accountPublicKey: string): Promise<{ id: string; newHotPublicKey: string }[]> => []
+);
+const mockMarkRotationCompleted = jest.fn(async (_rowId: string) => {});
+jest.mock('lib/miden/transaction/hot-key-rotation-residual', () => ({
+  findFailedHotKeyRotations: (accountPublicKey: string) => mockFindFailedHotKeyRotations(accountPublicKey),
+  markRotationCompleted: (rowId: string) => mockMarkRotationCompleted(rowId)
 }));
 
 const mockGetAccount = jest.fn();
@@ -778,6 +791,13 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockCommitmentFromPublicKeyHex.mockClear();
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    // Default: no Failed rotation of this device's (#1233).
+    mockFindFailedHotKeyRotations.mockReset();
+    mockFindFailedHotKeyRotations.mockResolvedValue([]);
+    mockMarkRotationCompleted.mockReset();
+    mockMarkRotationCompleted.mockResolvedValue(undefined);
+    storeState.swapHotKey.mockReset();
+    storeState.swapHotKey.mockResolvedValue(undefined);
   });
 
   it('cold re-registers only after the 401 has persisted to the threshold', async () => {
@@ -1289,6 +1309,202 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
+  });
+
+  // #1233: this device's own rotation landed after its row failed, so slot 0 names the rotation's new
+  // key rather than the device's current one. Only the chain-verified signer set the re-register
+  // pushes is evidence enough to swap.
+  const arrangeOwnRotation = (publicKey: string) => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+      publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
+    );
+    mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-rot', newHotPublicKey: 'new-hot-pub' }]);
+  };
+  const pushStartWith =
+    (signers: readonly string[]) =>
+    async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+      onPushStart?.(signers);
+    };
+  const runPastCooldowns = async (laps: number) => {
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    for (let i = 0; i < laps; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    nowSpy.mockRestore();
+  };
+
+  it("finishes this device's own rotation once the chain-verified signer set names its key (#1233)", async () => {
+    arrangeOwnRotation('acct-own-rotation');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub');
+    const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0]!;
+    expect(swappedAt).toBeGreaterThan(mockReRegister.mock.invocationCallOrder[0]!);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    // The 401 arm evicts the service every lap; the finish evicts it again once the key is swapped.
+    expect(mockClearGuardianServiceFor).toHaveBeenLastCalledWith('acct-own-rotation');
+    expect(Math.max(...mockClearGuardianServiceFor.mock.invocationCallOrder)).toBeGreaterThan(swappedAt);
+    expect(isGuardianUnrepairable('acct-own-rotation')).toBe(false);
+  });
+
+  it("keeps the budget open while the chain does not confirm this device's rotation (#1233)", async () => {
+    const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+    arrangeOwnRotation('acct-own-unconfirmed');
+    mockReRegister.mockRejectedValue(
+      new GuardianReRegisterRefusedError(
+        'acct-own-unconfirmed',
+        new Error('Local account commitment does not match on-chain commitment')
+      )
+    );
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('acct-own-unconfirmed')).toBe(false);
+  });
+
+  it("does not swap when the chain-verified signer set lacks the rotation's key (#1233)", async () => {
+    arrangeOwnRotation('acct-own-unverified');
+    mockReRegister.mockImplementation(pushStartWith(['0xAABB', '0xc01d']));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+  });
+
+  it("does not close the budget when this device's rotation rows cannot be read (#1233)", async () => {
+    arrangeOwnRotation('acct-own-unread');
+    mockFindFailedHotKeyRotations.mockRejectedValue(new Error('the transactions table is closed'));
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS);
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(isGuardianUnrepairable('acct-own-unread')).toBe(false);
+  });
+
+  it('closes the budget when the vault refuses the swap (#1233)', async () => {
+    arrangeOwnRotation('acct-own-unswappable');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    storeState.swapHotKey.mockRejectedValueOnce(new Error('The new hot key is not stored in this wallet'));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('acct-own-unswappable')).toBe(true);
+  });
+
+  // #1233: a post-recovery or migrated account has no hot key, so the sync loop filters it out and it
+  // never 401s into the heal; its own trigger finishes its landed rotation.
+  describe('a rotation-pending account', () => {
+    const pendingAccount = {
+      publicKey: 'acct-activation',
+      type: WalletType.Guardian,
+      coldPublicKey: 'cold',
+      requiresHotKeyRotation: true
+    };
+
+    beforeEach(() => {
+      __resetGuardianSyncOutageForTest();
+      mockGetOrCreateMultisigService.mockClear();
+      mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+      mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+        publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
+      );
+      mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
+      mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    });
+
+    it("finishes a rotation-pending account's own rotation without a hot key or a 401 (#1233)", async () => {
+      storeState.accounts = [pendingAccount] as never;
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
+        { __sdkAccount: true },
+        expect.objectContaining({ publicKey: 'acct-activation' }),
+        expect.anything(),
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
+      );
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub');
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    });
+
+    // Keyed on the flag, not a missing hot key: a record naming its cold key as hot still syncs
+    // healthily, so no 401 ever reaches the heal.
+    it("finishes a rotation-pending account's own rotation when its record names the cold key as hot (#1233)", async () => {
+      storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+
+      await syncGuardianAccounts();
+
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub');
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+    });
+
+    it('backs off a pending activation the chain has not confirmed (#1233)', async () => {
+      const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+      storeState.accounts = [pendingAccount] as never;
+      mockReRegister.mockRejectedValue(
+        new GuardianReRegisterRefusedError(
+          'acct-activation',
+          new Error('Local account commitment does not match on-chain commitment')
+        )
+      );
+      const t0 = Date.now();
+      const nowSpy = jest.spyOn(Date, 'now');
+
+      // Due 1 and then 2 cooldowns after each run, so the third lap is not due.
+      for (const cooldowns of [0, 1, 2, 3]) {
+        nowSpy.mockReturnValue(t0 + cooldowns * SELF_HEAL_COOLDOWN_MS);
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+
+      expect(mockReRegister).toHaveBeenCalledTimes(3);
+      expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    });
+
+    it('costs nothing for a pending account with no Failed rotation of its own (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockResolvedValue([]);
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+      expect(mockGetAccount).not.toHaveBeenCalled();
+    });
+
+    it('skips a pending activation whose heal fuse is lit (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    });
   });
 });
 

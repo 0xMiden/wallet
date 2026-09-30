@@ -2118,6 +2118,11 @@ export class Vault {
       if (!account) {
         throw new PublicError('Account not found');
       }
+      // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
+      // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.
+      if (!(await isStored(accAuthSecretKeyStrgKey(newHotPubKey)))) {
+        throw new PublicError('The new hot key is not stored in this wallet');
+      }
 
       const oldHotPubKey = account.hotPublicKey;
 

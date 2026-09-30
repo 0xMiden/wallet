@@ -882,6 +882,18 @@ describe('MultisigService', () => {
       expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(registerOnGuardian.mock.invocationCallOrder[0]!);
     });
 
+    it('hands the push-start callback the signer set it derived from the chain-verified account (#1233)', async () => {
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      const onPushStart = jest.fn();
+
+      await service.reRegisterCurrentStateOnGuardian(undefined, onPushStart);
+
+      expect(onPushStart).toHaveBeenCalledTimes(1);
+      expect(onPushStart).toHaveBeenCalledWith(['0xnewhot', '0xcold']);
+    });
+
     it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
       const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });

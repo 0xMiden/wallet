@@ -30,7 +30,8 @@ export type SyncFuseKey =
   | 'note-import'
   | 'swap-order-tracking'
   | `guardian-sync:${string}`
-  | `guardian-adopt:${string}`;
+  | `guardian-adopt:${string}`
+  | `guardian-self-heal:${string}`;
 
 /**
  * The fuse key for one guardian account's sync probe.
@@ -52,6 +53,15 @@ export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: 
  */
 export const guardianAdoptFuseKey = (accountPublicKey: string, previousGuardianEndpoint: string): SyncFuseKey =>
   `guardian-adopt:${accountPublicKey}@${canonicalGuardianEndpoint(previousGuardianEndpoint)}`;
+
+/**
+ * The fuse key for one account's guardian self-heals (#1233). Both heals share it, and so does the
+ * pending-activation finisher that runs the cold one: they are exclusive arms of one lap for the same
+ * account and endpoint, and park on the same node sync. Not the account's sync key, whose 401 is
+ * booked as a non-eviction failure in the same lap and would withdraw the heal's evidence.
+ */
+export const guardianSelfHealFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
+  `guardian-self-heal:${accountPublicKey}@${canonicalGuardianEndpoint(guardianEndpoint)}`;
 
 /**
  * A failure slower than this held the realm's WASM lock long enough to count as a park: the worst

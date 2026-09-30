@@ -1496,6 +1496,51 @@ describe('Vault.withAccountFileKeyReader', () => {
   });
 });
 
+describe('Vault.swapHotKey', () => {
+  const seedGuardianAccount = async (extraKeys: [string, string][] = []) => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [[keys.accounts, [account]], [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'], ...extraKeys],
+      vaultKey
+    );
+    return vault;
+  };
+
+  // A swap to a key this vault lacks would point the account at nothing: an encrypted-file restore
+  // keeps the rotation rows but not necessarily the key a rotation minted (#1233).
+  it('swapHotKey refuses a key this wallet does not hold', async () => {
+    const vault = await seedGuardianAccount();
+
+    await expect(vault.swapHotKey('guardian-acc-1', 'missing-pub')).rejects.toBeInstanceOf(PublicError);
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+  });
+
+  it('swapHotKey repoints and releases the old key when the new one is stored', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+});
+
 describe('Vault.revealHotKey', () => {
   it('unwraps the hot ciphertext via the secure-hot-key facade and returns plaintext hex', async () => {
     const vault = await seedVault('pw');

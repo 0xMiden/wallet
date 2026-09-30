@@ -18,7 +18,12 @@ import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
-import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
+import {
+  findFailedHotKeyRotations,
+  markRotationCompleted,
+  type FailedHotKeyRotation
+} from 'lib/miden/transaction/hot-key-rotation-residual';
 import {
   clearLocalStateNotSaved,
   findUnsavedSwitchRow,
@@ -34,12 +39,14 @@ import { WalletType } from 'screens/onboarding/types';
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 import {
   decideColdReRegisterSelfHeal,
+  SELF_HEAL_COOLDOWN_MS,
   SELF_HEAL_MAX_ATTEMPTS,
   type SelfHealAttemptState,
   type SelfHealOutcome
 } from './guardian-selfheal';
 import {
   guardianAdoptFuseKey,
+  guardianSelfHealFuseKey,
   guardianSyncFuseKey,
   isSyncFused,
   noteNonEvictionSyncFailure,
@@ -90,7 +97,8 @@ export const zustandProvider: GuardianAccountProvider = {
  *     hotPublicKey" every ~3s. Skipping them is correct, not a silence: there is
  *     genuinely no hot-bound service to build, and recovery happens via the
  *     migration → banner → activation path, not here.
- * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up.
+ * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up. A rotation-pending
+ * account whose own rotation landed after its row failed gets there through `finishPendingActivations`.
  *
  * This also means the `update_guardian` threshold-2 hardening is intentionally
  * NOT applied to hot-key-less accounts here, and that's correct: a pre-activation
@@ -109,6 +117,8 @@ const hardeningChecked = new Set<string>();
 // lives in decideColdReRegisterSelfHeal (guardian-selfheal.ts, unit-tested).
 const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
+// When the pending-activation finisher last ran the cold heal for each rotation-pending account (#1233).
+const pendingActivationState = new Map<string, SelfHealAttemptState>();
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -462,6 +472,7 @@ export function __resetGuardianSyncOutageForTest(): void {
   consecutiveUnknownAccount.clear();
   consecutiveAuthFailures.clear();
   selfHealState.clear();
+  pendingActivationState.clear();
   rateLimitedUntil.clear();
   hardeningChecked.clear();
   missingRegistrationState.clear();
@@ -884,11 +895,53 @@ const GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS = {
   label: 'guardian-self-heal-register'
 };
 
+/** This device's own Failed rotation whose new key is the one the chain's slot 0 names (#1233). */
+type OwnRotation = FailedHotKeyRotation & { commitment: string };
+
+/** Rejects when the rows cannot be read; a key whose commitment cannot be derived is skipped. */
+async function findOwnRotation(accountPublicKey: string, onChainCommitment: string): Promise<OwnRotation | undefined> {
+  for (const row of await findFailedHotKeyRotations(accountPublicKey)) {
+    const commitment = await commitmentFromPublicKeyHex(row.newHotPublicKey).catch(() => undefined);
+    if (commitment !== undefined && sameCommitment(commitment, onChainCommitment)) return { ...row, commitment };
+  }
+  return undefined;
+}
+
+/**
+ * Point the account at the rotation's key and complete its row, once the chain-verified signer set
+ * names that key. A refused swap is permanent: this device cannot sign as the chain's hot signer.
+ */
+async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
+  try {
+    if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
+    await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey);
+  } catch (swapError) {
+    console.warn(
+      `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; this device cannot ` +
+        `sign as the account's hot signer:`,
+      swapError
+    );
+    return 'refused-permanently';
+  }
+  try {
+    await markRotationCompleted(rotation.id);
+  } catch (markError) {
+    console.warn(
+      `[Guardian Sync] swapped ${account.publicKey}'s key but could not complete row ${rotation.id}:`,
+      markError
+    );
+  }
+  clearGuardianServiceFor(account.publicKey);
+  return 'attempted';
+}
+
 async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
 
   let attempted = false;
+  let rotation: OwnRotation | undefined;
+  let verifiedSigners: readonly string[] | undefined;
   try {
     // getAccount needs no syncState here: buildColdMultisigService only reads the
     // COLD commitment (stable across the rotation), and
@@ -1003,41 +1056,73 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
         return undefined;
       })
     );
-    const localHot = account.hotPublicKey
-      ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
-          console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
-          return undefined;
-        })
-      : undefined;
-    if (!onChainHot || !localHot) {
+    // TRANSIENT on either unreadable commitment: this device failing to look is not a finding about
+    // the account. Spending an attempt on it would let three read failures exhaust a budget that can
+    // only be reset by a successful sync, which the stale allowlist is precisely what prevents.
+    if (!onChainHot) {
       console.warn(
         `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
-          `${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so this device ` +
-          `cannot show it is still the account's signer.`
+          `chain, so this device cannot show it is still the account's signer.`
       );
-      // TRANSIENT: an unreadable commitment is this device failing to look, not a
-      // finding about the account. Spending an attempt on it would let three read
-      // failures exhaust a budget that can only be reset by a successful sync —
-      // which the stale allowlist is precisely what prevents.
       return 'refused-transiently';
     }
-    if (!sameCommitment(localHot, onChainHot.commitment)) {
+    // A rotation-pending account has no everyday key to compare (#1233): only its own rotation, once
+    // the chain names it, is something here to finish.
+    const keyless = !account.hotPublicKey;
+    let localHot: string | undefined;
+    if (account.hotPublicKey) {
+      localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
+        console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
+        return undefined;
+      });
+      if (!localHot) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
+            `this device, so this device cannot show it is still the account's signer.`
+        );
+        return 'refused-transiently';
+      }
+    }
+    if (!localHot || !sameCommitment(localHot, onChainHot.commitment)) {
+      // Slot 0 may name this device's own rotation, one that landed after its row failed. It is finished
+      // only on the signer set the re-register reads from the account it verified against the chain,
+      // never on this match alone (#1233).
+      try {
+        rotation = await findOwnRotation(account.publicKey, onChainHot.commitment);
+      } catch (readError) {
+        console.warn(`[Guardian Sync] not self-healing ${account.publicKey}: could not read its rotations:`, readError);
+        return 'refused-transiently';
+      }
+      if (!rotation && keyless) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: it has no everyday key to repair until its own ` +
+            `rotation lands.`
+        );
+        return 'refused-transiently';
+      }
+      if (!rotation) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
+            `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
+            `the device that now owns the account.`
+        );
+        // PERMANENT: this device was rotated out, and no later tick changes that.
+        // The caller closes the budget on this outcome, which is what stops this
+        // from re-reading once a cooldown forever for a repair that cannot apply.
+        return 'refused-permanently';
+      }
       console.warn(
-        `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
-          `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
-          `the device that now owns the account.`
+        `[Guardian Sync] ${account.publicKey}'s on-chain hot signer is this device's own rotation; ` +
+          `re-registering the chain's state to finish it`
       );
-      // PERMANENT: this device was rotated out, and no later tick changes that.
-      // The caller closes the budget on this outcome, which is what stops this
-      // from re-reading once a cooldown forever for a repair that cannot apply.
-      return 'refused-permanently';
     }
 
     // Counted as an attempt from the push, not from the call: `/configure` may land even if the
     // call then throws or is torn down mid-flight, while a rejection before the push (the read
     // hold's eviction, a failed sync or account read, the chain guard's refusal) wrote nothing.
-    await coldService.reRegisterCurrentStateOnGuardian(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS, () => {
+    await coldService.reRegisterCurrentStateOnGuardian(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS, signers => {
       attempted = true;
+      verifiedSigners = signers;
     });
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
@@ -1054,7 +1139,50 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // retry per the bounded schedule (see decideColdReRegisterSelfHeal), and only a push spends an attempt.
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
   }
+  // Also after a push that failed once it started: the push starts only after the chain check, so the
+  // set still stands, as completion swaps when its re-register fails.
+  const finishing = rotation;
+  if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
+    return await finishOwnRotation(account, finishing);
+  }
   return attempted ? 'attempted' : 'refused-transiently';
+}
+
+/**
+ * Run the cold heal for each rotation-pending account with a Failed rotation of this device's (#1233).
+ * A post-recovery or migrated account usually has no hot key, so the sync loop skips it and it never
+ * 401s into the heal; this is its trigger, keyed on the flag so a hot === cold record is covered too.
+ * Adds no hold of its own: the heal's holds are bounded, labelled and fused. Backs off 1, 2, 4, 8 and
+ * 16 cooldowns, then every fused-probe interval, and never gives up, so a late landing still finishes.
+ */
+async function finishPendingActivations(accounts: WalletAccount[], generation: number): Promise<void> {
+  for (const account of accounts) {
+    if (generation !== syncGeneration) return;
+    if (account.type !== WalletType.Guardian || account.requiresHotKeyRotation !== true || !account.coldPublicKey) {
+      continue;
+    }
+    try {
+      const prev = pendingActivationState.get(account.publicKey);
+      if (
+        prev &&
+        Date.now() - prev.lastAttemptAt <
+          Math.min(SELF_HEAL_COOLDOWN_MS * 2 ** (prev.attempts - 1), FUSED_SYNC_PROBE_INTERVAL_MS)
+      ) {
+        continue;
+      }
+      // No guardian traffic without a row to finish.
+      if ((await findFailedHotKeyRotations(account.publicKey)).length === 0) continue;
+      const endpoint = await resolveGuardianEndpoint(account);
+      if (isSyncFused(guardianSelfHealFuseKey(account.publicKey, endpoint))) continue;
+      await attemptColdReRegisterSelfHeal(account);
+      pendingActivationState.set(account.publicKey, {
+        attempts: (prev?.attempts ?? 0) + 1,
+        lastAttemptAt: Date.now()
+      });
+    } catch (error) {
+      console.warn(`[Guardian Sync] could not finish the pending activation of ${account.publicKey}:`, error);
+    }
+  }
 }
 
 /**
@@ -1151,6 +1279,7 @@ export function syncGuardianAccounts(): Promise<void> {
 
 async function runGuardianAccountsSync(generation: number): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
+  await finishPendingActivations(accounts, generation);
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
 
   if (guardianAccounts.length === 0) return;

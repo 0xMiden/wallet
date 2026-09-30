@@ -880,9 +880,14 @@ export class MultisigService {
    *
    * `onPushStart` runs once, after the read hold has settled and immediately before the first
    * `/configure`. A rejection raised before it wrote nothing to the guardian; one raised after it
-   * may follow a `/configure` that landed.
+   * may follow a `/configure` that landed. It receives the signer set this push registers, derived
+   * from the account `verifyStateCommitment` matched against the chain in the same hold: the chain's
+   * signer set.
    */
-  async reRegisterCurrentStateOnGuardian(lockOptions?: WasmClientLockOptions, onPushStart?: () => void): Promise<void> {
+  async reRegisterCurrentStateOnGuardian(
+    lockOptions?: WasmClientLockOptions,
+    onPushStart?: (signerCommitments: readonly string[]) => void
+  ): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -933,7 +938,7 @@ export class MultisigService {
     if (freshSignerCommitments.length > 0) {
       this.multisig.signerCommitments = freshSignerCommitments;
     }
-    onPushStart?.();
+    onPushStart?.(freshSignerCommitments);
     await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }
