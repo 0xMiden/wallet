@@ -19,6 +19,8 @@ import {
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
+  isQueuedRowReady,
+  safeGenerateTransactionsLoop,
   buildSignCallbackError
 } from './index'; // eslint-disable-line import/order
 
@@ -169,8 +171,10 @@ jest.mock('../sdk/helpers', () => ({
 
 // The guardian branch wraps generateGuardianTransaction in a per-account lock;
 // run the callback straight through so the branch is exercised without the real
-// navigator.locks-backed serializer.
+// navigator.locks-backed serializer. The error classifiers stay real, so the
+// guardian catch reads a 409 or a 429 as it does in production.
 jest.mock('lib/miden/guardian/serialize', () => ({
+  ...jest.requireActual('lib/miden/guardian/serialize'),
   withGuardianAccountLock: (_key: string, fn: () => Promise<unknown>) => fn(),
   withGuardianConflictRetry: (fn: () => Promise<unknown>) => fn()
 }));
@@ -1345,6 +1349,123 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
     const row = txStore.find(t => t.id === 'tx-cooldown-expired');
     // Cooldown elapsed → eligible again → selected and processed (left the queue).
     expect(row!.status).not.toBe(ITransactionStatus.Queued);
+  });
+});
+// #1266: the extension processor skips its 5 s wait only after a `processed` pass, and only toward a row
+// `isQueuedRowReady` calls ready, so the predicate has to agree with the loop's own pick.
+describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+  // A recovery row still waiting for its seed: `generateTransaction` returns without touching the row, so the pass
+  // that picks it reports `processed` and the row stays Queued exactly as pushed.
+  const seedWaitingProvider = {
+    ...stubGuardianProvider,
+    prepareRecoveryTransaction: jest.fn(async (_transactionId: string) => ({ ready: false }))
+  };
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const queued = (id: string, extra: { nextEligibleAt?: number; awaitingRecoverySeed?: boolean } = {}) => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    status: ITransactionStatus.Queued,
+    initiatedAt: nowSec(),
+    ...extra
+  });
+
+  it.each([
+    { label: 'a Queued row with no cooldown', row: { status: ITransactionStatus.Queued }, ready: true },
+    {
+      label: 'a Queued row whose cooldown ends this second',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_000 },
+      ready: true
+    },
+    {
+      label: 'a Queued row still cooling down',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_001 },
+      ready: false
+    },
+    {
+      label: 'a Queued row awaiting its recovery seed',
+      row: { status: ITransactionStatus.Queued, awaitingRecoverySeed: true },
+      ready: false
+    },
+    { label: 'a row in flight', row: { status: ITransactionStatus.GeneratingTransaction }, ready: false },
+    { label: 'a Completed row', row: { status: ITransactionStatus.Completed }, ready: false }
+  ])('isQueuedRowReady calls $label ready: $ready', ({ row, ready }) => {
+    expect(isQueuedRowReady(row, 1_000)).toBe(ready);
+  });
+
+  it('returns processed when the pass ran a row', async () => {
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('processed');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).toHaveBeenCalledWith('ready');
+  });
+
+  // Jest 30 keeps a queued one-shot across clearAllMocks, so a case that stops before its one-shots run drops them
+  // rather than handing them to the next case.
+  const dropOneShots = (mock: jest.Mock): void => {
+    const base = mock.getMockImplementation();
+    mock.mockReset();
+    if (base) mock.mockImplementation(base);
+  };
+
+  // A Guardian send whose multisig service rejects, which happens once its stage reaches creating-proposal.
+  const runGuardianSendRejecting = async (error: unknown) => {
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw error;
+    });
+    txStore.push(queued('guardian-send'));
+    try {
+      return await safeGenerateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    } finally {
+      dropOneShots(gm.isGuardianAccount);
+      dropOneShots(gm.getOrCreateMultisigService);
+    }
+  };
+
+  it.each([
+    {
+      label: 'a 429',
+      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' })
+    },
+    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') }
+  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error }) => {
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(nowSec());
+  });
+
+  it('returns processed when a Guardian send whose submit landed ends Completed', async () => {
+    await expect(runGuardianSendRejecting(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE))).resolves.toBe('processed');
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('returns idle when nothing is queued', async () => {
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+  });
+
+  it('returns idle while another row is in flight, without picking the ready one', async () => {
+    txStore.push({
+      ...queued('in-flight'),
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: nowSec()
+    });
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'a ready row', extra: {}, outcome: 'processed' },
+    { label: 'a row still cooling down', extra: { nextEligibleAt: nowSec() + 600 }, outcome: 'idle' },
+    { label: 'a row awaiting its recovery seed', extra: { awaitingRecoverySeed: true }, outcome: 'idle' }
+  ])('picks $label exactly when isQueuedRowReady calls it ready', async ({ extra, outcome }) => {
+    const row = queued('only', extra);
+    txStore.push(row);
+    const ready = isQueuedRowReady(row, nowSec());
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe(outcome);
+    expect(ready).toBe(outcome === 'processed');
   });
 });
 describe('buildSignCallbackError', () => {

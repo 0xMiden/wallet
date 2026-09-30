@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
@@ -17,6 +18,7 @@ import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill, PillTone } from 'components/ui/Pill';
@@ -29,7 +31,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
-import { hapticLight } from 'lib/mobile/haptics';
+import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
@@ -176,9 +178,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {quote && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
-          <TokenInfo tokenId={tokenId} />
+          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
 
           <section data-testid="token-detail-activity">
             <SectionHeader size="lg" tone="muted">
@@ -314,18 +316,30 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   );
 };
 
-const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
+const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address }) => {
   const { t } = useTranslation();
   const network = useNetwork();
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
   const explorerUrl = getExplorerAccountUrl(tokenId);
+  const hiddenTokens = useHiddenTokens(address);
+  const canHide = hiddenTokens.canHide(tokenId);
+  const hidden = hiddenTokens.isHidden(tokenId);
+  // This page's own last hide/unhide result, as Home's HiddenAssets keeps its unhideFailed: the hook
+  // reports none, only what each call resolves with.
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const handleViewExplorer = () => {
     if (!explorerUrl) return;
     hapticLight();
     void openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
+  };
+
+  const handleToggleHidden = () => {
+    hapticMedium();
+    const result = hidden ? hiddenTokens.unhide(tokenId) : hiddenTokens.hide(tokenId);
+    void result.then(succeeded => setSaveFailed(!succeeded));
   };
 
   return (
@@ -369,7 +383,41 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
             <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
+        {canHide && (
+          // The explorer row's text action. Disabled only until the set is read (or when it cannot
+          // be): a rolled-back save leaves it usable, so the user can try again.
+          <button
+            type="button"
+            onClick={handleToggleHidden}
+            disabled={!hiddenTokens.loaded}
+            data-testid="token-detail-hide-toggle"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink disabled:opacity-50"
+          >
+            {hidden ? t('unhideToken') : t('hideToken')}
+            <Icon
+              name={hidden ? IconName.Eye : IconName.EyeOff}
+              fill="currentColor"
+              aria-hidden
+              className="h-4 w-4 shrink-0"
+            />
+          </button>
+        )}
       </DetailCard>
+      {canHide && hidden && (
+        <Notice variant="inline" role="status" className="mt-2" data-testid="token-detail-hidden-notice">
+          {t('tokenHiddenNotice')}
+        </Notice>
+      )}
+      {canHide && saveFailed && (
+        <ErrorLine className="mt-2" data-testid="token-detail-hidden-error">
+          {t('hiddenTokensError')}
+        </ErrorLine>
+      )}
+      {canHide && hiddenTokens.unreadable && (
+        <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
+          {t('hiddenTokensUnreadable')}
+        </ErrorLine>
+      )}
     </section>
   );
 };

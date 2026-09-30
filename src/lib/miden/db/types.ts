@@ -65,7 +65,10 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
-  /** Expected destination output shown until the real note is consumed. */
+  /**
+   * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
+   * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
+   */
   outputAmount?: string;
   outputSymbol?: string;
   evmTxHash?: string;
@@ -172,7 +175,10 @@ export interface IBridgedSendExtraInputs {
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
    */
   intentNonce?: string;
-  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  /**
+   * epoch: the quoted destination output, exact; screens round it down when they show it. Older
+   * rows hold the quote already rounded for display.
+   */
   outputAmount?: string;
   /** epoch: destination output token symbol (e.g. `USDC`). */
   outputSymbol?: string;
@@ -204,7 +210,7 @@ export interface IEarnDepositExtraInputs {
   intentNonce?: string;
   /** solver/intent hash (informational). */
   evmTxHash?: string;
-  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  /** quoted destination deposit size; nothing writes or displays it today. */
   outputAmount?: string;
   /** destination token symbol (e.g. `USDC`). */
   outputSymbol?: string;
@@ -218,7 +224,7 @@ export interface IEarnDepositExtraInputs {
  * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
  *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
  *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
- *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - received   : the bridged note was auto-consumed; the row's `amount` patched from it
  *   - failed     : the intent failed / expired, or the row was reconciled dead
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
@@ -263,9 +269,11 @@ export interface IEarnWithdrawExtraInputs {
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
   midenNoteId?: string;
-  /** actual bridged amount (human-formatted) from the consumed note. */
+  /** actual bridged amount; nothing writes it today (the row's own `amount` records what landed). */
   outputAmount?: string;
-  /** destination token symbol of the consumed note. */
+  /**
+   * the bridged note's source token symbol (the EVM side), recorded when the note is consumed; not the delivered asset.
+   */
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;

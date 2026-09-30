@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
@@ -39,15 +40,18 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const { isHidden } = useHiddenTokens(publicKey);
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
-    if (!searchQuery.trim()) return balanceData;
+    // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
+    const visible = balanceData.filter(b => !isHidden(b.tokenId));
+    if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
-    return balanceData.filter(
+    return visible.filter(
       b => b.metadata.symbol.toLowerCase().includes(query) || b.metadata.name?.toLowerCase().includes(query)
     );
-  }, [balanceData, searchQuery]);
+  }, [balanceData, isHidden, searchQuery]);
 
   const onSelectToken = useCallback(
     (token: UIToken) => {

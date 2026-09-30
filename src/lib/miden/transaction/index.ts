@@ -43,6 +43,7 @@ import {
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  markStartedInThisRealm,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -508,6 +509,26 @@ const requeueWakeDelayMs = (
  * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
  */
 const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
+ * What one pass of the transaction loop did. `processed`: it ran a row that left the queue (Completed or Failed) or
+ * was parked for its recovery seed. `requeued`: it ran a row that went back to the queue with a cooldown (the
+ * Guardian or the network turned it away). `idle`: nothing it could run, a row already in flight, or the loop lock
+ * held by another driver. `failed`: the row's pipeline threw, or the pass itself did.
+ */
+export type TransactionsLoopOutcome = 'processed' | 'requeued' | 'idle' | 'failed';
+
+/**
+ * True for a Queued row the loop's pick would take at `nowSec` (unix seconds). The pick and the extension processor's
+ * choice to skip its wait between passes both call it, so the processor never hurries toward a row the pick skips.
+ */
+export const isQueuedRowReady = (
+  row: Pick<ITransaction, 'status' | 'nextEligibleAt' | 'awaitingRecoverySeed'>,
+  nowSec: number
+): boolean =>
+  row.status === ITransactionStatus.Queued &&
+  loopCanPick(row) &&
+  (row.nextEligibleAt === undefined || row.nextEligibleAt <= nowSec);
 
 /**
  * How long until the soonest of `rows` that is Queued next needs a drive, by the same rule as a requeue wake, or
@@ -1156,6 +1177,7 @@ const generateTransactionWithProvider = async (
   await syncUnderBoundedLock();
 
   // Mark transaction as in progress
+  markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending'
@@ -3323,7 +3345,7 @@ export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-): Promise<boolean | void> => {
+): Promise<boolean | 'requeued' | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
@@ -3385,15 +3407,12 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(
-    tx => loopCanPick(tx) && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
-  );
+  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
-    return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -3590,29 +3609,35 @@ export const generateTransactionsLoop = async (
     if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
     return false;
   }
+
+  // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed
+  // keeps the due `nextEligibleAt` the pick took it at. Read outside the try: a failed read must reject the pass, not
+  // run the pipeline-failure arms against a row that finished.
+  const ran = await Repo.transactions.where({ id: nextTransaction.id }).first();
+  const turnedAway =
+    ran?.status === ITransactionStatus.Queued &&
+    ran.nextEligibleAt !== undefined &&
+    ran.nextEligibleAt > Math.floor(Date.now() / 1000);
+  return turnedAway ? 'requeued' : true;
 };
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-) => {
+): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
-    .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) return;
+    .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
+      if (!lock) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
-      if (result === false) {
-        return false;
-      }
-
-      // Either a transaction was processed successfully (true)
-      // or there was nothing to do / another transaction is in progress (undefined).
-      return true;
+      if (result === true) return 'processed';
+      if (result === 'requeued') return 'requeued';
+      return result === false ? 'failed' : 'idle';
     })
-    .catch(e => {
+    .catch((e): TransactionsLoopOutcome => {
       logger.error('Error in safe generate transactions loop', e);
-      return false;
+      return 'failed';
     });
 };
 

@@ -18,10 +18,17 @@ import Welcome from './Welcome';
 
 // The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
 const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
 jest.mock('app/onboarding-finish', () => {
   const actual = jest.requireActual('app/onboarding-finish');
   return {
     ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
     markOnboardingFinishing: () => {
       const mark = actual.markOnboardingFinishing();
       const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
@@ -125,6 +132,10 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
   canHandoffToSidePanel: () => mockCanHandoff,
   postOnboardingRoute: () => (mockCanHandoff ? '/finish-side-panel' : '/')
 }));
+// The real set: each route a finished onboarding takes in its tab must be one the running wallet leaves uncovered.
+const { ONBOARDING_HANDOFF_ROUTES } = jest.requireActual<typeof import('lib/extension/side-panel-handoff')>(
+  'lib/extension/side-panel-handoff'
+);
 
 // Miden context + store + intercom sync.
 const mockRegisterWallet = jest.fn();
@@ -306,6 +317,15 @@ async function stageFileRestore(payload: DecryptedWalletFile = VERSION_TWO_PAYLO
   await dispatch({ id: 'select-import-type' });
   await setHash('#create-password');
   await dispatch({ id: 'import-wallet-file-submit', payload });
+}
+
+// A recovery-phrase import up to its recovery-method submit; Confirmation is the next hash.
+async function stageSeedRecovery(recoveryMethod: { walletType: WalletType; guardianEndpoint?: string }) {
+  await dispatch({ id: 'select-import-type' });
+  await dispatch({ id: 'import-from-seed' });
+  await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+  await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+  await dispatch({ id: 'import-select-recovery-method', payload: recoveryMethod });
 }
 
 // Run updates the way the browser does, outside act, where the scheduler rather than act decides when passive
@@ -1660,6 +1680,30 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.guardianLookupFailure).toBe('smthWentWrong');
   });
 
+  it('routes a failed hardware-only Guardian recovery to its recovery method without counting a biometric attempt', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    mockRegisterWallet.mockRejectedValue(
+      Object.assign(new Error('guardian not found'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
+    );
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' }); // password = HARDWARE_ONLY
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, 'aa bb cc dd', true, 'https://g');
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // The failure belongs to the recovery method; counting it would walk the user towards the password fallback.
+    expect(mockFlowProps.current.biometricAttempts).toBe(0);
+    expect(mockFlowProps.current.biometricError).toBeNull();
+  });
+
   it('does not greet the next confirmation visit with an earlier failure', async () => {
     mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
     await renderWelcome();
@@ -2980,7 +3024,7 @@ describe('Welcome — back navigation', () => {
 });
 
 // ===========================================================================
-// Side-panel handoff auto-create effect
+// Side-panel handoff auto-register effect
 // ===========================================================================
 
 describe('Welcome — side-panel handoff', () => {
@@ -3011,7 +3055,7 @@ describe('Welcome — side-panel handoff', () => {
     warn.mockRestore();
   });
 
-  it('releases the finishing mark when the auto-create fails', async () => {
+  it('releases the finishing mark when the auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValueOnce(new Error('creation failed'));
     await renderWelcome();
@@ -3041,6 +3085,12 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockFlowProps.current.confirmCreating).toBe(true);
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
   });
 
   it('auto-creates again for a new attempt after a failed one was abandoned', async () => {
@@ -3070,7 +3120,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('falls back to the classic flow when the auto-create fails', async () => {
+  it('falls back to the classic flow when the auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
     await renderWelcome();
@@ -3091,7 +3141,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockFlowProps.current.recoveryError).toBe('creation failed');
   });
 
-  it('retries prompt setup without recreating a wallet the auto-create already registered', async () => {
+  it('retries prompt setup without recreating a wallet the auto-register already registered', async () => {
     mockCanHandoff = true;
     mockSeedWalletPrompt.mockRejectedValueOnce(new Error('prompt write failed')).mockResolvedValue(undefined);
     await renderWelcome();
@@ -3115,7 +3165,7 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('starts no second attempt when confirmation fires while the auto-create still runs', async () => {
+  it('starts no second attempt when confirmation fires while the auto-register still runs', async () => {
     mockCanHandoff = true;
     let finishRegistration: () => void = () => undefined;
     mockRegisterWallet.mockReturnValue(
@@ -3125,7 +3175,7 @@ describe('Welcome — side-panel handoff', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    await setHash('#confirmation'); // the auto-create effect starts registering
+    await setHash('#confirmation'); // the auto-register effect starts registering
     mockNavigate.mockClear();
 
     let confirming: Promise<void> | undefined;
@@ -3138,14 +3188,14 @@ describe('Welcome — side-panel handoff', () => {
     });
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    // The auto-create's attempt is the only one: one seed prompt, no readiness read and one hand-off.
+    // The auto-register's attempt is the only one: one seed prompt, no readiness read and one hand-off.
     expect(mockSeedWalletPrompt).toHaveBeenCalledTimes(1);
     expect(mockFetchState).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('keeps onboarding on Confirmation while the auto-create runs, and shows its failure there', async () => {
+  it('keeps onboarding on Confirmation while the auto-register runs, and shows its failure there', async () => {
     mockCanHandoff = true;
     let failRegistration: (error: Error) => void = () => undefined;
     mockRegisterWallet.mockReturnValue(
@@ -3155,7 +3205,7 @@ describe('Welcome — side-panel handoff', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    await setHash('#confirmation'); // the auto-create starts and shows its spinner
+    await setHash('#confirmation'); // the auto-register starts and shows its spinner
     mockNavigate.mockClear();
 
     // Browser back while it runs is sent back to Confirmation, which keeps showing the spinner.
@@ -3174,51 +3224,26 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockFlowProps.current.recoveryError).toBe('boom');
   });
 
-  it('leaves a Confirmation tapped before the auto-create starts to that tap', async () => {
+  it.each([
+    ['a create', () => dispatch({ id: 'setup-passcode-submit', payload: '123456' })],
+    ['a recovery-phrase import', () => stageSeedRecovery({ walletType: WalletType.OnChain })]
+  ])('shows the spinner from the first Confirmation render of %s', async (_flow, reach) => {
     mockCanHandoff = true;
-    let finishRegistration: () => void = () => undefined;
-    mockRegisterWallet.mockReturnValue(
-      new Promise<void>(resolve => {
-        finishRegistration = resolve;
-      })
-    );
     await renderWelcome();
-    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    mockNavigate.mockClear();
+    await reach();
+    // A ready-state render would paint Open wallet, whose tap could land before the auto-register starts.
+    const creatingOnConfirmation: boolean[] = [];
+    mockOnFlowRender.current = props => {
+      if (props.step === OnboardingStep.Confirmation) creatingOnConfirmation.push(props.confirmCreating);
+    };
+    await setHash('#confirmation');
 
-    // Arrive with a render slow enough that the scheduler yields between the commit that shows Confirmation and
-    // that commit's passive effects, and tap in that gap, before the auto-create effect runs. The registration stays
-    // open, or the whole attempt would finish inside that yield and the effect would find nothing in flight.
-    let tap: Promise<void> | undefined;
-    await outsideAct(async () => {
-      mockOnFlowRender.current = props => {
-        if (props.step !== OnboardingStep.Confirmation) return;
-        mockOnFlowRender.current = null;
-        outlastSchedulerFrame();
-        queueMicrotask(() => {
-          tap = props.onAction({ id: 'confirmation' });
-        });
-      };
-      mockHash = '#confirmation';
-      mockFlowProps.current.onBiometricChange(!mockFlowProps.current.useBiometric);
-      // The tap's loading state renders only after the arrival's passive effects, the auto-create among them, ran.
-      await waitFor(() => expect(mockFlowProps.current.isLoading).toBe(true));
-    });
-    expect(tap).toBeDefined();
-
-    await act(async () => {
-      finishRegistration();
-      await tap;
-    });
-
-    // The tap's attempt is the only one: the auto-create stood down rather than start a second.
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
-    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(creatingOnConfirmation[0]).toBe(true);
+    expect(creatingOnConfirmation).not.toContain(false);
   });
 
-  it('keeps an Import on Confirmation while it registers, so no Create flow or auto-create starts', async () => {
+  it('keeps an Import on Confirmation while it auto-registers, so no Create flow or second attempt starts', async () => {
     mockCanHandoff = true;
     let failImport: (error: Error) => void = () => undefined;
     mockRegisterWallet.mockReturnValueOnce(
@@ -3227,18 +3252,12 @@ describe('Welcome — side-panel handoff', () => {
       })
     );
     await renderWelcome();
-    await dispatch({ id: 'select-import-type' });
-    await dispatch({ id: 'import-from-seed' });
-    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await dispatch({
-      id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
-    });
-    await setHash('#confirmation');
-    let importAttempt: Promise<void> | undefined;
+    await stageSeedRecovery({ walletType: WalletType.Guardian, guardianEndpoint: 'https://g' });
+    await setHash('#confirmation'); // the auto-register starts and shows its spinner
+    // A tap while it runs starts nothing of its own.
+    let tap: Promise<void> | undefined;
     await act(async () => {
-      importAttempt = mockFlowProps.current.onAction({ id: 'confirmation' });
+      tap = mockFlowProps.current.onAction({ id: 'confirmation' });
     });
     mockNavigate.mockClear();
 
@@ -3247,18 +3266,20 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
     await setHash('#confirmation');
-    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(mockFlowProps.current.confirmCreating).toBe(true);
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       failImport(new Error('guardian not found'));
-      await importAttempt;
+      await tap;
+      await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(mockFlowProps.current.recoveryError).toBe('guardian not found');
-    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // One routed failure: a tap that joined the registration would route its own failure a second time.
+    expect(mockNavigate.mock.calls.filter(([route]) => route === '/#import-select-recovery-method')).toHaveLength(1);
   });
 
-  it('does not auto-create hardware-only wallets (deferred to a tap)', async () => {
+  it('does not auto-register a hardware-only wallet, created or recovered (deferred to a tap)', async () => {
     mockCanHandoff = true;
     mockIsMobileFn.mockReturnValue(true);
     mockBiometricHW.mockResolvedValue(true);
@@ -3276,41 +3297,176 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('does not auto-create for import flows', async () => {
+  it('auto-registers a recovery-phrase import on Confirmation and hands off with no tap', async () => {
+    const warn = jest.spyOn(console, 'warn');
     mockCanHandoff = true;
-    await renderWelcome();
-    // Build an import flow that lands on confirmation with a password + seed.
-    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' }); // Import
-    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await dispatch({
-      id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.OffChain }
+    let heldDuringRegister: boolean | undefined;
+    mockRegisterWallet.mockImplementation(async () => {
+      heldDuringRegister = isOnboardingFinishing();
     });
+    await renderWelcome();
+    await stageSeedRecovery({ walletType: WalletType.OnChain });
     mockNavigate.mockClear();
-    mockRegisterWallet.mockClear();
     await setHash('#confirmation');
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(mockRegisterWallet).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'aa bb cc dd', true, undefined);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
+    // The restoring spinner stayed up and no readiness wait ran, so no tap took part.
+    expect(mockFlowProps.current.confirmCreating).toBe(true);
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect(handleFor('import').complete).toHaveBeenCalledTimes(1);
+    expect(heldDuringRegister).toBe(true);
+    expect(isOnboardingFinishing()).toBe(false);
+    expect(finishWarns(warn)).toHaveLength(0);
+    warn.mockRestore();
   });
 
-  it('routes a successful guardian-import confirmation to the side-panel handoff (#428)', async () => {
+  it('sends a Guardian recovery whose lookup fails back to its recovery method, whose resubmit registers again', async () => {
     mockCanHandoff = true;
+    mockRegisterWallet.mockRejectedValue(
+      Object.assign(new Error('guardian not found'), { code: GUARDIAN_ACCOUNT_NOT_FOUND })
+    );
     await renderWelcome();
-    // Recover an existing wallet: import seed → password → guardian recovery.
-    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await stageSeedRecovery({ walletType: WalletType.Guardian, guardianEndpoint: 'https://g' });
     mockNavigate.mockClear();
-    // The auto-create effect is Create-only, so import/recovery completes via
-    // the classic confirmation handler — which must now hand off to the panel.
-    await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalled();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    // The lookup failure stays on Welcome's own hash step, never through navigateOnFromOnboarding.
+    expect(mockNavigateOn).not.toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianAccountNotFound');
+    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(handleFor('import').fail).toHaveBeenCalledWith('unknown');
+    // The failure itself starts no further attempt, before or after the route leaves Confirmation.
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    await setHash('#import-select-recovery-method');
+    expect(currentStep()).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+
+    mockRegisterWallet.mockResolvedValue(undefined);
+    mockNavigate.mockClear();
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    expect(mockFetchState).not.toHaveBeenCalled();
+  });
+
+  it('leaves a failed public recovery on Confirmation, where a tap retries it in the tab', async () => {
+    mockCanHandoff = true;
+    mockRegisterWallet.mockRejectedValue(new Error('node unreachable'));
+    await renderWelcome();
+    await stageSeedRecovery({ walletType: WalletType.OnChain });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    // The spinner gives way to the failure and its retry button.
+    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(mockFlowProps.current.recoveryError).toBe('node unreachable');
+    expect(mockFlowProps.current.guardianLookupFailure).toBeNull();
+
+    mockRegisterWallet.mockResolvedValue(undefined);
+    await dispatch({ id: 'confirmation' });
+
+    // The classic handler ran the retry: its readiness wait, then the handoff.
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+    expect(mockFetchState).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    // Two marks were recorded (the failed auto-register's, then the tap's); the tap's is the last.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks.at(-1)!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('does not auto-register a wallet-file restore, which keeps its tap', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await stageFileRestore();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockImportWalletFromClient).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+  });
+
+  it('does not auto-register a key-pair import, which keeps its tap', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.confirmCreating).toBe(false);
+    expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWalletFromHotKey).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 });
 
@@ -3339,6 +3495,7 @@ describe('Welcome — telemetry consent detour', () => {
     expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith(CONSENT_ROUTE);
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
   });
 
   it('never re-asks an in-tab user who has already answered', async () => {
@@ -3352,11 +3509,14 @@ describe('Welcome — telemetry consent detour', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith(CONSENT_ROUTE);
   });
 
-  it('sends the Chrome side-panel handoff through the prompt first', async () => {
+  it.each([
+    ['a create', () => dispatch({ id: 'setup-passcode-submit', payload: '123456' })],
+    ['a recovery-phrase import', () => stageSeedRecovery({ walletType: WalletType.OnChain })]
+  ])('sends the Chrome side-panel handoff of %s through the prompt first', async (_flow, reachConfirmation) => {
     mockCanHandoff = true;
     mockTelemetryChoice.made = false;
     await renderWelcome();
-    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await reachConfirmation();
     mockNavigate.mockClear();
     await setHash('#confirmation');
     await act(async () => {
@@ -3764,7 +3924,7 @@ describe('Welcome — telemetry', () => {
     expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
   });
 
-  it('reports errored when the side-panel auto-create fails', async () => {
+  it('reports errored when the side-panel auto-register fails', async () => {
     mockCanHandoff = true;
     mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
     await renderWelcome();

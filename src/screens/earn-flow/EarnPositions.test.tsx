@@ -54,7 +54,10 @@ jest.mock('./components', () => ({
     <div data-testid="earn-summary-panel" data-title-id={titleId}>
       {summary.totalRewardsUsd}
     </div>
-  )
+  ),
+  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+    `${subject.asset} on ${subject.network}`
 }));
 jest.mock('./ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
@@ -132,10 +135,14 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const firstPosition = EARN_DATA.positions[0]!;
 
-    // "{protocol} • {asset}" — one occurrence per position (both share the copy).
-    expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
-      EARN_DATA.positions.length
-    );
+    // Each card names its position as the page it opens does: the protocol over its asset on its
+    // network, never the old "{protocol} • {asset}" join.
+    EARN_DATA.positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      expect(card).not.toHaveTextContent(`${position.protocol} • ${position.asset}`);
+      expect(within(card).getByText(position.protocol)).toHaveClass('text-row-title');
+      expect(within(card).getByText(`${position.asset} on ${position.network}`)).toHaveClass('text-muted');
+    });
     // Each card's APY is interpolated into t('earnPositionsApy', { apy }).
     EARN_DATA.positions.forEach(position => {
       expect(
@@ -309,12 +316,12 @@ describe('EarnPositions', () => {
       expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
+    it('keeps the failure said while a retry is out (SWR keeps the error until a load succeeds)', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
         positions: [],
         vaults: [],
-        isLoading: true,
+        isLoading: false,
         error: 'positions request failed (503)',
         refetch: mockRefetch
       });

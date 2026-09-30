@@ -20,6 +20,8 @@ export interface StressOptions {
   sendAmountMin: number;
   sendAmountMax: number;
   claimAfterSendProb: number;
+  /** Budget for the claim after a send: the suite's network- and Guardian-aware claim window (#1266). */
+  claimBudgetMs: number;
   idleEvery: number;
   idleMinMs: number;
   idleMaxMs: number;
@@ -416,12 +418,11 @@ export async function runStressDriver(
       }
     });
 
-    // Optional immediate claim on the receiver — mimics an attentive user.
-    // Budget is generous because this is a correctness test: the new drain
-    // loop iterates ~6s per cycle, so 240s = ~40 iterations.
+    // Optional immediate claim on the receiver, as an attentive user would make. The budget is the
+    // suite's own claim window, which is wider for Guardian accounts.
     if (status === 'ok' && rng() < opts.claimAfterSendProb) {
       try {
-        await receiver.claimAllNotes(240_000);
+        await receiver.claimAllNotes(opts.claimBudgetMs);
       } catch (e) {
         timeline.emit({
           category: 'stress_op',
@@ -510,8 +511,8 @@ export async function runStressDriver(
   // ── Drain: multiple claim cycles so no note is left in the queue ────────
   // `claimAllNotes` now loops until the consumable-notes cache is empty for
   // two consecutive syncs, so in the steady state each cycle is a fast no-op.
-  // The 5-min per-cycle cap only matters when something is genuinely stuck —
-  // which is exactly the signal we want surfaced rather than silently clipped.
+  // A cycle gives up at its 5-min budget only once the queue has stopped moving; a queue still
+  // moving gets up to 10 min (see `startDrainDeadline`), so a stuck one is still surfaced.
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',

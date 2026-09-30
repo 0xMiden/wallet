@@ -220,8 +220,8 @@ setConnectivityReporter(postConnectivityEvent);
 // Memoized so the storage read happens once per realm. The memo is deliberately a
 // NEVER-REJECTING shadow of the load: it is awaited on the client-creation path, and
 // a permanently-rejected slot there would fail every later `getOrCreateClient()`.
-// (`loadEndpointOverrides` already swallows its own storage errors — falling back to
-// "no override" — so the catch only covers the unexpected.)
+// (`loadEndpointOverrides` already swallows its own storage errors, so the catch only covers
+// the unexpected.)
 let endpointOverridesPromise: Promise<void> | null = null;
 
 function ensureEndpointOverrides(): Promise<void> {
@@ -1586,9 +1586,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {
-        // `loadEndpointOverrides` swallows its own storage failures (falling back to
-        // "no override"), so reaching here means something unexpected. Answer ok:false
-        // rather than dropping the response, which would leave the SW's await hanging.
+        // `loadEndpointOverrides` swallows its own storage errors, so reaching here means
+        // something unexpected. Answer ok:false rather than dropping the response, which would
+        // leave the SW's await hanging.
         console.error(`${TAG} endpoint-override reload failed:`, err);
         const response: OffscreenReloadEndpointsResponse = {
           ok: false,

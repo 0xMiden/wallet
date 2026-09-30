@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 
@@ -74,7 +74,7 @@ let tokenPrices: TokenPrices;
 function makeAsset(overrides: Partial<{ symbol: string; name: string; balance: number }> = {}): TokenBalanceData {
   const { symbol = 'BTC', name = 'Bitcoin', balance = 2 } = overrides;
   return {
-    tokenId: 'tok-1',
+    tokenId: TOKEN_IBTC.faucetId,
     tokenSlug: 'slug-1',
     metadata: { symbol, name } as TokenBalanceData['metadata'],
     balance,
@@ -99,10 +99,11 @@ describe('AssetRow', () => {
   it.each(['verified', 'unknown'])('hides the Unverified mark for a %s token', verification => {
     mockVerify.mockReturnValue(verification);
 
-    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+    const asset = makeAsset();
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
 
     expect(screen.queryByText('unverifiedToken')).toBeNull();
-    expect(mockVerify).toHaveBeenCalledWith('tok-1');
+    expect(mockVerify).toHaveBeenCalledWith(asset.tokenId);
   });
 
   it('draws the Unverified mark as an xs warning pill', () => {
@@ -118,7 +119,6 @@ describe('AssetRow', () => {
 
   it('renders a positive 24h delta with a "+" prefix, positive direction, and status-positive sparkline color', () => {
     tokenPrices = { BTC: priceInfo({ price: 100, percentageChange24h: 5.256 }) };
-    mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
 
     render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={tokenPrices} />);
 
@@ -127,7 +127,7 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-delta')).toHaveTextContent('+5.26%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
 
-    // Real points (length > 1) => the actual points and the positive color.
+    // Real points (length > 1) => the actual points and the positive color; the beforeEach series.
     const spark = screen.getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', JSON.stringify([10, 20, 30]));
     expect(spark).toHaveAttribute('data-color', 'var(--status-positive)');
@@ -198,6 +198,17 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
   });
 
+  it('gives no price to a faucet outside the allowlist that names itself BTC', () => {
+    const asset = { ...makeAsset({ balance: 7 }), tokenId: 'mtst1other' };
+
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
+
+    expect(screen.queryByTestId('row-price')).toBeNull();
+    expect(screen.queryByTestId('row-delta')).toBeNull();
+    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');
+  });
+
   it('falls back to a flat grey sparkline when there are no real points (length <= 1)', () => {
     // Positive change, but no real sparkline data => tertiary color wins.
     tokenPrices = { BTC: priceInfo({ percentageChange24h: 8 }) };
@@ -255,6 +266,21 @@ describe('AssetRow', () => {
     fireEvent.click(item);
   });
 
+  it('draws the sparkline by default, fetched for the price symbol', () => {
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('sparkline')).toBeInTheDocument();
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith('BTC', '1D');
+  });
+
+  it('draws no sparkline, and fetches none, when drawn without one', () => {
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} sparkline={false} />);
+
+    expect(screen.queryByTestId('sparkline')).toBeNull();
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+    expect(mockUseTokenSparkline).not.toHaveBeenCalledWith('BTC', '1D');
+  });
+
   it('forwards the data-testid prop to AssetListItem', () => {
     render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} data-testid="my-row" />);
 
@@ -274,7 +300,7 @@ describe('AssetRow', () => {
   describe('a token whose scale is unknown', () => {
     function unknownAsset(): TokenBalanceData {
       return {
-        tokenId: 'tok-unknown',
+        ...makeAsset(),
         tokenSlug: 'slug-unknown',
         metadata: {
           symbol: 'Unknown',
@@ -282,23 +308,22 @@ describe('AssetRow', () => {
           decimals: 6,
           scaleIsUnknown: true
         } as TokenBalanceData['metadata'],
-        balance: 1234.5,
-        fiatPrice: 0,
-        change24h: 0
+        balance: 1234.5
       };
     }
 
     it('shows the symbol alone instead of a quantity', () => {
-      render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
+      const asset = unknownAsset();
+      render(<AssetRow asset={asset} tokenPrices={tokenPrices} data-testid="row" />);
 
-      expect(screen.getByTestId('row-amount')).toHaveTextContent('Unknown');
+      expect(screen.getByTestId('row-amount').textContent).toBe(asset.metadata.symbol);
     });
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
-      // Quoted, so the unknown scale is the only thing that can withhold the figure.
-      tokenPrices = { Unknown: priceInfo() };
       render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
 
+      // The beforeEach BTC quote is what makes the row quoted, so the unknown scale is the only
+      // thing that can withhold the figure.
       expect(screen.getByTestId('row-delta')).toBeInTheDocument();
       expect(screen.queryByTestId('row-price')).toBeNull();
     });

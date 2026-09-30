@@ -10,11 +10,11 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { useSettleLayoutTransition, useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { springs, useMotion } from 'lib/animation';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -28,6 +28,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   earnDepositSettlementOf,
+  formatMoneyAmount,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
@@ -116,7 +117,9 @@ function buildRowProps(
       amount: d.outAmount
         ? {
             value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
-            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
+            // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
+            preformatted: true
           }
         : undefined,
       status: d.status
@@ -141,7 +144,13 @@ function buildRowProps(
       amount:
         failed || entry.amount === undefined
           ? undefined
-          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+          : {
+              value: `+${entry.amount}`,
+              symbol: entry.token,
+              direction: 'positive' as const,
+              // `earnWithdrawAmountFields` already formatted it; the row must not round it again.
+              preformatted: true
+            },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
     };
@@ -245,7 +254,17 @@ function buildRowProps(
       : undefined;
 
   let amount: ActivityRowProps['amount'];
-  if (swapSide === 'requested' && entry.requestedAmount) {
+  const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
+  if ((entry.txType === 'earn-deposit' || entry.txType === 'bridged-send') && entry.amount !== undefined) {
+    // The amount typed, as its Review showed it: the row's generic 3-decimal pass would cut 10.6555 to 10.655. A
+    // bridge-out reaches here only when cancelled, and its detail hero shows the same typed amount.
+    amount = {
+      value: `${sign}${formatMoneyAmount(entry.amount, 'typed')}`,
+      symbol: entry.token,
+      direction: amountDirection,
+      preformatted: true
+    };
+  } else if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
@@ -256,7 +275,6 @@ function buildRowProps(
     // block over that would drop the asset's NAME too — leaving a row that says
     // nothing about what moved.
   } else if (entry.amount !== undefined || entry.extraAmounts?.length || entry.token !== undefined) {
-    const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     // A batch claim spanning several faucets appends each further asset inline —
     // but only on the unscoped list. On a token page the row is read as a
     // movement of THAT token (same reasoning as `swapSide` above), so show the
@@ -416,9 +434,10 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
-    // Same spring as the rows, so a date group and the rows inside it move
+    // Same transition as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
-    const layoutTransition = useMotion(springs.settle);
+    const layoutTransition = useSettleLayoutTransition();
+    const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
@@ -612,7 +631,11 @@ const HistoryView = memo<HistoryViewProps>(
         {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
-            loadMore={loadMore}
+            // The scroller checks for a page in this commit's layout phase, and History's loadMore sets
+            // state before it awaits, so in the commit that shows the tab again it would re-render the
+            // list before framer reads the swap above. Deferred to a microtask, it runs after that read
+            // and loads the same page (#1198).
+            loadMore={shownAgain ? (page: number) => queueMicrotask(() => void loadMore(page)) : loadMore}
             hasMore={hasMore}
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
