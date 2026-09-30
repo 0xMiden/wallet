@@ -1035,6 +1035,7 @@ const addLocalResult = () =>
   transactions.add({
     id: 'local-result',
     type: 'send',
+    displayIcon: 'SEND',
     accountId: 'account',
     status: ITransactionStatus.Completed,
     initiatedAt: 1,

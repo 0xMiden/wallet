@@ -580,7 +580,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
 
     it('a trap importRecoveryNoteBytes retired and rethrew is not retired again by its lock', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
-      const state = await underLock(importBatch, recoverySites[0][1]);
+      const state = await underLock(importBatch, recoverySites[0]![1]);
       await expect(state.run(trap, false)).rejects.toBe(trap);
       expect(state.singletonMarkPoisoned).toHaveBeenCalledTimes(1);
       expect(state.listener).toHaveBeenCalledTimes(1);

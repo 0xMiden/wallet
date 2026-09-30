@@ -101,7 +101,9 @@ jest.mock('./helpers', () => ({ getBech32AddressFromAccountId: (id: string) => i
 // The real lock and client singleton run against a fake client, so a retire is observable.
 jest.mock('./miden-client-interface', () => ({
   MidenClientInterface: class {
-    static create = () => mockCreateClient();
+    static create(): Promise<unknown> {
+      return mockCreateClient();
+    }
   }
 }));
 jest.mock('lib/shared/helpers', () => ({
