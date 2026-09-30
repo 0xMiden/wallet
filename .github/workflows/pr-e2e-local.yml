@@ -7,7 +7,6 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
-  pull-requests: read
 jobs:
   # Name and work read the same base value (#1071): only a pull request based on
   # main or next gets the full suite and this required name; a stacked pull
