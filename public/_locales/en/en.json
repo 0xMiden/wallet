@@ -909,6 +909,8 @@
   "noteReceivedTitle": "You have an incoming transfer",
   "transactionFailedNotificationTitle": "Transaction failed",
   "transactionFailedNotificationBody": "A transaction couldn't be completed. Open the wallet to review.",
+  "transactionNotConfirmedNotificationTitle": "Transaction not confirmed",
+  "transactionNotConfirmedNotificationBody": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.",
   "noteReceivedTapToClaim": "Tap here to accept it",
   "noteReceivedClickToClaim": "Click to review and accept it",
   "noteReceivedMultiple": "$count$ transfers to accept",

@@ -11,6 +11,7 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import {
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
+  isUnconfirmedFailure,
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   resolveTransactionErrorMessage,
@@ -23,7 +24,10 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
-import { notifyBackgroundTransactionFailed } from '../back/background-notification';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
@@ -152,7 +156,19 @@ export const cancelTransaction = async (
     error !== USER_CANCELLED_TRANSACTION_REASON &&
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
-  if (isGenuineFailure) notifyBackgroundTransactionFailed();
+  if (isGenuineFailure) {
+    // Worded by the rule every reader of a Failed row shares (#1250), decided on the row as the modify
+    // above wrote it, so a row that may still land is never announced as failed.
+    const current = existing ?? transaction;
+    const written = {
+      ...current,
+      status: ITransactionStatus.Failed,
+      error: displayError,
+      rawError: displayError !== rawError ? rawError : current.rawError
+    };
+    if (isUnconfirmedFailure(written)) notifyBackgroundTransactionNotConfirmed();
+    else notifyBackgroundTransactionFailed();
+  }
 
   // A NARROWER gate than the notification's, and the difference is the point.
   // A user-initiated cancel and the cold-start sweep genuinely are not failures,

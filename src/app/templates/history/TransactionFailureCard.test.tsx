@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+
 import { TransactionFailureCard } from './TransactionFailureCard';
 
 jest.mock('react-i18next', () => ({
@@ -58,14 +60,30 @@ describe('TransactionFailureCard', () => {
     expect(screen.getByText('Prover timed out')).toHaveClass('text-status-negative');
   });
 
-  it('titles the card "notConfirmed", mutes the reason and adds the hint when the row is unconfirmed', () => {
+  it('titles the card "notConfirmed" with the hint as its body and the reason behind the disclosure', () => {
     render(
       <TransactionFailureCard errorMessage="Transaction took too long to process and was cancelled" isUnconfirmed />
     );
 
     expect(screen.getByText('notConfirmed')).toBeInTheDocument();
-    expect(screen.getByText('Transaction took too long to process and was cancelled')).toHaveClass('text-gray-500');
+    expect(screen.queryByTestId('history-failure-reason')).not.toBeInTheDocument();
     expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionNotConfirmedHint');
+    expect(screen.queryByText('Transaction took too long to process and was cancelled')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('Transaction took too long to process and was cancelled')).toBeInTheDocument();
+  });
+
+  // Classifier copy claims a failure ("No funds moved") the wallet cannot make for this row (#1250).
+  it('shows no classifier copy on a not-confirmed card and reveals the raw error on demand', () => {
+    render(
+      <TransactionFailureCard errorMessage={REMOTE_PROVER_FAILED_ERROR} rawErrorMessage="Error: 503" isUnconfirmed />
+    );
+
+    expect(screen.queryByText(REMOTE_PROVER_FAILED_ERROR)).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-unconfirmed-hint')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('Error: 503')).toBeInTheDocument();
+    expect(screen.queryByText(REMOTE_PROVER_FAILED_ERROR)).not.toBeInTheDocument();
   });
 
   it('lets isUnconfirmed outrank isCancelled: a stamped user cancel is both', () => {

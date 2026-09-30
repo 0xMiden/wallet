@@ -2536,8 +2536,11 @@ describe('HistoryDetails', () => {
         el => el.getAttribute('data-title') === 'notConfirmed'
       )!;
       expect(card).toBeTruthy();
-      expect(card.textContent).toContain(TRANSACTION_STUCK_ERROR);
       expect(screen.getByTestId('history-unconfirmed-hint')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-failure-reason')).toBeNull();
+      expect(card.textContent).not.toContain(TRANSACTION_STUCK_ERROR);
+      fireEvent.click(within(card as HTMLElement).getByText('showFullError'));
+      expect(card.textContent).toContain(TRANSACTION_STUCK_ERROR);
     });
 
     it('withholds Retry for a row the user cancelled by hand', async () => {

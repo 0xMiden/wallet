@@ -13,8 +13,10 @@ import { DetailSection } from './DetailSection';
  * a failed or cancelled swap explains itself the way every other type does.
  *
  * `isUnconfirmed` (`isUnconfirmedFailure`) wins over `isCancelled`: the row's outcome is
- * unknown rather than a completed failure, so it is titled and inked like the not-confirmed
- * status instead, with a hint that the wallet cannot yet rule the transfer out.
+ * unknown rather than a completed failure, so it is titled like the not-confirmed status and
+ * its body is the hint that the wallet cannot yet rule the transfer out. The row's reason is
+ * not shown there, since classifier copy can claim a failure ("No funds moved"); its own text
+ * stays behind the disclosure instead, as `describeRotationFailure` does for the rotation gate.
  */
 export const TransactionFailureCard: FC<{
   errorMessage: string;
@@ -29,21 +31,22 @@ export const TransactionFailureCard: FC<{
       {/* One child, not two: `DetailCard` draws a hairline between every child it's given
           (`divide-y`), and the message + the disclosure toggle are one body, not two rows. */}
       <div className="px-4 py-3">
-        <p
-          data-testid="history-failure-reason"
-          className={clsx(
-            'text-sm font-medium wrap-break-word select-text',
-            isUnconfirmed || isCancelled ? 'text-gray-500' : 'text-status-negative'
-          )}
-        >
-          {errorMessage}
-        </p>
-        {isUnconfirmed && (
-          <p data-testid="history-unconfirmed-hint" className="mt-2 text-sm text-gray-500 wrap-break-word">
+        {isUnconfirmed ? (
+          <p data-testid="history-unconfirmed-hint" className="text-sm text-gray-500 wrap-break-word">
             {t('transactionNotConfirmedHint')}
           </p>
+        ) : (
+          <p
+            data-testid="history-failure-reason"
+            className={clsx(
+              'text-sm font-medium wrap-break-word select-text',
+              isCancelled ? 'text-gray-500' : 'text-status-negative'
+            )}
+          >
+            {errorMessage}
+          </p>
         )}
-        <ErrorDetails details={rawErrorMessage} className="mt-1" />
+        <ErrorDetails details={isUnconfirmed ? (rawErrorMessage ?? errorMessage) : rawErrorMessage} className="mt-1" />
       </div>
     </DetailSection>
   );

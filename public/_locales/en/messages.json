@@ -3959,6 +3959,14 @@
     "message": "A transaction couldn't be completed. Open the wallet to review.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transaction not confirmed",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Tap here to accept it",
     "englishSource": "Tap here to accept it"
