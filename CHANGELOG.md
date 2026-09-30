@@ -42,6 +42,7 @@
 
 ### Fixes
 
+- [FIX][extension] The transaction queue starts its next ready transaction as soon as it finishes one instead of idling 5 s first, so a claim queued behind Guardian sends no longer waits an extra 5 s for each; the E2E claim drain now fails only once transactions stop completing or the drain reaches twice its budget, and the stress suite's claims use its Guardian-aware budget (#1266)
 - [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). When neither credential can be read, a page shows an error instead of an unlock step (#1056).
 - [FIX][all] Backing out of the recovery phrase verify or remove flow while it unlocks no longer shows the words afterwards, and the next attempt starts without the previous error or password (#1136).
 - [FIX][all] Revealing the recovery phrase from Settings shows the password step with a loading indicator while it unlocks, instead of a blank page.

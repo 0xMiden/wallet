@@ -1,5 +1,12 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
+import {
+  drainFailureReason,
+  extendTestTimeoutForDrain,
+  readDrainSnapshot,
+  startDrainDeadline,
+  type DrainVerdict
+} from './drain-progress';
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
@@ -71,9 +78,9 @@ const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested
  * Drain laps a busy Accept All may spend before the drain treats its batch as wedged and reloads.
  *
  * The "nothing rendered" fuse next to it is 3 laps (~20s), which is right for a list that failed
- * to render and far too short for a consume that is merely slow — proving one on the local stack
- * takes minutes. A reload mid-batch resets the claiming gate and enqueues a duplicate consume, so
- * this fuse is long enough that only a genuinely stalled batch reaches it.
+ * to render and far too short for a consume that is merely slow: proving one on the local stack
+ * takes minutes. A reload mid-batch enqueues nothing twice, since the notes stay claiming across it
+ * (see `reloadAndPreparePending`), but it costs the drain its reload time, so only a batch this stuck gets one.
  */
 const DRAINING_STALL_ITERS = 12;
 
@@ -2180,7 +2187,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Drain every claimable note until the wallet's consumable-notes cache is
-   * empty for two consecutive syncs (or until `timeoutMs` elapses).
+   * empty for two consecutive syncs, or until the transaction queue stops moving
+   * or the drain reaches twice its budget (see `startDrainDeadline` in drain-progress.ts).
    *
    * Reads pending notes from `chrome.storage.local.miden_sync_data.notes`, which
    * is the same source `getBalance()` sums over — so "drained" here means the
@@ -2234,17 +2242,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Full page reload, re-inject faucet metadata, then land on /receive.
+   * Full page reload, re-inject faucet metadata, then land on the Activity tab's Pending list.
    *
-   * A full reload (not a client-side navigate) is load-bearing: it gives a
-   * fresh Dexie connection AND re-initializes the wallet's in-memory Zustand
-   * store — critically resetting `extensionClaimingNoteIds`. A note whose
-   * consume has stalled stays flagged "being claimed" (no Claim button) until
-   * its consume commits; on slow networks (testnet) that can outlast a whole
-   * claim cycle. Client-side navigation does NOT reset the store, so only a
-   * reload un-gates such notes. Used both at the start of a claim drain and as
-   * the recovery step when the loop gets stuck with pending notes but no
-   * visible buttons.
+   * The reload gives a fresh Dexie connection and restarts the page: the claim attempts
+   * `useActivityClaims` keeps in module memory are dropped, and every card's claiming state is
+   * re-read from the transaction rows (`claimable-notes.ts`). A note whose consume row is still
+   * Queued or Generating therefore stays claiming across it, and `queueConsumeRows` would refuse a
+   * second consume of it anyway. Used at the start of a claim drain and as the rescue step when
+   * the loop sees pending notes but no usable button.
    */
   private async reloadAndPreparePending(): Promise<void> {
     await this.page.reload({ waitUntil: 'domcontentloaded' });
@@ -2266,16 +2271,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const STABLE_ZERO_THRESHOLD = 2;
     const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
 
-    // Fresh reload + metadata injection + land on /receive. The reload (NOT a
-    // client-side navigate) gives a fresh Dexie connection AND resets the
-    // wallet's in-memory store — clearing the `extensionClaimingNoteIds` gate.
-    // See reloadAndPreparePending.
+    // Fresh reload + metadata injection + land on the Pending list. See reloadAndPreparePending.
     await this.reloadAndPreparePending();
+
+    // Outside a running test, test.info() throws.
+    let testInfo: TestInfo | undefined;
+    try {
+      testInfo = test.info();
+    } catch {
+      testInfo = undefined;
+    }
 
     // Start the clock AFTER reload/prepare. That step costs ~8-12s of fixed
     // sleeps, and billing it against the caller's budget silently turned a 120s
-    // budget into ~110s of actual draining (#615).
-    const deadline = Date.now() + timeoutMs;
+    // budget into ~110s of actual draining (#615). The first read is the base the
+    // first lap's progress is measured against. A drain that runs past its budget while still
+    // moving must outlast the test's own timeout, or its verdict line and dumpTransactions dump
+    // never print, so the extension only fires once the drain actually needs the room.
+    const drain = startDrainDeadline(timeoutMs, undefined, () => extendTestTimeoutForDrain(timeoutMs, testInfo));
+    drain.observe(await readDrainSnapshot(this.page));
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -2291,8 +2305,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     let lastPending = -1;
     let stuckSameCountIters = 0;
     let drainingIters = 0;
+    let verdict: DrainVerdict = 'continue';
 
-    while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+    while (
+      stableZero < STABLE_ZERO_THRESHOLD &&
+      (verdict = drain.check(await readDrainSnapshot(this.page))) === 'continue'
+    ) {
       iteration++;
       await this.triggerSync();
 
@@ -2360,29 +2378,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       drainingIters = draining ? drainingIters + 1 : 0;
 
       // Cache says transfers are pending but the list hasn't rendered the
-      // action. Two causes: (a) React hasn't rehydrated from the updated store
-      // yet — resolves on its own; (b) the notes are gated by
-      // `extensionClaimingNoteIds` because a prior claim's consume stalled and
-      // never committed (common on slow networks like testnet). A client-side
-      // navigate clears (a) but NOT (b), since the store survives navigation —
-      // only a full reload resets the claiming gate. So after a few stuck
-      // iterations, reload to break out of both.
+      // action. Two causes a reload clears: (a) React hasn't rehydrated from the
+      // updated store yet; (b) a note from a faucet the store has no metadata for
+      // is filtered out of the list until `injectClaimableMetadata` runs again,
+      // which the reload does. So after a few stuck iterations, reload.
       //
       // A batch in flight gets a fuse of its OWN, an order of magnitude longer. It is progress,
       // not a stall: a healthy consume routinely outlives the 3 laps (~20s) that mean "nothing
-      // rendered", and reloading under it resets the claiming gate and enqueues a SECOND consume
-      // of notes already being consumed. A consume that really is wedged still gets rescued, just
-      // on the longer fuse.
+      // rendered". Reloading under it enqueues nothing twice, since its notes stay claiming across
+      // the reload, but costs the drain the reload's time. A consume that really is wedged still
+      // gets rescued, just on the longer fuse.
       const needsRescue = draining ? drainingIters >= DRAINING_STALL_ITERS : stuckSameCountIters >= 3;
       console.log(
         draining
           ? `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} Accept All is draining its batch (lap ${drainingIters})`
           : `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
-      // The gate above is (b) — a consume that never committed — often enough that
-      // it is worth asking the offscreen document what that consume is doing before
-      // reloading and enqueuing another one. Streams to stdout so a stalled claim is
-      // diagnosable from the live job log instead of from artifacts after the run.
+      // Before the reload, ask the offscreen document what any in-flight consume is doing. Streams
+      // to stdout so a stalled claim is diagnosable from the live job log instead of from artifacts
+      // after the run.
       if (needsRescue) {
         await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
@@ -2393,17 +2407,22 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.waitForTimeout(3_000);
     }
 
-    if (Date.now() >= deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+    // The loop leaves short of two zero reads only on a final verdict, taken on the read at its head; judging again
+    // here would read nothing new, and past the budget could fire onOverrun on a drained exit.
+    if (stableZero >= STABLE_ZERO_THRESHOLD || verdict === 'continue') {
+      console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
+    } else {
       await this.confirmDrainedOrThrow('claimAllNotes', {
         readPendingCount,
         timeoutMs,
+        verdict,
+        elapsedMs: drain.elapsedMs(),
+        sinceProgressMs: drain.sinceProgressMs(),
         iteration,
         lastPending,
         stableZero,
         stableZeroThreshold: STABLE_ZERO_THRESHOLD
       });
-    } else {
-      console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
     await this.navigateHome();
@@ -2431,6 +2450,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     ctx: {
       readPendingCount: () => Promise<number>;
       timeoutMs: number;
+      verdict: Exclude<DrainVerdict, 'continue'>;
+      elapsedMs: number;
+      sinceProgressMs: number | null;
       iteration: number;
       lastPending: number;
       stableZero: number;
@@ -2451,9 +2473,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // and its stage) lands in the test log instead of staying hidden in the SW.
     const txDump = await this.dumpTransactions().catch(() => 'unavailable');
     console.log(`[WalletPage.${label}] transactions at timeout: ${txDump}`);
+    const reason = drainFailureReason(ctx.verdict, ctx.sinceProgressMs, ctx.elapsedMs, ctx.timeoutMs);
     throw new Error(
-      `[WalletPage.${label}] timed out after ${ctx.timeoutMs}ms with ${first} pending note(s) ` +
-        `after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
+      `[WalletPage.${label}] timed out (${reason}) after ${Math.round(ctx.elapsedMs)}ms with ${first} pending ` +
+        `note(s) after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
         `stableZero=${ctx.stableZero}/${ctx.stableZeroThreshold}). Transactions: ${txDump}`
     );
   }
@@ -2643,8 +2666,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Diagnostic: read every row of `TridentMain.transactions` and return a
-   * compact one-line summary (`id·type·status·stage·error`) for each. Used to
-   * surface a stalled/failed consume's real reason in the test log rather than
+   * compact one-line summary (`id·type·status·stage·stageTimestamps·nextEligibleAt·error`) for
+   * each. Used to surface a stalled/failed consume's real reason in the test log rather than
    * leaving it buried in the service worker. status: 0=Queued 1=Generating
    * 2=Completed 3=Failed.
    */
@@ -2680,6 +2703,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
               // terminal — a successful replace-hot-key freezes at 'confirming'.
               // Read it only together with `status`.
               stage: row.stage,
+              stageTimestamps: row.stageTimestamps,
+              nextEligibleAt: row.nextEligibleAt,
               error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
               // `error` is the user-facing copy, which deliberately drops the technical
               // detail -- "the prover does not recognize part of this transaction" without
