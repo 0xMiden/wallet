@@ -305,7 +305,8 @@ it('counts a save only in its own generation, so a save after a wipe still holds
   }
 });
 
-it('releases a save whose lock request is refused, so later events are taken', async () => {
+it('reports a save whose lock request is refused as failed, and takes later events', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   const store = createStoredIdSet('test');
   const refused = { request: () => Promise.reject(new Error('The document is not fully active')) };
   try {
@@ -313,15 +314,50 @@ it('releases a save whose lock request is refused, so later events are taken', a
     await waitFor(() => expect(result.current.status).toBe('ready'));
     Object.defineProperty(navigator, 'locks', { configurable: true, value: refused });
 
+    let saved: boolean | undefined;
     await act(async () => {
-      await expect(store.save(KEY, addId('y'))).rejects.toThrow('not fully active');
+      saved = await store.save(KEY, addId('y'));
     });
     Reflect.deleteProperty(navigator, 'locks');
+    expect(saved).toBe(false);
+    expect(result.current.saveFailed).toBe(true);
     act(() => subscriptionAt(0).callback(['z']));
 
     expect([...result.current.ids]).toEqual(['z']);
   } finally {
     Reflect.deleteProperty(navigator, 'locks');
+    warn.mockRestore();
+    resetStorage();
+  }
+});
+
+it('reads a key that an event marked while a refused save was out', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const store = createStoredIdSet('test');
+  const refusal = deferred<never>();
+  try {
+    const { result } = renderHook(() => store.useEntry(KEY));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: () => refusal.promise } });
+
+    let saved: Promise<boolean> = Promise.resolve(true);
+    act(() => {
+      saved = store.save(KEY, addId('y'));
+    });
+    act(() => subscriptionAt(0).callback(['z']));
+    expect(result.current.ids.size).toBe(0);
+    storedIds.set(KEY, ['z']);
+    const readsBefore = read.mock.calls.length;
+
+    await act(async () => {
+      refusal.reject(new Error('The document is not fully active'));
+      expect(await saved).toBe(false);
+    });
+    expect(read.mock.calls.length).toBe(readsBefore + 1);
+    expect(result.current).toEqual({ ids: new Set(['z']), status: 'ready', saveFailed: true });
+  } finally {
+    Reflect.deleteProperty(navigator, 'locks');
+    warn.mockRestore();
     resetStorage();
   }
 });

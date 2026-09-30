@@ -160,7 +160,8 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
   /**
    * Counts itself until it settles, so the key's change events are held back meanwhile, and releases exactly that count,
    * once and only in the generation that took it, whether or not its turn ran: a count left behind would hold the key's
-   * events back for good. The last save out reads a key that changed meanwhile once more, inside its turn.
+   * events back for good. The last save out reads a key that changed meanwhile once more, inside its turn or after a
+   * refused one. Never rejects: a refused turn resolves false, as every caller expects.
    */
   function save(key: string, change: (stored: ReadonlySet<string>) => ReadonlySet<string>): Promise<boolean> {
     if (getEntry(key).status !== 'ready') return Promise.resolve(false);
@@ -178,20 +179,27 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
       pendingSaves.delete(key);
       return stale.delete(key);
     };
+    const readIfStale = async (): Promise<void> => {
+      if (!release()) return;
+      try {
+        const ids = toIds(await fetchFromStorage<unknown>(key));
+        if (generation === started) adopt(key, ids);
+      } catch (error) {
+        console.warn(`[${logLabel}] Could not read the hidden set after saving`, error);
+      }
+    };
     return inStorageTurn(key, async () => {
       try {
         return await applyChange(key, change, started);
       } finally {
-        if (release()) {
-          try {
-            const ids = toIds(await fetchFromStorage<unknown>(key));
-            if (generation === started) adopt(key, ids);
-          } catch (error) {
-            console.warn(`[${logLabel}] Could not read the hidden set after saving`, error);
-          }
-        }
+        await readIfStale();
       }
-    }).finally(release);
+    }).catch(async (error: unknown) => {
+      console.warn(`[${logLabel}] Could not save the hidden set`, error);
+      if (generation === started) setEntry(key, { ...getEntry(key), saveFailed: true });
+      await readIfStale();
+      return false;
+    });
   }
 
   // A mounted reader shows its key loading until the key is read again.
