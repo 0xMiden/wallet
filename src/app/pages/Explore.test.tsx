@@ -686,13 +686,14 @@ describe('Explore', () => {
       await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
       expect(mockWriteStorage).toHaveBeenLastCalledWith(KEY, []);
       expect(screen.queryByTestId('hidden-assets')).toBeNull();
-      expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
     });
 
     it('keeps a token hidden and says so when unhiding it cannot be saved, until a later Unhide succeeds', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        mockStoredHiddenTokens = ['t-spam'];
+        // A second hidden token keeps the section, and so its error line, on the page after the retry.
+        mockStoredHiddenTokens = ['t-spam', 't-junk'];
+        mockAllBalances = [...mockAllBalances, makeToken('t-junk', 'JUNK', 'Junk Token')];
         mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
         await renderExplore();
         await openSection();
@@ -700,12 +701,14 @@ describe('Explore', () => {
         await unhideSpam();
 
         expect(await screen.findByTestId('hidden-assets-error')).toHaveTextContent('hiddenTokensError');
-        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam', 't-junk']);
         expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc']);
 
         await unhideSpam();
 
         await waitFor(() => expect(rowsIn('asset-list')).toEqual(['faucet-native', 't-btc', 't-spam']));
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-junk']);
         expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
       } finally {
         warn.mockRestore();
@@ -893,7 +896,7 @@ describe('Explore', () => {
       expect(screen.getByTestId('asset-list')).toHaveAccessibleName('assets');
     });
 
-    it('starts collapsed with no error line after the section empties, once a later hide fills it again', async () => {
+    it('starts collapsed after the section empties, once a later hide fills it again', async () => {
       mockStoredHiddenTokens = ['t-spam'];
       await renderExplore();
       await openSection();
@@ -912,7 +915,39 @@ describe('Explore', () => {
 
       const toggle = await screen.findByTestId('hidden-assets-toggle');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+    });
+
+    it("drops a failed Unhide's error when the section empties, so a later refill opens without it", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockStoredHiddenTokens = ['t-spam'];
+        await renderExplore();
+        await openSection();
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        await unhideSpam();
+        expect(await screen.findByTestId('hidden-assets-error')).toBeInTheDocument();
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-spam']);
+
+        // Another page empties the section, with no Unhide of this one's pending, then a hide refills it.
+        const outside = renderHook(() => useHiddenTokens('mtst1account'));
+        await waitFor(() => expect(outside.result.current.loaded).toBe(true));
+        await act(async () => {
+          await outside.result.current.unhide('t-spam');
+        });
+        await waitFor(() => expect(screen.queryByTestId('hidden-assets')).toBeNull());
+        await act(async () => {
+          await outside.result.current.hide('t-btc');
+        });
+        outside.unmount();
+
+        expect(await screen.findByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'false');
+        await openSection();
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveAttribute('aria-expanded', 'true');
+        expect(rowsIn('hidden-asset-list')).toEqual(['t-btc']);
+        expect(screen.queryByTestId('hidden-assets-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('still collapses when another page empties the section', async () => {
