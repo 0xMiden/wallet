@@ -21,15 +21,7 @@ jest.mock('react-i18next', () => ({
 
 // The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
 // is measured, never written to markup, so its mode cannot be asserted from the DOM alone.
-const mockPendingWrapper: { props: Record<string, unknown> | null; renders: Record<string, unknown>[] } = {
-  props: null,
-  renders: []
-};
-// Every non-pending `motion.div` (the date-group wrapper), across every commit, in commit order; the
-// scroller mock below keeps the same per-commit history. The "tab shown again" tests need it, not just
-// the latest snapshot: the recheck that follows the showing commit is deferred to a queued microtask
-// (#1198), a separate commit that only an explicit `await act(async () => {})` flushes into view.
-const mockGroupWrapper: { renders: Record<string, unknown>[] } = { renders: [] };
+const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
 
 // Icon: expose the requested glyph name + size + className so buildRowProps'
 // icon selection (the white-fill classes, and that every row asks for the
@@ -67,13 +59,7 @@ jest.mock('framer-motion', () => {
           { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => {
-          const props = { layout, transition, ...rest };
-          if (rest['data-pending-note-id'] !== undefined) {
-            mockPendingWrapper.props = props;
-            mockPendingWrapper.renders.push(props);
-          } else {
-            mockGroupWrapper.renders.push(props);
-          }
+          if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
           return (
             <div ref={ref} data-layout={String(layout)} data-transition={JSON.stringify(transition)} {...rest}>
               {children}
@@ -277,8 +263,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   keyCounter = 0;
   mockScroller.props = undefined;
-  mockPendingWrapper.renders = [];
-  mockGroupWrapper.renders = [];
   (isFaucetRequest as jest.Mock).mockImplementation(
     (entry: MockFaucetEntry) =>
       Boolean(entry.__faucet) && jest.requireActual('./transactionUtils').isReceiveEntry(entry)
@@ -1589,15 +1573,14 @@ describe('HistoryView - its tab shown again', () => {
       .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
 
   it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
-    const { rerender } = render(view(true));
+    const { container, rerender } = render(view(true));
     rerender(view(false));
-    mockGroupWrapper.renders = [];
-    mockPendingWrapper.renders = [];
     rerender(view(true));
 
-    expect(mockGroupWrapper.renders.length).toBeGreaterThan(0);
-    expect(mockGroupWrapper.renders[0]?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
-    expect(mockPendingWrapper.renders[0]?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+    const groups = groupMoves(container);
+    expect(groups.length).toBeGreaterThan(0);
+    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
+    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
   });
 
   it('slides them on the next change, and when a slide page uncovers the list', () => {
@@ -1605,11 +1588,13 @@ describe('HistoryView - its tab shown again', () => {
     rerender(view(false));
     rerender(view(true));
     rerender(view(true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
     groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
     expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
 
     rerender(view(true, false));
     rerender(view(true, true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
     groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
     expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
   });
