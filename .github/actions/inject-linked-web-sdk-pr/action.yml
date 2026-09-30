@@ -347,6 +347,10 @@ runs:
           fi
           IFS=$'\t' read -r c_owner c_repo c_ref c_sha <<< "$client_meta"
           echo "Pinning the SDK's miden-client to ${c_owner}/${c_repo}@${c_sha:0:8} (from ${client_repo}#${client_num})"
+          # The CLI and the test node read these. A chain left on the published pin
+          # speaks an older protocol than the SDK this step is about to build.
+          echo "MIDEN_LINKED_CLIENT_REV=$c_sha" >> "$GITHUB_ENV"
+          echo "MIDEN_LINKED_CLIENT_URL=https://github.com/${c_owner}/${c_repo}.git" >> "$GITHUB_ENV"
 
           python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${c_owner}/${c_repo}.git" "${c_sha}" "${client_repo}#${client_num}" <<'PYEOF'
         import re, sys
