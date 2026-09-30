@@ -5218,6 +5218,81 @@
       }
     }
   },
+  "networkModeHomeBanner": {
+    "message": "현재 위치: Miden $network$",
+    "englishSource": "You are on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchToMainnet": {
+    "message": "메인넷으로 전환",
+    "englishSource": "Switch to mainnet"
+  },
+  "mainnetAccessDescription": {
+    "message": "메인넷은 현재 초대받은 사용자만 이용할 수 있습니다. 수신한 8자리 액세스 코드를 입력하세요.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  },
+  "mainnetAccessCodeLabel": {
+    "message": "접근 코드",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "메인넷 잠금 해제",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessNoCode": {
+    "message": "코드가 없나요? Miden $network$를 계속 사용하시면 됩니다.",
+    "englishSource": "No code? You can keep using Miden $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "이 코드가 작동하지 않았습니다. 코드를 확인하고 다시 시도해 주세요.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "이 코드를 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnet": {
+    "message": "메인넷",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessHeader": {
+    "message": "메인넷 접속",
+    "englishSource": "Mainnet access"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "메인넷은 현재 초대제입니다. 초대장에 기재된 8자리 코드를 입력하면 지갑이 Miden 메인넷에서 시작됩니다.",
+    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "코드는 초대 이메일에 있습니다.",
+    "englishSource": "The code is in your invite email."
+  },
+  "mainnetAccessContinueOnNetwork": {
+    "message": "Miden $network$에서 계속 읽기",
+    "englishSource": "Continue on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "mainnetWelcomeTitle": {
+    "message": "메인넷에 오신 것을 환영합니다",
+    "englishSource": "Welcome to mainnet"
+  },
+  "mainnetWelcomeBody": {
+    "message": "갓 완성되었습니다. 귀하의 액세스 코드가 정상적으로 작동했습니다.",
+    "englishSource": "Fresh out of the oven. Your access code worked."
+  },
   "networkModePillNoValue": {
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"
