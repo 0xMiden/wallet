@@ -589,6 +589,14 @@
     "message": "Annulé",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Non confirmé",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Le portefeuille n’a pas pu confirmer si cette transaction a bien été effectuée. Elle pourrait encore arriver ; vérifiez donc votre solde une fois le portefeuille synchronisé avant de l’envoyer à nouveau.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Afficher l'erreur complète",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Une erreur s’est produite lors de la rotation de votre clé quotidienne.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Une erreur s’est produite lors de la rotation de votre clé quotidienne. Vos fonds sont en sécurité, et vous pouvez réessayer dès maintenant.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Rotation quotidienne des clés non confirmée",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Le portefeuille n’a pas pu confirmer si la rotation avait bien eu lieu. Vos fonds sont en sécurité, même si des frais de réseau ont peut-être été payés. Laissez le portefeuille se synchroniser pendant une minute avant de réessayer.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Réessayer",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "Le MIDEN que vous avez reçu n’a pas pu être réclamé.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Le portefeuille n'a pas pu confirmer si le MIDEN que vous avez reçu avait été réclamé. Laissez le portefeuille se synchroniser pendant une minute avant de réessayer.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Réessayez",
@@ -3922,6 +3942,14 @@
   "transactionFailedNotificationBody": {
     "message": "Une transaction n'a pas pu être effectuée. Ouvrez le portefeuille pour vérifier.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transaction non confirmée",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Le portefeuille n’a pas pu confirmer si une transaction avait bien été effectuée. Ouvrez le portefeuille avant de la renvoyer.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "Appuyez ici pour l'accepter",

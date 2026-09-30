@@ -589,6 +589,14 @@
     "message": "中止",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "未確認",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "ウォレットでは、この送金が正常に処理されたかどうかを確認できませんでした。まだ着金する可能性もありますので、再度送金する前に、ウォレットの同期が完了した後で残高を確認してください。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "エラーの全文を表示",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "日常キーのローテーション中に問題が発生しました。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "日常キーのローテーション中に問題が発生しました。資金は安全ですので、今すぐ再試行できます。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "毎日の鍵のローテーションは確認されていません",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "ウォレットはローテーションが正常に実行されたかどうかを確認できませんでした。ネットワーク手数料が支払われた可能性はありますが、資金は安全です。再試行する前に、ウォレットが同期するまで1分ほどお待ちください。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "再試行",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "受け取ったMIDENは、受け取り請求できませんでした。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "ウォレットは、受け取ったMIDENがすでに請求済みかどうかを確認できませんでした。再試行する前に、ウォレットが同期を完了するまで1分ほどお待ちください。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "もう一度試してみてください",
@@ -3922,6 +3942,14 @@
   "transactionFailedNotificationBody": {
     "message": "取引を完了できませんでした。ウォレットを開いて確認してください。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "取引が未確認です",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "ウォレットは、取引が成立したかどうかを確認できませんでした。再度送信する前に、ウォレットを開いてください。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして受け取る",
