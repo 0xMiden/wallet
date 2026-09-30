@@ -123,3 +123,23 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).toMatch(/merge-jest-coverage\.mjs/);
   });
 });
+
+/** Configs whose testDir also holds Jest suites, which Playwright's default testMatch would load and fail on. */
+const jestSharingConfigs = [
+  { config: 'playwright.stress.config.ts', spec: 'stress.spec.ts' },
+  { config: 'playwright.store-listing.config.ts', spec: 'store-listing.capture.spec.ts' }
+];
+
+describe('configs whose testDir holds Jest suites load only their Playwright specs', () => {
+  it.each(jestSharingConfigs)('$config', ({ config, spec }) => {
+    const env: NodeJS.ProcessEnv = { ...process.env, E2E_NETWORK: 'localhost' };
+    delete env.JEST_WORKER_ID;
+    const list = execFileSync(playwright, ['test', '--list', '--config', config], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env
+    });
+    expect(list).toContain(spec);
+    expect(list).not.toMatch(/\.test\.ts/);
+  });
+});
