@@ -21,6 +21,7 @@
  */
 
 import { encodeArg, OFFSCREEN_SIGN_REQUEST } from 'lib/miden/back/offscreen-codec';
+import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -411,6 +412,11 @@ function resetControl() {
     clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
+    clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
+      accountId: 'account',
+      inputNotes: [],
+      outputNotes: []
+    })),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
     clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
@@ -508,6 +514,7 @@ function resetControl() {
         getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
         importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
         drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+        decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
         recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
         sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
@@ -1191,6 +1198,24 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("call 'getAccount' failed"), expect.any(Error));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp).toEqual({ ok: false, op_id: 'op-abc', error: 'store read boom' });
+  });
+
+  it('names a history data error on the ok:false reply, so the SW rebuilds its class', async () => {
+    await loadModule();
+    G.__off.clientDecodeGuardianHistory = jest.fn(async () => {
+      throw new GuardianHistoryDataError('Guardian summary is too large');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.clientDecodeGuardianHistory).toHaveBeenCalledWith('summary');
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      op_id: 'op-abc',
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary is too large'
+    });
   });
 
   it('preserves the SDK errorCode on the ok:false reply when a WRITE throws an apply-after-submit error (#260 funds-critical)', async () => {

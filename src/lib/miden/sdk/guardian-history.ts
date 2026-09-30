@@ -17,7 +17,8 @@ import {
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { getBech32AddressFromAccountId } from './helpers';
-import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { isWasmClientPoisonedError } from './wasm-client-poison';
+import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 const assetSchema = z.object({ faucetId: z.string(), amount: z.string().regex(/^\d+$/) });
 const noteSchema = z.object({
@@ -107,6 +108,12 @@ function swapDetails(note: Note): GuardianHistoryNote['swap'] {
   return undefined;
 }
 
+// An eviction or a trap is a fault of the module, not a verdict on the operator's bytes, so it passes through.
+function summaryDataError(message: string, cause: unknown): unknown {
+  if (isWasmClientPoisonedError(cause) || cause instanceof WebAssembly.RuntimeError) return cause;
+  return new GuardianHistoryDataError(message, { cause });
+}
+
 function fullNote(note: Note): GuardianHistoryNote {
   return {
     id: note.id().toString(),
@@ -126,7 +133,7 @@ function fullNote(note: Note): GuardianHistoryNote {
 
 // Call only while the SDK lock is held in the client realm.
 export async function decodeGuardianSummary(encoded: string): Promise<GuardianSummary> {
-  if (encoded.length > 4_000_000) throw new Error('Guardian summary is too large');
+  if (encoded.length > 4_000_000) throw new GuardianHistoryDataError('Guardian summary is too large');
   // Load fee metadata in the same realm that separates the output notes.
   await getNativeAssetId();
   if ((await getVerificationBaseFee()) === null) {
@@ -134,7 +141,12 @@ export async function decodeGuardianSummary(encoded: string): Promise<GuardianSu
     if (isVerificationBaseFeeKnownAbsent()) throw new GuardianHistoryFeeUnavailableError();
     throw new Error('Guardian history fee metadata is not available yet');
   }
-  const summary = TransactionSummary.deserialize(b64ToU8(encoded));
+  let summary: TransactionSummary;
+  try {
+    summary = TransactionSummary.deserialize(b64ToU8(encoded));
+  } catch (cause) {
+    throw summaryDataError('Guardian summary does not deserialize', cause);
+  }
   try {
     const { feeNote, userNotes } = splitExecutedOutputNotes(summary);
     const feeAsset = feeNote?.assets()?.fungibleAssets()[0];
@@ -164,6 +176,8 @@ export async function decodeGuardianSummary(encoded: string): Promise<GuardianSu
           }
         : undefined
     };
+  } catch (cause) {
+    throw summaryDataError('Guardian summary notes do not decode', cause);
   } finally {
     summary.free();
   }

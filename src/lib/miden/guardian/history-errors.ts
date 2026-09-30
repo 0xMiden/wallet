@@ -4,3 +4,10 @@ export class GuardianHistoryFeeUnavailableError extends Error {
     this.name = 'GuardianHistoryFeeUnavailableError';
   }
 }
+
+export class GuardianHistoryDataError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'GuardianHistoryDataError';
+  }
+}

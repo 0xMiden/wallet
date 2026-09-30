@@ -62,7 +62,7 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
-import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
@@ -436,6 +436,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
       op.reject(new GuardianHistoryFeeUnavailableError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryDataError') {
+      op.reject(new GuardianHistoryDataError(resp.error));
       return;
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
@@ -1436,7 +1440,12 @@ export const midenClientProxy = {
     }
     const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
     if (!result) throw new Error('Missing Guardian summary response');
-    return guardianSummarySchema.parse(JSON.parse(new TextDecoder().decode(b64ToBytes(result))));
+    const text = new TextDecoder().decode(b64ToBytes(result));
+    try {
+      return guardianSummarySchema.parse(JSON.parse(text));
+    } catch (cause) {
+      throw new GuardianHistoryDataError('Guardian summary fails its schema', { cause });
+    }
   },
 
   async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {

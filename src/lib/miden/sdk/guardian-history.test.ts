@@ -1,12 +1,16 @@
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
 import { decodeGuardianSummary } from './guardian-history';
-import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { WasmClientPoisonedError } from './wasm-client-poison';
+import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 let mockAssetId = 'asset';
 let mockNativeLoaded = false;
 let mockFeeLoaded = false;
 let mockFeeKnownAbsent = false;
+let mockB64Error: unknown;
+let mockDeserializeError: unknown;
+let mockInputNotesError: unknown;
 const mockAssets = () => ({ fungibleAssets: () => [{ faucetId: () => mockAssetId, amount: () => 17n }] });
 const mockMetadata = () => ({ sender: () => 'sender', noteType: () => 1 });
 let mockStorage: bigint[];
@@ -28,7 +32,10 @@ let mockPartial = false;
 const mockSummary = {
   free: mockFree,
   accountDelta: () => ({ id: () => ({ toString: () => 'account' }) }),
-  inputNotes: () => ({ notes: () => [{ note: () => mockFull }] }),
+  inputNotes: () => {
+    if (mockInputNotesError) throw mockInputNotesError;
+    return { notes: () => [{ note: () => mockFull }] };
+  },
   outputNotes: () => ({
     notes: () => [
       {
@@ -46,7 +53,12 @@ const mockSummary = {
 };
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionSummary: { deserialize: () => mockSummary },
+  TransactionSummary: {
+    deserialize: () => {
+      if (mockDeserializeError) throw mockDeserializeError;
+      return mockSummary;
+    }
+  },
   AccountId: {
     fromPrefixSuffix: (prefix: { asInt(): bigint }, suffix: { asInt(): bigint }) =>
       `${prefix.asInt()}-${suffix.asInt()}`
@@ -66,10 +78,20 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent
 }));
 jest.mock('./helpers', () => ({ getBech32AddressFromAccountId: (id: string) => id }));
-jest.mock('lib/shared/helpers', () => ({ b64ToU8: () => new Uint8Array() }));
+jest.mock('lib/shared/helpers', () => ({
+  b64ToU8: () => {
+    if (mockB64Error) throw mockB64Error;
+    return new Uint8Array();
+  }
+}));
 
 beforeEach(() => {
   mockFree.mockClear();
+  jest.mocked(getVerificationBaseFee).mockClear();
+  jest.mocked(getNativeAssetId).mockClear();
+  mockB64Error = undefined;
+  mockDeserializeError = undefined;
+  mockInputNotesError = undefined;
   mockAssetId = 'asset';
   mockNativeLoaded = false;
   mockFeeLoaded = false;
@@ -124,8 +146,54 @@ it('does not read a recipient from an unsupported script or storage layout', asy
 });
 
 it('bounds the summary before deserialization', async () => {
-  await expect(decodeGuardianSummary('x'.repeat(4_000_001))).rejects.toThrow('too large');
+  const error = await decodeGuardianSummary('x'.repeat(4_000_001)).catch((reason: unknown) => reason);
+  expect((error as Error).name).toBe('GuardianHistoryDataError');
+  expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  expect((error as Error).message).toBe('Guardian summary is too large');
   expect(mockFree).not.toHaveBeenCalled();
+  expect(getVerificationBaseFee).not.toHaveBeenCalled();
+});
+
+it.each<[string, (failure: Error) => void]>([
+  [
+    'b64ToU8',
+    failure => {
+      mockB64Error = failure;
+    }
+  ],
+  [
+    'TransactionSummary.deserialize',
+    failure => {
+      mockDeserializeError = failure;
+    }
+  ]
+])('reports a summary %s rejects as invalid data', async (_step, fail) => {
+  const failure = new Error('malformed summary');
+  fail(failure);
+  const error = await decodeGuardianSummary('summary').catch((reason: unknown) => reason);
+  expect((error as Error).name).toBe('GuardianHistoryDataError');
+  expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  expect((error as Error).cause).toBe(failure);
+  expect(mockFree).not.toHaveBeenCalled();
+});
+
+it('reports a summary whose notes do not decode as invalid data and still frees it', async () => {
+  const failure = new Error('bad note');
+  mockInputNotesError = failure;
+  const error = await decodeGuardianSummary('summary').catch((reason: unknown) => reason);
+  expect((error as Error).name).toBe('GuardianHistoryDataError');
+  expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  expect((error as Error).cause).toBe(failure);
+  expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+it.each<[string, Error]>([
+  ['a client eviction', new WasmClientPoisonedError('realm-error')],
+  ['a WebAssembly trap', new WebAssembly.RuntimeError('unreachable')]
+])('passes %s in the note walk through unchanged and still frees the summary', async (_kind, failure) => {
+  mockInputNotesError = failure;
+  await expect(decodeGuardianSummary('summary')).rejects.toBe(failure);
+  expect(mockFree).toHaveBeenCalledTimes(1);
 });
 
 it('decodes the requested asset and order ID from a PSWAP note', async () => {
@@ -171,6 +239,7 @@ it('reports a fee the chain has not answered for as a retryable failure', async 
   const error = await decodeGuardianSummary('summary').catch((reason: unknown) => reason);
   expect(error).toBeInstanceOf(Error);
   expect(error).not.toBeInstanceOf(GuardianHistoryFeeUnavailableError);
+  expect((error as Error).name).not.toBe('GuardianHistoryDataError');
   expect(mockFree).not.toHaveBeenCalled();
 });
 

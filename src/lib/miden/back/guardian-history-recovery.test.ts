@@ -30,7 +30,7 @@ import {
   recoverGuardianHistory
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
-import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { GuardianHistoryDataError, GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -931,6 +931,104 @@ it('records invalid data from a retry issued after a lock in the session the loc
 
   expect((await run()).sourceFailures).toBe(1);
   expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+});
+
+/** Makes the summary of one entry fail its decode as invalid data, while the others decode as before. */
+const failDecodeOf = (encoded: string) => {
+  const decode = jest.mocked(midenClientProxy.decodeGuardianHistory).getMockImplementation();
+  if (!decode) throw new Error('Missing decode implementation');
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async value => {
+    if (value === encoded) throw new GuardianHistoryDataError('Guardian summary does not deserialize');
+    return decode(value);
+  });
+};
+
+it('counts a summary that fails its decode as invalid data once per session, up to the cap', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  failDecodeOf('3');
+  const first = await run();
+  expect(first.sourceFailures).toBe(1);
+  expect(first.failed).toBeUndefined();
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  forgetUnsupportedHistorySources();
+  const second = await run();
+  expect(second.sourceFailures).toBe(1);
+  expect(second.failed).toBeUndefined();
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 2 });
+
+  forgetUnsupportedHistorySources();
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 1, restored: 2, failed: true, deferredSources: 0 });
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 3, terminal: true });
+});
+
+it.each<[string, (client: GuardianHttpClient) => void]>([
+  [
+    'the delta names another account',
+    client => {
+      jest.spyOn(client, 'getDelta').mockResolvedValue({ ...delta(3), accountId: 'other' });
+    }
+  ],
+  ['its summary fails its decode', () => failDecodeOf('3')]
+])(
+  'records invalid data from an entry requested after a lock in the session the lock started, when %s',
+  async (_kind, fail) => {
+    const client = source('https://two', []);
+    jest
+      .spyOn(client, 'getDeltaHistory')
+      .mockResolvedValue({ entries: [entry(3)] })
+      .mockImplementationOnce(async () => {
+        forgetUnsupportedHistorySources();
+        return { entries: [entry(3)] };
+      });
+    fail(client);
+    expect((await run()).sourceFailures).toBe(1);
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+    expect((await run()).sourceFailures).toBe(1);
+    expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+    expect(client.getDelta).toHaveBeenCalledTimes(1);
+    expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+  }
+);
+
+it('does not record invalid data from an entry that settles after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  jest
+    .spyOn(client, 'getDelta')
+    .mockResolvedValue({ ...delta(3), accountId: 'other' })
+    .mockImplementationOnce(async () => {
+      forgetUnsupportedHistorySources();
+      return { ...delta(3), accountId: 'other' };
+    });
+  expect((await run()).sourceFailures).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(2);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 2 });
+});
+
+it('records invalid data from an entry retry issued after a lock in the session the lock started', async () => {
+  const client = source('https://two', []);
+  jest.spyOn(client, 'getDeltaHistory').mockResolvedValue({ entries: [entry(3)] });
+  let attempts = 0;
+  jest.spyOn(client, 'getDelta').mockImplementation(async () => {
+    if (attempts++ === 0) {
+      forgetUnsupportedHistorySources();
+      throw new GuardianHttpError(503, 'Unavailable', 'network');
+    }
+    return { ...delta(3), accountId: 'other' };
+  });
+  expect((await run()).sourceFailures).toBe(1);
+  expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
+
+  expect((await run()).sourceFailures).toBe(1);
+  expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
+  expect(client.getDelta).toHaveBeenCalledTimes(2);
   expect(await twoCheckpoint()).toMatchObject({ failure: 'invalid-data', invalidDataPasses: 1 });
 });
 

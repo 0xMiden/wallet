@@ -15,9 +15,10 @@ import {
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
+import { GuardianHistoryDataError } from './history-errors';
 
 export const GUARDIAN_HISTORY_VERSION = 4;
-export class GuardianHistoryDataError extends Error {}
+export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {
   version: number;

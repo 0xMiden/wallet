@@ -2939,6 +2939,59 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     await expect(result).rejects.toMatchObject({ name: 'GuardianHistoryFeeUnavailableError' });
   });
 
+  it('preserves a history data error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian summary is too large',
+      errorName: 'GuardianHistoryDataError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const error = await result;
+    expect({ name: (error as Error).name, message: (error as Error).message }).toEqual({
+      name: 'GuardianHistoryDataError',
+      message: 'Guardian summary is too large'
+    });
+    expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  });
+
+  const summaryB64 = (text: string) => Buffer.from(text).toString('base64');
+  const validSummary = { accountId: 'account', inputNotes: [], outputNotes: [] };
+  const sharedNoteSummary = { ...validSummary, inputNotes: [{ id: 'note', assets: [], visibility: 'shared' }] };
+  it.each<[string, string | null, 'data' | 'transport' | 'valid']>([
+    ['text that is not JSON', summaryB64('{'), 'data'],
+    ['JSON that fails the summary schema', summaryB64(JSON.stringify(sharedNoteSummary)), 'data'],
+    ['no summary', null, 'transport'],
+    ['a valid summary', summaryB64(JSON.stringify(validSummary)), 'valid']
+  ])('settles an ok history decode reply carrying %s by what failed', async (_label, resultB64, kind) => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    const outcomes = {
+      data: { name: 'GuardianHistoryDataError', message: 'Guardian summary fails its schema' },
+      transport: { name: 'Error', message: 'Missing Guardian summary response' },
+      valid: validSummary
+    };
+    const classes = { data: GuardianHistoryDataError, transport: Error, valid: Object };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64,
+      durationMs: 1
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const settled = await result;
+    expect(settled instanceof Error ? { name: settled.name, message: settled.message } : settled).toEqual(
+      outcomes[kind]
+    );
+    expect(settled).toBeInstanceOf(classes[kind]);
+  });
+
   it('a poison reply whose errorReason is missing or garbled is still classified as an eviction', async () => {
     // The classification is what protects the funds; the mechanism name is only
     // diagnostic. An older or malformed payload must therefore degrade to "some

@@ -243,7 +243,8 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         continue;
       }
       currentOperator = operator;
-      // The session a data failure belongs to: the one its page was requested in.
+      // A data failure belongs to the session of the request that returned the data: the page's for the page
+      // checks, the entry's getDelta for that entry.
       let dataSession = unsupportedHistorySession;
       try {
         if (checkpoint.cursor && checkpoint.cursor.length > MAX_HISTORY_CURSOR_LENGTH)
@@ -311,16 +312,21 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
           const records: ITransaction[] = [];
           for (const entry of page.entries) {
-            const delta = await historyRequest(() => guardian.getDelta(guardianAccountId, entry.nonce), check);
+            // eslint-disable-next-line no-loop-func -- each attempt reads the session current when it is issued
+            const answer = await historyRequest(() => {
+              const session = unsupportedHistorySession;
+              return guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session }));
+            }, check);
+            dataSession = answer.session;
             await check();
-            const summary = await midenClientProxy.decodeGuardianHistory(delta.deltaPayload.txSummary.data);
+            const summary = await midenClientProxy.decodeGuardianHistory(answer.delta.deltaPayload.txSummary.data);
             const record = recoveredHistoryRecord(
               account.publicKey,
               canonicalAccountId,
               network,
               operator,
               entry,
-              delta,
+              answer.delta,
               summary
             );
             records.push(record);
