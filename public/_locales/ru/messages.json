@@ -180,18 +180,6 @@
     "message": "Хлеб",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Моя позиция в $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайте $network$",
     "englishSource": "$asset$ on $network$",
@@ -502,6 +490,10 @@
   "privateKeyInputPlaceholder": {
     "message": "например, APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
+  },
+  "privateKeyClipboardNotCleared": {
+    "message": "Ваш приватный ключ не удалось удалить из буфера обмена. Удалите его самостоятельно, прежде чем продолжить.",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
   },
   "settings": {
     "message": "Настройки",
@@ -1816,6 +1808,22 @@
     "message": "Ваши средства готовы",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Возможно, предыдущий запрос ещё не поступил.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Повторить запрос?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Ваш предыдущий запрос может ещё поступить. Повторный запрос может привести к двойному пополнению вашего кошелька.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Попросите ещё раз",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Обнаружено восстановление учетной записи",
     "englishSource": "Account recovery detected"
@@ -1858,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Проверьте свою фразу для восстановления",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Сделайте резервную копию своего кошелька",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Запишите свою фразу восстановления и убедитесь, что вы помните её первое и последнее слова, чтобы впоследствии можно было восстановить этот кошелёк.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Сохраните фразу для восстановления, чтобы восстановить этот кошелёк на новом устройстве.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Безопасная подпись недоступна",
@@ -2170,31 +2178,6 @@
     "message": "Файл «Guardian» хранит состояние вашего счёта и помогает вам его восстановить. Представьте себе его как сервер, который создаёт резервную копию ваших данных, но никогда не может получить доступ к вашим средствам.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "На данный момент самый быстрый оператор из $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Оператор этой сети",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian не может самостоятельно перемещать ваши средства",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian создает резервную копию состояния вашей учетной записи",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "С помощью фразы восстановления вы можете сменить Guardian",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Проверяю, какой оператор отвечает быстрее всего…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2206,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Я бы лучше создал полностью приватный аккаунт",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Выберите другой «Guardian»",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Независимый оператор Guardian на Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "Компания OpenZeppelin, специализирующаяся на безопасности blockchain, создала широко используемые библиотеки смарт-контрактов для Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm создаёт и управляет инфраструктурой blockchain для сетей и роллапов.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass — инженерная компания, занимающаяся созданием передовой инфраструктуры в области криптографии и технологии «blockchain».",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) — это регулируемый хранитель цифровых активов в Южной Корее.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Узнайте больше о «Guardian»",
@@ -2274,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "Ваш Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Изменить",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ хранит резервную копию вашего аккаунта. Он никогда не сможет переместить ваши средства, а сменить его можно в любой момент.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
@@ -2398,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "Создание кошелька…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Восстановление кошелька…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Настройка кошелька…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Откройте кошелек, чтобы завершить его восстановление.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Введите пароль",
@@ -2747,6 +2731,10 @@
     "message": "Подпись ставится с помощью вашего ключа восстановления (холодного ключа). Ввод фразы восстановления не требуется, а ваши средства и аккаунт останутся без изменений. Продолжить?",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "Подпись ставится с помощью вашего ключа восстановления (холодного ключа). Для подписи вам будет предложено ввести фразу восстановления, при этом ваши средства и счёт останутся без изменений. Продолжить?",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "Подтвердить поворот",
     "englishSource": "Confirm rotation"
@@ -2770,6 +2758,55 @@
   "hotKeyRotationRetry": {
     "message": "Повторить попытку",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Добавьте MIDEN, чтобы активировать свой повседневный ключ",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Активация вашего повседневного ключа представляет собой транзакцию, и за каждую транзакцию взимается небольшая сетевая комиссия в MIDEN. Отправьте MIDEN на адрес этого аккаунта, указанный ниже. Кошелек зачислит средства и автоматически завершит активацию вашего ключа.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Отправьте как минимум $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Адрес вашей учетной записи",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Ждем появления MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Полученная вами сумма MIDEN недостаточна для оплаты комиссии сети. Отправьте немного больше.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDEN получен. Запрашиваю его…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Активация вашего повседневного ключа…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Полученный вами MIDEN не удалось активировать.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Попробуйте ещё раз",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Проверьте ещё раз",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian изменено",
@@ -2823,6 +2860,10 @@
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "По этому URL-адресу не отвечает Guardian. Проверьте его и попробуйте ещё раз.",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите пароль, чтобы получить доступ к зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2834,6 +2875,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "Я не буду никому предоставлять доступ к своему зашифрованному файлу кошелька, в том числе и компании Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "Не восстановлено из этого файла: $accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian Учётные записи, импортированные с помощью закрытых ключей, не могут быть восстановлены из файла кошелька, а кошелек, восстановленный из этого файла, не может их добавить. Они восстанавливаются как отдельный кошелек, настроенный с помощью функции «Импорт закрытых ключей» и их ключей Miden everyday и EVM. Храните эти ключи в безопасности: отобразите их в «Настройки» → «Ключи» → «Показать закрытый ключ», выбрав соответствующую учётную запись.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Введите пароль для шифрования файла кошелька.",
@@ -4213,6 +4267,10 @@
     "message": "Поделиться",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Отправить адрес",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Копировать",
     "englishSource": "Copy"
@@ -4444,6 +4502,14 @@
   "unverified": {
     "message": "неподтвержденный",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "Непроверено",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Этот токен отсутствует в списке проверенных токенов Miden. Любой может создать токен с любым именем, поэтому проверьте идентификатор faucet, прежде чем доверять ему.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "couldNotVerifyBySimulation": {
     "message": "Не удалось проверить с помощью моделирования. Приведенные ниже данные взяты с сайта.",
@@ -4923,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — об этой сети",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Токены не имеют реальной ценности",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Восстановить",
@@ -5243,8 +5313,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "Не удалось проверить метод разблокировки этого кошелька. Попробуйте ещё раз.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Изменить цвет QR-кода",

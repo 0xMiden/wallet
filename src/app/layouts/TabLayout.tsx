@@ -17,14 +17,19 @@ import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive, usePageOnScreen, usePageRevealedByLayer } from 'app/layouts/page-active';
-import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
+import {
+  PageActiveContext,
+  TabActiveContext,
+  usePageActive,
+  usePageOnScreen,
+  usePageRevealedByLayer
+} from 'app/layouts/page-active';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { isAndroid, isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -82,7 +87,9 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
       aria-hidden={!active || undefined}
       style={{ visibility: active ? 'visible' : 'hidden' }}
     >
-      <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      <TabActiveContext.Provider value={active}>
+        <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+      </TabActiveContext.Provider>
     </div>
   );
 };
@@ -117,6 +124,10 @@ const SCROLL_IDLE_MS = 250;
 export interface DockedNavBarHandle {
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
+
+// Android's tabs stay above the system navigation bar, so its bar reaches further into the page. The one
+// place that is decided: the bar's `clearInset` and the root mark main.css sizes flow cushions from.
+const barClearsInset = (): boolean => isAndroid();
 
 interface DockedNavBarProps {
   items: BottomNavItem[];
@@ -165,21 +176,16 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
-          tabs, rather than in a banner above every page. */}
       <BottomNav
         items={items}
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
-        corner={<NetworkModeRibbon docked={isMobile()} />}
+        clearInset={barClearsInset()}
       />
     </div>
   );
 });
-
-// A pushed page can mount its own TabLayout over a covered one, so the body mark is counted, not toggled.
-let mountedTabBars = 0;
 
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
@@ -286,17 +292,6 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     return () => document.body.removeAttribute('data-home-band');
   }, [showActionBar, onScreen]);
 
-  // Flow footers reserve the bar's room only while one is mounted (main.css). A layout effect, so a
-  // footer's first painted frame already has the right cushion.
-  useLayoutEffect(() => {
-    mountedTabBars += 1;
-    document.body.setAttribute('data-navbar-mounted', '');
-    return () => {
-      mountedTabBars -= 1;
-      if (mountedTabBars === 0) document.body.removeAttribute('data-navbar-mounted');
-    };
-  }, []);
-
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
   // route we're already on stays a silent no-op.
@@ -359,6 +354,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <div
+      // main.css declares the tab bar's room for flow footers on this root, so only a page inside the layout
+      // that draws the bar reserves it; a slide page beside a covered tab layer does not (#1109).
+      data-tab-layout={isMobile() ? 'docked' : 'floating'}
+      data-navbar-clears-inset={barClearsInset() ? '' : undefined}
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
       // the BottomNav shadow can fade into the body's safe-area padding
       // strip below the container; fixed-size extension/desktop frames keep

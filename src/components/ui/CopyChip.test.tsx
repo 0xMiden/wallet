@@ -101,18 +101,24 @@ it('leads with the shared animated copy glyph, which morphs to a check after a c
 
 it('shows no check when the clipboard write rejects', async () => {
   mockWrite.mockRejectedValue(new Error('denied'));
-  render(
-    <CopyChip text="0xabc123" data-testid="chip">
-      0xab…c123
-    </CopyChip>
-  );
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(
+      <CopyChip text="0xabc123" data-testid="chip">
+        0xab…c123
+      </CopyChip>
+    );
 
-  await act(async () => {
-    fireEvent.click(screen.getByTestId('chip'));
-  });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('chip'));
+    });
 
-  expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
-  expect(screen.getByTestId('chip').querySelector('[data-copy-state="copied"]')).toBeNull();
+    expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+    expect(screen.getByTestId('chip').querySelector('[data-copy-state="copied"]')).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 it('announces "Copied" for screen readers without moving focus', async () => {
@@ -134,17 +140,23 @@ it('announces "Copied" for screen readers without moving focus', async () => {
 
 it('does not flip to the checkmark when the clipboard write rejects', async () => {
   mockWrite.mockRejectedValue(new Error('denied'));
-  render(
-    <CopyChip text="0xabc123" data-testid="chip">
-      0xab…c123
-    </CopyChip>
-  );
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(
+      <CopyChip text="0xabc123" data-testid="chip">
+        0xab…c123
+      </CopyChip>
+    );
 
-  await act(async () => {
-    fireEvent.click(screen.getByTestId('chip'));
-  });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('chip'));
+    });
 
-  expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
+    expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+  } finally {
+    errorSpy.mockRestore();
+  }
 });
 
 it('falls back to the visible content as the accessible name when no aria-label is given', () => {
@@ -180,4 +192,30 @@ it('lets a caller compute aria-label from the copied state (e.g. "Copy" vs "Copi
   });
 
   expect(screen.getByRole('button', { name: 'copied the hash' })).toBeInTheDocument();
+});
+
+const HIT_AREA = ['before:absolute', 'before:inset-x-0', 'before:top-1/2', 'before:h-11', 'before:-translate-y-1/2'];
+
+it('takes taps across 44px (10px above and below its 24px) without drawing anything', () => {
+  render(
+    <CopyChip text="0xabc123" data-testid="chip">
+      0xab…c123
+    </CopyChip>
+  );
+
+  const chip = screen.getByTestId('chip');
+  expect(chip).toHaveClass('h-6', 'relative', ...HIT_AREA);
+  expect(chip.className).not.toMatch(/before:(bg|border|shadow|ring|outline)/);
+});
+
+it('keeps its tap target to its own box with compactHitArea, so a tap cannot copy a neighbour', () => {
+  render(
+    <CopyChip text="0xabc123" compactHitArea data-testid="chip">
+      0xab…c123
+    </CopyChip>
+  );
+
+  const chip = screen.getByTestId('chip');
+  expect(chip).toHaveClass('h-6');
+  for (const cls of HIT_AREA) expect(chip).not.toHaveClass(cls);
 });

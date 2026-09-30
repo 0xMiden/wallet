@@ -15,8 +15,8 @@ export interface FlowLayoutProps {
   /**
    * The flow's first page is a tab root (Send's recipient step): its title is the tab's, drawn at
    * `text-title-tab` in the same 60px row as TabHeader's, not a pushed page's navigation bar.
-   * It says nothing about the CTA's cushion: every flow page clears the docked bar while the bar
-   * is up, because a pushed step inside TabLayout still has it drawn over the page (FlowFooter).
+   * It says nothing about the CTA's cushion: every flow page inside TabLayout clears the docked bar
+   * while the bar is up, because a pushed step there still has it drawn over the page (FlowFooter).
    */
   tabRoot?: boolean;
   children: React.ReactNode;

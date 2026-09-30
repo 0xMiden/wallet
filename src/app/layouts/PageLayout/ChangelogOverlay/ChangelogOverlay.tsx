@@ -23,8 +23,9 @@ export const ChangelogOverlay: FC = () => {
     '1.14.8'
   );
 
+  // On a failed save the cache keeps the old version, so the overlay stays and Continue can save again.
   const handleContinue = () => {
-    setLastShownVersion(currentVersion);
+    void setLastShownVersion(currentVersion).catch(() => {});
   };
   const compactClassName = compact ? 'inset-0' : 'top-1/2 left-1/2 transform -translate-y-1/2 -translate-x-1/2 p-12';
 

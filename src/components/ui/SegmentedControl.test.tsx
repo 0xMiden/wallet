@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { springs } from 'lib/animation';
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 import { SegmentedControl, SegmentedControlItem, SegmentedControlProps } from './SegmentedControl';
@@ -293,6 +294,48 @@ describe('SegmentedControl — keyboard', () => {
     expect(document.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   });
 
+  // #1086: a disabled item is not the answer while another can be chosen, so the radio, the bubble
+  // and the tab stop all leave it.
+  it('reports no selection when the value names a disabled item', () => {
+    const list = items.map(item => (item.id === 'pending' ? { ...item, disabled: true } : item));
+    render(<SegmentedControl items={list} value="pending" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(screen.queryByRole('radio', { checked: true })).toBeNull();
+    expect(document.querySelector('[data-slot="motion-highlight"]')).toBeNull();
+    expect(getRadio('All')).toHaveAttribute('tabindex', '0');
+  });
+
+  // Both callers that disable items disable every one (read-only Developer Settings, a swap being
+  // submitted): the control is disabled as a whole and still shows its value.
+  it('keeps showing the value when every item is disabled', () => {
+    const list = items.map(item => ({ ...item, disabled: true }));
+    render(<SegmentedControl items={list} value="sent" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(getRadio('Sent')).toHaveAttribute('aria-checked', 'true');
+    expect(bubbleIn(getRadio('Sent'))).not.toBeNull();
+    screen.getAllByRole('radio').forEach(radio => expect(radio).toHaveAttribute('tabindex', '-1'));
+  });
+
+  // #1086: with nothing focused and no choosable item selected, either arrow lands on the FIRST
+  // enabled item, and any other key still falls through.
+  it('starts either arrow walk at the first enabled item when the value names none', () => {
+    const list = items.map(item => (item.id === 'received' ? { ...item, disabled: true } : item));
+    const onChange = jest.fn();
+    render(<SegmentedControl items={list} value="received" onChange={onChange} aria-label="Filters" />);
+    const group = screen.getByRole('radiogroup');
+
+    expect(fireEvent.keyDown(group, { key: 'a' })).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(group, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenLastCalledWith('all');
+
+    getRadio('All').blur();
+    fireEvent.keyDown(group, { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenLastCalledWith('all');
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
   it('moves focus and selection with the arrows, wrapping, with one haptic per move', () => {
     const onChange = jest.fn();
     render(<Owner onChange={onChange} />);
@@ -456,5 +499,69 @@ describe('SegmentedControl selection', () => {
     const all = screen.getByRole('radio', { name: 'All' });
     // Later pills paint an opaque `page` fill, so the moving bubble must sit above them.
     expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveStyle({ zIndex: '1' });
+  });
+});
+
+// TabLayout keeps a visited tab's pane mounted, hidden, and a link that sets Activity's filter (the
+// pending-transfers prompt) hands the control its new value only in the commit that shows the pane
+// again (#1194).
+describe('SegmentedControl - shown again after its pane was hidden', () => {
+  const control = (shown: boolean, value: Filter) => (
+    <TabActiveContext.Provider value={shown}>
+      <SegmentedControl items={items} value={value} onChange={jest.fn()} aria-label="Filters" />
+    </TabActiveContext.Provider>
+  );
+
+  it('takes its new value at once: no slide, no pop, no smooth scroll', () => {
+    const { rerender } = render(control(true, 'all'));
+    rerender(control(false, 'all'));
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollSpy.mockClear();
+    rerender(control(true, 'pending'));
+
+    const pending = getRadio('Pending');
+    expect(JSON.parse(bubbleIn(pending)!.getAttribute('data-transition')!)).toEqual(tabBarSwap);
+    expect(popOf(pending)).toHaveAttribute('data-pop', 'rest');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+    // The labels and the outline take their new colours at once, instead of cross-fading.
+    for (const name of ['All', 'Pending']) {
+      expect(getRadio(name)).toHaveClass('transition-none');
+      expect(getRadio(name)).not.toHaveClass('transition-colors');
+    }
+    expect(JSON.parse(getRadio('Sent').getAttribute('data-while-tap')!)).toEqual({
+      scale: 0.92,
+      transition: springs.snappy
+    });
+  });
+
+  it('animates the next change while it stays shown', () => {
+    const { rerender } = render(control(true, 'all'));
+    rerender(control(false, 'all'));
+    rerender(control(true, 'pending'));
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollSpy.mockClear();
+    rerender(control(true, 'sent'));
+
+    const sent = getRadio('Sent');
+    expect(sent).not.toHaveClass('transition-none');
+    expect(JSON.parse(bubbleIn(sent)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(popOf(sent)).toHaveAttribute('data-pop', 'pop');
+    expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  });
+
+  it('animates a change that lands as a slide page uncovers it, with its tab shown throughout', () => {
+    const page = (active: boolean, value: Filter) => (
+      <PageActiveContext.Provider value={active}>
+        <SegmentedControl items={items} value={value} onChange={jest.fn()} aria-label="Filters" />
+      </PageActiveContext.Provider>
+    );
+    const { rerender } = render(page(true, 'all'));
+    rerender(page(false, 'all'));
+    rerender(page(true, 'received'));
+
+    const received = getRadio('Received');
+    expect(JSON.parse(bubbleIn(received)!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(popOf(received)).toHaveAttribute('data-pop', 'pop');
   });
 });

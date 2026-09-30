@@ -35,12 +35,6 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
-  /** Padding classes for the confirm-button footer. The default bottom cushion
-   *  clears the floating BottomNav but collapses while the soft keyboard is up
-   *  (body's --keyboard-height padding already lifts the layout), keeping the
-   *  CTA snug against the keyboard; pass a snugger value when the navbar is
-   *  hidden. */
-  footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
@@ -94,7 +88,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
-  footerClassName = 'pt-4 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]',
   children,
   onAmountChange,
   onSelectToken,
@@ -132,15 +125,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
+      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        <TokenLogo symbol={logoSymbol ?? token.name} size="sm" />
       ) : embedded ? (
-        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
+        <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
+      <span className="font-heading text-xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 
@@ -283,7 +276,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <FlowFooter className={footerClassName}>
+      <FlowFooter className="pt-4">
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

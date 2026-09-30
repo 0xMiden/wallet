@@ -53,24 +53,40 @@ export type GuardianFaultPath = 'pubkey' | 'configure' | 'delta';
  * below) -- distinct from `status500`/`failFirstN`, which fulfill a generic
  * `500` and so can never exercise `isGuardianPendingConflict`
  * (`src/lib/miden/guardian/serialize.ts`), the wallet's conflict-vs-generic-
- * failure branch. Like `failFirstN`, it self-clears after `count` matching
- * requests (see the `count` field doc below) -- a real guardian's conflict is
- * transient (it clears once the prior delta canonicalizes), so a fault that
- * never clears wouldn't model the real failure mode.
+ * failure branch. `rateLimited` answers the guardian's real
+ * `429 rate_limit_exceeded` response (see `fulfillRateLimited` below). The
+ * modes in `SELF_CLEARING_GUARDIAN_FAULT_MODES` stop after `count` matching
+ * requests: a real conflict clears once the prior delta canonicalizes and a
+ * real limiter's window passes, so a fault that never clears would not model
+ * either.
  */
-export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN' | 'conflictPendingDelta';
+export type GuardianFaultMode = 'status500' | 'abort' | 'delay' | 'failFirstN' | 'conflictPendingDelta' | 'rateLimited';
+
+/** The modes that fail `count` matching requests, then let every later one through. */
+export const SELF_CLEARING_GUARDIAN_FAULT_MODES: ReadonlySet<GuardianFaultMode> = new Set<GuardianFaultMode>([
+  'failFirstN',
+  'conflictPendingDelta',
+  'rateLimited'
+]);
 
 export interface GuardianFaultPolicy {
   /** Guardian instance to fault. Omit to match either A or B. */
   target?: GuardianFaultTarget;
   /** URL path segment to match. */
   path: GuardianFaultPath;
+  /**
+   * HTTP method to match. Omit to match any method on the path -- most
+   * `/delta*` sub-routes share the same path segment across GET (poll) and
+   * POST/PUT (push/propose/sign) traffic, so a count-limited fault armed for
+   * one of them would otherwise also spend its count on the other.
+   */
+  method?: string;
   mode: GuardianFaultMode;
   /** Delay (ms) before continuing the request. Only used by 'delay' (default 3000). */
   delayMs?: number;
   /**
    * Number of matching requests to fail before falling back to continue().
-   * Used by 'failFirstN' and 'conflictPendingDelta' (default 1).
+   * Used by the SELF_CLEARING_GUARDIAN_FAULT_MODES (default 1).
    */
   count?: number;
 }
@@ -89,10 +105,15 @@ export interface GuardianFaultControls {
  * no BrowserContext/browser required.
  */
 export interface GuardianRouteLike {
-  request(): { url(): string };
+  request(): { url(): string; method(): string };
   continue(): Promise<void>;
   abort(errorCode?: string): Promise<void>;
-  fulfill(response: { status: number; body: string }): Promise<void>;
+  fulfill(response: {
+    status: number;
+    body: string;
+    contentType?: string;
+    headers?: Record<string, string>;
+  }): Promise<void>;
 }
 
 const GUARDIAN_FAULT_PATHS: readonly GuardianFaultPath[] = ['pubkey', 'configure', 'delta'];
@@ -142,17 +163,30 @@ export type GuardianFaultAction =
   | { kind: 'abort' }
   | { kind: 'delay'; delayMs: number }
   | { kind: 'fulfill500' }
-  | { kind: 'fulfillConflictPendingDelta' };
+  | { kind: 'fulfillConflictPendingDelta' }
+  | { kind: 'fulfillRateLimited' };
 
 /**
- * Pure fault decision for a single request: does the armed policy match
- * this URL, and if so what should happen? Exported standalone (no
- * Playwright dependency at all) so target/path matching and the
- * `failFirstN`/`conflictPendingDelta` hit-counting are unit testable without
+ * The actions that answer or abort a request themselves, so it never reaches
+ * the guardian or `applyGuardianFaultAction`'s `passThrough`; every other
+ * action sends it on.
+ */
+export const ANSWERING_GUARDIAN_FAULT_ACTION_KINDS: ReadonlySet<GuardianFaultAction['kind']> = new Set<
+  GuardianFaultAction['kind']
+>(['abort', 'fulfill500', 'fulfillConflictPendingDelta', 'fulfillRateLimited']);
+
+/**
+ * Pure fault decision for a single request: does the armed policy match this
+ * URL and method, and if so what should happen? A policy's `method`, when
+ * set, narrows the match to that HTTP method - a hit counts a request only
+ * when target, path and (if set) method all match. Exported standalone (no
+ * Playwright dependency at all) so target/path/method matching and the
+ * SELF_CLEARING_GUARDIAN_FAULT_MODES hit-counting are unit testable without
  * a browser.
  */
 export function decideGuardianFault(
   url: string,
+  method: string,
   policy: GuardianFaultPolicy | null,
   hits: number,
   origins: GuardianOrigins
@@ -161,7 +195,8 @@ export function decideGuardianFault(
   if (!policy || !target) return { action: { kind: 'continue' }, hits };
   if (policy.target && policy.target !== target) return { action: { kind: 'continue' }, hits };
   if (pathOf(url) !== policy.path) return { action: { kind: 'continue' }, hits };
-  if ((policy.mode === 'failFirstN' || policy.mode === 'conflictPendingDelta') && hits >= (policy.count ?? 1)) {
+  if (policy.method && policy.method !== method) return { action: { kind: 'continue' }, hits };
+  if (SELF_CLEARING_GUARDIAN_FAULT_MODES.has(policy.mode) && hits >= (policy.count ?? 1)) {
     return { action: { kind: 'continue' }, hits };
   }
 
@@ -176,6 +211,8 @@ export function decideGuardianFault(
       return { action: { kind: 'fulfill500' }, hits: nextHits };
     case 'conflictPendingDelta':
       return { action: { kind: 'fulfillConflictPendingDelta' }, hits: nextHits };
+    case 'rateLimited':
+      return { action: { kind: 'fulfillRateLimited' }, hits: nextHits };
   }
 }
 
@@ -205,6 +242,21 @@ const CONFLICT_PENDING_DELTA_BODY = JSON.stringify({
 });
 
 /**
+ * The guardian's real rate-limit rejection states its cooldown on both channels
+ * the client reads, from one value: the `Retry-After` header, which
+ * `GuardianHttpError.retryAfterSecs()` prefers, and `meta.retry_after_secs` in
+ * the `{ code, message, meta }` envelope. Three seconds is three times the
+ * wallet's first blind backoff (1 s), so a spec can tell the two waits apart by
+ * the gap between faulted requests.
+ */
+export const RATE_LIMITED_RETRY_AFTER_SECS = 3;
+const RATE_LIMITED_BODY = JSON.stringify({
+  code: 'rate_limit_exceeded',
+  message: 'Too many requests',
+  meta: { retryable: true, retry_after_secs: RATE_LIMITED_RETRY_AFTER_SECS }
+});
+
+/**
  * Apply a fault decision to a live route (or a unit-test fake satisfying GuardianRouteLike). `passThrough` is how
  * a request that still reaches the guardian (unfaulted or only delayed) is sent on; a caller that observes such
  * requests passes its own, and a request the fault answers or aborts never reaches it.
@@ -214,29 +266,36 @@ export async function applyGuardianFaultAction(
   action: GuardianFaultAction,
   passThrough: () => Promise<void> = () => route.continue()
 ): Promise<void> {
+  if (!ANSWERING_GUARDIAN_FAULT_ACTION_KINDS.has(action.kind)) {
+    if (action.kind === 'delay') await new Promise<void>(resolve => setTimeout(resolve, action.delayMs));
+    return passThrough();
+  }
   switch (action.kind) {
-    case 'continue':
-      return passThrough();
     case 'abort':
       return route.abort('failed');
-    case 'delay':
-      await new Promise<void>(resolve => setTimeout(resolve, action.delayMs));
-      return passThrough();
     case 'fulfill500':
       return route.fulfill({ status: 500, body: 'injected guardian fault' });
     case 'fulfillConflictPendingDelta':
-      return route.fulfill({ status: 409, body: CONFLICT_PENDING_DELTA_BODY });
+      return route.fulfill({ status: 409, contentType: 'application/json', body: CONFLICT_PENDING_DELTA_BODY });
+    case 'fulfillRateLimited':
+      return route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        headers: { 'Retry-After': String(RATE_LIMITED_RETRY_AFTER_SECS) },
+        body: RATE_LIMITED_BODY
+      });
   }
 }
 
 /**
  * Installs a context-wide route handler that intercepts guardian HTTP calls
- * by target (A: :3000, B: :3001) and path segment, applying whichever
- * GuardianFaultPolicy is currently armed. Requests to any other origin
- * (node, prover, note-transport, ...) or that don't match the armed
- * policy's target/path pass through via `route.continue()`. Only one
- * policy can be armed at a time -- `arm()` replaces it and resets the
- * `failFirstN` hit counter.
+ * by target (A: :3000, B: :3001), path segment and, when a policy sets one,
+ * HTTP method, applying whichever GuardianFaultPolicy is currently armed.
+ * Requests to any other origin (node, prover, note-transport, ...) or that
+ * don't match the armed policy's target/path/method pass through via
+ * `route.continue()`. Only one policy can be armed at a time -- `arm()`
+ * replaces it and resets the hit counter the SELF_CLEARING_GUARDIAN_FAULT_MODES
+ * count against.
  */
 export function installGuardianFaults(context: BrowserContext, origins: GuardianOrigins): GuardianFaultControls {
   let policy: GuardianFaultPolicy | null = null;
@@ -244,7 +303,7 @@ export function installGuardianFaults(context: BrowserContext, origins: Guardian
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
-    const decision = decideGuardianFault(url, policy, hits, origins);
+    const decision = decideGuardianFault(url, route.request().method(), policy, hits, origins);
     hits = decision.hits;
     await applyGuardianFaultAction(route, decision.action);
   });

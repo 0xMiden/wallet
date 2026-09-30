@@ -9,8 +9,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 /**
  * Full-width banner that tops the dApp confirm window with the Miden network the wallet is on,
- * where the network matters for what is about to be signed. The wallet itself says it in the bottom
- * nav's corner ribbon instead (`NetworkModeRibbon`). The name follows the effective network, so a
+ * where the network matters for what is about to be signed. The wallet itself says it in a pill
+ * above Home's balance card instead (`NetworkModePill`). The name follows the effective network, so a
  * Developer Settings override shows here too, and the banner renders nothing on mainnet. The colors
  * come from the build-time brand ramp, so a devnet build shows the slate palette.
  *

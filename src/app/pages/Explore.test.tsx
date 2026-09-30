@@ -3,7 +3,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -29,7 +30,7 @@ import Explore from './Explore';
 // ---------------------------------------------------------------------------
 
 let mockFaucetId: string | null = 'faucet-native';
-let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
+let mockAccount: { publicKey: string; requiresHotKeyRotation?: boolean } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockClaimableNotesAreCached = false;
@@ -103,6 +104,11 @@ jest.mock('components/AssetRow', () => ({
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
+}));
+
+// The pill has its own suite; here it only has to sit above the balance card.
+jest.mock('components/NetworkModePill', () => ({
+  NetworkModePill: () => <div data-testid="network-mode-pill" />
 }));
 
 jest.mock('components/Loader', () => ({
@@ -297,6 +303,11 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
+      // The test network is named above the card, the first thing on Home.
+      expect(
+        screen.getByTestId('network-mode-pill').compareDocumentPosition(screen.getByTestId('balance-card')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
       // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
       // fields flow through.
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
@@ -406,8 +417,8 @@ describe('Explore', () => {
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
-        makeToken('t-btc', 'BTC', 'Bitcoin', 2)
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
+        makeToken(TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
       ];
       mockTokenPrices = {
         MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
@@ -418,14 +429,14 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-btc', 't-eth']);
+      expect(tokens).toEqual(['faucet-native', TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
@@ -434,23 +445,27 @@ describe('Explore', () => {
 
       // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', TOKEN_IETH.faucetId, 't-other']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId, 't-other']);
     });
 
     it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken('t-eth', 'ETH', 'Ethereum', 1),
+        makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
         // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
         // would outrank everything by a factor of a million.
-        { tokenId: 't-unsized', balance: 1_000_000, metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true } }
+        {
+          tokenId: TOKEN_IETH.faucetId,
+          balance: 1_000_000,
+          metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true }
+        }
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
 
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-eth', 't-unsized']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId]);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
@@ -661,6 +676,18 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
     });
 
+    it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+      mockAutoConsume = true;
+      mockAccount = { publicKey: 'mtst1account', requiresHotKeyRotation: true };
+      mockClaimableNotes = [makeNote('n1', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
     it('never auto-consumes a native note that only the cached list has shown', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [{ ...makeNote('cached', 'faucet-native'), fromCache: true }];
@@ -776,6 +803,88 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+  });
+
+  // AnimatedNumber renders its first value as-is and counts only on a change, so a figure keyed by
+  // the account lands on a switch. These pin the key: a new node for another account, the same
+  // node within one account. (AnimatedNumber.test.tsx owns the counting itself.)
+  describe('an account switch', () => {
+    beforeEach(() => {
+      // Without a loaded price the total renders the dash, not the AnimatedNumber node.
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    });
+
+    // The AnimatedNumber stub's own span; the balance-amount span around it is never keyed.
+    const totalNode = () => screen.getByTestId('balance-amount').firstChild;
+
+    it('mounts a new total for another account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+      expect(before).not.toBeNull();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).not.toBe(before);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('5');
+    });
+
+    it('keeps the total node within the same account', async () => {
+      mockPortfolioTotal = new BigNumber(100);
+      const { rerender } = await renderExplore();
+      const before = totalNode();
+
+      mockPortfolioTotal = new BigNumber(5);
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(totalNode()).toBe(before);
+    });
+
+    it('mounts a new row for a token both accounts hold', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAccount = { publicKey: 'mtst1other' };
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).not.toBe(before);
+    });
+
+    it('keeps the row node when only the balance of the same account changes', async () => {
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
+      const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
+
+      mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('asset-row')).toBe(before);
+    });
+
+    it('keeps HomeOverview state across an address change (only the figures are keyed)', async () => {
+      const { rerender } = await renderExplore();
+      fireEvent.click(screen.getByTestId('balance-more'));
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+
+      mockAccount = { publicKey: 'mtst1other' };
+      act(() => {
+        rerender(<Explore />);
+      });
+
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
 });

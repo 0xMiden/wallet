@@ -128,8 +128,11 @@ export class SpendingLimitAuthorizationRequiredError extends Error {
 export class SpendingLimitPriceUnavailableError extends Error {
   readonly code = 'SPENDING_LIMIT_PRICE_UNAVAILABLE';
 
-  constructor(readonly symbol: string) {
-    super(`No current price is available for ${symbol}`);
+  constructor(
+    readonly symbol: string,
+    options?: { cause?: unknown }
+  ) {
+    super(`No current price is available for ${symbol}`, options);
     this.name = 'SpendingLimitPriceUnavailableError';
   }
 }

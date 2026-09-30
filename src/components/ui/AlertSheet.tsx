@@ -26,9 +26,10 @@ export interface AlertSheetProps {
  * A confirmation or an alert as a bottom sheet, with Radix AlertDialog semantics
  * (skills/miden-wallet-frontend/references/design-system.md, "Confirm / alert"): the sheet is an
  * `alertdialog` named by its title and described by its sentence; focus lands on Cancel (or on
- * the only action) and returns on close to whatever had it before, unless something else has
- * taken it by then; Escape cancels (or acknowledges an alert); a drag or a press outside does
- * nothing, because the question needs an answer. The caller owns `open`.
+ * the only action) and returns on close to whatever had it before, or to the nearest
+ * `[data-focus-fallback]` around it once it is gone, unless something else has taken it by then;
+ * Escape cancels (or acknowledges an alert); a drag or a press outside does nothing, because the
+ * question needs an answer. The caller owns `open`.
  *
  * It opens above every other layer (drawers 50 < native navbar 60 < dApp confirm 70 < this), since
  * a confirmation is usually asked from inside a drawer, and it leaves the Safari body pin to the
@@ -54,6 +55,9 @@ export function AlertSheet({
   // imperatively (`useConfirm`) with no trigger, so focus would drop to <body>. Remember what had
   // focus when the sheet opened and give it back instead.
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  // Taken at open time, while that element is still in the tree: where focus goes if the answer
+  // removes it (a prompt card whose button a hero replaced).
+  const fallbackFocusRef = useRef<HTMLElement | null>(null);
   const hasDescription = children !== undefined && children !== null && children !== '';
 
   useHideDappBubblesWhileOpen(open);
@@ -80,16 +84,21 @@ export function AlertSheet({
         onOpenAutoFocus={event => {
           event.preventDefault();
           returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          fallbackFocusRef.current = returnFocusRef.current?.closest<HTMLElement>('[data-focus-fallback]') ?? null;
           (cancelRef.current ?? actionRef.current)?.focus();
         }}
         onCloseAutoFocus={event => {
           event.preventDefault();
           // This runs after the slide-out. Give focus back only if nothing has taken it since (a new
           // layer, an autofocusing input on a page navigated to), and without scrolling the page.
-          // A detached element ignores focus(), so a trigger gone by now is simply skipped.
+          // A trigger gone by now gives way to its fallback; a detached fallback ignores focus().
           const active = document.activeElement;
-          if (active === null || active === document.body) returnFocusRef.current?.focus({ preventScroll: true });
+          if (active === null || active === document.body) {
+            const target = returnFocusRef.current?.isConnected ? returnFocusRef.current : fallbackFocusRef.current;
+            target?.focus({ preventScroll: true });
+          }
           returnFocusRef.current = null;
+          fallbackFocusRef.current = null;
         }}
         onEscapeKeyDown={event => {
           event.preventDefault();

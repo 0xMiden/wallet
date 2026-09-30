@@ -180,18 +180,6 @@
     "message": "パン",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "私の$protocol$ • $asset$ position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ にて",
     "englishSource": "$asset$ on $network$",
@@ -502,6 +490,10 @@
   "privateKeyInputPlaceholder": {
     "message": "例: APrivateKey1zkp...",
     "englishSource": "e.g. APrivateKey1zkp..."
+  },
+  "privateKeyClipboardNotCleared": {
+    "message": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
+    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
   },
   "settings": {
     "message": "設定",
@@ -1816,6 +1808,22 @@
     "message": "資金の準備ができました",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "以前のリクエストがまだ届く可能性があります。",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "もう一度リクエストしますか？",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "以前のリクエストはまだ届く可能性があります。再度リクエストすると、ウォレットに2回資金が入金される可能性があります。",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "再度リクエストしてください",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "アカウントの回復が検出されました",
     "englishSource": "Account recovery detected"
@@ -1858,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "リカバリーフレーズを確認してください",
-    "englishSource": "Verify your recovery phrase"
+    "message": "ウォレットのバックアップを取る",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "後でこのウォレットを復元できるよう、リカバリーフレーズを書き留め、その最初と最後の単語を正しく覚えているか確認してください。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "新しいデバイスでこのウォレットを復元できるよう、リカバリーフレーズを保管してください。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全な署名機能は利用できません",
@@ -2170,31 +2178,6 @@
     "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$社の中で現在最速のオペレーター",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "このネットワークの運営者",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardianは、単独では資金を移動することはできません",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardianはアカウントの状態をバックアップします",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "リカバリーフレーズを使ってGuardianを切り替えられます",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2206,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "それなら、完全に非公開のアカウントを作成したほうがいいと思います",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "別のGuardianを選択してください",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden上の独立したGuardianオペレーター。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムで広く使用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset（KODA）は、韓国で規制対象となっているデジタル資産カストディアンです。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",
@@ -2274,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "あなたのGuardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "変更",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ はあなたのアカウントをバックアップします。資金を動かすことはできず、いつでも切り替えられます。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",
@@ -2398,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "ウォレットの作成中…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "ウォレットの復元…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "ウォレットの設定…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "ウォレットを開いて、復元を完了させてください。",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "パスワードを入力してください",
@@ -2747,6 +2731,10 @@
     "message": "これは、あなたのリカバリー（コールド）キーで署名されます。リカバリーフレーズを入力する必要はなく、資金やアカウントはそのまま維持されます。続行しますか？",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "これは、あなたのリカバリー（コールド）キーで署名されます。署名するためにリカバリーフレーズを入力するよう求められますが、資金やアカウントはそのまま維持されます。続行しますか？",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "回転を確認する",
     "englishSource": "Confirm rotation"
@@ -2770,6 +2758,55 @@
   "hotKeyRotationRetry": {
     "message": "再試行",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "MIDENを追加して、日常用キーを有効にしてください",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "日常用キーの有効化はトランザクションであり、すべてのトランザクションには少額のネットワーク手数料としてMIDENが支払われます。以下のこのアカウントのアドレスにMIDENを送金してください。ウォレットがそれを受け取り、自動的にキーの有効化を完了します。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "$amount$ MIDEN以上を送信してください。",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "アカウントアドレス",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "MIDENが届くのを待っています…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "受け取ったMIDENは、ネットワーク手数料を支払うには不足しています。もう少し送ってください。",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "MIDENを受信しました。請求中…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "日常用キーの有効化…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "受け取ったMIDENは、受け取り請求できませんでした。",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "もう一度試してみてください",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "再度確認してください",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian 変更済み",
@@ -2823,6 +2860,10 @@
     "message": "http:// または https:// で始まる有効な URL を入力してください",
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
+  "customGuardianUnreachable": {
+    "message": "このURLにはGuardianへの回答がありません。確認してから再度お試しください。",
+    "englishSource": "No Guardian answered at this URL. Check it and try again."
+  },
   "encryptedWalletFileDescription": {
     "message": "暗号化されたウォレットファイルにアクセスするには、パスワードを入力してください。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -2834,6 +2875,19 @@
   "encryptedWalletFileConfirmation": {
     "message": "私は、Breadを含め、誰に対しても自分の暗号化されたウォレットファイルを共有することはありません。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
+  },
+  "encryptedWalletFileExcludedTitle": {
+    "message": "このファイルからは復元されませんでした：$accountNames$",
+    "englishSource": "Not restored from this file: $accountNames$",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileExcludedDesc": {
+    "message": "Guardian 秘密鍵でインポートされたアカウントは、ウォレットファイルから復元することはできません。また、このファイルから復元されたウォレットには、それらを追加することもできません。これらは独立したウォレットとして復元され、「秘密鍵のインポート」機能を使用して、Midenの日常用秘密鍵およびEVM秘密鍵が設定されます。これらの鍵は安全に保管してください。表示するには、そのアカウントを選択した状態で、「設定」→「鍵」→「秘密鍵を表示」を選択してください。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "ウォレットファイルを暗号化するには、パスワードを入力してください。",
@@ -4213,6 +4267,10 @@
     "message": "シェア",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "アドレスを送る",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "コピー",
     "englishSource": "Copy"
@@ -4444,6 +4502,14 @@
   "unverified": {
     "message": "未確認",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "未確認",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
   "couldNotVerifyBySimulation": {
     "message": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
@@ -4923,14 +4989,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — このネットワークについて",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "トークンに実際の価値はありません",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "復元",
@@ -5243,8 +5313,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+    "message": "このウォレットのロック解除方法を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",

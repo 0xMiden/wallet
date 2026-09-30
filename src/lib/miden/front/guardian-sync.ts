@@ -1,3 +1,6 @@
+// lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
+// this adds no module to that cycle; the function is only called during a sync, never at module load.
+import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
@@ -17,6 +20,7 @@ import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
+import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -337,7 +341,12 @@ function recordGuardianServerFailure(accountPublicKey: string): void {
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
 function clearGuardianServerFailures(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  if (outageAccounts.delete(accountPublicKey)) notifyOutageListeners();
+  if (outageAccounts.delete(accountPublicKey)) {
+    notifyOutageListeners();
+    // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+    // ends instead of waiting for something else to wake the worker (#779).
+    requestSWTransactionProcessing();
+  }
 }
 
 /**
@@ -348,7 +357,9 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
  */
 function recordSuccessfulGuardianSync(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  outageAccounts.delete(accountPublicKey);
+  // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+  // ends instead of waiting for something else to wake the worker (#779).
+  if (outageAccounts.delete(accountPublicKey)) requestSWTransactionProcessing();
   unrepairableAccounts.delete(accountPublicKey);
   lastGuardianSyncAt.set(accountPublicKey, Date.now());
   notifyOutageListeners();
@@ -563,7 +574,9 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   if (!snapshot) return;
 
   const onChainGuardian = snapshot.guardian;
-  const healKey = `${account.publicKey}|${endpoint}|${onChainGuardian ?? 'no-guardian-key'}`;
+  // The endpoint's canonical form, so a respelling of the same operator does not
+  // arrive with a fresh budget.
+  const healKey = `${account.publicKey}|${canonicalGuardianEndpoint(endpoint)}|${onChainGuardian ?? 'no-guardian-key'}`;
   const now = Date.now();
   const prior = missingRegistrationState.get(healKey);
   if (!isMissingRegistrationPushDue(now, prior)) {
@@ -966,8 +979,11 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
   // substantiate anything. Swallowing it also matters structurally — one of the
   // two call sites is inside the sync error handler, where a throw would escape
   // the per-account catch entirely.
+  //
+  // Compared as endpoints, like the rotation check: a respelling of the same
+  // Guardian is still the operator the pass talked to.
   try {
-    return (await resolveGuardianEndpoint(current)) === endpoint;
+    return sameGuardianEndpoint(await resolveGuardianEndpoint(current), endpoint);
   } catch (resolveError) {
     console.warn(
       `[Guardian Sync] could not confirm the operator for ${accountPublicKey}; not recording this pass`,
@@ -1034,8 +1050,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       console.warn(`[Guardian Sync] could not resolve the guardian endpoint for ${account.publicKey}`, resolveError);
       continue;
     }
+    // Compared as endpoints, not strings, for the same false-positive reason: a
+    // respelling of the same Guardian (host case, default port, trailing slash)
+    // is not a rotation, and treating it as one throws away its verdicts.
     const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
-    if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
+    if (syncedAgainst !== undefined && !sameGuardianEndpoint(syncedAgainst, endpoint)) {
       console.warn(
         `[Guardian Sync] ${account.publicKey} now points at ${endpoint || '(none)'} rather than ` +
           `${syncedAgainst || '(none)'} — dropping the previous operator's sync state`

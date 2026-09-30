@@ -8,6 +8,8 @@ import { cn } from 'lib/ui/util';
 /** What the header row shows: a routed page's title, its back handler and whether it takes focus. */
 export interface SubPageHeaderConfig {
   title?: React.ReactNode;
+  /** The muted line under the title (`PageHeader`'s `subtitle`). */
+  subtitle?: React.ReactNode;
   onBack?: () => void;
   /** Move focus to the title on mount, so the route change is announced. */
   focusTitleOnMount?: boolean;
@@ -49,7 +51,7 @@ interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   formId?: string;
   /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
   formRef?: React.RefObject<HTMLFormElement>;
-  /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
+  /** Passed to `FlowFooter` as `navbarCushion`: `false` drops the bar's room, which only TabLayout's pages have. */
   footerNavbarCushion?: boolean;
   /** Layout only, on the scrolling body: an extra inset on top of the 16px page margin. */
   bodyClassName?: string;
@@ -109,6 +111,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 }) => {
   const inherited = useContext(SubPageHeaderContext);
   const title = header.title ?? inherited.title;
+  const subtitle = header.subtitle ?? inherited.subtitle;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
@@ -121,6 +124,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         <PageHeader
           className="px-4"
           title={title}
+          subtitle={subtitle}
           onBack={onBack}
           onClose={onClose}
           actions={headerActions}

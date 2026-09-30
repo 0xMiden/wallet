@@ -123,6 +123,13 @@ it('matches guardian options only on the EFFECTIVE network endpoint', () => {
   expect(guardianOptionForEndpoint('https://custom.guardian')).toBeUndefined();
 });
 
+// A stored endpoint can be a host-case spelling of a built-in's literal (typed
+// by a user, or written by an older build); it must still resolve to that
+// built-in, the same way RotateGuardian and ChooseGuardian compare endpoints.
+it('matches a host-case spelling of a built-in endpoint', () => {
+  expect(guardianOptionForEndpoint('https://Test.Guardian.Example')?.name).toBe('Guardian One');
+});
+
 it('formats guardian hosts and preserves invalid custom values', () => {
   expect(guardianEndpointHost('https://guardian.example/path')).toBe('guardian.example');
   expect(guardianEndpointHost('custom guardian')).toBe('custom guardian');

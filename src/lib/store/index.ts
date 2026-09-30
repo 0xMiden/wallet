@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
+import { setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -1016,12 +1017,9 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
-  // that `lib/epoch/earn` pulls in is NOT loaded into the main page bundle at boot — only
-  // when the test calls the hook (by which point the earn route has loaded it anyway). The
-  // fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet node. Zero prod impact.
+  // THIS (page) realm. The fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet
+  // node. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
-    const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
     setEarnCollateralFaucetForTest(faucetHex);
   };
   // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side

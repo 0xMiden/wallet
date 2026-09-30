@@ -17,8 +17,8 @@ export interface NetworkModeSheetProps {
 
 /**
  * The test-network explanation (#875): no value, no real funds, and resets that never carry over to
- * Mainnet. Opened from the corner ribbon on the bottom nav and from the dApp confirm window's
- * banner; the caller owns `open`. Renders nothing on mainnet.
+ * Mainnet. Opened from Home's network pill and from the dApp confirm window's banner; the caller
+ * owns `open`. Renders nothing on mainnet.
  */
 export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
@@ -58,10 +58,11 @@ export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange
       <DrawerContent className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <div className="flex min-h-0 flex-1 flex-col" data-testid="network-mode-sheet">
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="network-mode-sheet-body">
+            {/* The description sits under the header's rule, in the rows' own muted style. */}
             <DrawerHeader>
-              <DrawerTitle>{t('networkModeBanner', { network })}</DrawerTitle>
-              <DrawerDescription>{t('networkNoticeBody')}</DrawerDescription>
+              <DrawerTitle>{t('networkModeSheetTitle', { network })}</DrawerTitle>
             </DrawerHeader>
+            <DrawerDescription>{t('networkNoticeBody')}</DrawerDescription>
             <div className="px-4">
               <NetworkNoticeRows />
             </div>

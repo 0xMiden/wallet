@@ -8,6 +8,7 @@ import { useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { ReceiveStep } from 'app/pages/Receive/steps';
+import { formatBridgeOutputAmount } from 'app/templates/history/transactionUtils';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
@@ -673,7 +674,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={quotedDeposit ? toAdaptiveFixed(quotedDeposit) : amount}
+              amount={quotedDeposit ? (formatBridgeOutputAmount(quotedDeposit) ?? quotedDeposit) : amount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
               fiat={token === 'USDC' ? Number(depositAmount) : undefined}
               route={route}

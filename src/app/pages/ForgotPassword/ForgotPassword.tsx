@@ -4,14 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
-import { markOnboardingFinishing } from 'app/onboarding-finish';
+import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
@@ -42,11 +40,11 @@ const ForgotPassword: FC = () => {
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
   const { registerWallet } = useMidenContext();
-  // Guardian auto-detection (issue #418). This flow has no recovery-method
-  // screen, so the probe is invisible: it starts at seed submit and its winner
-  // is written to the guardian-URL setting just before registering. When it
-  // finds nothing (or is still running at the deadline) the previously stored
-  // endpoint is used, exactly as before.
+  // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
+  // its winner is passed to registerWallet unless the user picked an endpoint on
+  // the recovery-method step. The stored legacy guardian URL is only read as a
+  // fallback, by the backend, when the probe finds nothing (or is still running
+  // at the deadline).
   const guardianProbe = useGuardianProbe();
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;
@@ -109,43 +107,29 @@ const ForgotPassword: FC = () => {
     return result?.best?.endpoint;
   }, []);
 
-  // 'ok' registered | 'failed' registration threw AFTER the destructive reset |
-  // 'skipped' preconditions absent so nothing ran and nothing was destroyed.
+  // 'ok' registered | 'failed' the guarded branch threw (usually after the
+  // destructive reset) | 'skipped' preconditions absent so nothing ran and
+  // nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
-      // `clearClientStorage()` is a blanket `localStorage.clear()`, and on
-      // DESKTOP localStorage is also the platform key-value store
-      // (`DesktopStorage`, prefix `miden_wallet_`) — so it takes the dev-settings
-      // endpoint override with it, the one key a storage reset must survive
-      // (`PRESERVED_STORAGE_KEYS` in lib/miden/reset). `Vault.spawn`'s own reset
-      // snapshots that key AFTER this call, so it reads null and restores
-      // nothing: the account is recovered on the custom network while the next
-      // launch resolves the build-default endpoints, which is exactly the
-      // account-here / client-there split the preserve list exists to prevent.
-      // Snapshot and restore it around the wipe. On the extension and on mobile
-      // the override lives in browser.storage.local / Capacitor Preferences,
-      // which `localStorage.clear()` cannot reach, so the restore rewrites the
-      // value it just read.
-      const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
-      clearClientStorage();
-      if (endpointOverrides != null) {
-        await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, endpointOverrides);
-      }
-      // Resolve the probed guardian endpoint (import path only) and thread it
-      // explicitly into registerWallet (stage 1 of #408) rather than writing the
-      // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
-      // clearClientStorage above cannot clobber it. When nothing was detected the
-      // endpoint stays undefined and the backend falls back to the stored /
-      // default endpoint.
-      // Endpoint only matters for a Guardian recovery; a non-guardian recovery
-      // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
-      const guardianEndpoint =
-        onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
-          ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
-          : undefined;
-
-      const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
+      // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so nothing here
+      // reads or rewrites the endpoint override or the legacy guardian URL.
       try {
+        await clearClientStorage();
+        // Resolve the probed guardian endpoint (import path only) and thread it
+        // explicitly into registerWallet (stage 1 of #408) rather than writing the
+        // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
+        // clearClientStorage above cannot clobber it. When nothing was detected the
+        // endpoint stays undefined and the backend falls back to the stored /
+        // default endpoint.
+        // Endpoint only matters for a Guardian recovery; a non-guardian recovery
+        // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
+        const guardianEndpoint =
+          onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
+            ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
+            : undefined;
+
+        const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
         await registerWallet(
           walletType,
           password,
@@ -155,14 +139,12 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // clearClientStorage() above has ALREADY wiped the local wallet, so a
-        // failure here leaves the user with nothing. Swallowing it into
-        // console.error (and then navigating away regardless) showed them an
-        // empty wallet with no explanation — indistinguishable from data loss.
-        // Surface it and stay put so Retry is reachable (#630).
+        // The wipe and registerWallet can each fail here; a failure usually
+        // comes after the wipe, so it surfaces the reason and stays put so
+        // Retry is reachable (#630).
         console.error(e);
-        settleRecoverFlow(handle => handle.fail(classifyError(e)));
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
+        settleRecoverFlow(handle => handle.fail(classifyError(e)));
         return 'failed';
       }
     }
@@ -255,18 +237,19 @@ const ForgotPassword: FC = () => {
           try {
             const outcome = await register();
             finishMark.arm();
-            setIsLoading(false);
             // Block the exit ONLY on a real failure. 'skipped' means the guarded
             // branch never ran, so nothing was destroyed and the previous
-            // navigate-home behaviour is still right; 'failed' means the reset
-            // already happened, so leaving would strand the user on a wiped
-            // wallet with no explanation (#630).
+            // navigate-home behaviour is still right; 'failed' means the guarded
+            // branch threw (usually after the destructive reset), so leaving
+            // would strand the user on a wiped wallet with no explanation
+            // (#630).
             if (outcome === 'failed') break;
             if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
             // Guardian recovery just completed — hand off to the side panel like
             // first-run onboarding rather than always entering in-tab (#428).
-            navigate(postOnboardingRoute());
+            navigateOnFromOnboarding(postOnboardingRoute());
           } finally {
+            setIsLoading(false);
             finishMark.release();
           }
           break;

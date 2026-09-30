@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 
 /** The seed this suite imports. Known, so it doubles as a leak sentinel. */
 export const SEED_WORDS =
@@ -50,8 +51,7 @@ export async function importWalletToConsentPrompt(page: Page): Promise<void> {
   await page.getByText(/import public account/i).click();
   await page.getByRole('button', { name: /continue/i }).click();
 
-  await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('onboarding-confirmation-submit').click();
+  await passImportConfirmation(page, 30_000);
 
   await page.locator(CONSENT_SELECTOR).waitFor({ state: 'visible', timeout: 30_000 });
 }
