@@ -9,10 +9,11 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 /**
  * The tokens the user hid from Home (#813), per network and per account.
  *
- * The same module-level store as `useActivityHiddenNotes`, read through `useSyncExternalStore`, so a
- * token hidden on its page leaves the Home that `TabLayout` keeps mounted at once. An unreadable
- * list stays read-only (writing it would replace every token hidden before), saves for one key run
- * one at a time, each from the list the previous one left, and a failed write is rolled back.
+ * The same shape as `useActivityHiddenNotes`'s store, but a separate one, read through
+ * `useSyncExternalStore`, so a token hidden on its page leaves the Home that `TabLayout` keeps
+ * mounted at once. An unreadable list stays read-only (writing it would replace every token hidden
+ * before), saves for one key run one at a time, each from the list the previous one left, and a
+ * failed write is rolled back.
  *
  * Ids are compared in their canonical form (`normalizedFaucetId`), so the hex and bech32 ids of one
  * faucet are one token. The native token pays every fee: it cannot be hidden, and a stored id that
