@@ -40,6 +40,8 @@ export interface EarnPosition {
   yearlyEstimate: string;
   withdrawTime: string;
   route: string;
+  /** The latest read did not load it (its owner failed, or the read did), so it arms no withdrawal. */
+  stale: boolean;
   chartData: EarnChartPoint[];
 }
 

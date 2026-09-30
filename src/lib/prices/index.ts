@@ -15,10 +15,10 @@ export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binan
  * Backed by SWR, deduped across rows showing the same symbol. Returns an empty
  * array while loading or when the symbol is unknown to Binance.
  */
-export function useTokenSparkline(symbol: string, timeframe: Timeframe = '1D'): number[] {
+export function useTokenSparkline(symbol: string | undefined, timeframe: Timeframe = '1D'): number[] {
   const { data } = useRetryableSWR(
     symbol ? ['kline', symbol, timeframe] : null,
-    () => fetchKlineData(symbol, timeframe),
+    () => (symbol ? fetchKlineData(symbol, timeframe) : Promise.resolve([])),
     { refreshInterval: 5 * 60_000, dedupingInterval: 60_000 }
   );
 

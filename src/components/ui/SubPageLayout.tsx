@@ -8,6 +8,8 @@ import { cn } from 'lib/ui/util';
 /** What the header row shows: a routed page's title, its back handler and whether it takes focus. */
 export interface SubPageHeaderConfig {
   title?: React.ReactNode;
+  /** The muted line under the title (`PageHeader`'s `subtitle`). */
+  subtitle?: React.ReactNode;
   onBack?: () => void;
   /** Move focus to the title on mount, so the route change is announced. */
   focusTitleOnMount?: boolean;
@@ -39,11 +41,12 @@ interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   /** Right side of the header row, e.g. an orange text action. */
   headerActions?: React.ReactNode;
   /**
-   * The page's actions, pinned under the body, 10px apart. Buttons here take `flex-1 max-w-none`
-   * so a pair splits the row evenly and a single one spans it.
+   * The page's actions, pinned under the body, 10px apart. In a `row`, children split the width
+   * with `flex-1 max-w-none`, so a pair shares it evenly and a single one spans it. In a `stack`,
+   * every child keeps its own height whatever flex it carries.
    */
   footer?: React.ReactNode;
-  /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
+  /** `stack` puts the footer's children one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
   /** The body form's id, for that footer button. Only meaningful with `onSubmit`. */
   formId?: string;
@@ -109,6 +112,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 }) => {
   const inherited = useContext(SubPageHeaderContext);
   const title = header.title ?? inherited.title;
+  const subtitle = header.subtitle ?? inherited.subtitle;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
@@ -121,6 +125,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         <PageHeader
           className="px-4"
           title={title}
+          subtitle={subtitle}
           onBack={onBack}
           onClose={onClose}
           actions={headerActions}
@@ -142,11 +147,13 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 
       {footer && (
         // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the
-        // same spring as the send and swap CTAs instead of jumping with the layout.
+        // same spring as the send and swap CTAs instead of jumping with the layout. In a column, a
+        // row-style `flex-1` sizes a child's height from a zero basis and squashes a button to its
+        // label, so the stack resets every child to its own height.
         <FlowFooter
           data-slot="footer"
           navbarCushion={footerNavbarCushion}
-          className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col')}
+          className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col [&>*]:flex-none')}
         >
           {footer}
         </FlowFooter>

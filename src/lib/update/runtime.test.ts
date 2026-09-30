@@ -171,9 +171,13 @@ describe('createUpdateNotificationRuntime', () => {
   });
 
   it('loads the presentation catalog from the fixed raw main URL without a browser cache', async () => {
-    const fetchManifest = jest
-      .fn()
-      .mockResolvedValue({ ok: true, json: async () => ({ schemaVersion: 1, releases: [] }) });
+    let signal: AbortSignal | undefined;
+    let abortedAtCall: boolean | undefined;
+    const fetchManifest = jest.fn(async (_url: string, init: { signal: AbortSignal }) => {
+      signal = init.signal;
+      abortedAtCall = init.signal.aborted;
+      return { ok: true, json: async () => ({ schemaVersion: 1, releases: [] }) };
+    });
     const runtime = await createUpdateNotificationRuntime({
       createAdapter: async () => ({
         platform: 'chrome',
@@ -196,15 +200,25 @@ describe('createUpdateNotificationRuntime', () => {
       headers: { Accept: 'application/json' },
       // The controller's deadline abandons a slow read; only the request's own
       // signal ends it.
-      signal: expect.objectContaining({ aborted: false })
+      signal: expect.any(AbortSignal)
     });
+    expect(abortedAtCall).toBe(false);
+    // Aborted once the read settles, so no body the request left unread outlives it.
+    expect(signal?.aborted).toBe(true);
   });
 
   it.each([
     ['a declared length past the cap', { get: () => String(128 * 1024) }, undefined],
     // A chunked or re-encoded response declares nothing useful, so the body is
-    // measured as it is read.
-    ['a body past the cap with no declared length', { get: () => null }, 'x'.repeat(128 * 1024)]
+    // measured as it is read. Padding keeps it valid JSON, so only the cap refuses it.
+    [
+      'a body past the cap with no declared length',
+      { get: () => null },
+      `${' '.repeat(128 * 1024)}${JSON.stringify({
+        schemaVersion: 1,
+        releases: [{ version: '1.1.0', summary: 'Oversize.', urgency: 'normal', platforms: ['chrome'] }]
+      })}`
+    ]
   ])('refuses a catalog response far larger than any valid one: %s', async (_case, headers, text) => {
     const json = jest.fn();
     const fetchManifest = jest.fn().mockResolvedValue({

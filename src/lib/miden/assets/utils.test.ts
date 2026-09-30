@@ -22,6 +22,8 @@ jest.mock('lib/miden/front', () => ({
   searchAssets: jest.fn(),
   useAllTokensBaseMetadata: jest.fn()
 }));
+// `getFaucetIdSetting` reads storage through the leaf module, not the barrel.
+jest.mock('lib/miden/front/storage', () => jest.requireMock('lib/miden/front'));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn()

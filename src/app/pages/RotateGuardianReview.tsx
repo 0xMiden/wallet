@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
@@ -11,6 +12,7 @@ import { Button } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
@@ -22,7 +24,6 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianRotationInProgress } from 'lib/miden/guardian/rotation-in-progress';
@@ -78,7 +79,7 @@ const RotateGuardianReview: FC = () => {
     setAuthStep(false);
     setPassword('');
   }, [newEndpoint]);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
@@ -103,20 +104,6 @@ const RotateGuardianReview: FC = () => {
     abandoned.current = true;
     popBack();
   }, [popBack]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHardware => {
-        if (!cancelled) setHasHardwareProtector(hasHardware);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('guardianAuthenticationUnavailable'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
 
   // The hot key co-signs from the unlocked vault; surface how it's protected
   // on this device (biometric flavor or password) like the design's key rows.
@@ -400,6 +387,9 @@ const RotateGuardianReview: FC = () => {
         footerLayout="stack"
         footer={
           <>
+            {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
+                so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
+            {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
             {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
                 Continue and the reason appears above it. `max-h` + scroll so a long backend error
                 cannot grow the footer and push Continue off-screen. */}

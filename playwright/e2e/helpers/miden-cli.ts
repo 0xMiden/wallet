@@ -26,7 +26,7 @@ import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
  * count, and under-funding fails indirectly: the account simply cannot pay, and the suite
  * reports a product-looking error rather than an empty account.
  */
-const FUNDING_MIDEN = 20_000_000;
+export const FUNDING_MIDEN = 20_000_000;
 
 const DEFAULT_FAUCET_MAX_SUPPLY = 1_000_000_000_000;
 

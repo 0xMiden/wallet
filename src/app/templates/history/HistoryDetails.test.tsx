@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   preparedExecution,
@@ -49,7 +50,7 @@ interface MetadataStore {
   assetsMetadata: Record<string, AssetMetadata>;
 }
 
-const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} }));
+const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} }));
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
 let mockMaxNetworkFee: string | undefined;
@@ -424,7 +425,7 @@ beforeEach(() => {
   trackingStore().clearSwapOrderSchedulesForTests();
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
-  mockWalletStore.setState({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} });
+  mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} });
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
   mockMaxNetworkFee = undefined;
@@ -487,12 +488,12 @@ describe('HistoryDetails', () => {
 
     it('updates a send amount and symbol when unresolved metadata arrives without a row change', async () => {
       mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
-      mockWalletStore.setState({ tokenPrices: { RES: { price: 2 } } });
-      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } } });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 250_000_000n });
       await renderAndLoad();
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
 
-      await publishMetadata({ 'faucet-1': resolved });
+      await publishMetadata({ [MIDEN_USDC_FAUCET]: resolved });
 
       expect(screen.getByText('2.5 RES')).toBeInTheDocument();
       expect(screen.getByText('historyDetailsFiatApprox_$5.00')).toBeInTheDocument();
@@ -984,7 +985,7 @@ describe('HistoryDetails', () => {
 
   describe('sent transaction rendering', () => {
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
-      setMockRow({ ...baseSendTx });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();
 
       // Amount + token now share the summary badge's left side.
@@ -1038,6 +1039,18 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
 
+    // The estimate prices the figure the hero prints, rounded down to 1234.567, not the unrounded amount.
+    it('prices a send at the amount its hero shows', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n }); // 1234.567891 at 6 decimals.
+      await renderAndLoad();
+
+      expect(screen.getByText('1234.567 MID')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.13')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$2469.14')).not.toBeInTheDocument();
+    });
+
     it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {
       const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
       mockGetTokenMetadata.mockResolvedValue({ symbol: 'IETH', decimals: 8 });
@@ -1062,7 +1075,7 @@ describe('HistoryDetails', () => {
     // that invented quantity into an invented dollar value.
     it('withholds the fiat estimate when the faucet has no known scale', async () => {
       mockGetTokenMetadata.mockResolvedValue({ symbol: 'MID', decimals: 6, scaleIsUnknown: true });
-      setMockRow({ ...baseSendTx });
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();
 
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
@@ -1463,9 +1476,10 @@ describe('HistoryDetails', () => {
     it('suppresses the fiat estimate when the claim spans several faucets', async () => {
       setMockRow(
         consumeTx({
+          faucetId: MIDEN_USDC_FAUCET,
           amount: 20n,
           assetTotals: [
-            { faucetId: 'faucet-1', amount: 20n },
+            { faucetId: MIDEN_USDC_FAUCET, amount: 20n },
             { faucetId: 'faucet-2', amount: 10n }
           ]
         })
@@ -1476,10 +1490,32 @@ describe('HistoryDetails', () => {
     });
 
     it('keeps the fiat estimate when the claim is a single faucet', async () => {
-      setMockRow(consumeTx({ amount: 20n, assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
+      setMockRow(
+        consumeTx({
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: 20n,
+          assetTotals: [{ faucetId: MIDEN_USDC_FAUCET, amount: 20n }]
+        })
+      );
       await renderAndLoad();
 
       expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();
+    });
+
+    // A claim's hero is its badge, which prints the amount at full precision, so that is what is priced.
+    it('prices a claim at the full amount its badge shows', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      act(() =>
+        mockWalletStore.setState({
+          assetsMetadata: { [MIDEN_USDC_FAUCET]: { name: 'Mid', symbol: 'MID', decimals: 6 } }
+        })
+      );
+      setMockRow(consumeTx({ faucetId: MIDEN_USDC_FAUCET, amount: 1_234_567_891n })); // 1234.567891 at 6 decimals.
+      await renderAndLoad();
+
+      expect(screen.getByText('1234.567891 MID')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
     });
   });
 
@@ -1523,6 +1559,25 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
+    });
+
+    // The swap hero prints the offered amount unrounded, so that is what is priced, whether or not the order
+    // carries a requested amount (without one the summary badge has no content).
+    it.each([
+      ['an order', { requestedAmount: 1000n }],
+      ['an order with no requested amount', {}]
+    ])('prices %s at the offered amount its hero shows', async (_label, requested) => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', ...requested }),
+        faucetId: MIDEN_USDC_FAUCET,
+        amount: 1_234_567_891n // 1234.567891 at the mocked faucet's 6 decimals.
+      });
+      await renderAndLoad();
+
+      expect(within(screen.getByTestId('swap-order-hero')).getByText('1234.567891')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2469.14')).toBeInTheDocument();
     });
 
     it('does not call an unsettled order Confirmed while the list calls it Pending', async () => {
@@ -2661,22 +2716,24 @@ describe('HistoryDetails', () => {
       }
     };
 
+    const bridgedReceiveInputs: Record<string, unknown> = {
+      provider: 'epoch',
+      sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
+      sourceAmount: '10',
+      sourceSymbol: 'USDC',
+      evmTxHash: '0xevmhash',
+      phase: 'delivering',
+      outputAmount: '9.98',
+      outputSymbol: 'USDC'
+    };
+
     const bridgedReceiveTx: Tx = {
       ...baseSendTx,
       id: 'bridge-in',
       type: 'bridged-receive',
       secondaryAccountId: undefined,
       displayMessage: 'Bridging from EVM',
-      extraInputs: {
-        provider: 'epoch',
-        sourceAddress: '0xffffffffffffffffffffffffffffffffffffffff',
-        sourceAmount: '10',
-        sourceSymbol: 'USDC',
-        evmTxHash: '0xevmhash',
-        phase: 'delivering',
-        outputAmount: '9.98',
-        outputSymbol: 'USDC'
-      }
+      extraInputs: bridgedReceiveInputs
     };
 
     // A bridge row created before the amount/quote were stamped still has to
@@ -2723,7 +2780,31 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    it('still rounds a Fast-route bridge-out quote down to two decimals', async () => {
+    // A user-cancelled bridge-out falls out of the bridge hero, so the plain hero shows its typed Miden-side amount.
+    it('shows a cancelled bridge-out amount as typed, and prices that amount', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedSendTx,
+        faucetId: MIDEN_USDC_FAUCET,
+        amount: 1_234_567n, // 1.234567 at 6 decimals.
+        status: 3,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        error: 'Transaction was cancelled by user',
+        rawError: undefined
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
+      expect(screen.getByText('1.234567')).toBeInTheDocument();
+      expect(screen.queryByText('1.234')).not.toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$1.23')).toBeInTheDocument();
+    });
+
+    it('rounds a Fast-route bridge-out quote down, without padding', async () => {
       setMockRow({
         ...bridgedSendTx,
         extraInputs: {
@@ -2733,9 +2814,10 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
+      expect(screen.getByText('151.5')).toBeInTheDocument();
       expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
       expect(screen.queryByText('151.51')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.50')).not.toBeInTheDocument();
     });
 
     // The arrow svg ships with fill="none" (see TokenDetail.test.tsx's identical assertion),
@@ -2802,19 +2884,155 @@ describe('HistoryDetails', () => {
       expect(screen.getAllByText('0.015')).toHaveLength(2);
     });
 
-    it('still rounds a Fast-route bridge-in quote down to two decimals', async () => {
+    // The deposit is what the wallet signed for, so the hero never shows less than left the account.
+    it('rounds a Fast-route bridge-in deposit up, never down', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           ...(bridgedReceiveTx.extraInputs as Record<string, unknown>),
-          sourceAmount: '151.505000000000000001'
+          sourceAmount: '151.5012'
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('151.50')).toBeInTheDocument();
-      expect(screen.queryByText('151.505000000000000001')).not.toBeInTheDocument();
-      expect(screen.queryByText('151.51')).not.toBeInTheDocument();
+      expect(screen.getByText('151.51')).toBeInTheDocument();
+      expect(screen.queryByText('151.5012')).not.toBeInTheDocument();
+      expect(screen.queryByText('151.5')).not.toBeInTheDocument();
+    });
+
+    it('shows a Slow-route bridge-in source amount as typed, without its trailing zero', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          provider: 'agglayer',
+          // Past ETH's six display decimals, so only the typed kind shows every digit.
+          sourceAmount: '1.23456780',
+          sourceSymbol: 'ETH'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('1.2345678')).toBeInTheDocument();
+      expect(screen.queryByText('1.23456780')).not.toBeInTheDocument();
+    });
+
+    // The out side is formatted by `bridgeInRowDisplay`, which the list row reads too; a
+    // second pass here would round the typed amount the list shows exactly.
+    it('shows an in-flight "you receive" amount exactly as the list row does', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          outputAmount: '10.6555'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('10.6555')).toBeInTheDocument();
+      expect(screen.queryByText('10.65')).not.toBeInTheDocument();
+    });
+
+    it("shows a received bridge-in's credited amount rounded down, once", async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150_126_456n, // 150.126456 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          outputAmount: '150.2'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('150.12')).toBeInTheDocument();
+      expect(screen.queryByText('150.126456')).not.toBeInTheDocument();
+      expect(screen.queryByText('150.2')).not.toBeInTheDocument();
+    });
+
+    // The fiat line prices the out amount the hero shows. In flight the row's own amount is the
+    // quote's tokenOut, while the hero shows the typed "you receive" (minTokenOut).
+    it('prices an in-flight bridge-in at the amount its hero receives, not the quote', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedReceiveTx,
+        faucetId: MIDEN_USDC_FAUCET,
+        amount: 10_000_000n, // 10 USDC, the quote's tokenOut.
+        extraInputs: { ...bridgedReceiveInputs, outputAmount: '1.505' }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('1.505')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$1.51')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$10.00')).not.toBeInTheDocument();
+    });
+
+    it('prices a received bridge-in at the credited amount its hero shows, rounded down', async () => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+      mockWalletStore.setState({ tokenPrices: { USDC: { price: 1 } } });
+      setMockRow({
+        ...bridgedReceiveTx,
+        faucetId: MIDEN_USDC_FAUCET,
+        amount: 150_126_456n, // 150.126456 at the mocked faucet's 6 decimals.
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          outputAmount: '150.2'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByText('150.12')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$150.12')).toBeInTheDocument();
+      expect(screen.queryByText('historyDetailsFiatApprox_$150.13')).not.toBeInTheDocument();
+    });
+
+    // Scaling by the placeholder's guess would misreport what arrived, and the source amount is
+    // not what was credited either, so the out side shows no number at all.
+    it('shows no credited amount for a received bridge-in whose faucet has no known scale', async () => {
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      setMockRow({
+        ...bridgedReceiveTx,
+        amount: 150_123_456n,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          phase: 'received',
+          sourceAmount: '10.6555'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const hero = screen.getByText('10.66').parentElement;
+      expect(hero?.textContent).toBe('10.66USDC-USDC');
+    });
+
+    it("reads an Earn withdrawal's delivery as received, and a Fast deposit's as paid", async () => {
+      const consume = (bridgeIn: Record<string, unknown>) => ({
+        ...baseSendTx,
+        id: 'bridge-consume',
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteIds: ['delivered-note'],
+        extraInputs: { bridgeIn: { provider: 'epoch', sourceAmount: '10.6555', sourceSymbol: 'USDC', ...bridgeIn } }
+      });
+
+      setMockRow(consume({ earnWithdrawTxId: 'withdrawal-1' }));
+      const withdrawal = await renderAndLoad({ transactionId: 'bridge-consume' });
+      expect(screen.getByText('10.65')).toBeInTheDocument();
+      withdrawal.unmount();
+
+      setMockRow(consume({}));
+      await renderAndLoad({ transactionId: 'bridge-consume' });
+      expect(screen.getByText('10.66')).toBeInTheDocument();
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
@@ -2843,7 +3061,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad({ transactionId: 'old-attempt-consume' });
 
-      expect(screen.getByText('12.50')).toBeInTheDocument();
+      expect(screen.getByText('12.5')).toBeInTheDocument();
       expect(screen.getByText('USDC')).toBeInTheDocument();
       expect(rowByLabel('from')?.textContent).toBe('0xold-owner');
       expect(rowByLabel('from')?.querySelector('a')).toHaveAttribute(
@@ -2922,6 +3140,10 @@ describe('HistoryDetails earn-withdraw', () => {
     ...overrides
   });
 
+  // Production writes the native faucet as both the row's faucet and the destination the withdrawal credits.
+  const nativeWithdrawTx = (extraInputs: Record<string, unknown>, overrides: Tx = {}): Tx =>
+    earnWithdrawTx({ destinationFaucetId: 'chain-native', ...extraInputs }, { faucetId: 'chain-native', ...overrides });
+
   beforeEach(() => {
     mockRetryEarnWithdrawReceive.mockClear();
     mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
@@ -2941,6 +3163,104 @@ describe('HistoryDetails earn-withdraw', () => {
 
     // The source figure is no longer what the hero claims.
     expect(document.body.textContent).not.toContain('10.5');
+  });
+
+  // The stored output symbol is the bridged note's source token, so it names no credit whose faucet never resolved.
+  it('names no asset for a received withdrawal whose delivered faucet never resolved', async () => {
+    mockGetTokenMetadata.mockResolvedValue(undefined);
+    setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'USDC' }, { amount: 999n }));
+    await renderAndLoad();
+
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(document.body.textContent).not.toContain('USDC');
+  });
+
+  // The amount is already formatted by `earnWithdrawAmountFields`; the hero's 3-decimal pass would
+  // round 0.0012 to 0.001, so the detail and the Activity row would disagree.
+  it('shows the withdrawal amount as its helper formatted it, not re-rounded', async () => {
+    setMockRow(earnWithdrawTx({ phase: 'delivering', sourceAmount: '0.001239' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('0.0012')).toBeInTheDocument();
+    expect(screen.queryByText('0.001')).not.toBeInTheDocument();
+  });
+
+  // Until the credit lands the hero prints the redeemed USDC, not the native asset the row's faucet names, so that USDC
+  // is what the estimate prices.
+  it.each(['redeeming', 'delivering', 'failed'])('prices a %s withdrawal as the USDC its hero shows', async phase => {
+    setMockRow(nativeWithdrawTx({ phase, sourceAmount: '10.50' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.getByText('historyDetailsFiatApprox_$21.00')).toBeInTheDocument();
+  });
+
+  // No quote means no estimate, not the USDC at $1 a unit. And the helper passes an amount outside the display window
+  // through as written; expanding it for the estimate would write out ten million digits.
+  it('estimates no fiat value without a quote, or for a withdrawal amount outside the display window', async () => {
+    mockWalletStore.setState({ tokenPrices: {} });
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
+    const { rerender } = await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+
+    act(() => mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } } }));
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '9e9999999' }));
+    rerender(<HistoryDetails transactionId="tx-1" />);
+    await flush();
+
+    expect(screen.getByText('9e9999999')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  // Once credited the hero prints the native asset, which the feed does not quote whatever its faucet calls itself.
+  it('prices no estimate for a received withdrawal credited in the native asset', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
+    setMockRow(nativeWithdrawTx({ phase: 'received' }, { amount: 999n }));
+    await renderAndLoad();
+
+    expect(screen.getByText('999')).toBeInTheDocument();
+    expect(screen.getByText('USDC')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  it('prices a received withdrawal that has no credited amount as the USDC it shows', async () => {
+    setMockRow(nativeWithdrawTx({ phase: 'received', sourceAmount: '10.50' }, { amount: undefined }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.getByText('historyDetailsFiatApprox_$21.00')).toBeInTheDocument();
+  });
+
+  // Without extra inputs the hero prints the row's own native amount, so no Earn side is priced as USDC.
+  it('prices no estimate for a restored withdrawal with no extra inputs', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
+    setMockRow(earnWithdrawTx({}, { faucetId: 'chain-native', extraInputs: undefined, restoredFromBackup: true }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(screen.getByText('USDC')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  // A restore keeps extraInputs as the dump recorded them, so a row can lack its market id.
+  it('renders a withdrawal restored without a market id, with no Market row', async () => {
+    const { marketUid: _marketUid, ...extraInputs } = earnWithdrawTx({}).extraInputs as Record<string, unknown>;
+    setMockRow(earnWithdrawTx({}, { extraInputs }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(rowByLabel('positionOwnerLabel')).toBeDefined();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  it('shows no Market row for an empty market id', async () => {
+    setMockRow(earnWithdrawTx({ marketUid: '' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
   });
 
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
@@ -3132,6 +3452,51 @@ describe('HistoryDetails earn-deposit', () => {
     await renderAndLoad();
 
     expect(rowByLabel('earnMarketLabel')?.textContent).toBe(':11155111:0xabc');
+  });
+
+  // A restore keeps extraInputs as the dump recorded them, so a row can lack its market id.
+  it('renders a deposit restored without a market id, with no Market row', async () => {
+    const { marketUid: _marketUid, ...extraInputs } = earnDepositTx().extraInputs as Record<string, unknown>;
+    setMockRow(earnDepositTx({}, { extraInputs }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(rowByLabel('positionOwnerLabel')).toBeDefined();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  it('shows no Market row for an empty market id', async () => {
+    setMockRow(earnDepositTx({ marketUid: '' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000')).toBeInTheDocument();
+    expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  // The Review shows the amount exactly as typed; the page's 3-decimal pass would cut 10.6555 to 10.655.
+  describe('the amount typed', () => {
+    beforeEach(() => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    });
+
+    it('reads as typed on the summary badge', async () => {
+      setMockRow(earnDepositTx({}, { amount: 10_655_500n }));
+      await renderAndLoad();
+
+      expect(screen.getByText('10.6555 USDC')).toBeInTheDocument();
+      expect(screen.queryByText('10.655 USDC')).toBeNull();
+    });
+
+    it('reads as typed in the hero when the market has no name for the badge', async () => {
+      // No protocol segment leaves the badge without a right side, so the hero prints the amount.
+      setMockRow(earnDepositTx({ marketUid: ':11155111:0xabc' }, { amount: 10_655_500n }));
+      await renderAndLoad();
+
+      expect(screen.getByText('10.6555')).toBeInTheDocument();
+      expect(screen.queryByText('10.655')).toBeNull();
+    });
   });
 
   it('omits the intent and settlement rows before the lending leg reports them', async () => {

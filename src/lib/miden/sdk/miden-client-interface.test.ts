@@ -1336,7 +1336,9 @@ describe('MidenClientInterface', () => {
       };
       const createGuardianAccount = jest.fn(async () => ({
         account: { id: () => ({ toString: () => 'guardian-id' }) },
-        keys
+        keys,
+        guardianEndpoint: 'https://picked-guardian.example',
+        registration: { stateBase64: 'state' }
       }));
 
       jest.doMock('./helpers', () => ({
@@ -1360,26 +1362,70 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
+      const createKey = {
+        guardianEndpoint: 'https://picked-guardian.example',
+        guardianCommitment: 'c',
+        guardianPubkey: 'p',
+        rateLimitBudgetLeftMs: 90_000
+      };
       const assertLive = jest.fn();
-      const result = await client.createGuardianMidenWallet(
-        new Uint8Array([9]),
-        'https://picked-guardian.example',
-        assertLive
-      );
+      const result = await client.createGuardianMidenWallet(new Uint8Array([9]), createKey, assertLive);
 
-      // The picked endpoint is forwarded as createGuardianAccount's
-      // guardianEndpointOverride (4th arg) so the new account binds to it
-      // (stage 1 of #408). skipRegistration (3rd arg) stays false. The caller's
-      // hold re-check goes through as itself: any other function drops every
-      // re-check the vault's hold relies on.
+      // The caller fetched createKey before this hold (#1207) and forwards it
+      // straight through; the caller's hold re-check goes through as itself:
+      // any other function drops every re-check the vault's hold relies on.
       expect(createGuardianAccount).toHaveBeenCalledWith(
         fakeMidenClient,
+        createKey,
         expect.any(Uint8Array),
-        false,
-        'https://picked-guardian.example',
         assertLive
       );
-      expect(result).toEqual({ accountId: 'guardian-id', keys });
+      expect(result).toEqual({
+        accountId: 'guardian-id',
+        keys,
+        guardianEndpoint: 'https://picked-guardian.example',
+        registration: { stateBase64: 'state' }
+      });
+    });
+
+    // A Guardian account is created only through createGuardianMidenWallet, whose caller fetches
+    // the key before its hold and registers after it (#1207); createMidenWallet runs inside a hold.
+    it('createMidenWallet refuses a Guardian wallet type, fetching no guardian key and building no account', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const fetchGuardianCreateKey = jest.fn(async () => ({
+        guardianEndpoint: 'https://default-guardian.example',
+        guardianCommitment: 'c',
+        rateLimitBudgetLeftMs: 90_000
+      }));
+      const createGuardianAccount = jest.fn(async () => ({
+        account: { id: () => ({ toString: () => 'guardian-id' }) },
+        registration: { stateBase64: 'state' }
+      }));
+
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: unknown) => String(id) }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        fetchGuardianCreateKey,
+        createGuardianAccount,
+        registerGuardianAccount: jest.fn(async () => {}),
+        getSignerDetailsFromAccount: jest.fn()
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { WalletType } = await import('screens/onboarding/types');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as never, 'testnet');
+
+      await expect(client.createMidenWallet(WalletType.Guardian, new Uint8Array([9]))).rejects.toThrow(
+        'createGuardianMidenWallet'
+      );
+      expect(fetchGuardianCreateKey).not.toHaveBeenCalled();
+      expect(createGuardianAccount).not.toHaveBeenCalled();
+      expect(fakeMidenClient.accounts.create).not.toHaveBeenCalled();
     });
 
     // Shared by the two recovery cases below: two matches at HD index 0, then misses until the gap
@@ -2339,8 +2385,8 @@ describe('MidenClientInterface', () => {
       const inputNoteRecord = { toNote: jest.fn(() => note) };
       const inner = {
         getInputNote: jest.fn(async () => inputNoteRecord),
-        newConsumeTransactionRequest: jest.fn(async () => ({ kind: 'request' })),
-        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        newConsumeTransactionRequest: jest.fn(async (_notes: unknown[], _account: unknown) => ({ kind: 'request' })),
+        executeTransaction: jest.fn(async (_accountId: unknown, _request: unknown) => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined)
       };
@@ -2364,8 +2410,15 @@ describe('MidenClientInterface', () => {
 
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
+      const [notes, account] = inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
       // Plain JS array, NOT wasm.NoteArray.
-      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note]);
+      expect(notes).toEqual([note]);
+      expect(String(account)).toBe('sdk-mtst1acc');
+      // A fresh handle, not the one execute runs on: defensive, not required, since the
+      // pinned SDK borrows `&AccountId` (see the doc above buildSendExecuteArgs in
+      // miden-client-interface.ts). This assertion pins that independence as a
+      // deliberate invariant regardless.
+      expect(account).not.toBe(inner.executeTransaction.mock.calls[0]![0]);
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
@@ -2856,7 +2909,9 @@ describe('MidenClientInterface', () => {
         senderAccountId: 'bech32(sender-kept)',
         state: 2,
         assets: [{ amount: '100', faucetId: 'bech32(faucet-kept)' }],
-        swapAttachment: null
+        swapAttachment: null,
+        // The fixture record has no readable script.
+        standardPayment: false
       }
     ]);
   });

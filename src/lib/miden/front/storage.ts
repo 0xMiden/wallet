@@ -5,27 +5,25 @@ import { mutate as mutateCache, useSWRConfig } from 'swr';
 
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { onStorageCleared } from 'lib/storage-cleared';
 import { useRetryableSWR } from 'lib/swr';
 
 /** The setter rejects when the write fails, so a caller that does not await it must catch. */
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
+  const { data } = useRetryableSWR<T | null>(key, readThrough<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
   });
   const { cache } = useSWRConfig();
 
-  // On the extension each commit to the key arrives here, this page's own included; a removal carries no newValue.
-  useEffect(() => onStorageChanged<unknown>(key, newValue => settle(key, begin(), newValue ?? null)), [key]);
-
   const value = fallback !== undefined ? (data ?? fallback) : data!;
 
   const setValue = useCallback(
     async (val: SetStateAction<T>) => {
-      // The base is the cache, which holds the newest value that landed; the rendered value can lag it.
+      // The base is the cache, which holds the newest value that landed from any writer; the rendered value can lag it.
       const current: T = cache.get(key)?.data ?? fallback;
-      await writeThrough(key, isUpdater(val) ? val(current) : val);
+      await putToStorage(key, isUpdater(val) ? val(current) : val);
     },
     [cache, key, fallback]
   );
@@ -40,7 +38,7 @@ function isUpdater<T>(val: SetStateAction<T>): val is (prev: T) => T {
 
 /** A failed write is swallowed, and the component keeps its value. */
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
-  const { data } = useRetryableSWR<T | null>(key, readForHook<T>, {
+  const { data } = useRetryableSWR<T | null>(key, readThrough<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -55,17 +53,31 @@ export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispa
     // Set before the write, so going back to the stored value while it is in flight writes again. The component's
     // value leads: a failed write leaves it shown and the cache as it was.
     prevValue.current = value;
-    void writeThrough(key, value).catch(ignoreFailedWrite);
+    void putToStorage(key, value).catch(ignoreFailedWrite);
   }, [key, value]);
 
   return [value, setValue];
 }
 
-export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void) {
-  // On mobile/desktop, storage change events are not available
-  // Return a no-op cleanup function
+/**
+ * Ends an `onStorageChanged` subscription. On the extension `attached` settles once the listener is attached, or once
+ * attaching has failed (logged), so a read issued after it hears every change committed after that read; off the
+ * extension the key is re-read on this document's own wipes and there is no `attached`.
+ */
+export type StorageChangeSubscription = (() => void) & { attached?: Promise<void> };
+
+export function onStorageChanged<T = any>(key: string, callback: (newValue: T) => void): StorageChangeSubscription {
+  // Off the extension, no storage-change event fires in this document: reset.ts announces its own
+  // wipes of the platform store through onStorageCleared instead. On each announcement, re-read
+  // this key and take it the same way the extension branch below takes a removal - a missing key
+  // becomes undefined, not null. A failed re-read is logged and calls nothing back.
   if (!isExtension()) {
-    return () => {};
+    return onStorageCleared(() => {
+      void fetchFromStorage<T>(key).then(
+        value => callback((value ?? undefined) as T),
+        error => console.warn(`onStorageChanged: failed to re-read "${key}" after a storage clear`, error)
+      );
+    });
   }
 
   // Lazy load browser for extension. The import resolves after this function
@@ -74,24 +86,27 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
   let unsubscribe: (() => void) | undefined;
   let cancelled = false;
 
-  import('webextension-polyfill').then(browserModule => {
-    if (cancelled) return;
-    const browser = browserModule.default;
-    const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
-      if (areaName === 'local' && key in changes) {
-        callback(changes[key]!.newValue as T);
-      }
-    };
+  const attached = import('webextension-polyfill')
+    .then(browserModule => {
+      if (cancelled) return;
+      const browser = browserModule.default;
+      const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
+        if (areaName === 'local' && key in changes) {
+          callback(changes[key]!.newValue as T);
+        }
+      };
 
-    browser.storage.onChanged.addListener(handleChanged);
-    unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
-  });
+      browser.storage.onChanged.addListener(handleChanged);
+      unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
+    })
+    .catch(error => console.warn(`[storage] not listening for changes to ${key}:`, error));
 
-  return () => {
+  const stop = () => {
     cancelled = true;
     unsubscribe?.();
     unsubscribe = undefined;
   };
+  return Object.assign(stop, { attached });
 }
 
 export async function fetchFromStorage<T = unknown>(key: string): Promise<T | null> {
@@ -104,35 +119,65 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
-// Every storage operation on a key takes a number when this page issues or receives it, and the cache keeps the
-// value of the highest-numbered one that succeeded: an action gives way only to a newer one that landed, so a
-// failure never blocks an older success. Issue order is storage order, since each backend runs a page's calls
-// in call order.
+// Every storage operation on a key takes a number when this page issues or receives it (a read, a wipe's re-read
+// included, a putToStorage write, a change event), and the cache keeps the value of the highest-numbered one that
+// succeeded: an action gives way only to a newer one that landed, so a failure never blocks an older success. Issue
+// order is storage order, since each backend runs a page's calls in call order.
 let lastSeq = 0;
 // Per key, the number of the operation whose value the cache entry holds.
 const appliedSeq = new Map<string, number>();
+// The keys a storage hook or a preload has read, each marked when its read is issued. The cache holds only these: an
+// operation on any other key takes a number and settles nothing, so a realm with no reader never touches SWR.
+const cachedKeys = new Set<string>();
 const begin = () => ++lastSeq;
 
 // The only writer of a storage key's SWR cache entry. A mutate with a value or a sync updater writes before its first
 // await, so the check and the write are one step. A read parses a fresh copy and consumers key effects on the value's
-// identity, so an equal value keeps the cached reference.
+// identity, so an equal value keeps the cached reference. A removed key settles as null: an undefined entry is an
+// uncached one, which suspends every reader of the key.
 function settle(key: string, seq: number, value: unknown) {
-  if (seq <= (appliedSeq.get(key) ?? 0)) return;
+  if (!cachedKeys.has(key) || seq <= (appliedSeq.get(key) ?? 0)) return;
   appliedSeq.set(key, seq);
-  void mutateCache(key, (cached: unknown) => (isEqual(cached, value) ? cached : value), { revalidate: false });
+  const next = value ?? null;
+  void mutateCache(key, (cached: unknown) => (isEqual(cached, next) ? cached : next), { revalidate: false });
 }
 
 const ignoreFailedWrite = () => {};
 
-async function writeThrough(key: string, value: unknown): Promise<void> {
-  const seq = begin();
-  await putToStorage(key, value);
-  settle(key, seq, value);
+let changeListener: Promise<void> | 'attached' | undefined;
+
+// One listener per extension page settles every cached key, mounted or not, from any realm's commit (a removal carries
+// no newValue). It is never removed. Returns the pending attach; undefined off the extension and once attached. A
+// failed attach, the import or addListener, resets so the next read retries; a kept rejection would fail every read.
+function listenForChanges(): Promise<void> | undefined {
+  if (changeListener === 'attached' || !isExtension()) return undefined;
+  changeListener ??= import('webextension-polyfill')
+    .then(({ default: browser }) => {
+      browser.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'local') return;
+        for (const [key, change] of Object.entries(changes)) settle(key, begin(), change.newValue);
+      });
+      changeListener = 'attached';
+    })
+    .catch(error => {
+      changeListener = undefined;
+      console.warn('[storage] not listening for storage changes yet:', error);
+    });
+  return changeListener;
 }
 
 // SWR keeps a fetch result only when no mutate touched the key after the fetch began. Here one always did: this
 // read's own settle, or the newer operation that outnumbered it, so the cache only ever takes settle's value.
-async function readForHook<T>(key: string): Promise<T | null> {
+async function readThrough<T>(key: string): Promise<T | null> {
+  // Marked before the read is issued, so a write that lands while the read is in flight settles too.
+  cachedKeys.add(key);
+  // Off the extension, or once the listener is attached, a read is numbered when it is called, so a write
+  // called after it is numbered after it. Every read issued while an attach is pending (a page's first reads,
+  // and reads after a failed attach) waits for the attach and is numbered when its storage call is issued: if
+  // the attach succeeds, a change committed after that call is heard; if it fails, the read goes through
+  // unheard and the next read retries.
+  const attaching = listenForChanges();
+  if (attaching) await attaching;
   const seq = begin();
   const value = await fetchFromStorage<T>(key);
   settle(key, seq, value);
@@ -143,6 +188,7 @@ async function readForHook<T>(key: string): Promise<T | null> {
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
+ * `rereadStorageCache` re-reads every cached key through here after a wipe.
  * A key's read replaces the cached value unless an operation on the key that started after it (a read, a write
  * or a change event) landed first; one that failed does not count.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
@@ -153,9 +199,8 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
-      const seq = begin();
       try {
-        settle(key, seq, await fetchFromStorage(key));
+        await readThrough(key);
       } finally {
         onSettled?.(key);
       }
@@ -170,7 +215,57 @@ export async function preloadStorage(
   }
 }
 
+// Module stores that keep storage values outside the hooks' cache, each re-read beside it after a wipe.
+const storageRereads = new Set<() => Promise<void>>();
+
+/** For a module store that keeps storage values outside the hooks' cache: `rereadStorageCache` runs `reread` too. */
+export function registerStorageReread(reread: () => Promise<void>): void {
+  storageRereads.add(reread);
+}
+
+/**
+ * After a wipe of the key-value store: re-reads every key a storage hook or a preload has read, through the numbered
+ * read path, so each reader mounted afterwards renders what storage holds now, and awaits every registered re-read.
+ * Never rejects; a key whose read fails keeps its cached value, and each failure is logged.
+ */
+export async function rereadStorageCache(): Promise<void> {
+  const logFailure = (error: unknown) => console.warn('[storage] re-read after a wipe failed:', error);
+  await Promise.all([
+    preloadStorage([...cachedKeys]).catch(logFailure),
+    ...[...storageRereads].map(reread => Promise.resolve().then(reread).catch(logFailure))
+  ]);
+}
+
+/**
+ * Writes a key and, once storage takes it, settles the value into the storage hooks' cache, numbered when the write
+ * is issued. Write a key a storage hook reads only through here or the hook's setter: `getStorageProvider().set`
+ * bypasses the cache, which then stays stale on mobile and desktop, where no change event reaches it.
+ */
 export async function putToStorage<T = any>(key: string, value: T) {
-  const storage = getStorageProvider();
-  return await storage.set({ [key]: value });
+  const seq = begin();
+  await getStorageProvider().set({ [key]: value });
+  settle(key, seq, value);
+}
+
+// Each turn name's chain in this realm, used only without Web Locks (iOS before 15.4, older macOS web views), where
+// this realm is the only writer, so ordering its own turns is enough.
+const storageTurnTails = new Map<string, Promise<void>>();
+
+/**
+ * Runs `operation` as one turn named `name`: under the Web Lock of that name, which every extension surface (popup,
+ * side panel, tabs, service worker) shares, or, without Web Locks, after this realm's earlier turns of that name. A
+ * turn whose operation fails does not stop the next one.
+ */
+export async function inStorageTurn<T>(name: string, operation: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    // The type argument: without it @types/web-locks-api's `Promise<undefined>` overload wins over the generic one.
+    return navigator.locks.request<Promise<T>>(name, operation);
+  }
+  const run = (storageTurnTails.get(name) ?? Promise.resolve()).then(operation);
+  const settled = run.then(
+    () => undefined,
+    () => undefined
+  );
+  storageTurnTails.set(name, settled);
+  return run;
 }

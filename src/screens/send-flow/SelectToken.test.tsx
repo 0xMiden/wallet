@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
@@ -32,6 +32,13 @@ jest.mock('lib/miden/front', () => ({
 let mockStoreState: { tokenPrices: Record<string, unknown> } = { tokenPrices: {} };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
+}));
+
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+const mockHiddenIds = new Set<string>();
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
 }));
 
 // vaul drawer — render children plus a probe button so we can fire the
@@ -100,7 +107,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: 't-btc',
+  tokenId: TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -146,6 +153,7 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
   mockStoreState = { tokenPrices: {} };
+  mockHiddenIds.clear();
 });
 
 describe('SelectTokenDrawer', () => {
@@ -242,6 +250,20 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
   });
 
+  it('leaves a hidden token out of the picker, and a search does not bring it back', () => {
+    setBalances([BTC, ETH]);
+    mockHiddenIds.add(ETH.tokenId);
+    renderDrawer();
+
+    expect(mockUseHiddenTokens).toHaveBeenCalledWith('pk-abc');
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
+
+    fireEvent.change(search(), { target: { value: 'eth' } });
+
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
+  });
+
   it('builds the UIToken, resets the search and closes the drawer on select', () => {
     mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
     setBalances([BTC, ETH]);
@@ -255,7 +277,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: 't-btc',
+      id: TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,

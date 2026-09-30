@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { navigate } from 'lib/woozie';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
@@ -11,6 +12,24 @@ import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
+let mockAssetsMetadata: Record<string, AssetMetadata> = {};
+
+// The delivered faucet resolves synchronously from the store; the native one needs no record.
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
+    selector({ assetsMetadata: mockAssetsMetadata })
+}));
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => 'native-faucet'
+}));
+
+// Real base-unit scaling: the shared `lib/i18n/numbers` manual mock has no `formatBigInt`.
+jest.mock('lib/shared/format', () => ({
+  formatAmount: (amount: bigint, decimals: number) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
+}));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -109,7 +128,7 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
   )
 }));
 
-const makeRow = (extraInputs: IEarnWithdrawExtraInputs): ITransaction => ({
+const makeRow = (extraInputs: IEarnWithdrawExtraInputs, overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'withdraw-1',
   type: 'earn-withdraw',
   accountId: 'miden-account',
@@ -120,7 +139,8 @@ const makeRow = (extraInputs: IEarnWithdrawExtraInputs): ITransaction => ({
   completedAt: 1,
   displayMessage: 'Withdrawing from lending',
   displayIcon: 'DEFAULT',
-  extraInputs
+  extraInputs,
+  ...overrides
 });
 
 const makeInputs = (overrides: Partial<IEarnWithdrawExtraInputs> = {}): IEarnWithdrawExtraInputs => ({
@@ -138,6 +158,7 @@ describe('EarnWithdrawStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
+    mockAssetsMetadata = {};
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -242,6 +263,8 @@ describe('EarnWithdrawStatus', () => {
 
     // The status row is a StatusBadge now, so the word is its own element.
     expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('earnWithdrawStatusDelivering');
+    // Nothing is credited yet, so the arrow still points at the network.
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
 
   it('shows the received status after the Miden note is consumed', () => {
@@ -250,5 +273,47 @@ describe('EarnWithdrawStatus', () => {
 
     // The status row is a StatusBadge now, so the word is its own element.
     expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('received');
+  });
+
+  // The withdrawn source stays on the left; the arrow points at what the wallet credited, as
+  // Activity shows it, rounded down at the asset's precision. Both remainders sit above half, so
+  // half-up, round-up and the typed value would each read differently.
+  it('shows the credited amount beside the withdrawn source once received', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', sourceAmount: '42.2599' }), {
+        amount: 250_127_456n,
+        faucetId: 'native-faucet'
+      }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
+  });
+
+  // A delivered faucet other than the native one resolves only from the store; without it the arrow stays on Miden.
+  it('reads a delivered non-native faucet from the store once received', () => {
+    mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'miden-usdc' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 USDC');
+  });
+
+  // The row's stored output symbol is the bridged source token, not what arrived, so it names nothing here.
+  it('keeps the arrow on Miden while the delivered faucet scale is unknown', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', outputSymbol: 'USDC' }), {
+        amount: 250_123_456n,
+        faucetId: 'unresolved-faucet'
+      }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
 });

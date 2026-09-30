@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
@@ -31,7 +33,13 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => (
-          <div ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
+          <div
+            ref={ref}
+            data-layout={String(layout)}
+            data-transition={JSON.stringify(transition)}
+            data-while-tap={whileTap ? 'on' : undefined}
+            {...rest}
+          >
             {children}
           </div>
         )
@@ -41,7 +49,13 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLButtonElement>
         ) => (
-          <button ref={ref} data-layout={String(layout)} data-while-tap={whileTap ? 'on' : undefined} {...rest}>
+          <button
+            ref={ref}
+            data-layout={String(layout)}
+            data-transition={JSON.stringify(transition)}
+            data-while-tap={whileTap ? 'on' : undefined}
+            {...rest}
+          >
             {children}
           </button>
         )
@@ -168,6 +182,17 @@ describe('ActivityRow', () => {
       renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
 
       expect(screen.getByText('0.00012')).toBeTruthy();
+    });
+
+    // An Earn withdrawal's amount is already formatted by the money helper; the 3-decimal pass
+    // would round its 0.0012 to 0.001.
+    it('shows a preformatted amount as given instead of re-rounding it', () => {
+      const { unmount } = renderRow({ amount: { value: '+0.0012', symbol: 'USDC', preformatted: true } });
+      expect(screen.getByText('+0.0012')).toBeTruthy();
+      unmount();
+
+      renderRow({ amount: { value: '+0.0012', symbol: 'USDC' } });
+      expect(screen.getByText('+0.001')).toBeTruthy();
     });
 
     it('preserves a leading + sign and formats the remainder', () => {
@@ -433,4 +458,43 @@ it('renders a status it does not know as the neutral badge, and the row survives
   const badge = screen.getByTestId('row-status');
   expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
   expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1198): a row that survives it takes its new place at once, whichever element it renders, and
+// its press keeps the settle spring.
+describe('ActivityRow - its tab shown again', () => {
+  const row = (shown: boolean, onClick: (() => void) | undefined, onScreen = true) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} testId="row" onClick={onClick} />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const transitionOf = () => JSON.parse(screen.getByTestId('row').getAttribute('data-transition') ?? 'null');
+
+  it.each([
+    ['BUTTON', () => undefined],
+    ['DIV', undefined]
+  ])('as a %s, swaps only its layout in the commit that shows the tab again, then slides', (tag, onClick) => {
+    const { rerender } = render(row(true, onClick));
+    rerender(row(false, onClick));
+    rerender(row(true, onClick));
+    expect(screen.getByTestId('row').tagName).toBe(tag);
+    expect(transitionOf()).toEqual({ ...springs.settle, layout: tabBarSwap });
+
+    rerender(row(true, onClick));
+    expect(transitionOf()).toEqual(springs.settle);
+  });
+
+  it.each([
+    ['BUTTON', () => undefined],
+    ['DIV', undefined]
+  ])('as a %s, slides when a slide page uncovers it', (tag, onClick) => {
+    const { rerender } = render(row(true, onClick));
+    rerender(row(true, onClick, false));
+    rerender(row(true, onClick, true));
+    expect(screen.getByTestId('row').tagName).toBe(tag);
+    expect(transitionOf()).toEqual(springs.settle);
+  });
 });

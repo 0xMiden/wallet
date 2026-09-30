@@ -3,8 +3,10 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -13,7 +15,6 @@ import { Pill } from 'components/ui/Pill';
 import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
@@ -47,7 +48,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const [credential, setCredential] = useState<string>();
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const { copy, copied } = useClipboardCopy(mnemonic ?? '');
@@ -67,21 +68,6 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   } = useForm<FormData>();
   const passwordField = register('password', { required: t('required') });
   const passwordValue = watch('password');
-
-  useEffect(() => {
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHardware => {
-        if (!cancelled) setHasHardwareProtector(hasHardware);
-      })
-      .catch(() => {
-        if (!cancelled) setHasHardwareProtector(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const words = useMemo(() => mnemonic?.split(' ').filter(Boolean) ?? [], [mnemonic]);
 
@@ -273,6 +259,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
           <SeedPhrasePlaceholder />
+          {probeFailed && <ProtectorProbeErrorNotice className="mt-3" onRetry={retry} retrying={retrying} />}
           {authError && (
             <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
               {authError}

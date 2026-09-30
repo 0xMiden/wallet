@@ -180,18 +180,6 @@
     "message": "Chleb",
     "englishSource": "Bread"
   },
-  "earnPositionHeaderTitle": {
-    "message": "Moja pozycja w $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
-  },
   "earnAssetOnNetwork": {
     "message": "$asset$ na stronie $network$",
     "englishSource": "$asset$ on $network$",
@@ -1820,6 +1808,22 @@
     "message": "Twoje środki są gotowe",
     "englishSource": "Your funds are ready"
   },
+  "faucetPromptUnresolvedBody": {
+    "message": "Wcześniejsza prośba może jeszcze dotrzeć.",
+    "englishSource": "An earlier request may still arrive."
+  },
+  "faucetRequestAgainTitle": {
+    "message": "Chcesz ponowić prośbę?",
+    "englishSource": "Request again?"
+  },
+  "faucetRequestAgainBody": {
+    "message": "Twoja wcześniejsza prośba może jeszcze dotrzeć. Ponowne wysłanie prośby może spowodować dwukrotne zasilenie Twojego portfela.",
+    "englishSource": "Your earlier request may still arrive. Requesting again could fund your wallet twice."
+  },
+  "faucetRequestAgainAction": {
+    "message": "Poproś ponownie",
+    "englishSource": "Request again"
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Wykryto próbę odzyskania konta",
     "englishSource": "Account recovery detected"
@@ -1862,12 +1866,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Sprawdź swoją frazę odzyskiwania",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Utwórz kopię zapasową portfela",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Zapisz swoją frazę odzyskiwania i upewnij się, że znasz jej pierwsze i ostatnie słowa, aby móc później odtworzyć ten portfel.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Zapisz swoją frazę odzyskiwania, aby móc przywrócić ten portfel na nowym urządzeniu.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Bezpieczne podpisywanie niedostępne",
@@ -2174,31 +2178,6 @@
     "message": "Guardian przechowuje stan Twojego konta i pomaga je odzyskać. Potraktuj to jako serwer, który tworzy kopię zapasową Twoich danych, ale nigdy nie ma dostępu do Twoich środków.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Najszybszy operator w tej chwili, spośród $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Operator tej sieci",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian nie może samodzielnie przenosić środków użytkownika",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian tworzy kopię zapasową stanu Twojego konta",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Za pomocą frazy odzyskiwania możesz zmienić operatora Guardian",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Sprawdzam, który operator odpowiada najszybciej…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2210,30 +2189,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Wolałbym raczej założyć konto całkowicie prywatne",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Wybierz inny adres Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Niezależny operator serwisu Guardian na platformie Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin to firma zajmująca się bezpieczeństwem typu „blockchain”, stojąca za powszechnie stosowanymi bibliotekami inteligentnych kontraktów dla sieci Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm tworzy i obsługuje infrastrukturę typu „blockchain” dla sieci i rollupów.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass to firma inżynieryjna zajmująca się tworzeniem zaawansowanej infrastruktury kryptograficznej i blockchain.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) to podlegający regulacjom podmiot zajmujący się przechowywaniem aktywów cyfrowych w Korei Południowej.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Dowiedz się więcej o sieci Guardian",
@@ -2278,6 +2233,19 @@
   "meetGuardianYourGuardian": {
     "message": "Twój Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Zmień",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ tworzy kopię zapasową Twojego konta. Nigdy nie może przenieść Twoich środków, a Ty możesz go zmienić w każdej chwili.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian to niezależna usługa, która <b>współpodpisuje każdą transakcję</b> z Twojego portfela, zapewniając dodatkową ochronę bez rezygnacji z samodzielnego przechowywania środków.",
@@ -2402,6 +2370,18 @@
   "creatingYourWallet": {
     "message": "Tworzenie portfela…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Przywracanie portfela…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Konfiguracja portfela…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Otwórz portfel, aby zakończyć jego przywracanie.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Wprowadź hasło",
@@ -2778,6 +2758,55 @@
   "hotKeyRotationRetry": {
     "message": "Spróbuj ponownie",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Dodaj MIDEN, aby aktywować swój klucz codzienny",
+    "englishSource": "Add MIDEN to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Aktywacja klucza codziennego jest transakcją, a każda transakcja wiąże się z niewielką opłatą sieciową w MIDEN. Wyślij MIDEN na adres tego konta podany poniżej. Portfel odbierze środki i automatycznie zakończy aktywację klucza.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Wyślij co najmniej $amount$ MIDEN.",
+    "englishSource": "Send at least $amount$ MIDEN.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Adres Twojego konta",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Czekam na nadejście MIDEN…",
+    "englishSource": "Waiting for MIDEN to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Otrzymana kwota MIDEN jest zbyt mała, aby pokryć opłatę sieciową. Wyślij nieco więcej.",
+    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "Otrzymano MIDEN. Zgłaszam roszczenie…",
+    "englishSource": "MIDEN received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Aktywacja klucza codziennego…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Otrzymany przez Ciebie MIDEN nie mógł zostać odebrany.",
+    "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Spróbuj ponownie",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Sprawdź jeszcze raz",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian zmieniono",
@@ -4238,6 +4267,10 @@
     "message": "Udostępnij",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Wyślij swój adres",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Kopiuj",
     "englishSource": "Copy"
@@ -4470,6 +4503,14 @@
     "message": "niezweryfikowane",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Niezweryfikowane",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Ten token nie znajduje się na liście zweryfikowanych tokenów serwisu Miden. Każdy może utworzyć token o dowolnej nazwie, dlatego przed nadaniem mu zaufania sprawdź identyfikator w bazie danych faucet.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -4654,6 +4695,10 @@
     "message": "Zapisz i kontynuuj",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Nie udało się zapisać tych punktów końcowych. Spróbuj ponownie.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Przywróć ustawienia domyślne",
     "englishSource": "Reset to defaults"
@@ -4661,6 +4706,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Przywróć ustawienia domyślne i przeprowadź ponowną konfigurację",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Resetowanie nie zakończyło się. Spróbuj ponownie.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Punkty końcowe sieci",
@@ -4948,14 +4997,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — informacje o tej sieci",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Tokeny nie mają realnej wartości",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Przywróć",
@@ -5268,12 +5321,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Sprawdzanie metody odblokowania tego portfela trwa dłużej niż zwykle. Aby spróbować ponownie, wróć i ponownie otwórz tę stronę.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
+    "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Spróbuj ponownie.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Zmień kolor kodu QR",
@@ -5388,5 +5437,51 @@
   "revealRecoveryPhrase": {
     "message": "Ujawnij frazę odzyskiwania",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Ukryj token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Odkryj token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Ukryty w portfelu. Pozostaje w portfelu, a jego przelewy nadal można odebrać.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Ukryte aktywa",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Ukryte aktywa ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Pokaż",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Odblokuj $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Nie udało się zaktualizować ukrytych tokenów. Spróbuj ponownie.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Nie udało się załadować ukrytych tokenów.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

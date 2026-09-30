@@ -50,7 +50,9 @@ const mockUseAccount = jest.fn(() => mockAccountReturn);
 const mockUseAllBalances = jest.fn((_pk: string, _md: Record<string, unknown>) => mockAllBalancesReturn);
 const mockUseAllTokensBaseMetadata = jest.fn(() => mockMetadata);
 const mockAccountIdStringToSdk = jest.fn((s: string) => s);
-const mockGetBech32 = jest.fn((s: string) => `bech32-${s}`);
+// As the SDK's re-encode does, an id already in the fake bech32 form maps to itself.
+const mockFakeBech32 = (s: string) => (s.startsWith('bech32-') ? s : `bech32-${s}`);
+const mockGetBech32 = jest.fn(mockFakeBech32);
 const mockConfirmSensitive = jest.fn().mockResolvedValue(true);
 const mockStringToBigInt = jest.fn((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
 const mockInitiateSwap = jest.fn().mockResolvedValue('tx-1');
@@ -210,6 +212,7 @@ jest.mock('lib/miden/front', () => ({
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (s: string) => mockAccountIdStringToSdk(s),
+  accountRefToSdk: (s: string) => mockAccountIdStringToSdk(s),
   getBech32AddressFromAccountId: (a: string) => mockGetBech32(a)
 }));
 
@@ -315,7 +318,7 @@ beforeEach(() => {
   mockAccountReturn = { publicKey: 'pk-1' };
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
-  mockGetBech32.mockImplementation((s: string) => `bech32-${s}`);
+  mockGetBech32.mockImplementation(mockFakeBech32);
   mockAccountIdStringToSdk.mockImplementation((s: string) => s);
   mockConfirmSensitive.mockResolvedValue(true);
   mockInitiateSwap.mockResolvedValue('tx-1');

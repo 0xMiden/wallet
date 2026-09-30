@@ -110,9 +110,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const lockLevel = lockLevelOf(attempt);
 
   // The live lockout stamp. setTimeLock is a new function every render, so the 1 s interval below is
-  // re-created constantly, and a tick from before the render that armed a lockout still holds the
-  // old `timelock` (0, or a stamp from an earlier lockout): read from its closure, it would clear the
-  // fresh stamp and the lockout would never start. Arming writes this first; the tick reads it.
+  // re-created constantly, and a tick from before the render that armed a lockout still holds the old
+  // `timelock` (0, or an earlier lockout's stamp). Read from its closure, that stamp would drive the
+  // countdown (00:00 from a 0), or with no guess in flight have the tick adopt storage's lockout over an
+  // expired one; it never clears the new stamp, which storage holds. Arming writes this first; the tick reads it.
   const timelockRef = useRef(timelock);
   // Empty while storage works; every read of the lockout merges it in (see readStoredLockout).
   const floorRef = useRef<LockoutFloor>({ attempt: 0, timelock: 0 });

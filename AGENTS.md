@@ -43,6 +43,7 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Haptics**: tappable components get `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`.
 - **Mobile file downloads**: `<a download>` does nothing in a WebView — use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 - **Balance loading**: `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; sync runs separately (`useSyncTrigger` on mobile and desktop, the service worker on the extension). Never call `syncState()` from the UI path. The wait rule and the per-address in-flight guard are in CLAUDE.md's Balance loading section.
+- **Storage hooks' cache**: write a key `useStorage`/`usePassiveStorage` (`lib/miden/front/storage`) reads only through `putToStorage` or the hook's setter, and a wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. See the `CLAUDE.md` section of the same name.
 - **Transaction states** (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
@@ -106,6 +107,6 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 - Commit messages: single-line, short, imperative. Never sign commits (no `Co-Authored-By`).
 - Never `git push` without explicit request.
 - Stay within requested scope — don't modify files beyond the task.
-- Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published — check `gh api repos/0xMiden/wallet/releases/latest` and use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
+- Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published: the latest release is the highest `vX.Y.Z` tag, release candidates excluded, as CI's changelog check reads it. Never change or remove a released heading's version, though dating it is fine, or move a released entry under another heading, which CI's changelog check also fails. Use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
 - PRs should explain the user impact, testing performed, and relevant issue; include screenshots or recordings for UI changes. Call out platform-specific effects and configuration changes. Never commit secrets from `.env` or machine-local dependency paths.
 - If the wallet PR depends on an unpublished web-sdk change, put the verbatim marker `Web SDK PR: #N` (or `Web SDK PR: 0xMiden/web-sdk#N`) on its own line in the PR description — prose mentions do NOT trigger the linked-PR CI pipeline. Local parity: `scripts/dev-with-web-sdk-pr.sh [N|--clear]`.

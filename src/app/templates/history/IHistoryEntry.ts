@@ -148,6 +148,11 @@ export interface IHistoryEntry {
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;
+  /**
+   * A bridge-in `consume` row that delivered an Earn withdrawal (`bridgeIn.earnWithdrawTxId`), whose
+   * source amount is what the withdrawal redeemed rather than a deposit the wallet paid.
+   */
+  bridgeInFromEarnWithdraw?: boolean;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

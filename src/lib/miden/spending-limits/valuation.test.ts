@@ -1,4 +1,7 @@
-import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
+import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { _setSwapTokensForTest, TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro } from 'lib/prices/usd';
 
 import { fetchTokenMetadata } from '../metadata';
@@ -10,22 +13,26 @@ jest.mock('lib/prices/usd', () => ({
   getPriceMicro: jest.fn()
 }));
 jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
+// The shared SDK mock has no MidenClient, so the real readiness call would throw.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: jest.fn(() => Promise.resolve())
+}));
 // The dApp custom path emits a faucet's hex spelling; map one to IETH's bech32 id so the test
 // can tell whether the canonical id or the raw one reaches the price-symbol lookup.
 const IETH_HEX = '0x1eth00000000000000000000000000';
-jest.mock('../sdk/helpers', () => {
-  const actual = jest.requireActual('../sdk/helpers');
-  return {
-    ...actual,
-    canonicalFaucetBech32Id: (id: string) =>
-      id === IETH_HEX
-        ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId
-        : actual.canonicalFaucetBech32Id(id)
-  };
-});
+// The shared SDK mock parses no id, and the cap refuses a spend it cannot canonicalize, so every
+// other id parses to itself and the metadata mocks below can key on the fixtures' own spelling.
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) =>
+    id === IETH_HEX ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId : id
+}));
 
 const mockedPrice = jest.mocked(getPriceMicro);
 const mockedMetadata = jest.mocked(fetchTokenMetadata);
+const mockedSdkReady = jest.mocked(ensureSdkWasmReady);
 
 const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
   base: { symbol, decimals, name: symbol, ...(scaleIsUnknown !== undefined && { scaleIsUnknown }) },
@@ -65,7 +72,17 @@ describe('resolveSpendsUsd', () => {
     mockedMetadata.mockResolvedValue(base('USDC', 6));
     mockedPrice.mockResolvedValue(1_000_000n);
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 25_000_000n }], 10)).resolves.toBe(25_000_000n);
+    await expect(resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10)).resolves.toBe(
+      25_000_000n
+    );
+  });
+
+  // #1131: coverage comes from the faucet id, never from the symbol a faucet gives itself.
+  it('counts a faucet that only calls itself USDC as uncovered and never asks for its price', async () => {
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+
+    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 25_000_000n }], 10)).resolves.toBe(0n);
+    expect(mockedPrice).not.toHaveBeenCalled();
   });
 
   it('counts an uncovered asset as nothing and never asks for its price', async () => {
@@ -77,14 +94,18 @@ describe('resolveSpendsUsd', () => {
 
   it('sums across several assets', async () => {
     mockedMetadata.mockImplementation(async faucetId =>
-      faucetId === 'eth' ? base('ETH', 18) : faucetId === 'usdc' ? base('USDC', 6) : base('MIDEN', 6)
+      faucetId === MIDEN_AGGLAYER_FAUCET_ID
+        ? base('ETH', 18)
+        : faucetId === MIDEN_USDC_FAUCET
+          ? base('USDC', 6)
+          : base('MIDEN', 6)
     );
     mockedPrice.mockImplementation(async symbol => (symbol === 'ETH' ? 4_000_000_000n : 1_000_000n));
 
     const total = await resolveSpendsUsd(
       [
-        { faucetId: 'eth', amount: 1_000_000_000_000_000_000n },
-        { faucetId: 'usdc', amount: 10_000_000n },
+        { faucetId: MIDEN_AGGLAYER_FAUCET_ID, amount: 1_000_000_000_000_000_000n },
+        { faucetId: MIDEN_USDC_FAUCET, amount: 10_000_000n },
         { faucetId: 'miden', amount: 500_000_000n }
       ],
       10
@@ -97,7 +118,7 @@ describe('resolveSpendsUsd', () => {
     mockedMetadata.mockResolvedValue(base('ETH', 18));
     mockedPrice.mockResolvedValue(undefined);
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
+    await expect(resolveSpendsUsd([{ faucetId: MIDEN_AGGLAYER_FAUCET_ID, amount: 1n }], 10)).rejects.toBeInstanceOf(
       SpendingLimitPriceUnavailableError
     );
   });
@@ -114,16 +135,16 @@ describe('resolveSpendsUsd', () => {
   it('fails closed when the asset cannot be identified at all', async () => {
     mockedMetadata.mockRejectedValue(new Error('rpc down'));
 
-    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
-      SpendingLimitPriceUnavailableError
-    );
+    const valued = resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ cause: expect.objectContaining({ message: 'rpc down' }) });
   });
 
   it('fails closed when metadata resolves to the unidentified placeholder instead of rejecting', async () => {
     // `fetchTokenMetadata` does not always throw on a faucet it cannot identify - three of its
-    // paths RESOLVE the `Unknown` placeholder instead (and cache it on two of them). Identification
-    // must run before coverage, or 'Unknown' reads as an ordinary uncovered symbol and is silently
-    // counted as zero forever.
+    // paths RESOLVE the `Unknown` placeholder instead (and cache it on two of them). That is still
+    // an unidentified faucet, so the spend is challenged before the allowlist match, not counted
+    // as an uncovered faucet at zero.
     mockedMetadata.mockResolvedValue(base('Unknown', 6, true));
 
     await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
@@ -134,6 +155,34 @@ describe('resolveSpendsUsd', () => {
 
   it('values an empty spend list as nothing', async () => {
     await expect(resolveSpendsUsd([], 10)).resolves.toBe(0n);
+    expect(mockedMetadata).not.toHaveBeenCalled();
+    expect(mockedSdkReady).not.toHaveBeenCalled();
+  });
+
+  it('reads no metadata until the SDK has loaded (#1131 F-012)', async () => {
+    let load!: () => void;
+    mockedSdkReady.mockReturnValueOnce(new Promise<void>(resolve => (load = resolve)));
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockResolvedValue(1_000_000n);
+
+    const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockedMetadata).not.toHaveBeenCalled();
+
+    load();
+    await expect(valued).resolves.toBe(25_000_000n);
+    expect(mockedSdkReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a spend it cannot value because the SDK will not load (#1131 F-012)', async () => {
+    mockedSdkReady.mockRejectedValueOnce(new Error('wasm fetch failed'));
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockResolvedValue(1_000_000n);
+
+    const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({ symbol: MIDEN_USDC_FAUCET });
+    await expect(valued).rejects.toMatchObject({ cause: expect.objectContaining({ message: 'wasm fetch failed' }) });
     expect(mockedMetadata).not.toHaveBeenCalled();
   });
 
@@ -180,6 +229,25 @@ describe('resolveSpendsUsd', () => {
 
     await expect(resolveSpendsUsd([{ faucetId: 'mtst1notregistry', amount: 100_000_000n }], 10)).resolves.toBe(0n);
     expect(mockedPrice).not.toHaveBeenCalled();
+  });
+
+  // #1131: allowlist membership is coverage. A price symbol the feed never quotes has no price to
+  // read, so the spend is refused rather than counted as nothing.
+  it('refuses an allowlisted faucet whose price symbol the feed does not quote (#1131 F-004)', async () => {
+    _setSwapTokensForTest([
+      { symbol: 'INOPE', faucetId: 'mtst1nope', decimals: 8, logoSymbol: 'MIDEN', priceSymbol: 'NOPE' }
+    ]);
+    try {
+      mockedMetadata.mockResolvedValue(base('INOPE', 8));
+      mockedPrice.mockResolvedValue(undefined);
+
+      await expect(resolveSpendsUsd([{ faucetId: 'mtst1nope', amount: 100_000_000n }], 10)).rejects.toBeInstanceOf(
+        SpendingLimitPriceUnavailableError
+      );
+      expect(mockedPrice).toHaveBeenCalledWith('NOPE', 10);
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
   });
 
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
