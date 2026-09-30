@@ -22,7 +22,9 @@ import {
  *
  * A save runs in its key's storage turn (`inStorageTurn`), which every extension surface shares, and computes the change
  * from what storage holds, not from this realm's copy: a surface that saved from its copy would drop another surface's
- * commit it had not heard yet.
+ * commit it had not heard yet. While this realm has a save for a key out, a change event for that key is held back:
+ * the event also echoes this realm's own earlier writes, and one landing over a save's list would flicker it back and
+ * leave a failed write neither rolled back nor reported. The key is read once more when its last save settles.
  *
  * Each key the store holds is subscribed to its storage changes from its first load until the store forgets it, so a
  * commit from another surface, or a wipe in the service worker, reaches a reader that stays mounted. After a wipe in
@@ -66,6 +68,9 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
   const subscriptions = new Map<string, StorageChangeSubscription>();
   // Moves when the store forgets its keys: a load or turn that began before lands nothing and writes nothing.
   let generation = 0;
+  // Saves this realm has out per key, and keys whose stored set changed while one was out.
+  const pendingSaves = new Map<string, number>();
+  const stale = new Set<string>();
   const { subscribe, notify } = createListenerSet();
 
   const getEntry = (key: string): StoredIdSetEntry => entries.get(key) ?? LOADING;
@@ -75,13 +80,18 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
     notify();
   }
 
-  // A change event carries what storage now holds. An equal set keeps its entry: readers memoize on its identity.
+  // Takes what storage holds, keeping saveFailed. An equal set keeps its entry: readers memoize on its identity.
+  function adopt(key: string, ids: ReadonlySet<string>): void {
+    const entry = getEntry(key);
+    if (entry.status === 'ready' && sameIds(entry.ids, ids)) return;
+    setEntry(key, { ids, status: 'ready', saveFailed: entry.saveFailed });
+  }
+
+  // A change event carries what storage now holds; while a save for the key is out it only marks the key.
   function listen(key: string): StorageChangeSubscription {
     const subscription = onStorageChanged<unknown>(key, stored => {
-      const entry = getEntry(key);
-      const ids = toIds(stored);
-      if (entry.status === 'ready' && sameIds(entry.ids, ids)) return;
-      setEntry(key, { ids, status: 'ready', saveFailed: entry.saveFailed });
+      if (pendingSaves.has(key)) stale.add(key);
+      else adopt(key, toIds(stored));
     });
     subscriptions.set(key, subscription);
     return subscription;
@@ -118,36 +128,70 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
 
   /**
    * Every writer of a key takes its turn, so what the turn reads is what storage holds until its own write lands. The
-   * change shows before the write settles; a failed write rolls back to the set the turn read, which storage still holds,
-   * unless an event or a forget has replaced the entry since.
+   * change shows before the write settles; a failed write rolls back to the set the turn read, which storage still holds.
+   */
+  async function applyChange(
+    key: string,
+    change: (stored: ReadonlySet<string>) => ReadonlySet<string>,
+    started: number
+  ): Promise<boolean> {
+    if (generation !== started) return false;
+    let stored: ReadonlySet<string>;
+    try {
+      stored = toIds(await fetchFromStorage<unknown>(key));
+    } catch (error) {
+      console.warn(`[${logLabel}] Could not save the hidden set`, error);
+      if (generation === started) setEntry(key, { ...getEntry(key), saveFailed: true });
+      return false;
+    }
+    if (generation !== started) return false;
+    const optimistic: StoredIdSetEntry = { ids: change(stored), status: 'ready', saveFailed: false };
+    setEntry(key, optimistic);
+    try {
+      await putToStorage(key, [...optimistic.ids]);
+      return true;
+    } catch (error) {
+      console.warn(`[${logLabel}] Could not save the hidden set`, error);
+      if (generation === started) setEntry(key, { ids: stored, status: 'ready', saveFailed: true });
+      return false;
+    }
+  }
+
+  /**
+   * Counts itself until it settles, so the key's change events are held back meanwhile, and releases exactly that count,
+   * once and only in the generation that took it, whether or not its turn ran: a count left behind would hold the key's
+   * events back for good. The last save out reads a key that changed meanwhile once more, inside its turn.
    */
   function save(key: string, change: (stored: ReadonlySet<string>) => ReadonlySet<string>): Promise<boolean> {
     if (getEntry(key).status !== 'ready') return Promise.resolve(false);
     const started = generation;
+    pendingSaves.set(key, (pendingSaves.get(key) ?? 0) + 1);
+    let released = false;
+    const release = (): boolean => {
+      if (released || generation !== started) return false;
+      released = true;
+      const left = (pendingSaves.get(key) ?? 1) - 1;
+      if (left > 0) {
+        pendingSaves.set(key, left);
+        return false;
+      }
+      pendingSaves.delete(key);
+      return stale.delete(key);
+    };
     return inStorageTurn(key, async () => {
-      if (generation !== started) return false;
-      let stored: ReadonlySet<string>;
       try {
-        stored = toIds(await fetchFromStorage<unknown>(key));
-      } catch (error) {
-        console.warn(`[${logLabel}] Could not save the hidden set`, error);
-        if (generation === started) setEntry(key, { ...getEntry(key), saveFailed: true });
-        return false;
-      }
-      if (generation !== started) return false;
-      const optimistic: StoredIdSetEntry = { ids: change(stored), status: 'ready', saveFailed: false };
-      setEntry(key, optimistic);
-      try {
-        await putToStorage(key, [...optimistic.ids]);
-        return true;
-      } catch (error) {
-        console.warn(`[${logLabel}] Could not save the hidden set`, error);
-        if (generation === started && getEntry(key) === optimistic) {
-          setEntry(key, { ids: stored, status: 'ready', saveFailed: true });
+        return await applyChange(key, change, started);
+      } finally {
+        if (release()) {
+          try {
+            const ids = toIds(await fetchFromStorage<unknown>(key));
+            if (generation === started) adopt(key, ids);
+          } catch (error) {
+            console.warn(`[${logLabel}] Could not read the hidden set after saving`, error);
+          }
         }
-        return false;
       }
-    });
+    }).finally(release);
   }
 
   // A mounted reader shows its key loading until the key is read again.
@@ -158,6 +202,8 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
     subscriptions.clear();
     entries.clear();
     loads.clear();
+    pendingSaves.clear();
+    stale.clear();
     notify();
     return held;
   }

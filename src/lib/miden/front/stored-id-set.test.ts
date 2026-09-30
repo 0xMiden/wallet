@@ -218,3 +218,110 @@ it('writes nothing from a turn that read before a wipe', async () => {
     resetStorage();
   }
 });
+
+it('holds an event back while its own save runs and reads once when the save settles', async () => {
+  const store = createStoredIdSet('test');
+  const heldWrite = deferred<void>();
+  try {
+    const { result } = renderHook(() => store.useEntry(KEY));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    write.mockImplementationOnce(async (key: string, value: unknown) => {
+      await heldWrite.promise;
+      storedIds.set(key, value);
+    });
+
+    let saved: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      saved = store.save(KEY, addId('a'));
+    });
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    const readsBefore = read.mock.calls.length;
+    // An echo of an earlier write, or another surface's, while this save's own list is showing.
+    act(() => subscriptionAt(0).callback(['x']));
+    expect([...result.current.ids]).toEqual(['a']);
+
+    await act(async () => {
+      heldWrite.resolve();
+      await saved;
+    });
+    expect(read.mock.calls.length).toBe(readsBefore + 1);
+    expect(result.current).toEqual({ ids: new Set(['a']), status: 'ready', saveFailed: false });
+  } finally {
+    heldWrite.resolve();
+    resetStorage();
+  }
+});
+
+it('counts a save only in its own generation, so a save after a wipe still holds events back', async () => {
+  const store = createStoredIdSet('test');
+  const reread = registeredReread();
+  const firstWrite = deferred<void>();
+  const secondWrite = deferred<void>();
+  const holdWrite = (held: { promise: Promise<void> }) => async (key: string, value: unknown) => {
+    await held.promise;
+    storedIds.set(key, value);
+  };
+  try {
+    const { result } = renderHook(() => store.useEntry(KEY));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    write.mockImplementationOnce(holdWrite(firstWrite)).mockImplementationOnce(holdWrite(secondWrite));
+
+    let first: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      first = store.save(KEY, addId('a'));
+    });
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await reread();
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    let second: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      second = store.save(KEY, addId('b'));
+    });
+    // The first save ends in the generation the wipe left behind; its count went with the wipe.
+    await act(async () => {
+      firstWrite.resolve();
+      await first;
+    });
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    const listening = subscriptions[subscriptions.length - 1]!;
+    act(() => listening.callback(['x']));
+    expect(result.current.ids.has('x')).toBe(false);
+    expect(result.current.ids.has('b')).toBe(true);
+
+    const readsBefore = read.mock.calls.length;
+    await act(async () => {
+      secondWrite.resolve();
+      await second;
+    });
+    expect(read.mock.calls.length).toBe(readsBefore + 1);
+    act(() => listening.callback(['later']));
+    expect([...result.current.ids]).toEqual(['later']);
+  } finally {
+    firstWrite.resolve();
+    secondWrite.resolve();
+    resetStorage();
+  }
+});
+
+it('releases a save whose lock request is refused, so later events are taken', async () => {
+  const store = createStoredIdSet('test');
+  const refused = { request: () => Promise.reject(new Error('The document is not fully active')) };
+  try {
+    const { result } = renderHook(() => store.useEntry(KEY));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: refused });
+
+    await act(async () => {
+      await expect(store.save(KEY, addId('y'))).rejects.toThrow('not fully active');
+    });
+    Reflect.deleteProperty(navigator, 'locks');
+    act(() => subscriptionAt(0).callback(['z']));
+
+    expect([...result.current.ids]).toEqual(['z']);
+  } finally {
+    Reflect.deleteProperty(navigator, 'locks');
+    resetStorage();
+  }
+});
