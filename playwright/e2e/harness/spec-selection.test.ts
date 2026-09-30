@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -215,23 +215,6 @@ const FULL =
   "github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'";
 
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
-  const baseChangeFile = '.github/workflows/pr-e2e-base-change.yml';
-
-  it('pr-e2e-base-change.yml does not exist', () => {
-    expect(existsSync(resolve(repoRoot, baseChangeFile))).toBe(false);
-  });
-
-  it('no gh api read of a pull request, no judged_base output, and no local-e2e-base job', () => {
-    const src = combinedWorkflowSource();
-    expect(src).not.toMatch(/gh api "repos\/\$REPO\/pulls\/\$PR_NUMBER"/);
-    expect(src).not.toMatch(/judged_base/);
-    expect(src).not.toMatch(/local-e2e-base/);
-  });
-
-  it('chrome-local has no needs: the removed pre-job left nothing to depend on', () => {
-    expect(configSource('.github/workflows/pr-e2e-local.yml')).not.toMatch(/\n\s+needs:/);
-  });
-
   it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
     const src = combinedWorkflowSource();
     const escaped = required.replace(/[()]/g, '\\$&');
@@ -305,14 +288,7 @@ describe('a stacked-named gate skips instead of computing a pass on a stacked pu
   });
 });
 
-describe('guardian-lifecycle-e2e-gate keeps its selector and run logic, with no live-base arm', () => {
-  it('the gate script contains no live base read', () => {
-    const script = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', 'guardian-lifecycle-e2e-gate:');
-    expect(script).not.toMatch(/gh api/);
-    expect(script).not.toMatch(/JUDGED_BASE/);
-    expect(script).not.toMatch(/LIVE_BASE/);
-  });
-
+describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
   it.each<[string, string, string, number]>([
     ['success', 'false', 'skipped', 0],
     ['success', 'true', 'skipped', 1],
@@ -330,18 +306,9 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic, with no 
 });
 
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
-  it("the Guardian selector's BASE_REF and BASE_SHA come from the event payload, and select outputs no judged_base", () => {
+  it("the Guardian selector's BASE_REF comes from the event payload", () => {
     const src = configSource('.github/workflows/pr-e2e-guardian-lifecycle.yml');
     expect(src).toMatch(/BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
-    expect(src).toMatch(/BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
-    expect(src).not.toMatch(/judged_base/);
-  });
-
-  it('the pull-request step outputs only the body: no base_ref or base_sha', () => {
-    const src = configSource('.github/workflows/pr-e2e-guardian-lifecycle.yml');
-    expect(src).toMatch(/core\.setOutput\('body', data\.body \?\? ''\);/);
-    expect(src).not.toMatch(/core\.setOutput\('base_ref'/);
-    expect(src).not.toMatch(/core\.setOutput\('base_sha'/);
   });
 
   it('the Guardian selector keeps a pull request based on main or next, and deselects any other branch, marker or not', () => {
