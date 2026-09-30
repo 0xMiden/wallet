@@ -32,7 +32,7 @@ import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -359,16 +359,25 @@ export const createDirectSwitchGuardianRequest = async (
   // dormant, so the hot/cold signatures would bind a summary derived from
   // stale state and the anchored execution would fail as unauthorized —
   // precisely in the dead-old-guardian recovery this path exists for.
-  const built = await withWasmClientLock(async () => {
+  //
+  // An eviction abandons this callback rather than cancelling it, and the mutex
+  // (with the client) passes to a successor, so each await that can park is
+  // followed by an ownership re-check before the next WASM call. Every transition
+  // here is pre-sign and pre-submit: stopping costs the user a retry.
+  const built = await withWasmClientLock(async hold => {
     const midenClient = await getMidenClient();
+    assertWasmHoldCurrent(hold, 'direct-request: after the client build');
     await midenClient.syncState();
+    assertWasmHoldCurrent(hold, 'direct-request: after the state sync');
     const account = await midenClient.getAccount(walletAccount.publicKey);
     if (!account) {
       throw new Error(`Guardian account ${walletAccount.publicKey} not found in local client`);
     }
+    assertWasmHoldCurrent(hold, 'direct-request: after the account read');
     const accountIdHex = account.id().toString();
     const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
     const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
+    assertWasmHoldCurrent(hold, 'direct-request: after the signer reads');
     const webClient = midenClient.client;
     // Without `feeFaucetId` the builder commits no fee conversion info and
     // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING on any chain whose
@@ -378,6 +387,7 @@ export const createDirectSwitchGuardianRequest = async (
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
+    assertWasmHoldCurrent(hold, 'direct-request: after the request build');
     const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request, getEffectiveRpcUrl());
     // `freeChainAnchor` in a `finally`, like every other anchor site (#784): the
     // anchor carries a partial blockchain, so it must not leak if the
@@ -385,6 +395,9 @@ export const createDirectSwitchGuardianRequest = async (
     // null-pointer guard — on a disposed module it throws, and a bare `free()`
     // in this position would surface that instead of the successful build.
     try {
+      // Inside the try, as in index.ts's replace-hot-key build, so an eviction
+      // still releases the anchor (`freeChainAnchor` swallows a disposed-object failure).
+      assertWasmHoldCurrent(hold, 'direct-request: after the summary execution');
       return {
         hotCommitment,
         coldCommitment,
@@ -465,8 +478,9 @@ export const createDirectSwitchGuardianRequest = async (
   // waited — the next `extendAdviceMap` borrows a freed pointer. Everything
   // that crosses the two lock scopes is a plain hex string (`built`) precisely
   // so it survives a client replacement.
-  const request = await withWasmClientLock(async () => {
+  const request = await withWasmClientLock(async hold => {
     const webClient = (await getMidenClient()).client;
+    assertWasmHoldCurrent(hold, 'direct-request: after the rebuild client build');
     const signatureAdviceMap = new AdviceMap();
     const hotEntry = ecdsaSignatureAdviceEntry(built.hotCommitment, built.txCommitmentHex, hotSignature);
     const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
@@ -522,8 +536,10 @@ export const createDirectSwitchGuardianRequest = async (
  */
 export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
   try {
-    const state = await withWasmClientLock(async () => {
+    const state = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
+      // An eviction during the sync reaches the catch below as no verdict.
+      assertWasmHoldCurrent(hold, 'direct-land: after the state sync');
       return midenClientProxy.getTransactionCommitState(transactionId);
     });
     if (state === 'committed') return true;
@@ -623,12 +639,18 @@ export const finalizeDirectGuardianSwitch = async (
 
   const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
     await asPreflight(() =>
-      withWasmClientLock(async () => {
+      withWasmClientLock(async hold => {
+        // An eviction throws the poison error, which asPreflight tags as preflight
+        // with the kill kept on `cause`: no `/configure` has gone out, so the
+        // caller refunds the attempt.
         await midenClientProxy.syncState();
+        assertWasmHoldCurrent(hold, 'direct-finalize: after the state sync');
         const account = await midenClientProxy.getAccount(walletAccount.publicKey);
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
         }
+        // The inspector, id() and serialize() read through the Account's borrow of the client.
+        assertWasmHoldCurrent(hold, 'direct-finalize: after the account read');
         const detected = AccountInspector.fromAccount(account);
         return {
           accountIdHex: account.id().toString(),
