@@ -170,7 +170,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, noteDelivery, error });
     }
-
   } else if (undeliveredNotes > 0) {
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
@@ -991,7 +990,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
-
   } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
