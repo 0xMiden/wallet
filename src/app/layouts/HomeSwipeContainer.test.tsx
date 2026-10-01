@@ -3,6 +3,7 @@ import React from 'react';
 import { render, act, fireEvent } from '@testing-library/react';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
+import { PageActiveContext, TabActiveContext, usePageActive } from './page-active';
 
 // ---------------------------------------------------------------------------
 // Mock capture holders. All are `mock`-prefixed so jest's factory-hoisting
@@ -127,30 +128,36 @@ jest.mock('lib/mobile/high-refresh-rate', () => ({
 }));
 
 // Child pages pull in the full wallet/SDK stack — stub each to a marker div.
+// Each marker reports the page-active value its page renders under.
+function MockPage(props: React.ComponentProps<'div'>) {
+  return <div {...props} data-page-active={String(usePageActive())} />;
+}
 jest.mock('app/pages/Explore', () => ({
   __esModule: true,
-  default: () => <div data-testid="page-explore" />
+  default: () => <MockPage data-testid="page-explore" />
 }));
 jest.mock('app/pages/Earn', () => ({
   __esModule: true,
-  default: () => <div data-testid="page-earn" />
+  default: () => <MockPage data-testid="page-earn" />
 }));
 jest.mock('app/pages/Receive', () => ({
   __esModule: true,
-  Receive: () => <div data-testid="page-receive" />
+  Receive: () => <MockPage data-testid="page-receive" />
 }));
 jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
-  SendFlow: ({ isLoading }: { isLoading?: boolean }) => <div data-testid="page-send" data-loading={String(isLoading)} />
+  SendFlow: ({ isLoading }: { isLoading?: boolean }) => (
+    <MockPage data-testid="page-send" data-loading={String(isLoading)} />
+  )
 }));
 // The swap pane carries the amount fields whose `<input>` made framer refuse to
 // start a drag, so this stub keeps one.
 jest.mock('screens/swap-flow/SwapManager', () => ({
   __esModule: true,
   SwapFlow: () => (
-    <div data-testid="page-swap">
+    <MockPage data-testid="page-swap">
       <input data-testid="swap-amount-input" />
-    </div>
+    </MockPage>
   )
 }));
 
@@ -455,9 +462,15 @@ describe('HomeSwipeContainer', () => {
     // Settings shows, and this component reads the live route. None of those
     // routes is a home page, and treating them as Overview slid the hidden track
     // there, so coming back showed Overview and then slid to the page the bar named.
+    const pane = (shown: boolean) => (
+      <TabActiveContext.Provider value={shown}>
+        <HomeSwipeContainer />
+      </TabActiveContext.Provider>
+    );
+
     it('holds the track on its page instead of sliding it to Overview', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockAnimate.mockClear();
@@ -465,7 +478,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
 
       expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
@@ -474,19 +487,19 @@ describe('HomeSwipeContainer', () => {
 
     it('shows the page again without a slide when the route comes back to it', () => {
       mockPathname = '/send';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-300);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
 
       mockPathname = '/send';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       expect(mockAnimate).not.toHaveBeenCalled();
@@ -495,12 +508,12 @@ describe('HomeSwipeContainer', () => {
 
     it('swaps straight to Overview when Home is chosen from another tab', () => {
       mockPathname = '/receive';
-      const { rerender } = render(<HomeSwipeContainer />);
+      const { rerender } = render(pane(true));
       measure(300);
       settleAt(-600);
       mockPathname = '/history';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(false));
       });
       finishAnimations();
       mockAnimate.mockClear();
@@ -508,7 +521,7 @@ describe('HomeSwipeContainer', () => {
 
       mockPathname = '/';
       act(() => {
-        rerender(<HomeSwipeContainer />);
+        rerender(pane(true));
       });
 
       // The pane was hidden, so the change is a tab swap: no slide across the
@@ -516,6 +529,73 @@ describe('HomeSwipeContainer', () => {
       expect(mockAnimate).not.toHaveBeenCalled();
       expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
       expect(mockX).toBe(-0);
+    });
+
+    // Only the tab's return swaps (#1194). A slide page closing back onto another Home page
+    // (TokenDetail to Send, Earn's withdraw Done to Overview) flips PageActiveContext and the route in
+    // one commit while the tab stays shown, and that reveal slides, as the action bar above it does.
+    it('slides when a slide page closes back onto another Home page', () => {
+      const layer = (active: boolean) => (
+        <TabActiveContext.Provider value={true}>
+          <PageActiveContext.Provider value={active}>
+            <HomeSwipeContainer />
+          </PageActiveContext.Provider>
+        </TabActiveContext.Provider>
+      );
+      mockPathname = '/receive';
+      const { rerender } = render(layer(true));
+      measure(300);
+      settleAt(-600);
+      act(() => {
+        rerender(layer(false));
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+      mockMotionSet.mockClear();
+
+      mockPathname = '/';
+      act(() => {
+        rerender(layer(true));
+      });
+
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+      expect(mockMotionSet).not.toHaveBeenCalledWith(-0);
+    });
+  });
+
+  describe('which Home page is on screen', () => {
+    // Every Home page stays mounted in the track, so only the centred one may run
+    // display-only work such as Earn's positions poll.
+    const pageActive = (getByTestId: (id: string) => HTMLElement, id: string) =>
+      getByTestId(`page-${id}`).getAttribute('data-page-active');
+
+    it('gives only Overview an active page at "/"', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      expect(pageActive(getByTestId, 'explore')).toBe('true');
+      expect(pageActive(getByTestId, 'earn')).toBe('false');
+      for (const id of ['send', 'receive', 'swap']) expect(pageActive(getByTestId, id)).toBe('false');
+    });
+
+    it('moves the active page to Earn when the route does', () => {
+      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+      mockPathname = '/earn';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      expect(pageActive(getByTestId, 'earn')).toBe('true');
+      for (const id of ['explore', 'send', 'receive', 'swap']) expect(pageActive(getByTestId, id)).toBe('false');
+    });
+
+    it('leaves every page inactive while another tab is showing', () => {
+      mockPathname = '/history';
+      const { getByTestId } = render(
+        <PageActiveContext.Provider value={false}>
+          <HomeSwipeContainer />
+        </PageActiveContext.Provider>
+      );
+      for (const id of ['explore', 'send', 'receive', 'earn', 'swap']) {
+        expect(pageActive(getByTestId, id)).toBe('false');
+      }
     });
   });
 

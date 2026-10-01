@@ -9,6 +9,7 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
@@ -46,7 +47,16 @@ const lockOptionsSeen: unknown[] = [];
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   getCurrentWasmLockHold: () => currentHold,
-  withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
+  withWasmClientLock: async (operation: (hold: object) => Promise<unknown>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    const hold = {};
+    currentHold = hold;
+    try {
+      return await operation(hold);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  },
   tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
     lockOptionsSeen.push(options);
     return mockTryWithWasmClientLock(operation);
@@ -107,6 +117,18 @@ describe('fetchBalances', () => {
     await fetchBalances('my-address', {});
 
     expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+  });
+
+  it('bounds and labels a waiting read exactly like a skipping one (#1123)', async () => {
+    // A read that queues for the lock is still a balance probe: same ceiling, same fuse key.
+    mockGetAccount.mockResolvedValueOnce(null);
+    lockOptionsSeen.length = 0;
+    mockTryWithWasmClientLock.mockClear();
+
+    await fetchBalances('my-address', {}, { waitForLock: true });
+
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+    expect(mockTryWithWasmClientLock).not.toHaveBeenCalled();
   });
 
   it('skips the hold entirely once its own fuse is lit, and resumes on a success (#777)', async () => {
@@ -198,6 +220,29 @@ describe('fetchBalances', () => {
     __resetSyncFuseStateForTests();
   });
 
+  it('reports its own evictions to the fuse for a waiting read too, and a completed wait puts it out (#1123)', async () => {
+    __resetSyncFuseStateForTests();
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      mockGetAccount.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+      await expect(fetchBalances('my-address', {}, { waitForLock: true })).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+    }
+    expect(isSyncFused('balances')).toBe(true);
+
+    // Same exit as the skipping read's above: only a completed read puts the fuse out,
+    // proven through a real successful `fetchBalances` call rather than `noteSyncSuccess`
+    // directly, which would only re-test the ledger.
+    const realNow = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
+    mockGetAccount.mockResolvedValueOnce(null);
+    await fetchBalances('my-address', {}, { waitForLock: true });
+    nowSpy.mockRestore();
+    expect(isSyncFused('balances')).toBe(false);
+    __resetSyncFuseStateForTests();
+  });
+
   it('returns null (skips the read) when the WASM client lock is busy', async () => {
     // A transaction/sync holds withWasmClientLock — tryWithWasmClientLock can't
     // acquire, so it skips without running the read op.
@@ -219,7 +264,8 @@ describe('fetchBalances', () => {
       tokenId: 'miden-faucet-id',
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
+      // MIDEN is not on the price feed: no price, never a $1 guess.
+      fiatPrice: 0,
       balance: 0,
       change24h: 0
     });
@@ -293,6 +339,62 @@ describe('fetchBalances', () => {
     // MIDEN with 0 balance
     expect(result[1]!.tokenSlug).toBe('MIDEN');
     expect(result[1]!.balance).toBe(0);
+  });
+
+  it('does not wait forever on a metadata lookup that never answers', async () => {
+    // The read holds the address's in-flight entry until it returns, so a node that accepts the
+    // metadata request and never answers would otherwise block every balance read (#1123).
+    jest.useFakeTimers();
+    try {
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'hung-faucet', amount: () => ({ toString: () => '1000000' }) }]
+        })
+      });
+      mockFetchTokenMetadata.mockReturnValueOnce(new Promise(() => {}));
+
+      const read = fetchBalances('my-address', {});
+      await jest.advanceTimersByTimeAsync(15_001);
+      const result = (await read)!;
+
+      expect(result.map(row => row.tokenSlug)).toEqual(['Unknown', 'MIDEN']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('prices each row by its price symbol, and leaves a token the feed does not quote unpriced', async () => {
+    const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+    getBech32AddressFromAccountId.mockImplementation((id: string) =>
+      id === 'raw-ieth' ? TOKEN_IETH.faucetId : `bech32-${id}`
+    );
+    mockGetAccount.mockResolvedValueOnce({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'raw-ieth', amount: () => ({ toString: () => '38000000' }) },
+          { faucetId: () => 'other-faucet', amount: () => ({ toString: () => '1000000' }) }
+        ]
+      })
+    });
+
+    const result = (await fetchBalances(
+      'my-address',
+      {
+        [TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
+        'bech32-other-faucet': { name: 'Other Token', symbol: 'OTH', decimals: 6 }
+      },
+      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } } }
+    ))!;
+
+    const priceOf = (slug: string) => {
+      const { fiatPrice, change24h } = result.find(row => row.tokenSlug === slug)!;
+      return { fiatPrice, change24h };
+    };
+    expect(priceOf('IETH')).toEqual({ fiatPrice: 3000, change24h: 40 });
+    expect(priceOf('OTH')).toEqual({ fiatPrice: 0, change24h: 0 });
+    expect(priceOf('MIDEN')).toEqual({ fiatPrice: 0, change24h: 0 });
+
+    getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
   });
 
   it('shows unknown tokens with default metadata when fetch fails', async () => {

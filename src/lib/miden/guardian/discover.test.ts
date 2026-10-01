@@ -15,7 +15,6 @@
  * `mock`-prefixed module-scope names are what the hoister allows factories to
  * close over.
  */
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import type { KeyDerivation } from 'lib/shared/types';
 
@@ -70,9 +69,11 @@ const mockSeedsRequested: string[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
 
-jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: jest.fn()
-}));
+// The shared native-HTTP double records the probe each endpoint takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   EcdsaSigner: class {
@@ -175,6 +176,7 @@ beforeEach(() => {
   mockSecretKeys.length = 0;
   mockSigners.length = 0;
   mockSeedsRequested.length = 0;
+  resetMockProbes();
   jest.clearAllMocks();
   scriptNonces();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -386,11 +388,53 @@ describe('discoverGuardianForSeed', () => {
     }
   });
 
-  it('registers every probed origin for the mobile CORS bypass', async () => {
+  it('takes a native-HTTP probe of every endpoint, spelled without its trailing slash', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [`${OZ}/`] });
 
-    // Trailing slash stripped before registering / probing.
-    expect(jest.mocked(registerGuardianOrigin)).toHaveBeenCalledWith(OZ);
+    expect(mockProbedEndpoints).toEqual([OZ]);
+  });
+
+  // On mobile an endpoint stays routed through native HTTP only when it answered with the account.
+  it('keeps the origin of an operator that holds the account and releases the others', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY] });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, true],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe is aborted', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+    const controller = new AbortController();
+    controller.abort();
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal: controller.signal });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe throws', async () => {
+    const signal = new AbortController().signal;
+    // An unreadable signal is the one input that makes the probe body itself throw.
+    Object.defineProperty(signal, 'aborted', {
+      get: () => {
+        throw new Error('signal unreadable');
+      }
+    });
+
+    await expect(
+      discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal })
+    ).rejects.toThrow('signal unreadable');
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
   });
 
   it('probes only the single configured operator on devnet', async () => {
@@ -411,6 +455,14 @@ describe('discoverGuardianForSeed', () => {
       endpoints: ['https://guardian.example.com']
     });
     expect(custom.best?.option).toBeUndefined();
+  });
+
+  it('resolves a host-case spelling of a known operator to it', async () => {
+    const hostCase = LAMBDA.toUpperCase();
+    mockBackend.set(hostCase, { accounts: ['acct-1'], nonces: { 'acct-1': 1n } });
+
+    const known = await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [hostCase] });
+    expect(known.best?.option?.id).toBe('lambda-class');
   });
 
   it('classifies a slow operator as a timeout without failing the probe', async () => {

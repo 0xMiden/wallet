@@ -123,6 +123,14 @@
           },
           {
             "group": [
+              "lib/ui/useCopyToClipboard",
+              "**/lib/ui/useCopyToClipboard"
+            ],
+            "caseSensitive": true,
+            "message": "lib/ui/useCopyToClipboard was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use lib/ui/useClipboardCopy, which writes through @capacitor/clipboard, or components/ui/CopyButton and CopyChip."
+          },
+          {
+            "group": [
               "components/Checkbox",
               "**/components/Checkbox"
             ],

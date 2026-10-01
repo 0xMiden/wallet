@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
@@ -131,6 +131,21 @@ describe('ConnectivityIssueBanner', () => {
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
     setState({});
+  });
+
+  it('does not suspend the screen around it while its storage is cold', () => {
+    // The hook reads storage through suspending hooks; a cold key must defer only the banner.
+    mockUseConnectivityState.mockImplementation(() => {
+      throw new Promise<void>(() => {});
+    });
+    render(
+      <Suspense fallback={<div data-testid="root-fallback" />}>
+        <div data-testid="screen-content" />
+        <ConnectivityIssueBanner />
+      </Suspense>
+    );
+    expect(screen.queryByTestId('root-fallback')).toBeNull();
+    expect(screen.getByTestId('screen-content')).toBeInTheDocument();
   });
 
   it('renders nothing when no connectivity category is active', () => {

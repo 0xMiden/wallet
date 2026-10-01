@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
+
 import {
   capturePlan,
   installCaptureShim,
   guardianPubkeyRoute,
+  guardianPubkeyStubCommitment,
   parkCapturePointer,
   settleCaptureMotion,
   validateCapturePlan
@@ -66,6 +69,10 @@ describe('store listing capture plan', () => {
     expect(guardianPubkeyRoute.test('https://guardian.example/pubkey')).toBe(true);
     expect(guardianPubkeyRoute.test('https://guardian.example/pubkey?scheme=ecdsa')).toBe(true);
     expect(guardianPubkeyRoute.test('https://guardian.example/accounts')).toBe(false);
+  });
+
+  it('stubs the operators with a key the Guardian picker accepts', () => {
+    expect(isGuardianKeyCommitment(guardianPubkeyStubCommitment)).toBe(true);
   });
 
   it('waits for the final wallet balance state before dependent captures', () => {

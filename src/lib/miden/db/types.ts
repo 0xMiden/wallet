@@ -15,6 +15,10 @@ export enum ITransactionStatus {
   Failed
 }
 
+/** The row can still produce a transaction: it is queued or generating. */
+export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'
@@ -60,7 +64,10 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
-  /** Expected destination output shown until the real note is consumed. */
+  /**
+   * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
+   * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
+   */
   outputAmount?: string;
   outputSymbol?: string;
   evmTxHash?: string;
@@ -167,7 +174,10 @@ export interface IBridgedSendExtraInputs {
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
    */
   intentNonce?: string;
-  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  /**
+   * epoch: the quoted destination output, exact; screens round it down when they show it. Older
+   * rows hold the quote already rounded for display.
+   */
   outputAmount?: string;
   /** epoch: destination output token symbol (e.g. `USDC`). */
   outputSymbol?: string;
@@ -199,7 +209,7 @@ export interface IEarnDepositExtraInputs {
   intentNonce?: string;
   /** solver/intent hash (informational). */
   evmTxHash?: string;
-  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  /** quoted destination deposit size; nothing writes or displays it today. */
   outputAmount?: string;
   /** destination token symbol (e.g. `USDC`). */
   outputSymbol?: string;
@@ -213,7 +223,7 @@ export interface IEarnDepositExtraInputs {
  * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
  *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
  *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
- *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - received   : the bridged note was auto-consumed; the row's `amount` patched from it
  *   - failed     : the intent failed / expired, or the row was reconciled dead
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
@@ -258,9 +268,11 @@ export interface IEarnWithdrawExtraInputs {
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
   midenNoteId?: string;
-  /** actual bridged amount (human-formatted) from the consumed note. */
+  /** actual bridged amount; nothing writes it today (the row's own `amount` records what landed). */
   outputAmount?: string;
-  /** destination token symbol of the consumed note. */
+  /**
+   * the bridged note's source token symbol (the EVM side), recorded when the note is consumed; not the delivered asset.
+   */
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;
@@ -409,6 +421,15 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
+/** A guardian arm whose repeated requeues of one row back that row off; see `ITransaction.requeueStreak`. */
+export type IRequeueStreakArm = 'guardian-unreachable' | 'guardian-pending-conflict' | 'guardian-rate-limited';
+
+export interface IRequeueStreak {
+  arm: IRequeueStreakArm;
+  /** How many requeues in a row `arm` has made, the latest included. */
+  count: number;
+}
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -423,6 +444,12 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
+   * (#805). Generation signs such a row with the recovery key after proving every note
+   * native; any other consume for a rotation-pending account is refused. Not indexed.
+   */
+  rotationFunding?: true;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -554,6 +581,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * The guardian arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
+   * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian that fails every attempt
+   * slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's transaction
+   * would wait until those rows expire. Any other requeue, and a user's retry, clears it. Absent: the row's last
+   * requeue, if any, was not a guardian arm's.
+   */
+  requeueStreak?: IRequeueStreak;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
@@ -802,6 +837,8 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /** See `ITransaction.rotationFunding`. */
+  rotationFunding?: true;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1030,10 +1067,10 @@ export class BridgedSendTransaction implements ITransaction {
 
 /**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator
- * account. On non-Guardian accounts it is send-style, processed by the normal send
- * pipeline (`sendTransaction`) like the Epoch `bridged-send`. On Guardian accounts the
- * multisig send proposal is P2ID-only, so the P2IDE is serialized into `requestBytes`
- * and proposed as a custom proposal (see `generateGuardianTransaction` 'earn-deposit').
+ * account, built once at initiate into `requestBytes` with its mandate-binding
+ * attachment. On non-Guardian accounts those bytes run through `newTransaction`. On
+ * Guardian accounts the multisig send proposal is P2ID-only, so they are proposed as a
+ * custom proposal (see `generateGuardianTransaction` 'earn-deposit').
  * The EVM lending deposit is solver-fulfilled, so there is no manual claim.
  */
 export class EarnDepositTransaction implements ITransaction {
@@ -1244,9 +1281,10 @@ export class SwitchGuardianTransaction implements ITransaction {
 /**
  * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
  * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is filled in during
- * `generateGuardianTransaction` once the new key is minted, and consumed by
- * `completeReplaceHotKeyTransaction` to swap the WalletAccount pointer.
+ * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * `generateGuardianTransaction` once the minted key is persisted (a later run of
+ * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
+ * the WalletAccount pointer.
  */
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;

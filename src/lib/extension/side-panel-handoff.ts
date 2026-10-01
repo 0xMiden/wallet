@@ -3,15 +3,16 @@ import { isExtension } from 'lib/platform';
 /**
  * Onboarding → side panel handoff (Chrome).
  *
- * The wallet is created first (the onboarding tab spins through
- * `registerWallet()`), and only once it's Ready does the final "Open wallet"
- * click open the side panel onto the finished wallet and close the onboarding
- * tab. Opening the panel from that post-Ready click keeps it inside a live user
- * gesture — `chrome.sidePanel.open()` requires one, and creating the wallet
- * first means there's no multi-second await between the click and the open to
- * outlive the gesture. The side panel also becomes the primary surface (the
- * same `sidepanel_mode` the Header "maximise view" toggle uses), so clicking
- * the toolbar icon opens it instead of the popup.
+ * The wallet is registered first (a create or a recovery-phrase import by the
+ * onboarding tab's auto-register, any other flow on its confirmation tap; the
+ * tab spins through `registerWallet()`), and only once it's Ready does the
+ * final "Open wallet" click open the side panel onto the finished wallet and
+ * close the onboarding tab. Opening the panel from that post-Ready click keeps
+ * it inside a live user gesture: `chrome.sidePanel.open()` requires one, and
+ * registering the wallet first means there's no multi-second await between the
+ * click and the open to outlive the gesture. The side panel also becomes the
+ * primary surface (the same `sidepanel_mode` the Header "maximise view" toggle
+ * uses), so clicking the toolbar icon opens it instead of the popup.
  */
 
 const SIDEPANEL_MODE_FLAG = 'sidepanel_mode';
@@ -58,6 +59,13 @@ export function postOnboardingRoute(): '/finish-side-panel' | '/' {
 }
 
 /**
+ * The screens that end onboarding in its tab, with the wallet already Ready: the one-time
+ * telemetry consent prompt and the `/finish-side-panel` handoff screen. Read by the running
+ * wallet's surfaces that must not cover them (the rotation gate, the update card).
+ */
+export const ONBOARDING_HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/help-improve-wallet']);
+
+/**
  * Open the side panel onto the (already-Ready) wallet and make it the primary
  * action surface. MUST be called synchronously within the user gesture of the
  * final "Open wallet" click. Returns true if the panel opened, false on failure
@@ -83,7 +91,11 @@ export async function openSidePanelToWallet(): Promise<boolean> {
   // gesture, and a failure here is non-fatal (the panel is already showing).
   try {
     await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-    chromeApi.action.setPopup({ popup: '' });
+    await chromeApi.action
+      .setPopup({ popup: '' })
+      .catch((err: Error) =>
+        console.warn('[side-panel-handoff] clearing the popup failed; the next start retries it:', err)
+      );
     await chromeApi.storage.local.set({ [SIDEPANEL_MODE_FLAG]: true });
   } catch (err) {
     console.warn('[side-panel-handoff] enabling side-panel mode failed (panel still open):', err);

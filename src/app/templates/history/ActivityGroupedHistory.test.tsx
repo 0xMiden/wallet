@@ -92,7 +92,9 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (key: unknown[]) => {
+  useRetryableSWR: (key: unknown[] | null) => {
+    // A read that is not running holds a null key: no data, not loading.
+    if (key === null) return { data: undefined, isLoading: false, error: undefined, mutate: jest.fn() };
     const read = mockRead(String(key[0]));
     return {
       data: read.isLoading || read.error ? undefined : key[0] === 'latest-transactions' ? mockLatest : [],
@@ -109,6 +111,7 @@ jest.mock('lib/miden/activity', () => ({
   isCancellableTransaction: () => false,
   isUserCancelledTransaction: () => false,
   suppressedLinkedConsumeIds: jest.fn(),
+  supersededFailedConsumeIds: jest.fn(async () => new Set()),
   USER_CANCELLED_TRANSACTION_REASON: 'cancelled'
 }));
 
@@ -206,7 +209,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'pending'), claim('note-open', 'pending')];
-    mockHidden.ids = new Set(['note-declined']);
+    mockHidden.ids = new Set(['note-declined', 'gone']);
     render(<ActivityGroupedHistory search="" />);
 
     expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
@@ -216,6 +219,8 @@ describe('ActivityGroupedHistory', () => {
     ).toBeTruthy();
     fireEvent.click(restore);
     expect(mockRestore).toHaveBeenCalledTimes(1);
+    // The decline the banner counted, not 'gone', which no loaded transfer stands for.
+    expect(mockRestore).toHaveBeenCalledWith(['note-declined']);
   });
 
   it('offers no Restore when no declined transfer can still be accepted', () => {

@@ -6,6 +6,8 @@ import { compile } from '@tailwindcss/node';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { CheckboxRow } from './Checkbox';
+import { FactRow } from './FactRow';
 import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
 
@@ -44,4 +46,44 @@ it('a plain group puts every kind of row on the page margin with a full-width ha
 
   expect(at('[&>*]:px-0')).toBeGreaterThan(at('px-4'));
   rowInsets.forEach(inset => expect(at('[&>*]:before:left-0')).toBeGreaterThan(at(inset)));
+});
+
+it("an inset plain group keeps each CheckboxRow's and FactRow's own inset over the row's padded one", async () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(ListGroup, {
+      surface: 'plain',
+      insetHairlines: true,
+      children: [
+        React.createElement(CheckboxRow, { key: 'check', title: 'Check', checked: false, onCheckedChange: () => {} }),
+        React.createElement(FactRow, { key: 'fact', title: 'Fact', description: 'Body', leading: null })
+      ]
+    })
+  );
+  const classes = [...markup.matchAll(/class="([^"]*)"/g)].flatMap(m =>
+    m[1]!.replace(/&gt;/g, '>').replace(/&amp;/g, '&').split(/\s+/)
+  );
+  const groupRule = '[&>*]:before:left-[var(--row-flush-inset,0px)]';
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      groupRule,
+      '[&>*]:px-0',
+      '[--row-flush-inset:36px]',
+      '[--row-flush-inset:44px]',
+      'before:left-[52px]',
+      'before:left-11',
+      'px-4'
+    ])
+  );
+
+  const compiler = await compile('@import "tailwindcss";', { base: path.resolve('src'), onDependency() {} });
+  const css = compiler.build([...new Set(classes)]);
+  const at = (candidate: string) => {
+    const index = css.indexOf(escape(candidate));
+    expect(index).toBeGreaterThanOrEqual(0);
+    return index;
+  };
+
+  expect(at('[&>*]:px-0')).toBeGreaterThan(at('px-4'));
+  expect(at(groupRule)).toBeGreaterThan(at('before:left-[52px]'));
+  expect(at(groupRule)).toBeGreaterThan(at('before:left-11'));
 });

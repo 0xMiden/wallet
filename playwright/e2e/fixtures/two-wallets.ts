@@ -74,11 +74,14 @@ export interface GuardianFaultTestApi {
    */
   armNetworkFault(policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]): Promise<void>;
   /**
-   * How many guardian requests the currently-armed guardian fault has faulted.
-   * Lets a spec prove the fault actually fired (0 hits ⇒ the fault never reached
-   * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
+   * How many requests the currently-armed guardian fault has faulted - only
+   * those matching its target, path and, when set, method. Lets a spec prove
+   * the fault actually reached a matching request (0 hits means it never did,
+   * not that the op behaved as hoped). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /** When each of those hits arrived. See `NetworkFaultControls.guardianFaultHitTimes`. */
+  guardianFaultHitTimes(): number[];
   /**
    * How many requests the currently-armed NETWORK faults have injected into,
    * across both seams (context.route and the in-realm fetch wrapper). Arming is
@@ -679,6 +682,7 @@ async function launchWalletInstance(
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
       networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];

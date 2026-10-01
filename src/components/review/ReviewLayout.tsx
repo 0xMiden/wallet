@@ -41,7 +41,7 @@ export interface ReviewLayoutProps {
  * the end of the content, not a sticky footer). There is no screen header; back
  * is reached via the secondary CTA (or native mobile back). Flow-specific content
  * (hero, rows) and callbacks are passed in, so each flow keeps its own confirm
- * logic while sharing one consistent layout. `pb-24` clears the floating BottomNav.
+ * logic while sharing one consistent layout.
  */
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   hero,

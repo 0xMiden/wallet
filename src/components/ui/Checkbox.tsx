@@ -14,7 +14,8 @@ export interface CheckboxIndicatorProps {
 
 /**
  * The 22px round mark every selection in the wallet draws, a checklist row's and a `ChoiceCard`'s
- * alike. Empty it is a `page` disc with a hairline edge, like anything drawn inside a `fill` card;
+ * alike. Empty it is a `page` disc with a 1.5px `muted` edge: a control edge needs 3:1 (rule 6), and a
+ * hairline edge vanished once the mark sat on the page rather than inside a `fill` card;
  * checking fills it with `accent` on a quick spring and draws the check in on the tab-bar spring, and
  * unchecking runs both back. Under reduced motion both are instant. Decorative: the control that owns
  * it carries the role and the state.
@@ -31,7 +32,7 @@ export const CheckboxIndicator: React.FC<CheckboxIndicatorProps> = ({ checked, c
       data-state={checked ? 'checked' : 'unchecked'}
       className={cn(
         'relative flex size-5.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-page',
-        'ring-1 ring-hairline ring-inset',
+        'ring-[1.5px] ring-muted ring-inset',
         className
       )}
     >
@@ -178,8 +179,10 @@ export const CheckboxRow: React.FC<CheckboxRowProps> = ({
         'transition-colors duration-150 ease-hover active:bg-fill-pressed motion-reduce:transition-none',
         'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset',
         'disabled:cursor-default disabled:opacity-50',
-        // The hairline above every row but the first, starting after the box, as `ListRow` draws it.
+        // The hairline above every row but the first, starting after the box, as `ListRow` draws it;
+        // flush (an inset plain `ListGroup`), the 22px box and the 14px gap.
         'before:absolute before:top-0 before:right-0 before:left-[52px] before:h-px before:bg-hairline first:before:hidden',
+        '[--row-flush-inset:36px]',
         className
       )}
     >
@@ -191,7 +194,7 @@ export const CheckboxRow: React.FC<CheckboxRowProps> = ({
             {title}
           </span>
           {description && (
-            <span id={`${id}-description`} className="text-caption text-muted">
+            <span id={`${id}-description`} className="text-caption-heading text-muted">
               {description}
             </span>
           )}

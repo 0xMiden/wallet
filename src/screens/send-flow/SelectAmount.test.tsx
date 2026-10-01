@@ -4,6 +4,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -165,7 +166,7 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
-      expect(logo).toHaveAttribute('data-size', 'md');
+      expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
       expect(screen.getByText('USDC')).toBeInTheDocument();
@@ -318,20 +319,20 @@ describe('SelectAmount', () => {
       expect(container.firstChild).toHaveClass('px-6');
     });
 
-    it('uses the default keyboard-aware footer padding and honors a footerClassName override', () => {
-      const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
-      const { container: def } = renderComponent();
-      expect(def.innerHTML).toContain(defaultFooterPb);
-      expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
+    // #1109: the CTA's bottom padding is the shared cushion, never a literal of its own, so it follows the tab bar
+    // (and drops to 1rem on the slide pages that host this step) instead of pinning a fixed 6rem.
+    it('pins its CTA on the shared cushion', () => {
+      const { container } = renderComponent();
+      const footer = container.querySelector('[data-navbar-cushion="true"]');
+      expect(footer).not.toBeNull();
+      expect(footer).toHaveClass('pt-4');
+      expect(footer).toHaveClass(stepFooterCushionClass());
+      expect(footer!.className).not.toContain('6rem');
 
       // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame. The
       // footer adds no transition of its own, and main.css exempts a flow footer's cushion collapse.
-      expect(def.querySelector('[data-navbar-cushion="true"]')!.className).not.toContain('transition-[padding-bottom]');
-      expect(def.querySelector('[data-navbar-cushion="true"]')).toHaveAttribute('data-flow-footer');
-
-      const { container: override } = renderComponent({ footerClassName: 'pt-2' });
-      expect(override.querySelector('.pt-2')).not.toBeNull();
-      expect(override.innerHTML).not.toContain(defaultFooterPb);
+      expect(footer!.className).not.toContain('transition-[padding-bottom]');
+      expect(footer).toHaveAttribute('data-flow-footer');
     });
   });
 

@@ -60,6 +60,17 @@ describe('type scale guard', () => {
     expect(flagged('text-accent-tint-ink text-positive-tint-ink')).toBe(false);
   });
 
+  // A subtree that swaps its face uses the one `face-heading` utility. An arbitrary-property remap is
+  // invisible to the role guard above wherever FILES does not reach, so this case covers all of src.
+  it('no source file remaps --font-sans with an arbitrary property', () => {
+    const offenders = fs
+      .readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+      .filter(f => /\.(ts|tsx|js|mjs|mts|css)$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .filter(f => fs.readFileSync(path.join(SRC, f), 'utf8').includes('[--font-sans:'))
+      .sort();
+    expect(offenders).toEqual([]);
+  });
+
   it('keeps the allow-list honest: every entry still exists', () => {
     for (const file of Object.keys(ALLOWED)) expect(fs.existsSync(path.join(SRC, file))).toBe(true);
   });

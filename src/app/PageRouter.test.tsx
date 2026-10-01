@@ -9,7 +9,8 @@
  * identifiable stub, keeping this a pure routing unit test.
  *
  * Top-level view selection now flows through `resolveRootView(ctx)` (locked →
- * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, else → `app`). The
+ * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, ready but finishing
+ * onboarding → `loading`, else → `app`). The
  * catch-all `*` route (registered BEFORE `/` and every ready-only route) is the
  * one that renders Unlock / RootSuspenseFallback / Welcome and only SKIPs — so a
  * specific route runs — when `resolveRootView` returns `app`. `root-view` is a
@@ -26,10 +27,11 @@
 
 import React from 'react';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
+import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
 import { resolveRootView } from './root-view';
 
@@ -99,7 +101,7 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
   useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
 }));
 
-// The loading spinner shown during MV3 cold-start (before hydration).
+// The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
   default: () => <div data-testid="root-suspense-fallback" />
@@ -149,7 +151,20 @@ jest.mock('app/pages/Settings', () => ({
     return <div data-testid="settings" data-tab-slug={props.tabSlug ?? ''} />;
   }
 }));
-jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
+const mockRetireLockoutRecord = jest.fn();
+jest.mock('app/pages/Unlock', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: () => <div data-testid="unlock" />,
+    retireLockoutRecord: () => mockRetireLockoutRecord(),
+    // The hook's contract, against the stubbed retire: once the wallet is ready, retire the record.
+    useRetireLockoutOnReady: (ready: boolean) =>
+      R.useEffect(() => {
+        if (ready) mockRetireLockoutRecord();
+      }, [ready])
+  };
+});
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
 
 jest.mock('screens/developer-settings/DeveloperSettings', () => ({
@@ -272,8 +287,8 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
-  // confirm window keeps the full-width banner.
+  // The wallet names its test network in a pill above Home's balance card (NetworkModePill); only the
+  // dApp confirm window keeps the full-width banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
     expect(screen.getByTestId('explore')).toBeInTheDocument();
@@ -589,7 +604,7 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
 
   it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending&view=list');
     cleanup();
 
     // Where that redirect lands: the Activity page, which reads `filter` off the location.
@@ -719,6 +734,51 @@ describe('app/PageRouter — scroll & history side effects', () => {
   });
 });
 
+describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
+  it('shows the loading view at the root and on unknown paths while the mark is held, then Home once released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('arms a held mark once the wallet is Ready on screen, so a stalled holder cannot hold the loading view forever', () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
+      });
+      expect(screen.getByTestId('explore')).toBeInTheDocument();
+      // The only trace a stalled holder leaves: lifecycle telemetry leaves the hold out.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain(`${ONBOARDING_FINISH_BUDGET_MS} ms safety budget`);
+    } finally {
+      act(() => mark.release());
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the finishing mark out of the lifecycle telemetry ctx', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(mockUseAppLifecycleTelemetry).toHaveBeenLastCalledWith({ ready: true, locked: false, hydrated: true });
+    } finally {
+      act(() => mark.release());
+    }
+  });
+});
+
 describe('app/PageRouter — app-lifecycle telemetry', () => {
   it('feeds the wallet readiness ctx to the lifecycle telemetry hook', () => {
     renderAt('/', ready);
@@ -734,6 +794,20 @@ describe('app/PageRouter — app-lifecycle telemetry', () => {
     expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ ready: false, locked: false, hydrated: false })
     );
+  });
+});
+
+// A correct guess whose window went away mid-call leaves its record behind; the next window to turn
+// ready retires it (#1192).
+describe('app/PageRouter - the lockout record', () => {
+  it('retires the guess record once the wallet is ready', () => {
+    renderAt('/', ready);
+    expect(mockRetireLockoutRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the guess record alone while the wallet is locked', () => {
+    renderAt('/', { locked: true, ready: false, hydrated: true });
+    expect(mockRetireLockoutRecord).not.toHaveBeenCalled();
   });
 });
 

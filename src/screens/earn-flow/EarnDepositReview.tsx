@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -27,7 +28,7 @@ import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/teleme
 import { CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, useLocation } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
@@ -225,8 +226,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       <SubPageLayout
         data-testid="earn-deposit-review-page"
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
+        subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
@@ -256,7 +258,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
             <EarnHero
               labelId="earn-deposit-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} />}
               label={t('earnDepositAmountTitle')}
             />

@@ -1,9 +1,11 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
+import { claimFromPendingList } from '../../helpers/claim-drain';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -28,31 +30,6 @@ const UNLOCKED_CONDITION_JS =
   `if (!s) return !!document.querySelector('[data-testid="explore-page"]'); ` +
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
-
-/**
- * Totals the store's balances projection, in place, with no navigation.
- *
- * Only valid on a screen that mounts the balance poll (`useAllBalances`, in
- * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else - notably the Activity
- * Pending list, where a claim waits - nothing writes `st.balances`, so this
- * returns whatever it held when that screen was last up. `getBalance()` is the
- * read that navigates home first and is therefore authoritative.
- */
-const STORE_BALANCE_TOTAL_JS =
-  `var s = window.__TEST_STORE__; ` +
-  `if (!s) return 0; ` +
-  `var st = s.getState(); ` +
-  `var balances = st.balances || {}; ` +
-  `for (var k in balances) { ` +
-  `  var list = balances[k]; ` +
-  `  if (!Array.isArray(list)) continue; ` +
-  `  for (var i = 0; i < list.length; i++) { ` +
-  `    var t = list[i]; ` +
-  `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-  `    if (amt > 0) return amt; ` +
-  `  } ` +
-  `} ` +
-  `return 0;`;
 
 interface IosWalletPageOpts {
   cdp: CdpSession;
@@ -558,8 +535,8 @@ export class IosWalletPage implements WalletPage {
   // ── Claim ─────────────────────────────────────────────────────────────────
 
   /**
-   * Tap "Claim All" and wait until a consumed balance shows up in the store.
-   * Throws if it never does within `timeoutMs` — see the comment at the end.
+   * Tap Accept All and wait until the Pending list drains: two consecutive reads with no card, no
+   * Accept All and no loading bar. Throws with the last read if it never does within `timeoutMs`.
    */
   async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
@@ -570,7 +547,7 @@ export class IosWalletPage implements WalletPage {
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
     // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/history?filter=pending');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
@@ -599,110 +576,8 @@ export class IosWalletPage implements WalletPage {
     // needs (a) at least one auto-sync after the new block lands, (b) the
     // SWR refresh (5s) to actually re-read consumable notes, (c) any
     // additional WASM-lock contention if a prove/sign is in flight. 60s
-    // was too tight on testnet under CI load (deterministic failure for
-    // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
-    // timeout (default 180s) still has ~50s left for balance polling
-    // after this resolves.
-    await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
-        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
-        `btn.click(); return true;`,
-      120_000
-    );
-
-    // TEMPORARY (mobile-MT test): periodically dump
-    // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
-    // see prove path + duration even when Console.messageAdded doesn't
-    // route console.log. Plain stdout via console.log so they show in
-    // the playwright test log.
-    let lastProveTimingIdx = 0;
-    const pumpProveTimings = async () => {
-      try {
-        const fresh = await this.cdp.eval<string[]>(
-          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
-        );
-        if (Array.isArray(fresh) && fresh.length > 0) {
-          lastProveTimingIdx += fresh.length;
-          for (const line of fresh) {
-            // eslint-disable-next-line no-console
-            console.log(`[prove-timing] ${line}`);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    const start = Date.now();
-    let iterations = 0;
-    while (Date.now() - start < timeoutMs) {
-      iterations++;
-      await this.triggerSync();
-      await sleep(5_000);
-      await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(STORE_BALANCE_TOTAL_JS);
-      if (balance > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-    }
-    await pumpProveTimings();
-
-    // The claim did NOT land: "Claim All" was clicked but no consumed balance
-    // ever appeared. This used to return normally, so the run continued as if
-    // the notes were claimed and blew up later on a balance assertion (or, in
-    // the bridge specs, on a phase poll) — attributing a failed consume to
-    // delivery. Chrome's claimAllNotes already throws here
-    // (`confirmDrainedOrThrow`); this brings iOS in line.
-    //
-    // Report what the Pending list shows. The claim waits there either way, and Accept All stays
-    // mounted while its batch drains, so read its busy state: busy means the consume is merely
-    // slow, idle means the batch came back or failed, absent means the list drained without the
-    // balance reaching the store.
-    const surface = await this.cdp
-      .eval<string>(
-        `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
-          `var state = !claimAll ? 'absent' : claimAll.getAttribute('aria-busy') === 'true' ? 'busy' : 'idle'; ` +
-          `return 'hash=' + h + ' acceptAll=' + state;`
-      )
-      .catch(() => 'unreadable');
-
-    // Nothing authoritative has actually been read yet. The loop above polls the
-    // store IN PLACE, and for the whole of a claim the wallet waits on the Activity
-    // Pending list, where no screen refreshes `st.balances` - so that poll can report 0
-    // for a consume that has already landed on-chain. Before failing, confirm with
-    // `getBalance()`, which navigates home and therefore reads a projection something
-    // is updating.
-    //
-    // This is not a new grace period bolted on: it is the read the spec used to
-    // perform immediately afterwards (`waitForBalanceAbove` → `getBalance`), which
-    // is why this step passed for as long as the wait silently returned instead of
-    // throwing. Doing it here keeps the throw meaningful rather than guaranteed.
-    //
-    // It also must not be conditional on `surface`: the in-place reading is
-    // unreliable regardless of which screen the wallet ended up on.
-    const confirmMs = 120_000;
-    const confirmStart = Date.now();
-    let confirmed = 0;
-    while (Date.now() - confirmStart < confirmMs) {
-      confirmed = await this.getBalance().catch(() => 0);
-      if (confirmed > 0) {
-        await pumpProveTimings();
-        await this.navigateHome();
-        return;
-      }
-      await sleep(5_000);
-      await this.triggerSync();
-    }
-
-    await this.navigateHome();
-    throw new Error(
-      `IosWalletPage.claimAllNotes: no consumed balance after ${iterations} sync iteration(s) over ` +
-        `${timeoutMs}ms, and none after a further ${confirmMs}ms confirming via getBalance() from the ` +
-        `home screen — "Claim All" was clicked but the consume never landed. Surface at timeout: ${surface}`
-    );
+    // was too tight on testnet under CI load, so the first click may take 120s.
+    await claimFromPendingList(this, { label: 'IosWalletPage.claimAllNotes', firstClickMs: 120_000, timeoutMs });
   }
 
   /**

@@ -17,15 +17,13 @@ export {
   buildEarnTaskDataParams,
   getEarnQuote,
   buildEarnIntent,
-  getEarnCollateralFaucet,
   getEarnCollateralFaucetId,
-  MIDEN_USDC_FAUCET,
-  MIDEN_USDC_DECIMALS,
   EARN_MARKET_UID,
   EARN_UNDERLYING,
   EARN_DESTINATION_CHAIN_ID,
   EARN_PROTOCOL_HASH
 } from './earn';
+export { getEarnCollateralFaucet, MIDEN_USDC_FAUCET, MIDEN_USDC_DECIMALS } from './collateral';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote, EarnIntentOutcome, EpochLegStatus } from './earn';
 export {
   buildEarnWithdrawTaskDataParams,
@@ -38,7 +36,7 @@ export {
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
 export { EPOCH_POSITIONS_URL } from './config';
-export { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
+export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';
 export {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,

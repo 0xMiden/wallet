@@ -1,19 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { CheckboxConsent } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
-import { Vault } from 'lib/miden/back/vault';
+import { getCurrentLocale } from 'lib/i18n/core';
+import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -34,6 +38,10 @@ const getTimeLeft = (start: number, end: number) => {
   return `${checkTime(minutes)}:${checkTime(seconds)}`;
 };
 
+// Intl rejects the underscore tags (en_GB) getCurrentLocale returns.
+const formatNameList = (names: string[]) =>
+  new Intl.ListFormat(getCurrentLocale().replace('_', '-'), { type: 'conjunction' }).format(names);
+
 export interface EncryptedWalletFileWalletPasswordProps {
   onGoNext: () => void;
   onGoBack: () => void;
@@ -48,6 +56,9 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 }) => {
   const { unlock } = useMidenContext();
   const { t } = useTranslation();
+  // The exporter drops these records by the same rule, so the notice matches the file.
+  const accounts = useWalletStore(s => s.accounts);
+  const excludedAccounts = useMemo(() => accounts.filter(isExcludedFromWalletFile), [accounts]);
   const {
     setError,
     clearErrors,
@@ -58,7 +69,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // so the guard, the loading spinner, and PasscodeEntry's auto-submit all work.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
   const [timelock, setTimeLock] = useLocalStorage<number>('TridentSharedStorageKey.TimeLock', 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
@@ -69,14 +80,6 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
-
-  useEffect(() => {
-    // This step draws the flow's only header and its body waits for the probe, so a rejection
-    // falls back to the password step-up rather than leaving an empty page for good.
-    Vault.hasHardwareProtector()
-      .then(setHasHardwareProtector)
-      .catch(() => setHasHardwareProtector(false));
-  }, []);
 
   const onSubmit = useCallback(
     async (passcode?: string) => {
@@ -140,6 +143,15 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // entered); extension/desktop use a typed password.
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
 
+  // Still this step's frame, so the flow's title and back stay: it draws the flow's only header.
+  if (probeFailed) {
+    return (
+      <SubPageLayout data-testid="encrypted-file-wallet-password">
+        <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />
+      </SubPageLayout>
+    );
+  }
+
   // The frame renders while the protector check runs, so the flow's title and back are there from
   // the first frame; the body waits.
   if (hasHardwareProtector === null) {
@@ -195,6 +207,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           />
         )}
       </SubPageSection>
+
+      {excludedAccounts.length > 0 && (
+        <Notice
+          tone="warning"
+          title={t('encryptedWalletFileExcludedTitle', {
+            accountNames: formatNameList(excludedAccounts.map(account => account.name))
+          })}
+          data-testid="encrypted-file-excluded-accounts"
+        >
+          {t('encryptedWalletFileExcludedDesc')}
+        </Notice>
+      )}
 
       <CheckboxConsent
         checked={confirmed}

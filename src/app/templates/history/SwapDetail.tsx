@@ -163,7 +163,13 @@ const SwapNoteRow = memo(function SwapNoteRow({
               </p>
             )}
             {displayNoteIds.map(displayNoteId => (
-              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="mt-1 max-w-full text-muted" />
+              <HashChip
+                key={displayNoteId}
+                hash={displayNoteId}
+                trimHash
+                compactHitArea={displayNoteIds.length > 1}
+                className="mt-1 max-w-full text-muted"
+              />
             ))}
           </div>
         </div>
@@ -181,7 +187,13 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="min-w-0 text-right">
             {displayNoteIds.map(displayNoteId => (
-              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="max-w-full text-muted" />
+              <HashChip
+                key={displayNoteId}
+                hash={displayNoteId}
+                trimHash
+                compactHitArea={displayNoteIds.length > 1}
+                className="max-w-full text-muted"
+              />
             ))}
           </div>
         </div>
@@ -322,6 +334,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <StatusPill
               status={entry.status}
               isCancelled={entry.isCancelled}
+              isUnconfirmed={entry.isUnconfirmed}
               swapSettlement={entry.swapSettlement}
               testId="history-status-pill"
             />
@@ -428,6 +441,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               errorMessage={entry.errorMessage}
               rawErrorMessage={entry.rawErrorMessage}
               isCancelled={entry.isCancelled}
+              isUnconfirmed={entry.isUnconfirmed}
             />
           </section>
         )}

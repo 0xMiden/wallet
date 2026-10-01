@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { DappMetadata } from 'lib/miden/types';
 
 import ConnectBanner from './ConnectBanner';
@@ -31,10 +32,16 @@ jest.mock('app/icons/v2', () => ({
 const appMeta = { name: 'Test dApp' } as unknown as DappMetadata;
 
 describe('ConnectBanner', () => {
-  it('renders the origin text', () => {
-    render(<ConnectBanner type="connect" origin="https://example.com" appMeta={appMeta} />);
+  it('keeps a long origin whole on the connect prompt, with its registrable domain never truncated', () => {
+    const origin = 'https://login.secure.account-verify.wallet.example.co.uk';
+    const { container } = render(<ConnectBanner type="connect" origin={origin} appMeta={appMeta} />);
 
-    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+    const shown = screen.getByTestId('connect-origin');
+    expect(shown.textContent).toBe(origin);
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    expectDomainNeverClipped(domain, container);
   });
 
   it('renders the Logo with the forwarded height/margin/filter style', () => {
@@ -63,20 +70,18 @@ describe('ConnectBanner', () => {
     expect(screen.getAllByTestId('icon')).toHaveLength(1);
   });
 
-  it('renders an empty origin without crashing (origin is rendered verbatim)', () => {
-    const { container } = render(<ConnectBanner type="connect" origin="" appMeta={appMeta} />);
+  it('renders an empty origin without crashing', () => {
+    render(<ConnectBanner type="connect" origin="" appMeta={appMeta} />);
 
-    // The origin lives in the trailing <span>; with an empty string it is empty.
-    const span = container.querySelector('span');
-    expect(span).toBeInTheDocument();
-    expect(span).toHaveTextContent('');
+    expect(screen.getByTestId('connect-origin')).toHaveTextContent('');
+    expect(screen.queryByTestId('dapp-origin-domain')).not.toBeInTheDocument();
   });
 
-  it('reflects a different origin value in the rendered span', () => {
-    render(<ConnectBanner type="connect" origin="app.miden.io" appMeta={appMeta} />);
+  it('reflects a different origin value, centred', () => {
+    render(<ConnectBanner type="connect" origin="https://app.miden.io" appMeta={appMeta} />);
 
-    const span = screen.getByText('app.miden.io');
-    expect(span.tagName).toBe('SPAN');
-    expect(span).toHaveClass('text-center');
+    const shown = screen.getByTestId('connect-origin');
+    expect(shown.textContent).toBe('https://app.miden.io');
+    expect(shown).toHaveClass('justify-center');
   });
 });

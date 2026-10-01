@@ -65,12 +65,11 @@ Download the latest release: **https://miden.fi/**
 git clone https://github.com/0xMiden/miden-wallet.git
 cd miden-wallet
 
-# Copy environment file
-cp .env.example .env
-
 # Install dependencies
 yarn install
 ```
+
+A release build needs the usage-data and crash-reporting keys; `.env.example` says where to set them and which to leave unset.
 
 ### Browser Extension
 

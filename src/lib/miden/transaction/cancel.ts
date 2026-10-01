@@ -11,6 +11,9 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import {
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
+  isUnconfirmedFailure,
+  isUnconfirmedFailureReason,
+  isWalletFailureReason,
   resolveTransactionErrorMessage,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -21,10 +24,13 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
-import { notifyBackgroundTransactionFailed } from '../back/background-notification';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -87,12 +93,17 @@ export const cancelTransaction = async (
   // falsehood that costs the user the retry.
   const abandonedPreWrite =
     PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
+  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
+  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
+  // claim read as a completed failure instead of not confirmed.
   const displayError =
-    error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
+    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   let applied = false;
   let racedTerminal = false;
+  let committed: ITransaction | undefined;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     // `false`, not a bare return: Dexie treats `undefined` as "modified" and
     // issues a put of the unchanged clone, which is a pointless write and a
@@ -110,6 +121,10 @@ export const cancelTransaction = async (
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    // Copied from the row this write is committing, not from the `existing` read
+    // above it, so a submit stamp that lands between that read and this write is
+    // seen by the notice below (#1250).
+    committed = { ...dbTx };
     return undefined;
   });
   if (racedTerminal) {
@@ -137,16 +152,30 @@ export const cancelTransaction = async (
   }
 
   // Gap 6: a transaction that terminally failed while the user wasn't watching
-  // used to be silent — the row went to Failed and nothing told them. Notify,
-  // but NEVER for a user-initiated cancel or a startup/teardown interruption
-  // (those aren't failures the user needs alerting to). The notifier itself
+  // used to be silent - the row went to Failed and nothing told them. Notify the
+  // row the modify above committed, worded by the same rule every reader of a
+  // Failed row shares (#1250): failed for certain, or outcome unknown (see
+  // isUnconfirmedFailure). NEVER for a user-initiated cancel or the cold-start
+  // sweep (TRANSACTION_INTERRUPTED_ON_STARTUP) - those aren't failures the user
+  // needs alerting to - nor for the node check's not-landed consume
+  // (TRANSACTION_INTERRUPTED_ERROR), excluded because the user cannot act on it,
+  // not because it is a startup or teardown interruption. The notifier itself
   // no-ops off the extension and when a wallet popup is already open, so this is
   // a safe unconditional call for a genuine failure.
   const isGenuineFailure =
     error !== USER_CANCELLED_TRANSACTION_REASON &&
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
-  if (isGenuineFailure) notifyBackgroundTransactionFailed();
+  if (isGenuineFailure) {
+    // Decided on the row the modify above committed, in the same Dexie write that
+    // failed it, never from the `existing` read before it - so a submit stamp
+    // committed between that read and this write is seen. `applied` guarantees
+    // `committed` is set here; TypeScript cannot see that, hence the runtime
+    // check. A stamp that commits AFTER this write cannot change a notice already
+    // shown.
+    if (committed !== undefined && isUnconfirmedFailure(committed)) notifyBackgroundTransactionNotConfirmed();
+    else notifyBackgroundTransactionFailed();
+  }
 
   // A NARROWER gate than the notification's, and the difference is the point.
   // A user-initiated cancel and the cold-start sweep genuinely are not failures,
@@ -154,18 +183,21 @@ export const cancelTransaction = async (
   // fixing could lower.
   //
   // `TRANSACTION_INTERRUPTED_ERROR` is on the notification's list and must not be
-  // on this one, because it is not an interruption — the name is a leftover from
+  // on this one, because it is not an interruption - the name is a leftover from
   // the user-facing copy. Its single caller is `verifyStuckTransactionsFromNode`
   // below, which reaches it only after asking the node and being told the input
   // note is still unconsumed on a consume that has been processing past the grace
-  // window. That is a node-verified terminal failure, and suppressing it
-  // undercounts `tx_receive` failures by exactly the share the reaper resolves —
-  // the ones nothing else reports either, since by definition no pipeline catch
-  // ran for them. Staying quiet in the notification tray is a UX judgement about
-  // an outcome the user cannot act on; it says nothing about whether the failure
-  // happened.
+  // window. It is still reported as errored, because the node saw the input note
+  // unconsumed when it checked - suppressing it would undercount `tx_receive`
+  // failures by exactly the share the reaper resolves, the ones nothing else
+  // reports either, since by definition no pipeline catch ran for them. The row's
+  // outcome stays unknown rather than failed, because its caller fails a consume
+  // without stopping it; that is why it is in UNCONFIRMED_FAILURE_REASONS and
+  // readers show the row as not confirmed. Staying quiet in the notification tray
+  // is a UX judgement about an outcome the user cannot act on; it says nothing
+  // about whether the failure happened.
   //
-  // The stage is why this is the right place to report from — by here the row has
+  // The stage is why this is the right place to report from - by here the row has
   // recorded where it died, which is the difference between "the prover is down"
   // and "the node rejected it". `existing` also gates it: if the row was gone,
   // the `.modify` above matched nothing and no transaction was failed, so there
@@ -400,6 +432,12 @@ const activeProcessingSeconds = (processingStartedAt: number, nowSeconds: number
  * mid-transition → `processingStartedAt` undefined) or its ACTIVE (foreground)
  * processing time has exceeded `maxWaitSeconds`. `hiddenSeconds` is the
  * backgrounded time to discount (0 on desktop).
+ *
+ * Signed on purpose: a stamp ahead of the clock is never stuck here, so a clock
+ * step back cannot reap a row that is still live, whoever started or drives it.
+ * `cancelStuckTransactions` calls only this, so a far-future stamp is never
+ * reaped there; only the cold-start sweep, `failInterruptedTransactions`, fails
+ * one, through `hasUnexplainedFutureStamp`.
  */
 export function isTransactionStuck(
   processingStartedAt: number | undefined,
@@ -407,7 +445,7 @@ export function isTransactionStuck(
   hiddenSeconds: number,
   maxWaitSeconds: number
 ): boolean {
-  // Crashed before processing started — processingStartedAt is set atomically
+  // Crashed before processing started: processingStartedAt is set atomically
   // with the status change, so undefined means the app crashed mid-transition.
   if (!processingStartedAt) return true;
   const activeElapsed = nowSeconds - processingStartedAt - hiddenSeconds;
@@ -415,7 +453,13 @@ export function isTransactionStuck(
 }
 
 /**
- * Cancel all of the transactions (& their transitions) that are taking too long to process
+ * Cancel all of the transactions (& their transitions) that are taking too long to process, per
+ * `isTransactionStuck`'s signed comparison alone, as on main: a stamp ahead of the clock is never
+ * reaped here, whoever started or drives the row. Only the cold-start sweep,
+ * `failInterruptedTransactions`, fails a row on that basis, where a cold start leaves no other realm
+ * running for the stamp to belong to; the trade-off is that a live row stamped ahead of the clock sits
+ * here until the clock steps back past the threshold and catches back up to it. The clock is read
+ * after the table read, as the sweep reads it.
  */
 export const cancelStuckTransactions = async () => {
   const transactions = await getTransactionsInProgress();
@@ -428,7 +472,7 @@ export const cancelStuckTransactions = async () => {
     // Marked in-flight like any other cancel from outside the pipeline, because
     // that is what this is. `MAX_WAIT_BEFORE_CANCEL` is the app's threshold for
     // "waited long enough to stop showing the user a spinner", NOT for "no
-    // pipeline can still be alive" — nothing here aborts the work, a prove can
+    // pipeline can still be alive": nothing here aborts the work, a prove can
     // legitimately run past it (mobile writes have no deadline at all), and the
     // reaper's own arithmetic is what defines the threshold as ACTIVE seconds, so
     // a row it takes may have been running for far longer in wall-clock terms and
@@ -436,8 +480,8 @@ export const cancelStuckTransactions = async () => {
     // premise, which left the widest version of the very window the marker exists
     // for: reaped, still submitting, and retried as though nothing had been sent.
     //
-    // Skipping it was safe only under a second claim — that a submit this row DID
-    // reach is on `mayHaveSubmitted` — and that one holds for the guardian leaves
+    // Skipping it was safe only under a second claim (that a submit this row DID
+    // reach is on `mayHaveSubmitted`), and that one holds for the guardian leaves
     // but not for a plain send, which stamps nothing (see
     // `cancelTransactionAfterPipelineStopped`). Marking costs little now that the
     // marker expires and is scoped to rows with something to protect: Retry waits
@@ -459,14 +503,76 @@ export const cancelStaleQueuedTransactions = async () => {
 };
 
 /**
- * Fail every transaction still in `GeneratingTransaction`, regardless of age.
+ * When this realm loaded the transaction module, in the whole seconds `processingStartedAt` uses.
+ * `failInterruptedTransactions` spares, by id, the rows this realm started, whatever the clock does,
+ * and spares any other row only when its stamp lies in a window from this cutoff to
+ * `MAX_WAIT_BEFORE_CANCEL` past the sweep's own second, which covers the rows another realm of this
+ * session started. `generateTransactionWithProvider` (index.ts, which imports this module) is the only
+ * writer of the Queued to GeneratingTransaction transition and stamps `processingStartedAt` in that
+ * write. For a row another realm started the stamp is all the sweep has. A stamp later than the sweep's
+ * second means the clock moved backwards after it: within the reaper's threshold it may be a live row
+ * another realm of this session stamped, so it is spared and left to the reaper, which reaps a dead one
+ * within the skew plus the threshold (`isTransactionStuck`), the allowance `pipelineMayStillBeRunning`
+ * gives `cancelledInFlightAt`. Beyond it the stamp tells nothing and the row fails here in the sweep
+ * (`hasUnexplainedFutureStamp`): a trade-off, not a proof, since another realm's live row after a clock
+ * step that large would fail too, accepted because no second realm stamps rows today. The reaper never
+ * fails such a row, whoever started or drives it; it waits out a clock step back past the threshold
+ * instead. A row an earlier process or browser session started is stamped before the cutoff unless it
+ * was stamped in the second this realm loaded or the clock stepped back across the restart; such a row
+ * inside the window is spared and falls to the age-gated reaper.
+ */
+export const SESSION_STARTED_AT = Math.floor(Date.now() / 1000);
+
+// Keeps one id per row this realm started, for the realm's life: any sweep this realm runs must spare them.
+// One sweep per realm is the norm (runtime.onStartup on the extension, the OrphanedTransactionRecovery latch
+// elsewhere), and a second is documented as safe only because the ids stay. Pruning at terminal writes would
+// couple the sweep to every status writer to save a few bytes per transaction.
+const startedInThisRealm = new Set<string>();
+
+/**
+ * Records that this realm is driving the row `id`, so `failInterruptedTransactions` spares it whatever
+ * the clock does. `generateTransactionWithProvider` calls it just before its GeneratingTransaction write.
+ */
+export const markStartedInThisRealm = (id: string): void => {
+  startedInThisRealm.add(id);
+};
+
+/**
+ * True for a row this realm did not start whose `processingStartedAt` lies more than
+ * `MAX_WAIT_BEFORE_CANCEL` past `nowSeconds`, a clock the caller read after its table read. Used by
+ * the cold-start sweep alone, `failInterruptedTransactions`, where a cold start leaves no other realm
+ * running for the stamp to belong to; the steady-state reaper, `cancelStuckTransactions`, never calls
+ * this, since a live row here could belong to another realm of the same session. A stamp is written at
+ * its writer's "now", so one that far ahead means the clock stepped back after it, and it tells nothing
+ * about a row this realm is not driving. That is a trade-off, not a proof: another realm's live row
+ * after a clock step that large would be failed too, which is accepted because no second realm stamps
+ * rows today (on the extension only the service worker stamps; elsewhere one realm runs the loop).
+ */
+const hasUnexplainedFutureStamp = (tx: Transaction, nowSeconds: number): boolean =>
+  !startedInThisRealm.has(tx.id) &&
+  tx.processingStartedAt !== undefined &&
+  tx.processingStartedAt > nowSeconds + MAX_WAIT_BEFORE_CANCEL;
+
+/**
+ * Fail every transaction an earlier process or browser session left in `GeneratingTransaction`,
+ * regardless of age.
  *
- * Called from the extension's `browser.runtime.onStartup` handler, which fires
- * ONLY on a genuine browser/profile cold-start — never on a service-worker
- * idle-wake. Any row still `GeneratingTransaction` at that point is
- * definitionally orphaned: the tab/SW that was driving it died when the browser
- * closed, so nothing will ever resume it. The steady-state
- * `cancelStuckTransactions` reaper only ages these out after
+ * Called from the extension's `browser.runtime.onStartup` handler (a genuine browser or profile
+ * cold start, never a service-worker idle-wake) and, off the extension, from
+ * `OrphanedTransactionRecovery` once per app process. Whatever drove such a row died with that
+ * process or session, so nothing will ever resume it. A row this realm started is live and is
+ * spared by its id (`markStartedInThisRealm`), whatever the clock does, so the sweep is sound
+ * whichever runs first: the unlock kick or the startup kick can move a Queued row before the sweep
+ * reads the table. A row another realm of this session started is spared when stamped from
+ * `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the second the sweep reads its clock, just
+ * after it reads the table, so a row stamped during that read is judged by a clock at least as late
+ * as its stamp. A later stamp means the clock moved backwards after it: within the reaper's threshold
+ * the row may be live and is left to the reaper; further out the stamp tells nothing and the row fails
+ * here, a trade-off stated at `hasUnexplainedFutureStamp`. The reaper never fails such a row on this
+ * basis, whoever started or drives it. A row with no stamp predates the field and is treated as an
+ * orphan.
+ *
+ * The steady-state `cancelStuckTransactions` reaper only ages these out after
  * `MAX_WAIT_BEFORE_CANCEL` (30 min on desktop) because `processingStartedAt` is
  * stamped to "now" at `generateTransaction`, so a send interrupted mid-prove
  * sits on "Sending" with no feedback for up to half an hour (issue #282).
@@ -475,12 +581,19 @@ export const cancelStaleQueuedTransactions = async () => {
  * We deliberately do NOT auto-retry. In the rare window where `submit()` landed
  * on chain but the browser died before the local apply/complete, the tx IS on
  * chain; resubmitting would trip the node's nullifier check. The next sync
- * reconciles that case — which is why the copy says "check your activity" rather
+ * reconciles that case, which is why the copy says "check your activity" rather
  * than promising nothing was submitted (the existing 30-min reaper already
  * marks that same edge case Failed, so this is not a new regression).
  */
 export const failInterruptedTransactions = async () => {
-  const transactions = await getTransactionsInProgress();
+  const inProgress = await getTransactionsInProgress();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const transactions = inProgress.filter(
+    tx =>
+      hasUnexplainedFutureStamp(tx, nowSeconds) ||
+      (!startedInThisRealm.has(tx.id) &&
+        (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT))
+  );
   await Promise.all(
     transactions.map(async tx =>
       cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')

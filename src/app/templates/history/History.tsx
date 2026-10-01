@@ -7,7 +7,9 @@ import {
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
+  isUnconfirmedFailure,
   isUserCancelledTransaction,
+  supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
@@ -27,8 +29,10 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
+import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
+import { isPendingActivityEntry } from './activityGroups';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -57,9 +61,9 @@ type HistoryProps = {
   searchQuery?: string;
   filter?: ActivityFilter;
   /**
-   * Fired when the transaction query settles, i.e. when the list stops being a
-   * spinner. The hosting screen reports "the user can see their activity" from
-   * this; the loading state lives here, so nothing above can derive it.
+   * Fired once the reads the current filter needs have answered (the in-flight read alone under Pending), i.e. when
+   * the list stops being a spinner; never while the page is off screen. The hosting screen reports "the user can see
+   * their activity" from this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
   /**
@@ -79,11 +83,14 @@ type HistoryProps = {
 export interface HistoryEntriesView {
   entries: IHistoryEntry[];
   initialLoading: boolean;
-  /** Either read behind `entries` failed. */
+  /** A read the current filter needs failed. */
   loadError: boolean;
-  /** Re-runs both reads. */
+  /** Re-runs whichever read is running. */
   onRetry: () => void;
-  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  /**
+   * False once the history is exhausted, and also while the settled read is not running (off screen, or under
+   * Pending), so it is final only for a page on screen off Pending. The Groups view passes its own false.
+   */
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
 }
@@ -103,13 +110,16 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
   );
 }
 
-// The chips above the activity list. `pending` shows only the notes that
-// wait for a claim, so it removes every settled history row.
+// The chips above the activity list. `pending` shows the notes that wait for a
+// claim and the wallet's own transactions still in flight, so it removes every
+// settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
 
 type ScopedEntries = { key: string; entries: IHistoryEntry[] };
 
 const NO_SCOPED_ENTRIES: ScopedEntries = { key: '', entries: [] };
+
+const NO_NOTES: ReadonlySet<string> = new Set();
 
 const History = memo<HistoryProps>(
   ({
@@ -166,58 +176,65 @@ const History = memo<HistoryProps>(
     }, [safeStateKey]);
 
     const onScreen = usePageActive();
-    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
-    // transaction reads run only while neither holds.
-    const reading = onScreen && filter !== 'pending';
+    // A retained page off screen is not read, so neither transaction read runs there. The Pending filter shows
+    // transfer cards and in-flight transactions only, so the settled-history read (and its paging) stops under it
+    // while the in-flight read keeps running.
+    const readingCompleted = onScreen && filter !== 'pending';
+    const readingPending = onScreen;
 
-    // No `keepPreviousData`: both keys carry the address and token, so it would show another
-    // account's (or token's) rows while this one loads; a key's own refresh keeps its data anyway.
+    // A read that is not running holds a null key rather than a paused one: another History on the same account
+    // (the Activity tab kept under a pushed group page) shares these keys, and SWR sends a key's refreshes (Retry,
+    // the cancel refresh, its error retry) to the first hook subscribed to it, so a paused subscriber would swallow
+    // them. A key that comes back is read again through `revalidateIfStale` (deduped inside the 3 s window), or
+    // `revalidateOnMount` the first time a hook runs it. No `keepPreviousData`: both keys carry the address and token,
+    // so it would show another account's (or token's) rows while this one loads.
+    const completedKey = [`latest-transactions`, address, tokenId];
+    const pendingKey = [`latest-pending-transactions`, address, tokenId];
     const {
-      data: latestTransactions,
-      isLoading: transactionsLoading,
+      data: liveTransactions,
       error: latestError,
       mutate: mutateLatest
     } = useRetryableSWR(
-      [`latest-transactions`, address, tokenId],
+      readingCompleted ? completedKey : null,
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 10_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !reading
+        dedupingInterval: 3_000
       }
     );
+    const latestTransactions = useLastData(completedKey, readingCompleted, liveTransactions);
 
     const {
-      data: latestPendingTransactions,
-      isLoading: pendingLoading,
+      data: livePendingTransactions,
       error: pendingError,
       mutate: mutateTx
     } = useRetryableSWR(
-      [`latest-pending-transactions`, address, tokenId],
+      readingPending ? pendingKey : null,
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 5_000,
-        dedupingInterval: 3_000,
-        isPaused: () => !reading
+        dedupingInterval: 3_000
       }
     );
-    useEffect(() => {
-      if (transactionsLoading) return;
-      onInitialLoad?.();
-    }, [transactionsLoading, onInitialLoad]);
+    const latestPendingTransactions = useLastData(pendingKey, readingPending, livePendingTransactions);
 
-    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
-    // screen, or a filter moved off Pending.
-    const wasReading = useRef(reading);
+    // A read the list needs is loading while it holds no data (live, or kept for this key) and no error: the
+    // settled read unless Pending, the in-flight read always. So a page mounted off screen stays loading, and reports
+    // no initial load, until it is on screen and its reads have answered. The spinner and the report read this value.
+    const transactionsLoading = latestTransactions === undefined && !latestError;
+    const pendingLoading = latestPendingTransactions === undefined && !pendingError;
+    const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
+    // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
+    // Under Pending the settled read holds a null key, so it holds no error either.
+    const loadError = Boolean(latestError || pendingError);
     useEffect(() => {
-      if (reading && !wasReading.current) {
-        void mutateLatest();
-        void mutateTx();
-      }
-      wasReading.current = reading;
-    }, [reading, mutateLatest, mutateTx]);
+      if (initialLoading) return;
+      onInitialLoad?.();
+    }, [initialLoading, onInitialLoad]);
 
     const pendingTransactions = useMemo(
       () =>
@@ -300,15 +317,54 @@ const History = memo<HistoryProps>(
     // An ACCEPTED transfer has no card any more — it is an ordinary row in this feed, drawn by
     // the same component as every other settled transaction — so its consume row must come
     // through rather than be hidden behind a card that no longer exists.
-    const representedNotes = new Set(
+    const representedNotes: ReadonlySet<string> = new Set(
       pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
+    // A note that leaves that set (its claim completed, auto-consume took it, a decline, a filter chip) can still
+    // have its failed attempts in settled reads fetched before its claim was Completed, which is what supersedes them
+    // (#771). Only the settled read holds Failed rows, and it runs only while the in-flight read does, so the note
+    // stays hidden until a refresh started after it left settles with the settled read running; the fresh read then
+    // decides. The set as last committed covers the render in which a note leaves, which paints before any effect.
+    // The held notes are a ref, filled in the same step that empties the committed set: a state update queued from
+    // the effect is skipped by a higher-priority render, which would then hide the note through neither set and find
+    // no hold to restart for. The state is only a counter a release bumps to draw the rows it frees, and a counter
+    // never nets back to the value last rendered.
+    const committedNotes = useRef<ReadonlySet<string>>(NO_NOTES);
+    const heldNotes = useRef<ReadonlySet<string>>(NO_NOTES);
+    const [, setReleases] = useSafeState(0);
+    const refreshSeq = useRef(0);
+    // Written only by the effect, which runs after every commit and does nothing on one with no leave and no read
+    // starting, so a refresh that settles after the page left the screen (or went to Pending) sees the read stopped:
+    // the page then still draws its pre-refresh rows, attempts included.
+    const settledReadRunning = useRef(readingCompleted);
+    useEffect(() => {
+      const leaving = [...committedNotes.current].filter(id => !representedNotes.has(id));
+      committedNotes.current = representedNotes;
+      const readStarted = readingCompleted && !settledReadRunning.current;
+      settledReadRunning.current = readingCompleted;
+      if (leaving.length > 0) heldNotes.current = new Set([...heldNotes.current, ...leaving]);
+      // A settled read that was off when the last refresh settled still owes the held notes one. No timer: a refresh
+      // that never settles keeps them hidden until the next leave's refresh settles or History unmounts, even while
+      // the other read keeps updating.
+      if (leaving.length === 0 && !(readStarted && heldNotes.current.size > 0)) return;
+      const seq = ++refreshSeq.current;
+      const startedRunning = readingCompleted;
+      void Promise.allSettled([mutateLatest(), mutateTx()]).then(() => {
+        // Only the latest refresh started after every leave, and SWR discards an older fetch that a newer mutate
+        // replaced, so an earlier refresh can settle on stale data. A read not running was not refreshed at all.
+        if (startedRunning && settledReadRunning.current && seq === refreshSeq.current) {
+          heldNotes.current = NO_NOTES;
+          setReleases(n => n + 1);
+        }
+      });
+    });
+    const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>
         !(
           entry.txType === 'consume' &&
           entry.consumedNoteIds?.length &&
-          entry.consumedNoteIds.every(id => representedNotes.has(id))
+          entry.consumedNoteIds.every(id => hiddenNotes.has(id))
         )
     );
     if (searchQuery?.trim()) {
@@ -319,7 +375,8 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        if (filter === 'pending') return false;
+        // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
+        if (filter === 'pending') return isPendingActivityEntry(e);
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -342,11 +399,6 @@ const History = memo<HistoryProps>(
       entries = entries.slice(0, maxIndex);
     }
 
-    // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-    // One list, so it is loading until both reads have answered once.
-    const initialLoading = filter !== 'pending' && (transactionsLoading || pendingLoading);
-    // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
-    const loadError = filter !== 'pending' && Boolean(latestError || pendingError);
     const onRetry = () => {
       void mutateLatest();
       void mutateTx();
@@ -360,7 +412,7 @@ const History = memo<HistoryProps>(
             initialLoading,
             loadError,
             onRetry,
-            hasMore: reading && hasMore,
+            hasMore: readingCompleted && hasMore,
             loadMore
           })}
         </>
@@ -374,9 +426,9 @@ const History = memo<HistoryProps>(
         loadError={loadError}
         onRetry={onRetry}
         loadMore={loadMore}
-        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
-        // row is filtered out, and off screen.
-        hasMore={reading && hasMore}
+        // Paging reads settled rows, so it stops wherever that read is off: under Pending, where every settled row
+        // is filtered out, and off screen.
+        hasMore={readingCompleted && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
@@ -406,6 +458,7 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
+    const isUnconfirmed = isUnconfirmedFailure(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
@@ -485,6 +538,7 @@ async function fetchTransactionsAsHistoryEntries(
       guardianSwitchVerdict: rotationVerdict(tx)?.kind,
       errorMessage: tx.error,
       isCancelled,
+      isUnconfirmed,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -580,20 +634,27 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
 }
 
 /**
- * Suppress auto-consume rows that are the tail of another row's lifecycle
- * while that primary row still exists — it is the single trace: a swap
- * order's settlement consume (payback claim or expiry reclaim, linked via
- * `swapOrderTxId`). A dangling reference (primary row gone) falls through
- * to a normal receive row. Shared by the completed and pending fetches so the
- * two lists can't desynchronize. Token-scoped views stay complete because the
- * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
- * the swap row on its requested-token page too. The tab's unread mark
- * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
- * this feed hides.
+ * Suppress consume rows that are the tail of another row's lifecycle while
+ * that primary row still exists, so the primary is the single trace
+ * (`suppressedLinkedConsumeIds`): a swap order's settlement consume (payback
+ * claim or expiry reclaim, linked via `swapOrderTxId`), a bridge receive's
+ * consume, and an Earn withdraw's consume while the withdraw has not failed
+ * and matches the consume's intent attempt. A dangling reference (primary row
+ * gone) falls through to a normal receive row. It also drops a Failed claim
+ * row whose every note this account has claimed (`supersededFailedConsumeIds`,
+ * #771). Shared by the completed and pending fetches so the two lists can't
+ * desynchronize. Token-scoped views stay complete because the token filter
+ * (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces the swap row
+ * on its requested-token page too. Token Detail renders through these
+ * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
+ * this as well, so neither shows or counts a row this feed hides.
  */
 export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
-  const suppressed = await suppressedLinkedConsumeIds(transactions);
-  return transactions.filter(tx => !suppressed.has(tx.id));
+  const [linked, superseded] = await Promise.all([
+    suppressedLinkedConsumeIds(transactions),
+    supersededFailedConsumeIds(transactions)
+  ]);
+  return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

@@ -26,6 +26,7 @@ const ImportAccount: FC = () => {
   const { importAccount, updateCurrentAccount } = useMidenContext();
   const goBack = useBackWithFallback('/');
   const [error, setError] = useState<ReactNode>(null);
+  const [clipboardNotCleared, setClipboardNotCleared] = useState(false);
   const {
     register,
     handleSubmit,
@@ -69,6 +70,12 @@ const ImportAccount: FC = () => {
         </Button>
       }
     >
+      {clipboardNotCleared && (
+        <Notice tone="warning" role="alert" data-testid="import-account-clipboard-warning">
+          {t('privateKeyClipboardNotCleared')}
+        </Notice>
+      )}
+
       {error && (
         <Notice tone="negative" role="alert" title={t('error')} data-testid="import-account-error">
           {error}
@@ -94,7 +101,7 @@ const ImportAccount: FC = () => {
           placeholder={t('privateKeyInputPlaceholder')}
           error={errors.privateKey?.message}
           className="font-sans"
-          onPaste={clearClipboard}
+          onPaste={() => void clearClipboard().then(wiped => setClipboardNotCleared(!wiped))}
         />
 
         <TextField

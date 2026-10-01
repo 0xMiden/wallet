@@ -1,6 +1,6 @@
 /**
- * Motion for the copy confirmation, shared by every copy control (`CopyButton`, `CopyChip` and the
- * seed-phrase copy actions through `AnimatedCopyIcon` and `CopyLabel`).
+ * Motion for the copy confirmation, shared by `CopyButton`, `CopyChip` and the seed-phrase copy
+ * actions through `AnimatedCopyIcon` and `CopyLabel`.
  *
  * The copy glyph morphs into a check: the outgoing glyph shrinks, turns and blurs away while the
  * incoming one grows, straightens and sharpens in its place, both on the tab bar's `tabSwitch`

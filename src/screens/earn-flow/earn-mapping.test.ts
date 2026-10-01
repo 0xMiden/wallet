@@ -141,7 +141,6 @@ const libVault = (overrides: Partial<EarnVaultInfo> = {}): EarnVaultInfo => ({
   lenderName: 'Dummy Lending',
   logoUri: '',
   chainId: '11155111',
-  apr: 2,
   depositApr: 2,
   ...overrides
 });
