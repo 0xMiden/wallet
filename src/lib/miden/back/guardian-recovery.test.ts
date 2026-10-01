@@ -518,6 +518,84 @@ describe('detached recovery run', () => {
     }
   });
 
+  it('admits a replaced wallet after an evicted notes pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('admits a replaced wallet after an evicted history pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: true,
+      evicted: true,
+      sourceFailures: 0,
+      restored: 0,
+      deferredSources: 0
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
+  it('keeps an evicted pass parked when the generation read fails (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockRejectedValueOnce(new Error('storage down'));
+    try {
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    } finally {
+      mockReadGeneration.mockReset();
+    }
+  });
+
+  it('starts one run when two starts race after a generation change (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    const [a, b] = await Promise.all([maybeStartGuardianRecovery(account), maybeStartGuardianRecovery(account)]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    await drainDetachedRun();
+  });
+
+  it('keeps an evicted pass parked across a lock for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
   it('still re-offers a history pass deferred by a yield (F-118)', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest

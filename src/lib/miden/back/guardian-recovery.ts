@@ -691,9 +691,11 @@ export async function recoverPendingNotes(
  * attempt per unlock: the flag stays set for the next unlock or backend start
  * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
  * drain/backfill in a loop against a persistently failing source. A notes or
- * history pass deferred by a lock eviction keeps its entry too and resumes
- * from its checkpoint at the next backend start, since a re-offer would re-run
- * an op that can hold the mutex for the whole watchdog on every lap.
+ * history pass deferred by a lock eviction keeps its entry too, for its own
+ * wallet generation, and resumes from its checkpoint at the next backend start,
+ * since a re-offer would re-run an op that can hold the mutex for the whole
+ * watchdog on every lap; a wallet replaced since then is admitted on its next
+ * offer (`evictedRecoveries`).
  *
  * Entries are released again only where the run never really got its turn — a
  * refused start, a rejected eligibility query, or a wallet lock — since those
@@ -712,6 +714,13 @@ const startedRecoveries = new Set<string>();
  * on its own.
  */
 const failedRecoveries = new Set<string>();
+
+/**
+ * Accounts whose run was ended by a lock eviction, keyed to the history
+ * generation that run took. The account stays reserved for that generation,
+ * and a replaced wallet's generation admits it.
+ */
+const evictedRecoveries = new Map<string, string>();
 
 /** Bumped by every lock, so a run that ends after one knows its entry is already due for release. */
 let lockEpoch = 0;
@@ -761,12 +770,15 @@ let recoveryQueue: Promise<void> = Promise.resolve();
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
   if (!account.guardianNoteRecoveryPending) return false;
   if (account.requiresHotKeyRotation) return false;
-  if (startedRecoveries.has(account.publicKey)) return false;
-
-  // Reserve the slot BEFORE awaiting: concurrent requests for the same
-  // account (popup + full page both mount the provider) would otherwise both
-  // pass the check above while the first one's Dexie query is in flight.
-  startedRecoveries.add(account.publicKey);
+  if (startedRecoveries.has(account.publicKey)) {
+    // An admitted account keeps its entry, which already reserves the slot for the run that follows.
+    if (!(await admitAfterEviction(account.publicKey))) return false;
+  } else {
+    // Reserve the slot BEFORE awaiting: concurrent requests for the same
+    // account (popup + full page both mount the provider) would otherwise both
+    // pass the check above while the first one's Dexie query is in flight.
+    startedRecoveries.add(account.publicKey);
+  }
   try {
     // A terminal history checkpoint (a node's "no fee" answer, or an own operator's unsupported answer or a
     // source's invalid data marked at the cap) whose run could not clear the flag clears it here, so the gate
@@ -796,6 +808,26 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // its own errors, but a rejection here would short-circuit every later
   // `.then` and strand accounts that are already marked started.
   recoveryQueue = recoveryQueue.then(() => runDetachedRecovery(account)).catch(() => {});
+  return true;
+}
+
+/**
+ * Whether a reserved account was parked by a lock eviction and its wallet has
+ * been replaced since. A read that rejects counts as unchanged. The parked
+ * entry is consumed only if it is still the one read before the await, so of
+ * two racing starts only one is admitted.
+ */
+async function admitAfterEviction(publicKey: string): Promise<boolean> {
+  const parked = evictedRecoveries.get(publicKey);
+  if (parked === undefined) return false;
+  let current: string;
+  try {
+    current = await readGuardianHistoryGeneration();
+  } catch {
+    return false;
+  }
+  if (current === parked || evictedRecoveries.get(publicKey) !== parked) return false;
+  evictedRecoveries.delete(publicKey);
   return true;
 }
 
@@ -838,6 +870,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     generation = await readGuardianHistoryGeneration();
     const result = await recoverPendingNotes(account, generation);
     if (result.deferred && result.evicted) {
+      evictedRecoveries.set(account.publicKey, generation);
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
@@ -868,6 +901,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       generation
     });
     if (history.deferred && history.evicted) {
+      evictedRecoveries.set(account.publicKey, generation);
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
