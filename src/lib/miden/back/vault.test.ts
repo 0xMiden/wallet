@@ -2127,9 +2127,16 @@ describe('Vault.spawnFromMidenClient', () => {
 
   it('rejects a restore request that names no backup version', async () => {
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [
+          { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
+        ],
+        // @ts-expect-error the type admits only version 2; the runtime guard covers a request that bypasses it.
+        undefined,
+        []
+      )
     ).rejects.toThrow('Encrypted file uses an unsupported backup version');
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
     expect(await Vault.hasPasswordProtector()).toBe(false);
@@ -2143,6 +2150,7 @@ describe('Vault.spawnFromMidenClient', () => {
         [
           { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
         ],
+        // @ts-expect-error the type admits only version 2; the runtime guard covers a request that bypasses it.
         1,
         []
       )

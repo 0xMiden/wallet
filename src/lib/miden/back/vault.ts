@@ -53,7 +53,13 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { MNEMONIC_PATTERN, importedAccountBackupFailure, isWalletAccount, normalizeBackupHex } from '../backup-file';
+import {
+  CURRENT_BACKUP_FORMAT_VERSION,
+  MNEMONIC_PATTERN,
+  importedAccountBackupFailure,
+  isWalletAccount,
+  normalizeBackupHex
+} from '../backup-file';
 import {
   authorizeRecovery,
   beginRecoveryAuthorization,
@@ -1286,8 +1292,8 @@ export class Vault {
     password: string,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    formatVersion?: number,
-    importedAccounts: ImportedAccountBackup[] = []
+    formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
+    importedAccounts: ImportedAccountBackup[]
   ): Promise<Vault> {
     let spawned: Vault | undefined;
     // The protector has to exist before the keystore inserts, but everything else

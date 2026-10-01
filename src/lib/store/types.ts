@@ -2,6 +2,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
+import type { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
@@ -154,8 +155,8 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    formatVersion?: number,
-    importedAccounts?: ImportedAccountBackup[]
+    formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
+    importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 

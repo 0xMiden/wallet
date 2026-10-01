@@ -137,16 +137,18 @@ export const normalizeBackupHex = (value: string): string =>
 
 export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
   if (!isRecord(value)) throw new MalformedBackupFileError();
-  requireCommonPayload(value);
 
   // An unversioned file predates version 2; `UnsupportedBackupVersionError` would call it newer.
   if (value.formatVersion === undefined) throw new MalformedBackupFileError();
 
   if (value.formatVersion !== CURRENT_BACKUP_FORMAT_VERSION) {
-    // Unknown versions fail before any database import. Forward compatibility
-    // must be explicit because new versions may strengthen secret bindings.
+    // Unknown versions fail before any database import, and before the shape
+    // checks: a newer format may change the records those checks judge.
+    // Forward compatibility must be explicit because new versions may
+    // strengthen secret bindings.
     throw new UnsupportedBackupVersionError();
   }
+  requireCommonPayload(value);
   if (!Array.isArray(value.importedAccounts)) throw new MalformedBackupFileError();
 
   const importedAccounts = value.importedAccounts.map(parseImportedAccount);

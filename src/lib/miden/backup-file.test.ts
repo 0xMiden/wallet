@@ -64,6 +64,19 @@ describe('parseDecryptedWalletFile', () => {
     );
   });
 
+  it('reports a future format version before judging its account records', () => {
+    const withoutScheme = {
+      publicKey: 'miden-account-no-scheme',
+      name: 'No scheme',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+    expect(() =>
+      parseDecryptedWalletFile({ ...versionTwoPayload, formatVersion: 3, accounts: [withoutScheme] })
+    ).toThrow(UnsupportedBackupVersionError);
+  });
+
   it.each([
     ['missing accounts', { ...versionTwoPayload, accounts: undefined }],
     ['non-array accounts', { ...versionTwoPayload, accounts: {} }],

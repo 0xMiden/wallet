@@ -661,7 +661,7 @@ describe('actions', () => {
       Vault.spawnFromMidenClient.mockRejectedValueOnce(new Error('restore failed'));
       mockStoreState.status = WalletStatus.Idle;
       mockInstallRealmKeystore.mockClear();
-      await expect(registerImportedWallet('pw', 'mnemonic', [])).rejects.toThrow('restore failed');
+      await expect(registerImportedWallet('pw', 'mnemonic', [], 2, [])).rejects.toThrow('restore failed');
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
     });
 
@@ -674,7 +674,7 @@ describe('actions', () => {
         Object.assign(mockStoreState, { vault });
       });
       mockInstallRealmKeystore.mockClear();
-      await registerImportedWallet('pw', 'mnemonic', []);
+      await registerImportedWallet('pw', 'mnemonic', [], 2, []);
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: imported.insertKeySink });
     });
 
@@ -819,9 +819,9 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerImportedWallet(undefined, undefined);
+      await registerImportedWallet(undefined, undefined, [], 2, []);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', [], undefined, []);
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', [], 2, []);
     });
   });
 

@@ -28,6 +28,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import type { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
 import { clearStorage } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
@@ -275,11 +276,11 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
 }
 
 export function registerImportedWallet(
-  password?: string,
-  mnemonic?: string,
-  walletAccounts: WalletAccount[] = [],
-  formatVersion?: number,
-  importedAccounts: ImportedAccountBackup[] = []
+  password: string | undefined,
+  mnemonic: string | undefined,
+  walletAccounts: WalletAccount[],
+  formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
+  importedAccounts: ImportedAccountBackup[]
 ) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
