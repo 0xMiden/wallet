@@ -25,7 +25,7 @@ const check = process.argv.includes('--check');
 const version = JSON.parse(readFileSync(resolve(root, packagePath, 'package.json'), 'utf8')).version;
 if (version !== '0.16.1') throw new Error(`Relay patch requires SDK 0.16.1, found ${version}`);
 
-const temporary = mkdtempSync(join(tmpdir(), 'note-relay-patch-'));
+const temporary = check ? null : mkdtempSync(join(tmpdir(), 'note-relay-patch-'));
 try {
   let patch = '';
   for (const bundle of bundles) {
@@ -41,8 +41,13 @@ try {
     const imports = patched.match(/function __wbg_get_imports\([^)]*\) \{/g);
     if (imports?.length !== 1) throw new Error(`Missing imports in ${bundle}`);
     patched = patched.replace(imports[0], `${block}${imports[0]}`);
-    if (check && current !== patched) throw new Error(`Installed SDK relay patch is stale: ${bundle}`);
-    if (!check) writeFileSync(resolve(root, path), patched);
+    if (check) {
+      // Postinstall applied the committed patch, so these bytes are its proof. Its text is
+      // never regenerated here: GNU and BSD diff align the same edit differently.
+      if (current !== patched) throw new Error(`Installed SDK relay patch is stale: ${bundle}`);
+      continue;
+    }
+    writeFileSync(resolve(root, path), patched);
     const before = join(temporary, 'before');
     const after = join(temporary, 'after');
     writeFileSync(before, original);
@@ -52,11 +57,16 @@ try {
     patch += `diff --git a/${path} b/${path}\n${result.stdout}`;
   }
   if (check) {
-    if (readFileSync(patchPath, 'utf8') !== patch) throw new Error('Committed relay patch is stale');
+    // Write mode replaces the whole file, so anything else in it would be lost on regeneration.
+    const files = [...readFileSync(patchPath, 'utf8').matchAll(/^diff --git a\/(\S+) b\//gm)].map(match => match[1]);
+    const expected = bundles.map(bundle => `${packagePath}/${bundle}`);
+    const unexpected = files.filter(file => !expected.includes(file));
+    if (unexpected.length > 0) throw new Error(`Committed relay patch has an unexpected file: ${unexpected.join(', ')}`);
+    if (files.join('\n') !== expected.join('\n')) throw new Error('Committed relay patch must list the six bundles in order');
   } else {
     writeFileSync(patchPath, patch);
   }
   console.log(`SDK relay patch ${check ? 'verified' : 'generated'} for ${bundles.length} bundles`);
 } finally {
-  rmSync(temporary, { recursive: true, force: true });
+  if (temporary) rmSync(temporary, { recursive: true, force: true });
 }

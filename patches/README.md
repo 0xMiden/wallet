@@ -14,8 +14,11 @@ The patch covers both WASM fetch imports in all six single-threaded and
 multithreaded bundles, including classic workers. The canonical helper is
 `src/lib/miden/sdk/note-relay-fetch.mjs`; it is inlined because classic workers
 cannot depend on a new module import. After editing it, regenerate with
-`node scripts/generate-note-relay-patch.mjs`, then verify with the same command's
-`--check` flag. Updating the SDK requires checking these seams again.
+`node scripts/generate-note-relay-patch.mjs`. Its `--check` flag verifies the
+installed bundles, which postinstall built from the committed patch, and that the
+patch lists only the six bundles; it never compares the patch text, because GNU and
+BSD `diff` print the same edit differently. Updating the SDK requires checking these
+seams again.
 
 ## inspect-cli-cdp-fix.patch
 

@@ -1,7 +1,8 @@
 /** @jest-environment node */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 import { normalizeNoteRelayFetch } from './note-relay-fetch.mjs';
@@ -18,9 +19,56 @@ const bundles = [
 const sendUrl = 'https://transport.miden.io/miden_note_transport.MidenNoteTransport/SendNote';
 const duplicateMessage = 'Failed to store note: ConstraintViolation(Unique constraint violation)';
 
+const repoRoot = resolve(__dirname, '../../../..');
+const generator = 'scripts/generate-note-relay-patch.mjs';
+const patchFile = 'patches/@miden-sdk+miden-sdk+0.16.1.patch';
+
 it('verifies the installed patch and all six inlined copies against the canonical helper', () => {
-  const script = resolve(__dirname, '../../../../scripts/generate-note-relay-patch.mjs');
+  const script = resolve(repoRoot, generator);
   expect(execFileSync(process.execPath, [script, '--check'], { encoding: 'utf8' })).toContain('verified for 6 bundles');
+});
+
+describe('generate-note-relay-patch --check', () => {
+  let scratch: string;
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'note-relay-check-'));
+  });
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('never runs the host diff, whose output differs between GNU and BSD', () => {
+    // A `diff` that always fails: check mode must not need one.
+    const bin = join(scratch, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'diff'), '#!/bin/sh\nexit 2\n');
+    chmodSync(join(bin, 'diff'), 0o755);
+    const output = execFileSync(process.execPath, [resolve(repoRoot, generator), '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: bin }
+    });
+    expect(output).toContain('verified for 6 bundles');
+  });
+
+  it('rejects a committed patch that touches a file outside the six bundles', () => {
+    // The script resolves the repository from its own location, so a copy of it runs
+    // against a scratch root whose patch carries one extra file.
+    for (const path of [generator, 'src/lib/miden/sdk/note-relay-fetch.mjs']) {
+      mkdirSync(dirname(join(scratch, path)), { recursive: true });
+      copyFileSync(resolve(repoRoot, path), join(scratch, path));
+    }
+    mkdirSync(join(scratch, 'node_modules/@miden-sdk'), { recursive: true });
+    symlinkSync(resolve(repoRoot, 'node_modules/@miden-sdk/miden-sdk'), join(scratch, 'node_modules/@miden-sdk/miden-sdk'));
+    const extra = 'node_modules/@miden-sdk/miden-sdk/dist/st/index.js';
+    mkdirSync(join(scratch, 'patches'));
+    writeFileSync(
+      join(scratch, patchFile),
+      `${readFileSync(resolve(repoRoot, patchFile), 'utf8')}diff --git a/${extra} b/${extra}\n--- a/${extra}\n+++ b/${extra}\n@@ -1 +1 @@\n-a\n+b\n`
+    );
+    expect(() =>
+      execFileSync(process.execPath, [join(scratch, generator), '--check'], { encoding: 'utf8', stdio: 'pipe' })
+    ).toThrow(/unexpected file.*dist\/st\/index\.js/);
+  });
 });
 
 function trailer(status: number, message: string): Uint8Array<ArrayBuffer> {
