@@ -189,11 +189,17 @@ describe('normalizeNoteRelayFetch', () => {
   const post = { method: 'POST' };
   const inspected: Array<{ original: Response; clone: jest.SpyInstance }> = [];
 
+  // Its log lines have their own suite below.
+  beforeEach(() => {
+    jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
   // The helper never reads a body: tonic takes a header status without one.
   afterEach(() => {
-    for (const { original, clone } of inspected.splice(0)) {
-      if (clone.mock.calls.length > 0 || original.bodyUsed) throw new Error('The helper read a response body');
-    }
+    const read = inspected.splice(0).some(({ original, clone }) => clone.mock.calls.length > 0 || original.bodyUsed);
+    jest.restoreAllMocks();
+    if (read) throw new Error('The helper read a response body');
   });
 
   // Defaults to a POST to SendNote; an explicit `undefined` options argument is kept.
@@ -375,5 +381,62 @@ describe('normalizeNoteRelayFetch', () => {
   it('preserves the original fetch rejection', async () => {
     const aborted = new DOMException('Aborted', 'AbortError');
     await expect(normalizeNoteRelayFetch(sendUrl, post, Promise.reject(aborted))).rejects.toBe(aborted);
+  });
+});
+
+describe('normalizeNoteRelayFetch logging', () => {
+  const post = { method: 'POST' };
+  let info: jest.SpyInstance;
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    info = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    ['13', duplicateMessage],
+    ['6', 'Note already exists']
+  ])(
+    'logs one info line naming status %s and the message when it acknowledges a duplicate',
+    async (status, message) => {
+      await normalizeNoteRelayFetch(sendUrl, post, Promise.resolve(headersOnly(status, message)));
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(info).toHaveBeenCalledWith('[noteRelay] SendNote duplicate acknowledged', { status, message });
+      expect(warn).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ['13', 'storage%20unavailable'],
+    ['13', '%zz'],
+    ['6', '%zz']
+  ])('logs one warning with status %s and the raw message %p when it passes a rejection on', async (status, raw) => {
+    const original = new Response(new Uint8Array(), {
+      headers: { 'content-type': 'application/grpc-web+proto', 'grpc-status': status, 'grpc-message': raw }
+    });
+    expect(await normalizeNoteRelayFetch(sendUrl, post, Promise.resolve(original))).toBe(original);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[noteRelay] SendNote rejection left for the outbox to retry', {
+      status,
+      message: raw
+    });
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a FetchNotes rejection', sendUrl.replace('/SendNote', '/FetchNotes'), headersOnly('13', 'storage unavailable')],
+    ['an unavailable SendNote', sendUrl, headersOnly('14', 'transport unavailable')],
+    [
+      'a SendNote success',
+      sendUrl,
+      new Response(trailer(0, ''), { headers: { 'content-type': 'application/grpc-web+proto' } })
+    ]
+  ])('stays silent for %s', async (_name, url, original) => {
+    await normalizeNoteRelayFetch(url, post, Promise.resolve(original));
+    expect(info).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

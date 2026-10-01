@@ -172,8 +172,10 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
     try {
       await midenClientProxy.relayPrivateNoteById(target.noteId, target.recipient);
       // Duplicate SendNote responses are normalized before WASM sees them, so an
-      // ACK can mean either a new insertion or an already-stored note. Only the
-      // nullifier proves delivery; an ACK alone cannot diagnose a silent loss.
+      // ACK can mean either a new insertion or an already-stored note. The relaying
+      // realm logs `[noteRelay] SendNote duplicate acknowledged` for the latter, so an
+      // ACK without that line is a note the transport did not hold: the silent loss
+      // this sweep repairs. Only the nullifier proves delivery.
       console.info('[noteDeliverySweep] transport acknowledged private note', {
         txId: row.id,
         noteId: target.noteId,

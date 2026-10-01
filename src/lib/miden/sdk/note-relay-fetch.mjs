@@ -20,15 +20,27 @@ export async function normalizeNoteRelayFetch(request, options, pendingResponse)
     // reading the body, so neither does this.
     const status = response.headers.get('grpc-status');
     if (status !== '6' && status !== '13') return response;
-    const message = decodeURIComponent(response.headers.get('grpc-message') ?? '');
+    const raw = response.headers.get('grpc-message') ?? '';
+    let message = null;
+    try {
+      message = decodeURIComponent(raw);
+    } catch {
+      // Reported below with the raw text.
+    }
     // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
     // names it proves this note is stored.
     const duplicate =
-      status === '6' ||
-      /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
-        message
-      );
-    if (!duplicate) return response;
+      message !== null &&
+      (status === '6' ||
+        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
+          message
+        ));
+    if (!duplicate) {
+      // The outbox resends this on every sync, so a changed transport message shows up here.
+      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
+      return response;
+    }
+    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
 
     // SendNoteResponse is empty, but tonic still requires a unary protobuf data frame.
     const ack = new Uint8Array(26);
