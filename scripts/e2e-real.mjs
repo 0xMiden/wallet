@@ -193,11 +193,26 @@ export function suiteRetries(suite) {
  * real money. Lookaheads match anywhere in the title, which is what each pattern
  * did on its own. Each pattern is grouped so the `.*` reaches every alternative:
  * without the group, (?=.*a|b) tests b only where the match starts.
+ *
+ * Each given pattern must compile on its own, or this throws: one that does not
+ * can close the group it is spliced into, and `x))|((` then composes into a
+ * valid pattern with an empty alternative that matches every title.
  */
 export function composeGrep(suiteGrep, userGrep) {
+  assertRegExp(suiteGrep, "the suite's grep");
+  assertRegExp(userGrep, '--grep');
   if (!suiteGrep) return userGrep;
   if (!userGrep) return suiteGrep;
   return `(?=.*(?:${suiteGrep}))(?=.*(?:${userGrep}))`;
+}
+
+function assertRegExp(pattern, label) {
+  if (!pattern) return;
+  try {
+    new RegExp(pattern);
+  } catch {
+    throw new Error(`${label} is not a valid regular expression: ${pattern}`);
+  }
 }
 
 function fail(message) {
@@ -744,7 +759,12 @@ async function main() {
   // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
   // then run the real-money Epoch spec the suite exists to exclude. Lookaheads
   // are how two patterns become one that requires both.
-  const grep = composeGrep(suite.grep, opts.grep);
+  let grep;
+  try {
+    grep = composeGrep(suite.grep, opts.grep);
+  } catch (error) {
+    fail(error.message);
+  }
   if (grep) args.push('--grep', grep);
   if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
   if (opts.headed) args.push('--headed');

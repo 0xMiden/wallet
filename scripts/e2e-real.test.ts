@@ -50,6 +50,16 @@ describe('composeGrep', () => {
     expect(composeGrep(undefined, 'smoke')).toBe('smoke');
     expect(composeGrep(undefined, undefined)).toBeUndefined();
   });
+
+  it('refuses a user pattern that only compiles once composed', () => {
+    // Composed, this closes its own lookahead and adds an empty alternative that
+    // matches every title, widening the run onto every real-money spec.
+    expect(() => composeGrep('Slow AggLayer', 'x))|((')).toThrow('not a valid regular expression');
+  });
+
+  it('refuses an invalid user pattern even with no suite filter to compose with', () => {
+    expect(() => composeGrep(undefined, '(')).toThrow('not a valid regular expression');
+  });
 });
 
 describe('suiteRetries', () => {
