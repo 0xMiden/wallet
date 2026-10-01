@@ -138,7 +138,11 @@ jobs:
     # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
     # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
     runs-on: macos-26
-    timeout-minutes: 75
+    # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
+    # on the runner. That step finished in 73 minutes, and the 75 minute limit
+    # then cancelled yarn install. The other linked-SDK jobs already use 120.
+    # A run without the marker does not build the SDK, so the extra ceiling is idle.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
