@@ -42,52 +42,6 @@ const RELAY_WINDOW_SECONDS = 6 * 60 * 60;
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-/**
- * Does this re-push failure mean "the transport already holds this note"?
- *
- * The transport's `notes` table declares `id BLOB NOT NULL UNIQUE` alongside its
- * `seq` primary key (note-transport-service, migration
- * `20260422000000_add_seq_cursor`), and `store_note` is a bare
- * `diesel::insert_into` with no `ON CONFLICT` clause, so re-pushing a note it
- * already holds fails on that unique index. Its gRPC layer currently surfaces the
- * failure as `Internal` carrying the SQLite text rather than as `AlreadyExists`, so
- * matching on the message is the only option until the service returns a
- * distinguishable code (tracked upstream).
- *
- * Matching is deliberately narrow. The generic spellings - a bare
- * `ConstraintViolation`, or "already exists" on its own - appear in unrelated
- * failures on this path: tonic's stock `AlreadyExists` blurb, Dexie/IndexedDB
- * `ConstraintError`, and the SDK's own account-tree and asset-vault errors. Since a
- * match suppresses the delivery warning, an over-broad pattern would hide exactly
- * the failure this sweep exists to surface. A text match must name the note key or
- * the transport's exact `Failed to store note` uniqueness error, and a status-code
- * match must be a real `AlreadyExists`. Naming the key alone is not enough: the service funnels every
- * constraint kind through one `ConstraintViolation` variant, so a NOT NULL or
- * foreign-key failure on the same column reads almost identically while meaning the
- * opposite - nothing was stored.
- */
-const isAlreadyStoredRejection = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    // The uniqueness collision on `notes.id`, in either spelling this path produces:
-    // SQLite's own `UNIQUE constraint failed: notes.id` (which is what the deployed
-    // service passes through today) and diesel's `Unique constraint violation`.
-    // `[^.]` rather than a length bound: it stops the match from stepping over a
-    // DIFFERENT dotted column on its way to this one, which a message naming several
-    // tables would otherwise satisfy.
-    /\bunique constraint (?:failed|violation)\b[^.]{0,40}\bnotes\.id\b/i.test(message) ||
-    /\bFailed to store note:\s*ConstraintViolation\(\s*["']?Unique constraint violation["']?\s*\)/i.test(message) ||
-    // A service that starts returning a proper gRPC status keeps working unchanged.
-    // Tonic spells it two ways - `status: AlreadyExists` (Display) and `Status {
-    // code: AlreadyExists` (Debug) - and a gRPC-web trailer carries the numeric 6.
-    // The numeric form has to be paired with the message, because a bare `6` also
-    // appears in header dumps and quoted earlier responses whose real status is
-    // something else entirely.
-    /\b(?:status|code):\s*AlreadyExists\b/i.test(message) ||
-    /\b(?:grpc-status|code):\s*6\b.*\balready exists\b/i.test(message)
-  );
-};
-
 const backoffFor = (attempts: number): number => {
   const last = RELAY_BACKOFF_SECONDS[RELAY_BACKOFF_SECONDS.length - 1] ?? 1_800;
   return RELAY_BACKOFF_SECONDS[Math.min(attempts, RELAY_BACKOFF_SECONDS.length - 1)] ?? last;
@@ -138,6 +92,8 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * the recipient's cursor (note-transport-service#77). Only its on-chain nullifier
  * confirms delivery. A genuinely missing note is stored by a retry; an already
  * stored note is acknowledged at the SDK fetch boundary so it leaves the outbox.
+ * Every rejection that still reaches the sweep is therefore a failure, including a
+ * duplicate that boundary did not recognize, whose outbox entry is then stuck.
  *
  * Per-row failures preserve a prior ACK and never fail a landed transaction.
  */
@@ -225,43 +181,19 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
         priorState: row.noteDelivery
       });
     } catch (error) {
-      if (isAlreadyStoredRejection(error)) {
-        // The transport holds the body, so the original relay did reach it. That
-        // rules out `undelivered` - but it is not delivery, so the row stays
-        // `relayed`. See the header comment for why this must not be `confirmed`.
-        //
-        // The attempt is still counted, which does mean a note that stays stored and
-        // unconsumed retires after `MAX_RELAY_ATTEMPTS` like any other. That is the
-        // conservative choice: further pushes of a note the transport already holds
-        // are rejected too, so they would buy nothing but traffic. The cost is that
-        // the nullifier check at the top of this loop gets only the remaining
-        // attempts, not an open-ended watch.
-        //
-        // The matched error is logged because the classifier matches on message
-        // text: when it misfires, this line is the only record of what it matched.
-        outcome = 'relayed';
-        console.info('[noteDeliverySweep] re-push rejected as duplicate - the transport holds this note', {
-          txId: row.id,
-          noteId: target.noteId,
-          attempts,
-          priorState: row.noteDelivery,
-          error
-        });
-      } else {
-        // A failed RE-push says nothing about the original one. Where the first relay
-        // was ACKed, downgrading the row to `undelivered` here would invent a problem
-        // and show the user a warning about a note that may well be in flight; keep
-        // what the row already knew. Only `pending` - which means no ACK was ever
-        // obtained - becomes `undelivered`.
-        outcome = row.noteDelivery === 'relayed' ? 'relayed' : 'undelivered';
-        console.warn('[noteDeliverySweep] re-push failed', {
-          txId: row.id,
-          noteId: target.noteId,
-          attempts,
-          priorState: row.noteDelivery,
-          error
-        });
-      }
+      // A failed RE-push says nothing about the original one. Where the first relay
+      // was ACKed, downgrading the row to `undelivered` here would invent a problem
+      // and show the user a warning about a note that may well be in flight; keep
+      // what the row already knew. Only `pending` - which means no ACK was ever
+      // obtained - becomes `undelivered`.
+      outcome = row.noteDelivery === 'relayed' ? 'relayed' : 'undelivered';
+      console.warn('[noteDeliverySweep] re-push failed', {
+        txId: row.id,
+        noteId: target.noteId,
+        attempts,
+        priorState: row.noteDelivery,
+        error
+      });
     }
 
     await recordNoteDelivery(row.id, outcome);

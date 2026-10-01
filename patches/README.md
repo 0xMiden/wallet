@@ -5,10 +5,13 @@ Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
 
 ## @miden-sdk/miden-sdk 0.16.1
 
-Treat the note transport's exact stored-note duplicate response as a successful
-`SendNote`, so the SDK removes the relay payload from its outbox. This also drains
-entries already stranded by an earlier duplicate rejection on the next sync.
-Other responses and genuine transport failures pass through unchanged.
+Treat the note transport's stored-note duplicate as a successful `SendNote`, so the
+SDK removes the relay payload from its outbox. The transport sends it as headers
+only: `grpc-status` 13 with `Failed to store note: ConstraintViolation("Unique
+constraint violation: UNIQUE constraint failed: notes.id")`, or a future
+`AlreadyExists` (6). This also drains entries already stranded by an earlier
+duplicate rejection on the next sync. No response body is read, and every other
+response passes through unchanged.
 
 The patch covers both WASM fetch imports in all six single-threaded and
 multithreaded bundles, including classic workers. The canonical helper is

@@ -61,8 +61,10 @@ try {
     const files = [...readFileSync(patchPath, 'utf8').matchAll(/^diff --git a\/(\S+) b\//gm)].map(match => match[1]);
     const expected = bundles.map(bundle => `${packagePath}/${bundle}`);
     const unexpected = files.filter(file => !expected.includes(file));
-    if (unexpected.length > 0) throw new Error(`Committed relay patch has an unexpected file: ${unexpected.join(', ')}`);
-    if (files.join('\n') !== expected.join('\n')) throw new Error('Committed relay patch must list the six bundles in order');
+    if (unexpected.length > 0)
+      throw new Error(`Committed relay patch has an unexpected file: ${unexpected.join(', ')}`);
+    if (files.join('\n') !== expected.join('\n'))
+      throw new Error('Committed relay patch must list the six bundles in order');
   } else {
     writeFileSync(patchPath, patch);
   }
