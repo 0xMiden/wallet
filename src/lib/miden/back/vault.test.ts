@@ -2902,6 +2902,53 @@ describe('Vault hardware branches', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
+  it('Vault.spawn stores a seed-recovered Guardian account behind the rotation gate, with its cold mirror', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-stamp', VALID_MNEMONIC, true);
+
+    const accounts = await vault.fetchAccounts();
+    expect(accounts).toHaveLength(1);
+    const account = accounts[0]!;
+    expect(account).toMatchObject({
+      publicKey: 'guardian-acc-imported',
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      authScheme: 'ecdsa',
+      keyDerivation: 'v1',
+      coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
+      guardianEndpoint: getEffectiveDefaultGuardianEndpoint(),
+      requiresHotKeyRotation: true,
+      guardianNoteRecoveryPending: true
+    });
+    // The hot key is unrecoverable from the seed; the rotation mints it.
+    expect(account.hotPublicKey).toBeUndefined();
+
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const vaultKey = await Passworder.importVaultKey(
+      await Passworder.decryptVaultKeyWithPassword(protector, 'pw-guardian-stamp')
+    );
+    await expect(
+      fetchAndDecryptOne<string>(keys.accColdSecretKey(GUARDIAN_KEYS_FIXTURE.coldPublicKey), vaultKey)
+    ).resolves.toBe(GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex);
+  });
+
+  it('Vault.spawn keeps one record, the lowest HD index, for an account recovered at two indices', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValueOnce([
+      { accountId: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0', coldSecretKeyHex: 'cold-sk-0' },
+      { accountId: 'guardian-acc-twice', hdIndex: 1, coldPublicKey: 'cold-pub-1', coldSecretKeyHex: 'cold-sk-1' }
+    ]);
+
+    const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-twice', VALID_MNEMONIC, true);
+
+    const accounts = await vault.fetchAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({ publicKey: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0' });
+  });
+
   it('Vault.spawn falls back to the network default when the recovery path is given no guardianEndpoint', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);

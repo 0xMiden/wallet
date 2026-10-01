@@ -914,7 +914,15 @@ export class Vault {
           if (err instanceof PublicError) throw err;
           throw new PublicError(err instanceof Error ? err.message : String(err));
         });
-        createdAccounts = recovered.map(r => ({
+        // One recovery can match the same account at more than one HD index.
+        // Keep the first (lowest-index) match; the vault holds one record per account.
+        const seen = new Set<string>();
+        const uniqueRecovered = recovered.filter(r => {
+          if (seen.has(r.accountId)) return false;
+          seen.add(r.accountId);
+          return true;
+        });
+        createdAccounts = uniqueRecovered.map(r => ({
           accountId: r.accountId,
           hdIndex: r.hdIndex,
           // Guardian accounts are always ECDSA under the 3-key model.
